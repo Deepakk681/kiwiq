@@ -14,14 +14,14 @@ This module tests:
 import json
 import unittest
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union, Annotated
 from datetime import datetime
 from copy import deepcopy
 
 from pydantic import Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 
-from workflow_service.registry.schemas.base import BaseSchema
+from workflow_service.registry.schemas.base import BaseSchema  # , _PRIMITIVE_TYPES_UNION, _PRIMITIVE_TYPES_EXTENDED
 
 # Test Enums
 class ComplexEnum(str, Enum):
@@ -93,6 +93,41 @@ class ComplexTypesSchema(BaseSchema):
     optional_enum_list: Optional[List[ComplexEnum]] = None
     optional_dict: Optional[Dict[str, str]] = None
     internal_dict: SkipJsonSchema[Dict[str, str]] = {}
+
+class InnerSchema(BaseSchema):
+    """Inner schema with mix of editable and non-editable fields."""
+    editable_str: str = Field(default="test")
+    editable_int: int = Field(default=42)
+    editable_date: datetime = Field(default_factory=datetime.now)
+    deprecated_field: str = Field(default="old", **{BaseSchema.DEPRECATED_FIELD_KEY: True})
+    internal_id: SkipJsonSchema[str] = Field(default="id123")
+    internal_metadata: SkipJsonSchema[Dict[str, Union[str, int]]] = Field(default_factory=dict)
+    # Added list and dict fields
+    str_list: List[str] = Field(default_factory=list)
+    int_dict: Dict[str, int] = Field(default_factory=dict)
+
+class MiddleSchema(BaseSchema):
+    """Middle schema with nested inner schema."""
+    name: str = Field(default="middle")
+    inner: InnerSchema = Field(default_factory=InnerSchema)
+    deprecated_count: int = Field(default=0, **{BaseSchema.DEPRECATED_FIELD_KEY: True})
+    internal_status: SkipJsonSchema[str] = Field(default="active")
+    inner_list: List[InnerSchema] = Field(default_factory=list)
+    # Added list and dict fields with BaseSchema values
+    schema_dict: Dict[str, InnerSchema] = Field(default_factory=dict)
+    nested_list_dict: Dict[str, List[InnerSchema]] = Field(default_factory=dict)
+
+class OuterSchema(BaseSchema):
+    """Outer schema with multiple levels of nesting."""
+    title: str = Field(default="outer")
+    middle: MiddleSchema = Field(default_factory=MiddleSchema)
+    middle_list: List[MiddleSchema] = Field(default_factory=list)
+    deprecated_flag: bool = Field(default=False, **{BaseSchema.DEPRECATED_FIELD_KEY: True})
+    internal_created_at: SkipJsonSchema[datetime] = Field(default_factory=datetime.now)
+    # Added list and dict fields
+    str_int_dict: Dict[str, int] = Field(default_factory=dict)
+    middle_dict: Dict[str, MiddleSchema] = Field(default_factory=dict)
+
 
 class TestEdgeCases(unittest.TestCase):
     """Test cases for edge cases and complex scenarios."""
@@ -362,40 +397,7 @@ class TestEdgeCases(unittest.TestCase):
         5. Regular model_dump() - includes all fields including SkipJsonSchema ones
         """
         # Define nested schemas with mix of user editable and non-editable fields
-        deprecated_field_key = BaseSchema.DEPRECATED_FIELD_KEY
-        class InnerSchema(BaseSchema):
-            """Inner schema with mix of editable and non-editable fields."""
-            editable_str: str = Field(default="test")
-            editable_int: int = Field(default=42)
-            editable_date: datetime = Field(default_factory=datetime.now)
-            deprecated_field: str = Field(default="old", **{deprecated_field_key: True})
-            internal_id: SkipJsonSchema[str] = Field(default="id123") 
-            internal_metadata: SkipJsonSchema[Dict[str, str]] = Field(default_factory=dict)
-            # Added list and dict fields
-            str_list: List[str] = Field(default_factory=list)
-            int_dict: Dict[str, int] = Field(default_factory=dict)
-
-        class MiddleSchema(BaseSchema):
-            """Middle schema with nested inner schema."""
-            name: str = Field(default="middle")
-            inner: InnerSchema = Field(default_factory=InnerSchema)
-            deprecated_count: int = Field(default=0, **{deprecated_field_key: True})
-            internal_status: SkipJsonSchema[str] = Field(default="active")
-            inner_list: List[InnerSchema] = Field(default_factory=list)
-            # Added list and dict fields with BaseSchema values
-            schema_dict: Dict[str, InnerSchema] = Field(default_factory=dict)
-            nested_list_dict: Dict[str, List[InnerSchema]] = Field(default_factory=dict)
-
-        class OuterSchema(BaseSchema):
-            """Outer schema with multiple levels of nesting."""
-            title: str = Field(default="outer")
-            middle: MiddleSchema = Field(default_factory=MiddleSchema)
-            middle_list: List[MiddleSchema] = Field(default_factory=list)
-            deprecated_flag: bool = Field(default=False, **{deprecated_field_key: True})
-            internal_created_at: SkipJsonSchema[datetime] = Field(default_factory=datetime.now)
-            # Added list and dict fields
-            str_int_dict: Dict[str, int] = Field(default_factory=dict)
-            middle_dict: Dict[str, MiddleSchema] = Field(default_factory=dict)
+        
 
         test_date = datetime(2024, 1, 1, 12, 30, 45)
 
@@ -570,6 +572,394 @@ class TestEdgeCases(unittest.TestCase):
             json.dumps(python_dump)
         with self.assertRaises(TypeError):
             json.dumps(python_dump_no_deprecated)
+
+class TestJsonSchemaDumpFunctionality(unittest.TestCase):
+    """
+    TestCase for verifying JSON Schema dump functionality of BaseSchema-derived classes.
+
+    This suite verifies that:
+      - The original JSON schema (generated via model_json_schema()) excludes internal/skipped fields.
+      - The unskipped JSON schema (generated via model_json_schema_with_skipped_fields())
+        includes internal fields such as IDs, metadata, and internal status.
+      - Deprecated fields are correctly marked.
+      - Nested schema references are updated appropriately in the unskipped versions.
+      - The generated schema dictionaries are JSON serializable.
+    """
+    def setUp(self) -> None:
+        """
+        Set up test fixtures for JSON Schema dump functionality tests.
+        
+        This method creates instances of InnerSchema, MiddleSchema, and OuterSchema
+        with various configurations to test schema generation and validation.
+        """
+
+        # Create a basic InnerSchema instance
+        self.inner_schema = InnerSchema(
+            editable_str="test_value",
+            editable_int=100,
+            editable_date=datetime(2023, 1, 1, 12, 0, 0),
+            deprecated_field="deprecated_value",
+            internal_id="internal_123",
+            internal_metadata={"meta_key": "meta_value"},
+            str_list=["test1", "test2"],
+            int_dict={"one": 1, "two": 2}
+        )
+        
+        # Create a nested InnerSchema for lists and dictionaries
+        self.inner_schema2 = InnerSchema(
+            editable_str="another_test",
+            editable_int=200,
+            str_list=["item1", "item2", "item3"],
+            int_dict={"a": 10, "b": 20}
+        )
+        
+        # Create a MiddleSchema with nested InnerSchema
+        self.middle_schema = MiddleSchema(
+            name="test_middle",
+            inner=self.inner_schema,
+            deprecated_count=5,
+            internal_status="pending",
+            inner_list=[self.inner_schema, self.inner_schema2],
+            schema_dict={
+                "key1": self.inner_schema,
+                "key2": self.inner_schema2
+            },
+            nested_list_dict={
+                "group1": [self.inner_schema, self.inner_schema2],
+                "group2": [self.inner_schema]
+            }
+        )
+        
+        # Create another MiddleSchema for dictionary testing
+        self.middle_schema2 = MiddleSchema(
+            name="second_middle",
+            inner=self.inner_schema2,
+            internal_status="active"
+        )
+        
+        # Create an OuterSchema with all nested components
+        self.outer_schema = OuterSchema(
+            title="test_outer",
+            middle=self.middle_schema,
+            middle_list=[self.middle_schema, self.middle_schema2],
+            deprecated_flag=True,
+            internal_created_at=datetime(2023, 1, 1, 12, 0, 0),
+            str_int_dict={"x": 100, "y": 200},
+            middle_dict={
+                "first": self.middle_schema,
+                "second": self.middle_schema2
+            }
+        )
+        
+        # Store expected schema references for validation
+        self.expected_refs = {
+            "original_inner": "InnerSchema",
+            "unskipped_inner": "TempInnerSchema",
+            "original_middle": "MiddleSchema",
+            "unskipped_middle": "CleanMiddleSchema",
+            "original_outer": "OuterSchema",
+            "unskipped_outer": "CleanOuterSchema"
+        }
+
+    def test_inner_schema_json_schema(self) -> None:
+        """
+        Test the JSON schema outputs for InnerSchema.
+
+        This test ensures:
+          - The original schema has the expected title ("InnerSchema") and does not include
+            internal fields ("internal_id", "internal_metadata").
+          - The unskipped schema has a title of "TempInnerSchema" and includes the internal fields.
+          - The deprecated field is marked with '_deprecated': True in both cases.
+          - Both schema dictionaries can be successfully serialized to JSON.
+        """
+        # Retrieve the original and unskipped JSON schemas from InnerSchema.
+        original_schema: dict[str, any] = InnerSchema.model_json_schema()
+        unskipped_schema: dict[str, any] = InnerSchema.model_json_schema_with_skipped_fields()
+
+        # Validate schema titles.
+        self.assertEqual(
+            original_schema.get("title"), "InnerSchema",
+            "Original InnerSchema title should be 'InnerSchema'"
+        )
+        self.assertEqual(
+            unskipped_schema.get("title"), "TempInnerSchema",
+            "Unskipped InnerSchema title should be 'TempInnerSchema'"
+        )
+
+        # Access the properties dictionaries.
+        original_props: dict[str, any] = original_schema.get("properties", {})
+        unskipped_props: dict[str, any] = unskipped_schema.get("properties", {})
+
+        # Verify that internal fields are omitted in the original schema.
+        self.assertNotIn(
+            "internal_id", original_props,
+            "Original schema should not contain 'internal_id'"
+        )
+        self.assertNotIn(
+            "internal_metadata", original_props,
+            "Original schema should not contain 'internal_metadata'"
+        )
+
+        # Verify that the unskipped schema includes the internal fields.
+        self.assertIn(
+            "internal_id", unskipped_props,
+            "Unskipped schema should include 'internal_id'"
+        )
+        self.assertIn(
+            "internal_metadata", unskipped_props,
+            "Unskipped schema should include 'internal_metadata'"
+        )
+
+        # Check that the deprecated field is marked as deprecated.
+        self.assertIn(
+            "deprecated_field", original_props,
+            "Deprecated field must be present in original schema"
+        )
+        self.assertTrue(
+            original_props["deprecated_field"].get("_deprecated", False),
+            "deprecated_field should be marked as deprecated in original schema"
+        )
+        self.assertIn(
+            "deprecated_field", unskipped_props,
+            "Deprecated field must be present in unskipped schema"
+        )
+        self.assertTrue(
+            unskipped_props["deprecated_field"].get("_deprecated", False),
+            "deprecated_field should be marked as deprecated in unskipped schema"
+        )
+
+        # Validate that both schemas can be serialized into JSON without errors.
+        try:
+            original_json: str = json.dumps(original_schema)
+            unskipped_json: str = json.dumps(unskipped_schema)
+        except Exception as e:
+            self.fail(f"JSON serialization failed for InnerSchema schemas: {e}")
+        self.assertIsInstance(original_json, str, "Serialized original schema should be a string")
+        self.assertIsInstance(unskipped_json, str, "Serialized unskipped schema should be a string")
+
+    def test_middle_schema_json_schema(self) -> None:
+        """
+        Test the JSON schema outputs for MiddleSchema.
+
+        This test ensures:
+          - The original schema has the title "MiddleSchema" and excludes internal fields like 'internal_status'.
+          - The unskipped schema has the title "TempMiddleSchema" and includes 'internal_status' with the proper default.
+          - The nested 'inner' field uses a $ref: in the original schema it references "#/$defs/InnerSchema"
+            while in the unskipped version it references "#/$defs/CleanInnerSchema".
+          - Deprecated fields (such as 'deprecated_count') are correctly marked.
+          - Both schemas are JSON serializable.
+        """
+        # Retrieve the JSON schemas from MiddleSchema.
+        original_schema: dict[str, any] = MiddleSchema.model_json_schema()
+        unskipped_schema: dict[str, any] = MiddleSchema.model_json_schema_with_skipped_fields()
+
+        # Validate schema titles.
+        self.assertEqual(
+            original_schema.get("title"), "MiddleSchema",
+            "Original MiddleSchema title should be 'MiddleSchema'"
+        )
+        self.assertEqual(
+            unskipped_schema.get("title"), "TempMiddleSchema",
+            "Unskipped MiddleSchema title should be 'TempMiddleSchema'"
+        )
+
+        # Access properties from the schemas.
+        original_props: dict[str, any] = original_schema.get("properties", {})
+        unskipped_props: dict[str, any] = unskipped_schema.get("properties", {})
+
+        # Check that 'internal_status' is omitted in the original schema but present in the unskipped schema.
+        self.assertNotIn(
+            "internal_status", original_props,
+            "Original MiddleSchema should not contain 'internal_status'"
+        )
+        self.assertIn(
+            "internal_status", unskipped_props,
+            "Unskipped MiddleSchema should include 'internal_status'"
+        )
+        self.assertEqual(
+            unskipped_props["internal_status"].get("default"), "active",
+            "Default value for internal_status should be 'active'"
+        )
+
+        # Check nested schema reference in the 'inner' property.
+        original_inner_ref: str = original_props.get("inner", {}).get("$ref", "")
+        unskipped_inner_ref: str = unskipped_props.get("inner", {}).get("$ref", "")
+        self.assertIn(
+            "#/$defs/InnerSchema", original_inner_ref,
+            "Original MiddleSchema should reference '#/$defs/InnerSchema'"
+        )
+        self.assertIn(
+            "#/$defs/CleanInnerSchema", unskipped_inner_ref,
+            "Unskipped MiddleSchema should reference '#/$defs/CleanInnerSchema'"
+        )
+
+        # Verify that 'deprecated_count' is present and marked as deprecated in both versions.
+        self.assertIn(
+            "deprecated_count", original_props,
+            "deprecated_count must be present in original MiddleSchema"
+        )
+        self.assertTrue(
+            original_props["deprecated_count"].get("_deprecated", False),
+            "deprecated_count should be marked as deprecated in original MiddleSchema"
+        )
+        self.assertIn(
+            "deprecated_count", unskipped_props,
+            "deprecated_count must be present in unskipped MiddleSchema"
+        )
+        self.assertTrue(
+            unskipped_props["deprecated_count"].get("_deprecated", False),
+            "deprecated_count should be marked as deprecated in unskipped MiddleSchema"
+        )
+
+        # Validate JSON serializability.
+        try:
+            original_json: str = json.dumps(original_schema)
+            unskipped_json: str = json.dumps(unskipped_schema)
+        except Exception as e:
+            self.fail(f"JSON serialization failed for MiddleSchema schemas: {e}")
+        self.assertIsInstance(original_json, str, "Serialized original MiddleSchema should be a string")
+        self.assertIsInstance(unskipped_json, str, "Serialized unskipped MiddleSchema should be a string")
+
+    def test_outer_schema_json_schema(self) -> None:
+        """
+        Test the JSON schema outputs for OuterSchema.
+
+        This test ensures:
+          - The original schema has the title "OuterSchema" and excludes internal fields such as 'internal_created_at'.
+          - The unskipped schema has the title "TempOuterSchema" and includes 'internal_created_at'
+            with the correct formatting (e.g., "date-time").
+          - The nested 'middle' field in the original schema references "#/$defs/MiddleSchema",
+            whereas the unskipped version references "#/$defs/CleanMiddleSchema".
+          - The deprecated flag field is present and marked as deprecated.
+          - Both schemas can be serialized to JSON successfully.
+        """
+        # Retrieve the JSON schemas from OuterSchema.
+        original_schema: dict[str, any] = OuterSchema.model_json_schema()
+        unskipped_schema: dict[str, any] = OuterSchema.model_json_schema_with_skipped_fields()
+
+        # Validate schema titles.
+        self.assertEqual(
+            original_schema.get("title"), "OuterSchema",
+            "Original OuterSchema title should be 'OuterSchema'"
+        )
+        self.assertEqual(
+            unskipped_schema.get("title"), "TempOuterSchema",
+            "Unskipped OuterSchema title should be 'TempOuterSchema'"
+        )
+
+        # Access properties in the schemas.
+        original_props: dict[str, any] = original_schema.get("properties", {})
+        unskipped_props: dict[str, any] = unskipped_schema.get("properties", {})
+
+        # Check that 'internal_created_at' is absent in the original schema.
+        self.assertNotIn(
+            "internal_created_at", original_props,
+            "Original OuterSchema should not contain 'internal_created_at'"
+        )
+        # Validate that 'internal_created_at' is present in the unskipped schema with correct format.
+        self.assertIn(
+            "internal_created_at", unskipped_props,
+            "Unskipped OuterSchema should include 'internal_created_at'"
+        )
+        self.assertEqual(
+            unskipped_props["internal_created_at"].get("format"), "date-time",
+            "'internal_created_at' should have a 'date-time' format"
+        )
+
+        # Validate nested reference for the 'middle' property.
+        original_middle_ref: str = original_props.get("middle", {}).get("$ref", "")
+        unskipped_middle_ref: str = unskipped_props.get("middle", {}).get("$ref", "")
+        self.assertIn(
+            "#/$defs/MiddleSchema", original_middle_ref,
+            "Original OuterSchema should reference '#/$defs/MiddleSchema'"
+        )
+        self.assertIn(
+            "#/$defs/CleanMiddleSchema", unskipped_middle_ref,
+            "Unskipped OuterSchema should reference '#/$defs/CleanMiddleSchema'"
+        )
+
+        # Verify that 'deprecated_flag' is present and marked as deprecated.
+        self.assertIn(
+            "deprecated_flag", original_props,
+            "deprecated_flag must be present in original OuterSchema"
+        )
+        self.assertTrue(
+            original_props["deprecated_flag"].get("_deprecated", False),
+            "deprecated_flag should be marked as deprecated in original OuterSchema"
+        )
+        self.assertIn(
+            "deprecated_flag", unskipped_props,
+            "deprecated_flag must be present in unskipped OuterSchema"
+        )
+        self.assertTrue(
+            unskipped_props["deprecated_flag"].get("_deprecated", False),
+            "deprecated_flag should be marked as deprecated in unskipped OuterSchema"
+        )
+        
+        # Check for nested fields which were skipped within nested BaseSchema objects
+        
+        # Get the schema definitions
+        original_defs: dict[str, any] = original_schema.get("$defs", {})
+        unskipped_defs: dict[str, any] = unskipped_schema.get("$defs", {})
+        
+        # Check MiddleSchema definitions for internal_status field
+        middle_schema_def = original_defs.get("MiddleSchema", {}).get("properties", {})
+        clean_middle_schema_def = unskipped_defs.get("CleanMiddleSchema", {}).get("properties", {})
+        
+        self.assertNotIn(
+            "internal_status", middle_schema_def,
+            "Original MiddleSchema definition should not contain 'internal_status'"
+        )
+        self.assertIn(
+            "internal_status", clean_middle_schema_def,
+            "Unskipped MiddleSchema definition should include 'internal_status'"
+        )
+        
+        # Check InnerSchema definitions for internal fields
+        inner_schema_def = original_defs.get("InnerSchema", {}).get("properties", {})
+        clean_inner_schema_def = unskipped_defs.get("CleanInnerSchema", {}).get("properties", {})
+        
+        self.assertNotIn(
+            "internal_id", inner_schema_def,
+            "Original InnerSchema definition should not contain 'internal_id'"
+        )
+        self.assertIn(
+            "internal_id", clean_inner_schema_def,
+            "Unskipped InnerSchema definition should include 'internal_id'"
+        )
+        
+        self.assertNotIn(
+            "internal_metadata", inner_schema_def,
+            "Original InnerSchema definition should not contain 'internal_metadata'"
+        )
+        self.assertIn(
+            "internal_metadata", clean_inner_schema_def,
+            "Unskipped InnerSchema definition should include 'internal_metadata'"
+        )
+        
+        # Verify array and dictionary references are also properly updated
+        middle_list_items = original_props.get("middle_list", {}).get("items", {}).get("$ref", "")
+        unskipped_middle_list_items = unskipped_props.get("middle_list", {}).get("items", {}).get("$ref", "")
+        
+        self.assertIn(
+            "#/$defs/MiddleSchema", middle_list_items,
+            "Original middle_list items should reference '#/$defs/MiddleSchema'"
+        )
+        self.assertIn(
+            "#/$defs/CleanMiddleSchema", unskipped_middle_list_items,
+            "Unskipped middle_list items should reference '#/$defs/CleanMiddleSchema'"
+        )
+
+        # Ensure JSON serialization works for both schemas.
+        try:
+            original_json: str = json.dumps(original_schema)
+            unskipped_json: str = json.dumps(unskipped_schema)
+        except Exception as e:
+            self.fail(f"JSON serialization failed for OuterSchema schemas: {e}")
+        self.assertIsInstance(original_json, str, "Serialized original OuterSchema should be a string")
+        self.assertIsInstance(unskipped_json, str, "Serialized unskipped OuterSchema should be a string")
+
+
 
 
 if __name__ == '__main__':

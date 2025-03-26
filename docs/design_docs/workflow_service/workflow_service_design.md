@@ -52,6 +52,19 @@ This section defines the core entities used to build workflows, how they are sto
 - **Conditional Edges:**
     - Conditional routing is handled via dedicated If/Else nodes rather than implicit dependency-only edges (which are deprioritized).
 
+Dyanamic Configuration for the graph
+https://langchain-ai.github.io/langgraph/how-tos/configuration/
+
+
+
+
+
+
+
+
+
+
+
 ### Workflows
 
 - **Graph Structure:**

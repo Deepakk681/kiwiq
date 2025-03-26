@@ -69,12 +69,19 @@ class CollectionTestSchema(BaseSchema):
     schema_dict: Dict[str, SimpleTestSchema]
     nested_list_dict: Dict[str, List[SimpleTestSchema]]
 
+class NestedUserEditableTestSchema(BaseSchema):
+    """Schema for testing nested user editable field handling."""
+    public_field: str
+    internal_field: SkipJsonSchema[Optional[str]] = None
+    optional_internal: SkipJsonSchema[Optional[str]] = None
+
 class UserEditableTestSchema(BaseSchema):
     """Schema for testing user editable field handling."""
     public_field: str
     internal_field: SkipJsonSchema[str]
     optional_public: Optional[str] = None
     optional_internal: SkipJsonSchema[Optional[str]] = None
+    nested: Optional[List[NestedUserEditableTestSchema]] = None
 
 class TestBaseSchema(unittest.TestCase):
     """Test cases for BaseSchema class."""
@@ -209,14 +216,46 @@ class TestBaseSchema(unittest.TestCase):
         # Test valid input with only user editable fields
         is_valid, _ = UserEditableTestSchema.validate_only_user_editable_fields_provided_in_input({
             "public_field": "public",
-            "optional_public": "optional"
+            "optional_public": "optional",
+            "nested": [
+                {
+                    "public_field": "nested_public",
+                },
+                {
+                    "public_field": "nested_public",
+                }
+            ]
         })
         self.assertTrue(is_valid)
+
+        is_valid, _ = UserEditableTestSchema.validate_only_user_editable_fields_provided_in_input({
+            "public_field": "public",
+            "optional_public": "optional",
+            "nested": [
+                {
+                    "public_field": "nested_public",
+                    "internal_field": "nested_internal"
+                },
+                {
+                    "public_field": "nested_public",
+                }
+            ]
+        })
+        self.assertFalse(is_valid)
 
         # Test invalid input with non-user editable fields
         is_valid, field_name = UserEditableTestSchema.validate_only_user_editable_fields_provided_in_input({
             "public_field": "public",
-            "internal_field": "internal"  # Not user editable
+            "internal_field": "internal",  # Not user editable
+            "nested": [
+                {
+                    "public_field": "nested_public",
+                    "internal_field": "nested_internal"
+                },
+                {
+                    "public_field": "nested_public",
+                }
+            ]
         })
         self.assertFalse(is_valid)
         self.assertEqual(field_name, "internal_field")

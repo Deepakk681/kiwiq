@@ -47,6 +47,8 @@ dotenv = "^0.9.9"
 libs = { path = "./libs", develop = true }
 ##################################################
 linkedin-api-client = "^0.3.0"
+langchain = "^0.3.21"
+langgraph = "^0.3.18"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.12.0"

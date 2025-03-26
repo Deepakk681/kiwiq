@@ -9,6 +9,10 @@ from typing import Any, Dict, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_ROOT = PROJECT_ROOT / "data"
 
@@ -25,6 +29,7 @@ ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
+    # TODO: get these vars from environment directly, and ensure order of loading from env or ENV_FILE!
     
     # Project metadata
     PROJECT_NAME: str = "KiwiQ Backend"

@@ -29,13 +29,19 @@ PYTHONPATH=.:./services pytest test_base.py
 
 4. Run a specific test function:
 ```bash
-PYTHONPATH=.:./services pytest test_base.py::test_simple_schema_instantiation
+PYTHONPATH=.:./services poetry run pytest -m unit -k "test_dynamic_schema_handling"
+```
+
+```bash
+PYTHONPATH=.:./services poetry run pytest test_graph_builder.py::test_dynamic_schema_handling
 ```
 
 5. Run tests with coverage report:
 ```bash
 PYTHONPATH=.:./services pytest --cov=services.workflow_service.registry.schemas.base
 ```
+
+
 
 ## Test Coverage
 

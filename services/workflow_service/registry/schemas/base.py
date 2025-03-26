@@ -2,16 +2,23 @@
 # TODO: Create a special schema for prompt management (prompt template, prompt variables and version with validations (all the prompt variables are actually present in the prompt template))
 # NOTE: CHANGING config version probably must change node version too! Except certain change types -> like changing user visible fields?? in that case, all instances must change!
 """
+from abc import ABC
+from copy import copy
 from datetime import datetime, date
-from pydantic import BaseModel, model_validator, Field, ConfigDict
+import annotated_types
+from pydantic import BaseModel, model_validator, Field, ConfigDict, Discriminator
 from pydantic_core import PydanticUndefined
 from pydantic.json_schema import SkipJsonSchema
 
+from pydantic import create_model
+# from pydantic.main import FieldInfo, create_model
+
 import json
-from typing import Any, Dict, List, Optional, Tuple, ClassVar, Union, get_origin, get_args
+from typing import Any, Dict, List, Optional, Tuple, ClassVar, Union, get_origin, get_args, Annotated
 import inspect
 from enum import Enum
-
+from langchain_core.messages import AnyMessage
+from langchain_core.messages.utils import _get_type
 
 # from workflow_service.registry.schemas.test import *
 
@@ -19,17 +26,38 @@ from enum import Enum
         
 
 class FieldValidationResult:
-    def __init__(self, valid, error_message=None, core_type_annotation=None, core_type_class=None, core_type_object_iterator=None):
+    def __init__(self, valid, error_message=None, core_type_annotation=None, core_type_class=None, core_type_object_iterator=None, is_optional=False):
         self.valid = valid
         self.error_message = error_message
         self.core_type_annotation = core_type_annotation  # Type annotation without Optional / Union eg: `Dict[str, BaseSchema]`
         self.core_type_class = core_type_class  # Primitive | Enum | BaseSchema
         self.core_type_object_iterator = core_type_object_iterator
+        self.is_optional = is_optional
 
 
-class BaseSchema(BaseModel):
-    model_config = ConfigDict(extra='forbid')  # Don't allow additional arguments during model init!
-    PRIMITIVE_TYPES: ClassVar[Tuple[type, ...]] = (str, int, float, bool, bytes, datetime, date)
+
+
+_CORE_PRIMITIVE_TYPES: Tuple[type, ...] = (str, int, float, bool, bytes, datetime, date)
+_PRIMITIVE_TYPES_EXTENDED: Tuple[type, ...] = (list(_CORE_PRIMITIVE_TYPES) + [AnyMessage])
+# # UNION allows any primitive type to be set and all are JSON serializable, 
+# #     allowing multi type dicts / lists eg: [int, str, ...] or Dict[str, ]
+# _PRIMITIVE_TYPES_UNION = Annotated[
+#     Union[
+#         str, int, float, bool, bytes, datetime, date
+#         # Union.__getitem__(_CORE_PRIMITIVE_TYPES)
+#     ]
+#     ,
+#     Field(discriminator=Discriminator(_get_type)),
+# ]
+# # _PRIMITIVE_TYPES_UNION: type = Union.__getitem__(_PRIMITIVE_TYPES_EXTENDED)
+# _PRIMITIVE_TYPES_UNION_TYPES: Tuple[type, ...] = (_PRIMITIVE_TYPES_UNION, )
+# _PRIMITIVE_TYPES = tuple([_PRIMITIVE_TYPES_UNION_TYPES] + list(_PRIMITIVE_TYPES_EXTENDED))
+_PRIMITIVE_TYPES = _PRIMITIVE_TYPES_EXTENDED
+
+class BaseSchema(BaseModel, ABC):
+    model_config = ConfigDict(extra='ignore')  # Don't allow additional arguments during model init!
+    PRIMITIVE_TYPES: ClassVar[Tuple[type, ...]] = _PRIMITIVE_TYPES
+    # CORE_PRIMITIVE_TYPES: ClassVar[Tuple[type, ...]] = _CORE_PRIMITIVE_TYPES
     """
     Represents input, config, output base schemas for a node template and also an HITL (human input required) schema.
     NOTE: just like BaseModel, BaseSchema fields can be recursively nested and point to other BaseSchema models.
@@ -82,7 +110,7 @@ class BaseSchema(BaseModel):
     """
     # Keys used for converting schemas into JSON or field definitions in BaseSchemas
     DEPRECATED_FIELD_KEY: ClassVar[str] = "_deprecated"
-    OPTIONAL_FIELD_KEY: ClassVar[str] = "_optional"
+    OPTIONAL_FIELD_KEY: ClassVar[str] = "_optional"  # NOTE: optional fields must be provided with a default value
     USER_EDITABLE_FIELD_KEY: ClassVar[str] = "_user_editable"  # NOTE: marked as such via SkipJsonSchema Annotation!
     DEFAULT_FIELD_KEY: ClassVar[str] = "_default"
     TYPE_FIELD_KEY: ClassVar[str] = "_type"
@@ -95,11 +123,19 @@ class BaseSchema(BaseModel):
     }
     _CACHE: ClassVar[Optional[Dict[str, Any]]] = None  # TODO: cache class processing so recursively, each class is not called too frequently!
     _CACHE_FIELD_VALIDATION_RESULTS_KEY: ClassVar[str] = "_field_validation_results"
+    GLOBAL_DISABLE_METHOD_CACHE: ClassVar[bool] = True
     DTYPE_LIST_KEY: ClassVar[str] = "list"
     DTYPE_DICT_KEY: ClassVar[str] = "dict"
 
+    IS_DYNAMIC_SCHEMA: ClassVar[bool] = False
+
+    # TODO: FIXME: add support for langgraph serializable types to use powerful messaging capabilities and state management with OOB reducers!
+    # AnyMessage: https://github.com/langchain-ai/langchain/blob/master/libs/core/langchain_core/messages/utils.py#L64
+    # BaseMessage: https://github.com/langchain-ai/langchain/blob/master/libs/core/langchain_core/messages/base.py#L18
+    # add_messages: https://langchain-ai.github.io/langgraph/how-tos/state-reducers/#messagesstate
+
     @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs):
+    def __pydantic_init_subclass__(cls, *args, **kwargs):
         """
         Validates schema field definitions during class creation.
         
@@ -116,7 +152,7 @@ class BaseSchema(BaseModel):
         Raises:
             TypeError: If field definitions violate the rules
         """
-        super().__pydantic_init_subclass__(**kwargs)
+        super().__pydantic_init_subclass__(*args, **kwargs)
         
         # # Get the class's MRO (Method Resolution Order) to find all ancestors
         # mro = cls.mro()
@@ -139,7 +175,6 @@ class BaseSchema(BaseModel):
         
         # Get all fields defined in the schema
         for field_name, field in cls.model_fields.items():
-            
             # Validate json_schema_extra keys
             if field.json_schema_extra:
                 invalid_keys = set(field.json_schema_extra.keys()) - set(cls.EXTRA_FIELD_KEYS_WITH_DEFAULTS.keys())
@@ -148,12 +183,25 @@ class BaseSchema(BaseModel):
                         f"Field '{field_name}' contains invalid json_schema_extra keys: {invalid_keys}. "
                         f"Allowed keys are: {list(cls.EXTRA_FIELD_KEYS_WITH_DEFAULTS.keys())}"
                     )
+
+            # Validate field type
             result = BaseSchema._validate_type(field.annotation)
             if not result.valid:
                 raise TypeError(
                     f"Invalid type annotation for field '{field_name}' in {cls.__name__}: "
                     f"{result.error_message}"
                 )
+
+            # Validate Optional fields have default value or are not required
+            if result.is_optional:
+                if field.is_required():
+                    raise TypeError(
+                        f"Field '{field_name}' is marked as Optional but has no default value "
+                        f"and is required. Optional fields must either have a default value "
+                        f"or be marked as not required."
+                    )
+
+            # Cache validation result
             if cls._CACHE_FIELD_VALIDATION_RESULTS_KEY not in cls._CACHE:
                 cls._CACHE[cls._CACHE_FIELD_VALIDATION_RESULTS_KEY] = {}
             cls._CACHE[cls._CACHE_FIELD_VALIDATION_RESULTS_KEY][field_name] = result
@@ -170,7 +218,7 @@ class BaseSchema(BaseModel):
 
     
     @staticmethod
-    def _validate_type(type_annotation, path=[], union_type_allowed: bool = True, list_type_allowed: bool = True, dict_type_allowed: bool = True):
+    def _validate_type(type_annotation, path=[], only_primitives_allowed: bool = False, union_type_allowed: bool = True, list_type_allowed: bool = True, dict_type_allowed: bool = True):
         """
         Validate a type annotation.
         Returns FieldValidationResult with valid flag and error message.
@@ -229,6 +277,12 @@ class BaseSchema(BaseModel):
         if type_annotation in BaseSchema.PRIMITIVE_TYPES:
             return FieldValidationResult(True, core_type_annotation=type_annotation, core_type_class=type_annotation, core_type_object_iterator=create_iterator(path))
         
+        if only_primitives_allowed:
+            return FieldValidationResult(
+                False, 
+                f"Only primitive types are allowed, got {type_annotation}"
+            )
+        
         # Check if it's BaseSchema or it's subclass | or Enum
         if inspect.isclass(type_annotation):
             if issubclass(type_annotation, BaseSchema) or issubclass(type_annotation, Enum):
@@ -241,36 +295,42 @@ class BaseSchema(BaseModel):
         # Handle Optional (Union with None)
         if origin is Union and union_type_allowed:
             # Check if None is in the union arguments
+            is_optional = False
+            non_none_args = args
             if type(None) in args:
                 # Get all non-None arguments
                 non_none_args = [arg for arg in args if arg is not type(None)]
+                is_optional = True
                 
-                # For Optional[X], just validate X
-                if len(non_none_args) == 1:
-                    result = BaseSchema._validate_type(non_none_args[0], union_type_allowed=False)
-                    return result
-                else:
-                    return FieldValidationResult(
-                        False, f"Union types are only supported as Optional (Union with None), "
-                        f"received Non-None Args to Union: {non_none_args}"
-                    )
-                
-                # For Union[X, Y, None], validate all non-None types
-                # for arg in non_none_args:
-                #     result = BaseSchema._validate_type(arg, union_type_allowed=False)
-                #     if not result.valid:
-                #         return FieldValidationResult(
-                #             False, 
-                #             f"Invalid Union type: {result.error_message}"
-                #         )
-                
+            # For Optional[X], just validate X
+            if len(non_none_args) == 1:
+                result = BaseSchema._validate_type(non_none_args[0], union_type_allowed=False)
+                result.is_optional = is_optional
+                return result
+            else:
+                # For Union[X, Y, None], validate all non-None types; only_primitives_allowed!
+                first_result = None
+                for arg in non_none_args:
+                    result = BaseSchema._validate_type(arg, only_primitives_allowed=True)
+                    if first_result is None:
+                        first_result = result
+                    if not result.valid:
+                        return FieldValidationResult(
+                            False, 
+                            f"Invalid Union type: {result.error_message}"
+                        )
+                first_result.is_optional = is_optional
+                first_result.core_type_class = type_annotation
+                first_result.core_type_annotation = type_annotation
+                first_result.core_type_object_iterator = create_iterator(path)
+                return first_result
             
-            # Unions without None are not supported
-            return FieldValidationResult(
-                False, 
-                f"Union types are only supported as Optional (Union with None)"
-                f"received Args to Union: {args}"
-            )
+            # # Unions without None are not supported
+            # return FieldValidationResult(
+            #     False, 
+            #     f"Union types are only supported as Optional (Union with None)"
+            #     f"received Args to Union: {args}"
+            # )
         
         # Handle List[X]
         if origin is list and list_type_allowed:
@@ -281,7 +341,7 @@ class BaseSchema(BaseModel):
                 )
             
             # Validate the list item type
-            item_result = BaseSchema._validate_type(args[0], path=path + [BaseSchema.DTYPE_LIST_KEY], union_type_allowed=False, list_type_allowed=False, dict_type_allowed=False)
+            item_result = BaseSchema._validate_type(args[0], path=path + [BaseSchema.DTYPE_LIST_KEY], union_type_allowed=True, list_type_allowed=False, dict_type_allowed=False)
             if not item_result.valid:
                 return FieldValidationResult(
                     False, 
@@ -308,7 +368,7 @@ class BaseSchema(BaseModel):
                 )
             
             # Validate the value type
-            value_result = BaseSchema._validate_type(value_type, path=path + [BaseSchema.DTYPE_DICT_KEY], union_type_allowed=False, list_type_allowed=True, dict_type_allowed=False)
+            value_result = BaseSchema._validate_type(value_type, path=path + [BaseSchema.DTYPE_DICT_KEY], union_type_allowed=True, list_type_allowed=True, dict_type_allowed=False)
             if not value_result.valid:
                 return FieldValidationResult(
                     False, 
@@ -345,8 +405,11 @@ class BaseSchema(BaseModel):
             - Not thread-safe since cache access is not synchronized
         """
         cache_attr = f'_cache_{func.__name__}'
-        
+
         def wrapper(cls, *args, **kwargs):
+            if BaseSchema.GLOBAL_DISABLE_METHOD_CACHE:
+                return func(cls, *args, **kwargs)
+            
             # Check if we have a cached result
             if cache_attr not in cls._CACHE:
                 # Initialize empty cache dict if not exists
@@ -576,6 +639,8 @@ class BaseSchema(BaseModel):
                 - User editability flag
                 - Optional status
                 - Any extra metadata from json_schema_extra
+        NOTE: this doesn't work with multi-hop circular references between BaseSchema types, 
+            only handles the case where a BaseSchema type is circular referenced by itself!
         """
         schema: Dict[str, Any] = {}
 
@@ -623,6 +688,28 @@ class BaseSchema(BaseModel):
             # print("field_name:", field_name, "field_schema:", field_schema)
 
         return schema
+    
+    @classmethod
+    def get_required_fields(cls) -> List[str]:
+        """
+        Get a list of required field names from the schema.
+        
+        This method traverses the schema and returns a list of field names that are required 
+        (not optional) and not deprecated. This is useful for validating that all required 
+        fields are provided when using the schema.
+
+        Returns:
+            List[str]: List of required field names
+        """
+        required_fields = []
+        
+        # Check each field
+        for field_name, field_info in cls.model_fields.items():
+            # Add field if it's required (not optional) 
+            if field_info.is_required():
+                required_fields.append(field_name)
+                
+        return required_fields
 
     @classmethod
     def diff_from_provided_schema(cls, provided_schema: Dict[str, Any], include_deprecated: bool = True, self_is_base_for_diff:bool = False) -> Dict[str, List[str]]:
@@ -782,3 +869,154 @@ class BaseSchema(BaseModel):
     #         if self._is_field_deprecated(model_field):
     #             deprecated_fields.append(field_name)
     #     return deprecated_fields
+
+    @staticmethod
+    def _remove_skip_json_schema_recursive_from_field(model_field: Any) -> Any:
+        """
+        Recursively remove SkipJsonSchema instances from the field's metadata and rebuild its type annotation 
+        by processing nested BaseSchema types. Nested BaseSchema types (including those found within generic 
+        containers such as List or Dict) are re-created using pydantic's create_model function via a copy strategy.
+        
+        The cleaning strategy is as follows:
+          1. For direct BaseSchema types, iterate over its model_fields, remove SkipJsonSchema from each field’s 
+             metadata, and create a new model using create_model.
+          2. For generic annotations (e.g. List[OldBaseSchemaNested]), recursively clean each type parameter so that 
+             any BaseSchema types are replaced by their cleaned (metadata-free) version.
+        
+        Args:
+            model_field: The model field to process.
+            
+        Returns:
+            A new model field with updated metadata, where SkipJsonSchema elements are removed, and with an updated 
+            type annotation referencing cleaned BaseSchema types.
+        """
+        if model_field is None:
+            return None
+
+        # Remove SkipJsonSchema objects from the field's metadata.
+        new_metadata = (
+            [m for m in model_field.metadata if not isinstance(m, SkipJsonSchema)]
+            if model_field.metadata
+            else model_field.metadata
+        )
+
+        def clean_type(annotation: Any) -> Any:
+            """
+            Recursively clean a type annotation by replacing BaseSchema types with new models that have cleared metadata.
+            
+            Args:
+                annotation: The original type annotation.
+                
+            Returns:
+                The cleaned type annotation with any BaseSchema types (or generic containers thereof) replaced by a new type.
+            """
+            origin = get_origin(annotation)
+            if origin is not None:
+                # Process generic types (e.g. List[InnerSchema], Dict[str, InnerSchema], etc.)
+                args = get_args(annotation)
+                new_args = tuple(clean_type(arg) for arg in args)
+                try:
+                    # Attempt to reconstruct the generic type using the cleaned arguments.
+                    return origin[new_args]
+                except TypeError:
+                    # If reconstruction fails, revert to the original annotation.
+                    print(f"ERROR: Failed to reconstruct generic type {annotation} with origin: {origin} and args: {args}")
+                    return annotation
+            elif isinstance(annotation, type) and issubclass(annotation, BaseSchema):
+                # For direct BaseSchema types, create a new fields copy removing SkipJsonSchema metadata.
+                copy_fields = {}
+                for field_name, fld in annotation.model_fields.items():
+                    # Recursively clean each nested field.
+                    copy_fields[field_name] = BaseSchema._remove_skip_json_schema_recursive_from_field(fld)
+                # Use create_model to build a new BaseSchema subclass with the cleaned fields.
+                new_model = create_model(
+                    f"Clean{annotation.__name__}",
+                    __base__=BaseSchema,
+                    __module__=annotation.__module__,
+                    __doc__=f"Copy of {annotation.__name__} with cleared metadata",
+                    **copy_fields
+                )
+                return new_model
+            else:
+                # For all other types, return the annotation unchanged.
+                return annotation
+
+        # Clean the field's type annotation recursively.
+        new_annotation = clean_type(model_field.annotation)
+
+        # Create and return a new copy of the model_field with updated metadata and cleaned annotation.
+        new_field = copy(model_field)
+        new_field.metadata = new_metadata
+        new_field.annotation = new_annotation
+
+        # NOTE: The below code sample is in case the new annotation is not properly instantiated within new_field! But should probably not be the case!
+        # merged_new_field = FieldInfo.merge_field_infos(new_field, FieldInfo.from_annotation(new_annotation))
+
+        return new_annotation, new_field
+
+    @classmethod
+    def model_json_schema_with_skipped_fields(cls, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Generate a complete JSON schema that includes skipped fields which are normally excluded due to 
+        SkipJsonSchema metadata.
+
+        This method rebuilds the model by processing all model fields using the _remove_skip_json_schema_recursive 
+        function. It ensures that:
+          - All SkipJsonSchema markers are removed from field metadata.
+          - Any nested BaseSchema types (including those wrapped as generics) are re-created using pydantic's create_model.
+        
+        Args:
+            *args: Positional arguments to be passed to model_json_schema().
+            **kwargs: Keyword arguments to be passed to model_json_schema().
+        
+        Returns:
+            Dict[str, Any]: The full JSON schema including all internal fields.
+        
+        Potential usecase: Let admin see and modify internal fields too which are not visible to users!
+
+        NOTE: this doesn't work with circular references between BaseSchema types!
+        """
+        # Build a dictionary of cleaned fields.
+        temp_fields: Dict[str, Any] = {}
+        for field_name, field in cls.model_fields.items():
+            temp_fields[field_name] = BaseSchema._remove_skip_json_schema_recursive_from_field(field)
+            if cls._get_field_validation_result(field_name).core_type_class is cls:
+                raise ValueError(f"Field {field_name} is a circular reference to BaseSchema of type {cls.__name__}! Cannot be skipped!")
+
+        # Create a temporary model using the cleaned fields.
+        temp_cls = create_model(
+            f"Temp{cls.__name__}",
+            __base__=BaseSchema,
+            __module__=cls.__module__,
+            __doc__=f"Temporary copy of {cls.__name__} with cleared metadata",
+            **temp_fields
+        )
+
+        # Generate the JSON schema from the temporary model.
+        return temp_cls.model_json_schema(*args, **kwargs)
+
+# class InnerSchema(BaseSchema):
+#     """Inner schema with mix of editable and non-editable fields."""
+#     editable_str: str = Field(default="test")
+#     editable_int: int = Field(default=42)
+#     editable_date: datetime = Field(default_factory=datetime.now)
+#     deprecated_field: str = Field(default="old", **{BaseSchema.DEPRECATED_FIELD_KEY: True})
+#     internal_id: SkipJsonSchema[str] = Field(default="id123") 
+#     # test_field: _PRIMITIVE_TYPES_UNION = None
+#     # internal_metadata = Annotated[SkipJsonSchema.__getitem__(Union.__getitem__(_PRIMITIVE_TYPES_EXTENDED)), Field(default_factory=dict)]  # Union.__getitem__((int, str))
+#     # internal_metadata: SkipJsonSchema[Dict[str, _PRIMITIVE_TYPES_UNION]] = Field(default_factory=dict)
+#     internal_metadata: SkipJsonSchema[Dict[str, Union[str, int]]] = Field(default_factory=dict)
+#     normal_dict_field: Dict[str, str] = Field(default_factory=dict)
+#     # Added list and dict fields
+#     str_list: List[str] = Field(default_factory=list)
+#     int_dict: Dict[str, int] = Field(default_factory=dict)
+
+# print("\n\n" + "-"*100 + "\n\n")
+# print("## model_json_schema")
+# print(json.dumps(InnerSchema.model_json_schema(), indent=4))
+# print("\n\n" + "-"*100 + "\n\n")
+# print("## model_json_schema_with_skipped_fields")
+# print(json.dumps(InnerSchema.model_json_schema_with_skipped_fields(), indent=4))
+# print("\n\n" + "-"*100 + "\n\n")
+# print("## get_schema_for_db")
+# print(json.dumps(InnerSchema.get_schema_for_db(), indent=4))
