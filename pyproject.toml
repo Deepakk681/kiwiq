@@ -26,7 +26,6 @@ itsdangerous = "^2.2.0"
 redis = { extras = ["hiredis"], version = "^5.0.1" }
 msgpack = "^1.0.7"
 orjson = "^3.9.15"
-prefect = "^2.14.0"
 dotenv = "^0.9.9"
 ##################################################
 # Include local libraries as editable dependencies
