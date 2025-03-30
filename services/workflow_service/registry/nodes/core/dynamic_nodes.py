@@ -34,7 +34,8 @@ ALLOWED_FIELD_TYPES: Dict[str, Type] = {
         "bool": bool,
         "bytes": bytes,
         "datetime": datetime,
-        "date": date
+        "date": date,
+        "any": Any
 }
 
 DEFAULT_NOT_SPECIFIED_VALUE = "@@@NOT_SPECIFIED_VALUE@@@"

@@ -15,3 +15,6 @@ RESUME_KEY = "resume"
 # HITL
 HITL_USER_PROMPT_KEY = "__user_prompt"
 HITL_USER_SCHEMA_KEY = "__schema"
+
+PROMPT_CONSTRUCTOR_DELIMITER = "::"
+

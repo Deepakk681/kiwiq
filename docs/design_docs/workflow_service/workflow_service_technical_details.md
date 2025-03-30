@@ -499,3 +499,36 @@ Central state must overwrite if it exists!
 TODO: remove psycopg2 and other dependencies like: 
 fastapi-users = { extras = ["sqlalchemy"], version = "^14.0.1" }
 fastapi-users-db-sqlalchemy = ">=7.0.0"
+
+
+# LLM Router, etc!
+
+LLM:
+    1. Prompt templates (for system / user messages etc)
+    2. Tools -> they are just instances of nodes? LLM node calls tools via routing?
+        Tools can be configured by human pre-execution and input is LLM tool call output!
+    3. Structured outputs or normal text
+    4. follow up conversations - multi turn!
+    5. Central state support!
+
+1. Langchain interesting configs: 
+    rate limiter object
+
+2. Reasoning_effort
+https://python.langchain.com/api_reference/openai/chat_models/langchain_openai.chat_models.base.ChatOpenAI.html
+
+
+
+
+
+Retrieval and Ranking
+- Memory and Search
+- File Storage
+- S3
+Open AI / Cohere API supports retrieval, ranking, search, etc!
+Maybe just use that!
+
+# TODO: AI Editor Design
+AI Editor
+Deep Researcher Report on AI Editor
+https://chatgpt.com/c/67e689aa-49f4-8006-ad54-2bbea38c554f

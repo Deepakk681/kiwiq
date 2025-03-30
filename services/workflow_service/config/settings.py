@@ -13,6 +13,14 @@ from global_config.settings import ENV_FILE_PATH
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     # TODO: get these vars from environment directly, and ensure order of loading from env or ENV_FILE!
+
+    AWS_BEDROCK_SECRET_ACCESS_KEY: str = ""
+    AWS_BEDROCK_ACCESS_KEY_ID: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    FIREWORKS_API_KEY: str = ""
+    PPLX_API_KEY: str = ""
     
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

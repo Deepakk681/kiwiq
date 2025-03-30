@@ -14,7 +14,7 @@ from pydantic import create_model
 # from pydantic.main import FieldInfo, create_model
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, ClassVar, Union, get_origin, get_args, Annotated
+from typing import Any, Dict, List, Optional, Tuple, ClassVar, Union, get_origin, get_args, Annotated, Type
 import inspect
 from enum import Enum
 from langchain_core.messages import AnyMessage
@@ -38,7 +38,7 @@ class FieldValidationResult:
 
 
 _CORE_PRIMITIVE_TYPES: Tuple[type, ...] = (str, int, float, bool, bytes, datetime, date)
-_PRIMITIVE_TYPES_EXTENDED: Tuple[type, ...] = (list(_CORE_PRIMITIVE_TYPES) + [AnyMessage])
+_PRIMITIVE_TYPES_EXTENDED: Tuple[type, ...] = (list(_CORE_PRIMITIVE_TYPES) + [AnyMessage, Any])
 # # UNION allows any primitive type to be set and all are JSON serializable, 
 # #     allowing multi type dicts / lists eg: [int, str, ...] or Dict[str, ]
 # _PRIMITIVE_TYPES_UNION = Annotated[
@@ -304,14 +304,19 @@ class BaseSchema(BaseModel, ABC):
                 
             # For Optional[X], just validate X
             if len(non_none_args) == 1:
-                result = BaseSchema._validate_type(non_none_args[0], union_type_allowed=False)
+                result = BaseSchema._validate_type(non_none_args[0], path=path)
                 result.is_optional = is_optional
+                # TODO: FIXME: lot of type related algos in this class assume unnested Union types, etc! FIX that assumption!
+                # # NOTE: the below 3 were only copied to this branch because nested Union Types are allowed now! Commenting these out as they fail tests!
+                # result.core_type_class = type_annotation
+                # result.core_type_annotation = type_annotation
+                # result.core_type_object_iterator = create_iterator(path)
                 return result
             else:
                 # For Union[X, Y, None], validate all non-None types; only_primitives_allowed!
                 first_result = None
                 for arg in non_none_args:
-                    result = BaseSchema._validate_type(arg, only_primitives_allowed=True)
+                    result = BaseSchema._validate_type(arg, path=path)
                     if first_result is None:
                         first_result = result
                     if not result.valid:
@@ -341,7 +346,7 @@ class BaseSchema(BaseModel, ABC):
                 )
             
             # Validate the list item type
-            item_result = BaseSchema._validate_type(args[0], path=path + [BaseSchema.DTYPE_LIST_KEY], union_type_allowed=True, list_type_allowed=False, dict_type_allowed=False)
+            item_result = BaseSchema._validate_type(args[0], path=path + [BaseSchema.DTYPE_LIST_KEY], union_type_allowed=True, list_type_allowed=True, dict_type_allowed=True)
             if not item_result.valid:
                 return FieldValidationResult(
                     False, 
@@ -368,7 +373,7 @@ class BaseSchema(BaseModel, ABC):
                 )
             
             # Validate the value type
-            value_result = BaseSchema._validate_type(value_type, path=path + [BaseSchema.DTYPE_DICT_KEY], union_type_allowed=True, list_type_allowed=True, dict_type_allowed=False)
+            value_result = BaseSchema._validate_type(value_type, path=path + [BaseSchema.DTYPE_DICT_KEY], union_type_allowed=True, list_type_allowed=True, dict_type_allowed=True)
             if not value_result.valid:
                 return FieldValidationResult(
                     False, 
@@ -994,6 +999,87 @@ class BaseSchema(BaseModel, ABC):
 
         # Generate the JSON schema from the temporary model.
         return temp_cls.model_json_schema(*args, **kwargs)
+
+    @classmethod
+    def create_dynamic_schema_with_fields(
+        cls, 
+        fields: Dict[str, Any],
+        schema_name: str = None,
+        # module_name: Optional[str] = None
+    ) -> Type['BaseSchema']:
+        """
+        Create a new schema class based on the current class with the provided fields.
+        
+        This method dynamically creates a new schema class that inherits from the current class
+        and includes the specified fields. Fields can be provided either as field names that already
+        exist in the current class, or as tuples containing (annotation, field_info).
+        
+        Args:
+            schema_name (str): Name for the new schema class
+            fields (Dict[str, Any]): Mapping of field names to either:
+                - str: Field name that exists in the current class's model_fields
+                - Tuple[Type, Field]: Tuple of (annotation, field_info)
+            module_name (Optional[str]): Module name for the new class. Defaults to the current class's module.
+        
+        Returns:
+            Type[BaseSchema]: A new schema class inheriting from the current class with the specified fields.
+            
+        Example:
+            ```python
+            # Create a new schema with selected fields from the original schema
+            NewUserSchema = UserSchema.create_schema_with_fields(
+                "NewUserSchema",
+                {
+                    "username": None,  # Reuse existing field
+                    "email": None,        # Reuse existing field
+                    "role": (str, Field(description="User role"))  # New field
+                }
+            )
+            ```
+        
+        Raises:
+            ValueError: If a field name is provided as a string but doesn't exist in the current class's model_fields.
+        """
+        field_definitions: Dict[str, Any] = {}
+        
+        # Process each field
+        for field_name, field_def in fields.items():
+            if field_def is None:
+                # Field is specified by name, copy from current class
+                if field_name not in cls.model_fields:
+                    raise ValueError(f"Field '{field_name}' does not exist in {cls.__name__}")
+                
+                # Get the field from the current class
+                existing_field = cls.model_fields[field_name]
+                field_definitions[field_name] = (existing_field.annotation, existing_field)
+            else:
+                if not isinstance(field_def, tuple):
+                    raise ValueError(f"Field '{field_name}' must be specified as a tuple of (annotation, field_info)")
+                # Field is specified as (annotation, field_info) tuple
+                field_definitions[field_name] = field_def
+        
+        # Create the new schema class
+        new_schema_class = create_model(
+            schema_name or f"{cls.__name__}DynamicSchema",
+            __base__=BaseSchema,
+            __module__=cls.__module__,  # module_name or 
+            **field_definitions
+        )
+
+        new_schema_class.IS_DYNAMIC_SCHEMA = True
+        
+        return new_schema_class
+
+
+# class InnerSchema(BaseSchema):
+#     """Inner schema with mix of editable and non-editable fields."""
+#     editable_str: str = Field(default="test")
+#     non_editable_int: SkipJsonSchema[int] = Field(default=42)
+#     editable_str_2: str = Field(default="test")
+
+# print(json.dumps(InnerSchema.model_json_schema(), indent=4))
+
+# print(json.dumps(InnerSchema.create_dynamic_schema_with_fields(fields={"editable_str_2": None, "non_editable_int": None}).model_json_schema_with_skipped_fields(), indent=4))
 
 # class InnerSchema(BaseSchema):
 #     """Inner schema with mix of editable and non-editable fields."""
