@@ -45,8 +45,6 @@ from workflow_service.registry.registry import MockRegistry
 from workflow_service.graph.runtime.adapter import LangGraphRuntimeAdapter
 from workflow_service.registry.schemas.reducers import ReducerRegistry
 
-from db.session import get_pool
-
 from langchain_core.messages import AnyMessage, HumanMessage, AIMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -730,8 +728,8 @@ def run_ai_loop_test(use_db_checkpointer=False, thread_id=None) -> Dict[str, Any
     }
 
     
-
     if use_db_checkpointer:
+        from db.session import get_pool
         with get_pool() as pool:
             checkpointer = PostgresSaver(pool)
             runtime_config["checkpointer"] = checkpointer
@@ -767,6 +765,7 @@ def get_graph_state_from_db(thread_id="test_DB_ID") -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
     graph_entities, runtime_config = build_graph_entities(thread_id)
 
+    from db.session import get_pool
     with get_pool() as pool:
         checkpointer = PostgresSaver(pool)
         runtime_config["checkpointer"] = checkpointer

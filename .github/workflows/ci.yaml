@@ -33,7 +33,7 @@ jobs:
         id: run_tests
         run: |
           set +e
-          PYTHONPATH=.:./services poetry run pytest -m unit 2>&1 | tee pytest.log
+          PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest -m unit 2>&1 | tee pytest.log
           exit_code=${PIPESTATUS[0]}
           if [ $exit_code -eq 0 ]; then
             echo "outcome=pass" >> $GITHUB_OUTPUT
