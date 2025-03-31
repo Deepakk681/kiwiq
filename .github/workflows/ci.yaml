@@ -51,8 +51,8 @@ jobs:
             const fs = require('fs');
             const result = fs.readFileSync('pytest.log', 'utf8');
             const lines = result.trim().split('\n');
-            const last35Lines = lines.slice(-35).join('\n');
-            const commentBody = "### Test Results (Last 35 Lines)\n```\n" + last35Lines + "\n```";
+            const last50Lines = lines.slice(-50).join('\n');
+            const commentBody = "### Test Results (Last 50 Lines)\n```\n" + last50Lines + "\n```";
             github.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
