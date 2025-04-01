@@ -17,12 +17,21 @@ from workflow_service.registry.nodes.core.dynamic_nodes import InputNode, Output
 # from workflow_service.registry.nodes.core.join_node import JoinNode
 # from workflow_service.registry.nodes.ai.openai_node import OpenAINode
 
+from workflow_service.registry.schemas.base import BaseSchema
 from workflow_service.utils.utils import is_central_state_special_node
 
 
+class BaseRegistry:
+    """
+    Base class for all registries.
+    """
+    pass
+    
+    
+    
 
 
-class MockRegistry:
+class MockRegistry(BaseRegistry):
     """
     Mock registry for workflow nodes.
     
@@ -36,6 +45,7 @@ class MockRegistry:
     def __init__(self):
         """Initialize empty registry."""
         self._nodes = {}
+        self._schemas = {}
         self._metadata = {}
         
     def register_node(self, node_class: Type[BaseNode]) -> None:
@@ -50,6 +60,8 @@ class MockRegistry:
         """
         node_name = node_class.node_name
         node_version = node_class.node_version
+
+        assert node_version is not None, "Node version must be defined"
         
         # Initialize version dict if first version of this node
         if node_name not in self._nodes:
@@ -67,6 +79,7 @@ class MockRegistry:
             "is_hitl": MockRegistry.is_node_instance_hitl(node_class),
             "is_input": MockRegistry.is_node_instance_input(node_class),
             "is_output": MockRegistry.is_node_instance_output(node_class),
+            "is_tool": MockRegistry.is_node_instance_tool(node_class),
             # NOTE: has subnodes can be different across version to version!
             # "has_subnodes": node_class.has_subnodes
         }
@@ -75,6 +88,7 @@ class MockRegistry:
         else:
             assert self._metadata[node_name] == metadata_dict, "Metadata for node must be the same for all versions!"
         
+    
     def get_node(self, node_name: str, version: Optional[str] = None) -> Type[BaseNode]:
         """
         Get a node class from the registry.
@@ -101,7 +115,73 @@ class MockRegistry:
             raise ValueError(f"Version {version} not found for node {node_name}")
             
         return self._nodes[node_name][version]
+
+    def register_schema(self, schema_class: Type[BaseModel]) -> None:
+        """
+        Register a schema class in the registry. 
+        For now, only supports schema BaseModel with a defined `schema_name` classvar field. (i.e. statically defined schema in code)
+        
+        Args:
+            schema_class (Type[BaseSchema]): The schema class to register.
+            
+        Raises:
+            ValueError: If schema with same name already exists.
+        """
+        if not hasattr(schema_class, "schema_name"):
+            raise ValueError(f"Schema class {schema_class.__name__} must have a defined `schema_name` classvar field")
+        schema_name = schema_class.schema_name
+
+        schema_version = getattr(schema_class, "schema_version", None)
+        # Initialize version dict if first version of this schema
+        if schema_name not in self._schemas:
+            self._schemas[schema_name] = {}
+            
+        # Check if version already registered
+        if schema_version in self._schemas[schema_name]:
+            raise ValueError(f"Schema {schema_name} version {schema_version} already registered")
+            
+        # Register the schema
+        self._schemas[schema_name][schema_version] = schema_class
+        
+    def get_schema(self, schema_name: str, schema_version: Optional[str] = None) -> Type[BaseModel]:
+        """
+        Get a schema class from the registry.
+        
+        Args:
+            schema_name (str): Name of schema to get
+            schema_version (Optional[str]): Version of schema to get. If None, returns latest version.
+            
+        Returns:
+            Type[BaseSchema]: The requested schema class
+            
+        Raises:
+            ValueError: If schema name or version not found
+        """
+        # Check schema exists
+        if schema_name not in self._schemas:
+            raise ValueError(f"Schema {schema_name} not found in registry")
+            
+        # Get latest version if none specified
+        if schema_version is None:
+            schema_versions = list(self._schemas[schema_name].keys())
+            if None in schema_versions:
+                schema_version = None
+            else:
+                schema_version = max(schema_versions)
+        # Check version exists    
+        elif schema_version not in self._schemas[schema_name]:
+            raise ValueError(f"Version {schema_version} not found for schema {schema_name}")
+            
+        return self._schemas[schema_name][schema_version]
     
+    def get_all_schema_names(self) -> List[str]:
+        """
+        Get all registered schema names.
+        
+        Returns:
+            List[str]: List of all registered schema names
+        """
+        return list(self._schemas.keys())
     
     
     # def has_subnodes(self, node_name: str) -> bool:
@@ -324,6 +404,16 @@ class MockRegistry:
         node_class = MockRegistry.get_node_instance_class(node_instance)
         return issubclass(node_class, OutputNode)
 
+    @staticmethod
+    def is_node_instance_tool(node_instance: Any) -> bool:
+        """
+        Check if a node instance is a tool node.
+        """
+        node_class = MockRegistry.get_node_instance_class(node_instance)
+        return getattr(node_class, "node_is_tool", False)
+
+
+
 
 class NodeRegistry:
     """
@@ -380,7 +470,7 @@ class NodeRegistry:
         # Register the node
         self._nodes[node_name][node_version] = node_class
     
-    def get_node(self, node_name: str, version: Optional[str] = None) -> Type[BaseNode]:
+    def get_node(self, node_name: str, version: Optional[str] = None, return_if_tool: bool = False) -> Type[BaseNode]:
         """
         Get a node class from the registry.
         
@@ -388,7 +478,7 @@ class NodeRegistry:
             node_name (str): The name of the node to get.
             version (Optional[str]): The version of the node to get.
                 If not provided, the latest version will be returned.
-                
+            return_if_tool (bool): If True, return the node class only if it is a tool node.
         Returns:
             Type[BaseNode]: The requested node class.
             
@@ -412,7 +502,12 @@ class NodeRegistry:
             raise ValueError(f"Version {version} of node {node_name} not found in registry")
         
         # Return the node class
-        return self._nodes[node_name][version]
+        # TODO: FIXME: add support for diff prod / dev / experiment env and flags in Nodes and also only return those nodes which are eligible for 
+        #     building workflows, maybe some tool nodes are not eligible thus!
+        node_class = self._nodes[node_name][version]
+        if return_if_tool and not MockRegistry.is_node_instance_tool(node_class):
+            raise ValueError(f"Node {node_name} version {version} is not a tool node")
+        return node_class
     
     def list_nodes(self) -> List[Dict[str, Any]]:
         """

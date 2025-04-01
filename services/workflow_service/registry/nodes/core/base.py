@@ -57,6 +57,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     has_subnodes: ClassVar[bool] = False  # Subnode flag
     
     dynamic_schemas: ClassVar[bool] = False
+    node_is_tool: ClassVar[bool] = False
     # Schema class references to be overridden by subclasses
     input_schema_cls: ClassVar[Optional[Type[InputSchemaT]]] = None
     output_schema_cls: ClassVar[Optional[Type[OutputSchemaT]]] = None

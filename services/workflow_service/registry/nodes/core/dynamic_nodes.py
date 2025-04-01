@@ -6,6 +6,7 @@ which serve as the entry and exit points for workflows. Their schemas are
 dynamically created based on the graph connections.
 """
 from typing import Any, Dict, List, Optional, Type, ClassVar, cast, Callable, Union, get_origin, get_args
+from typing_extensions import Annotated
 from pydantic import Field, create_model, field_validator
 from datetime import datetime, date
 from enum import Enum
@@ -15,6 +16,8 @@ from workflow_service.registry.nodes.core.base import BaseNode
 from workflow_service.config.constants import INPUT_NODE_NAME, OUTPUT_NODE_NAME, HITL_NODE_NAME_PREFIX, TEMP_STATE_UPDATE_KEY, ROUTER_CHOICE_KEY
 from global_config.constants import EnvFlag
 from abc import ABC, abstractmethod
+
+from workflow_service.utils.utils import is_dynamic_schema_node
 
 
 class DynamicSchema(BaseSchema, ABC):
@@ -27,14 +30,17 @@ class DynamicSchema(BaseSchema, ABC):
     IS_DYNAMIC_SCHEMA: ClassVar[bool] = True
 
 
-ALLOWED_FIELD_TYPES: Dict[str, Type] = {
-        "str": str,
-        "int": int, 
-        "float": float,
-        "bool": bool,
-        "bytes": bytes,
-        "datetime": datetime,
-        "date": date,
+PRIMITIVE_TYPES = {
+    "str": str,
+    "int": int, 
+    "float": float,
+    "bool": bool,
+    "bytes": bytes,
+    "datetime": datetime,
+    "date": date,
+}
+
+ALLOWED_FIELD_TYPES: Dict[str, Type] = PRIMITIVE_TYPES | {
         "any": Any
 }
 
@@ -44,8 +50,11 @@ class DynamicSchemaFieldConfig(BaseSchema):
     """
     A configuration for a field in a dynamic schema.
     """
+    # class vars constants
     TYPE_MAPPING: ClassVar[Dict[str, Type]] = ALLOWED_FIELD_TYPES
+    PRIMITIVE_TYPES: ClassVar[Dict[str, Type]] = PRIMITIVE_TYPES
 
+    # Instance fields
     type: str = Field(..., description="The type of the field")
     required: Optional[bool] = Field(None, description="Whether the field is required")
     default: Optional[Union[str, int, float, bool, bytes, datetime, date]] = Field(DEFAULT_NOT_SPECIFIED_VALUE, description="The default value of the field, only specified if type is primitive, not list / dict.")
@@ -62,6 +71,20 @@ class DynamicSchemaFieldConfig(BaseSchema):
 class ConstructDynamicSchema(BaseSchema):
     """
     A schema for constructing a dynamic schema from a JSON configuration.
+
+    IMPORTANT NOTE For LLM structured outputs (especially for OPENAI): 
+    While creating dynamic schemas for LLM structured outputs, all fields provided must be marked as required!
+    https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat
+
+    OpenAI also doesn't support schemas with fields defined as Dict --> Dict[str, Any] or Dict[str, str] etc.
+    Eg invalid definitions for OpenAI:
+    # "metadata": DynamicSchemaFieldConfig(type="dict",  required=True, description="Metadata of the response"),
+    # "metadata": DynamicSchemaFieldConfig(type="dict",  required=True, description="Metadata of the response", keys_type="str", values_type="str"),
+    NOTE: Anthropic supports Dict[str, Any] and Dict[str, str] etc.
+
+    NOTE: Gemini supports Dict, but schema adherence is not guaranteed! It routinely outputs other non-dict objects to dict fields.
+    List and other fields seem to work; To maye Dict work, a nested schema with well defined objects may be required!
+
     
     This class allows building dynamic schemas with fields of primitive types,
     as well as non-nested List and Dict types. The field configurations are specified
@@ -84,6 +107,8 @@ class ConstructDynamicSchema(BaseSchema):
     })
     ```
     """
+    schema_name: Optional[str] = Field("DynamicSchema", description="The name of the schema to be created for the field")
+    schema_description: Optional[str] = Field("", description="The description of the schema to be created for the field")
     fields: Dict[str, DynamicSchemaFieldConfig] = Field(
         ...,
         description="Dictionary of field definitions. Keys are field names, values are field configurations."
@@ -115,7 +140,7 @@ class ConstructDynamicSchema(BaseSchema):
                 if not field_def.enum_values:
                     raise ValueError(f"Enum field '{field_name}' is missing 'enum_values' property")
                 
-                if not all(isinstance(val, tuple(DynamicSchemaFieldConfig.TYPE_MAPPING.values())) for val in field_def.enum_values):
+                if not all(isinstance(val, tuple(DynamicSchemaFieldConfig.PRIMITIVE_TYPES.values())) for val in field_def.enum_values):
                     raise ValueError(f"Enum values in field '{field_name}' must be of primitive types: {list(DynamicSchemaFieldConfig.TYPE_MAPPING.keys())}")
                 
                 # Check for duplicate values
@@ -130,8 +155,10 @@ class ConstructDynamicSchema(BaseSchema):
                 
             # Validate list type
             elif field_type == "list":
-                if not field_def.items_type:
-                    raise ValueError(f"List field '{field_name}' is missing 'items_type' property")
+                if field_def.items_type is None:
+                    continue
+                #     raise ValueError(f"List field '{field_name}' is missing 'items_type' property")
+
                     
                 items_type = field_def.items_type
                 if items_type not in DynamicSchemaFieldConfig.TYPE_MAPPING:
@@ -139,25 +166,26 @@ class ConstructDynamicSchema(BaseSchema):
                 
             # Validate dict type
             elif field_type == "dict":
-                if not field_def.keys_type:
-                    raise ValueError(f"Dict field '{field_name}' is missing 'keys_type' property")
-                if not field_def.values_type:
-                    raise ValueError(f"Dict field '{field_name}' is missing 'values_type' property")
+                # if not field_def.keys_type:
+                #     raise ValueError(f"Dict field '{field_name}' is missing 'keys_type' property")
+                # if not field_def.values_type:
+                #     raise ValueError(f"Dict field '{field_name}' is missing 'values_type' property")
                     
                 keys_type = field_def.keys_type
-                if keys_type not in DynamicSchemaFieldConfig.TYPE_MAPPING:
+                if not ((keys_type is None) or (keys_type in DynamicSchemaFieldConfig.TYPE_MAPPING)):
                     raise ValueError(f"Invalid keys_type '{keys_type}' for dict field '{field_name}'. Must be a primitive type.")
                     
                 values_type = field_def.values_type
                 
                 # Values can be primitive types
-                if values_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
+                if values_type in DynamicSchemaFieldConfig.TYPE_MAPPING or values_type is None:
                     continue
                     
                 # Or values can be lists of primitives
                 elif values_type == "list":
-                    if not field_def.values_items_type:
-                        raise ValueError(f"Dict field '{field_name}' with values_type 'list' is missing 'values_items_type' property")
+                    if field_def.values_items_type is None:
+                        continue
+                        # raise ValueError(f"Dict field '{field_name}' with values_type 'list' is missing 'values_items_type' property")
                         
                     values_items_type = field_def.values_items_type
                     if values_items_type not in DynamicSchemaFieldConfig.TYPE_MAPPING:
@@ -169,7 +197,7 @@ class ConstructDynamicSchema(BaseSchema):
                 
         return field_defs
     
-    def build_schema(self, schema_name: str = "DynamicSchema") -> Type[BaseSchema]:
+    def build_schema(self, schema_name: str = None) -> Type[BaseSchema]:
         """
         Build a dynamic schema from the configuration.
         
@@ -181,6 +209,36 @@ class ConstructDynamicSchema(BaseSchema):
         """
         field_definitions = {}
         created_enums = {}
+
+        # def get_python_primitive_type(field_type: str) -> Type[Any]:
+        #     if field_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
+        #         return DynamicSchemaFieldConfig.TYPE_MAPPING[field_type]
+        #     else:
+        #         raise ValueError(f"Invalid field type '{field_type}' for field '{field_name}'. Must be a primitive type.")
+        
+        def get_list_python_type(items_type: Optional[str]) -> Type[Any]:
+            if items_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
+                return List[DynamicSchemaFieldConfig.TYPE_MAPPING[items_type]]
+            elif items_type == None:
+                return List[Any]
+            else:
+                raise ValueError(f"Invalid items_type '{items_type}' for list field '{field_name}'. Must be a primitive type.")
+        
+        def get_dict_type(keys_type: Optional[str], values_type: Optional[str] = None, values_items_type: Optional[str] = None) -> Type[Any]:
+            assert keys_type is None or keys_type in DynamicSchemaFieldConfig.TYPE_MAPPING, f"Invalid keys_type '{keys_type}' for dict field '{field_name}'. Must be a primitive type."
+            keys_type = DynamicSchemaFieldConfig.TYPE_MAPPING[keys_type] if keys_type is not None else Any
+            if values_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
+                values_type = DynamicSchemaFieldConfig.TYPE_MAPPING[values_type]
+            elif values_type == "list":
+                # Dict with list values
+                values_items_type = field_def.values_items_type
+                values_type = get_list_python_type(values_items_type)
+            elif values_type == None:
+                values_type = Any
+            else:
+                raise ValueError(f"Invalid values_type '{values_type}' for dict field '{field_name}'. Must be a primitive type or 'list'.")
+            return Dict[keys_type, values_type]
+        
         
         for field_name, field_def in self.fields.items():
             field_type = field_def.type
@@ -226,6 +284,7 @@ class ConstructDynamicSchema(BaseSchema):
                     Optional[python_type] if not required else python_type,
                     Field(description=description, **kwargs)
                 )
+                continue
                 
             elif field_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
                 # Primitive type
@@ -233,41 +292,25 @@ class ConstructDynamicSchema(BaseSchema):
                 kwargs = {}
                 if default != DEFAULT_NOT_SPECIFIED_VALUE:
                     kwargs["default"] = default
-                field_definitions[field_name] = (
-                    Optional[python_type] if not required else python_type,
-                    Field(description=description, **kwargs)
-                )
                 
             elif field_type == "list":
+                
                 # List type
                 items_type = field_def.items_type
-                python_type = List[DynamicSchemaFieldConfig.TYPE_MAPPING[items_type]]
+                python_type = get_list_python_type(items_type)
+                
                 kwargs = {}
                 if default != DEFAULT_NOT_SPECIFIED_VALUE:
                     kwargs["default"] = default or []
-                field_definitions[field_name] = (
-                    Optional[python_type] if not required else python_type,
-                    Field( description=description, **kwargs)
-                )
                 
             elif field_type == "dict":
-                # Dict type
-                keys_type = field_def.keys_type
-                values_type = field_def.values_type
-                
-                if values_type in DynamicSchemaFieldConfig.TYPE_MAPPING:
-                    # Dict with primitive values
-                    python_type = Dict[DynamicSchemaFieldConfig.TYPE_MAPPING[keys_type], DynamicSchemaFieldConfig.TYPE_MAPPING[values_type]]
-                elif values_type == "list":
-                    # Dict with list values
-                    values_items_type = field_def.values_items_type
-                    python_type = Dict[
-                        DynamicSchemaFieldConfig.TYPE_MAPPING[keys_type], 
-                        List[DynamicSchemaFieldConfig.TYPE_MAPPING[values_items_type]]
-                    ]
+                python_type = get_dict_type(field_def.keys_type, field_def.values_type, field_def.values_items_type)
                 kwargs = {}
                 if default != DEFAULT_NOT_SPECIFIED_VALUE:
                     kwargs["default"] = default or {}
+            
+            # NOTE: enum fields are handled above!
+            if field_type != "enum":
                 field_definitions[field_name] = (
                     Optional[python_type] if not required else python_type,
                     Field(description=description, **kwargs)
@@ -275,8 +318,9 @@ class ConstructDynamicSchema(BaseSchema):
         
         # Create and return the dynamic schema class
         return create_model(
-            schema_name,
+            schema_name or self.schema_name,
             __base__=DynamicSchema,
+            __doc__=self.schema_description,
             **field_definitions
         )
 
@@ -325,6 +369,7 @@ class BaseDynamicNode(BaseNode[DynamicSchema, DynamicSchema, DynamicSchema], ABC
 
         class_name = f"Dynamic{cls.__name__}"
         node_kwargs = {}
+        field_kwargs = {}
 
         # Create dynamic output schema (same as input if not specified)
         if output_fields is None and input_fields is not None:
@@ -361,18 +406,17 @@ class BaseDynamicNode(BaseNode[DynamicSchema, DynamicSchema, DynamicSchema], ABC
                 **config_fields
             )
             node_kwargs['config_schema_cls'] = dynamic_config_schema
-        
+            field_kwargs['config'] = Annotated[dynamic_config_schema] 
+        # if cls.node_name in [INPUT_NODE_NAME, OUTPUT_NODE_NAME]:
+        #     import ipdb; ipdb.set_trace()
         # check which schemas are marked dyanamic and only overwrite those schemas!
-        if not (hasattr(cls.input_schema_cls, 'IS_DYNAMIC_SCHEMA') and 
-            getattr(cls.input_schema_cls, 'IS_DYNAMIC_SCHEMA', False)):
+        if not is_dynamic_schema_node(cls.input_schema_cls):
             if 'input_schema_cls' in node_kwargs:
                 del node_kwargs['input_schema_cls']
-        if not (hasattr(cls.output_schema_cls, 'IS_DYNAMIC_SCHEMA') and 
-            getattr(cls.output_schema_cls, 'IS_DYNAMIC_SCHEMA', False)):
+        if not is_dynamic_schema_node(cls.output_schema_cls):
             if 'output_schema_cls' in node_kwargs:
                 del node_kwargs['output_schema_cls']
-        if not (hasattr(cls.config_schema_cls, 'IS_DYNAMIC_SCHEMA') and 
-            getattr(cls.config_schema_cls, 'IS_DYNAMIC_SCHEMA', False)):
+        if not is_dynamic_schema_node(cls.config_schema_cls):
             if 'config_schema_cls' in node_kwargs:
                 del node_kwargs['config_schema_cls']
 
@@ -381,8 +425,12 @@ class BaseDynamicNode(BaseNode[DynamicSchema, DynamicSchema, DynamicSchema], ABC
             class_name,
             __base__=cls,
             __module__=cls.__module__,
-            **node_kwargs
+            # **node_kwargs,
+            **field_kwargs
         )
+
+        for class_field_name, class_field_value in node_kwargs.items():
+            setattr(new_node_class, class_field_name, class_field_value)
         
         return new_node_class
 

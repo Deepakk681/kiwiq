@@ -212,11 +212,14 @@ class TestConstructDynamicSchema(unittest.TestCase):
         self.assertIn("Invalid field type", str(cm.exception))
 
         # List missing items_type
-        with self.assertRaises(ValueError) as cm:
-            ConstructDynamicSchema(fields={
-                "items": DynamicSchemaFieldConfig(type="list")
-            })
-        self.assertIn("missing 'items_type' property", str(cm.exception))
+        # with self.assertRaises(ValueError) as cm:
+        schema_spec = ConstructDynamicSchema(fields={
+            "items": DynamicSchemaFieldConfig(type="list")
+        })
+        schema = schema_spec.build_schema("ListSchema")
+        self.assertIs(schema.model_fields["items"].annotation, List[Any])
+            # self.assertIn("missing 'items_type' property", str(cm.exception))
+        
 
         # List with invalid items_type
         with self.assertRaises(ValueError) as cm:
@@ -226,18 +229,20 @@ class TestConstructDynamicSchema(unittest.TestCase):
         self.assertIn("Invalid items_type", str(cm.exception))
 
         # Dict missing keys_type
-        with self.assertRaises(ValueError) as cm:
-            ConstructDynamicSchema(fields={
-                "dict_field": DynamicSchemaFieldConfig(type="dict", values_type="str")
-            })
-        self.assertIn("missing 'keys_type' property", str(cm.exception))
+        schema_spec = ConstructDynamicSchema(fields={
+            "dict_field": DynamicSchemaFieldConfig(type="dict", values_type="str")
+        })
+        schema = schema_spec.build_schema("DictSchema")
+        self.assertIs(schema.model_fields["dict_field"].annotation, Dict[Any, str])
+
+        # raise Exception("STOP")
 
         # Dict missing values_type
-        with self.assertRaises(ValueError) as cm:
-            ConstructDynamicSchema(fields={
-                "dict_field": DynamicSchemaFieldConfig(type="dict", keys_type="str")
-            })
-        self.assertIn("missing 'values_type' property", str(cm.exception))
+        schema_spec = ConstructDynamicSchema(fields={
+            "dict_field": DynamicSchemaFieldConfig(type="dict", keys_type="str")
+        })
+        schema = schema_spec.build_schema("DictSchema")
+        self.assertIs(schema.model_fields["dict_field"].annotation, Dict[str, Any])
 
         # Dict with invalid keys_type
         with self.assertRaises(ValueError) as cm:
@@ -262,15 +267,11 @@ class TestConstructDynamicSchema(unittest.TestCase):
         self.assertIn("Invalid values_type", str(cm.exception))
 
         # Dict with list values missing values_items_type
-        with self.assertRaises(ValueError) as cm:
-            ConstructDynamicSchema(fields={
-                "dict_field": DynamicSchemaFieldConfig(
-                    type="dict", 
-                    keys_type="str", 
-                    values_type="list"
-                )
-            })
-        self.assertIn("missing 'values_items_type' property", str(cm.exception))
+        schema_spec = ConstructDynamicSchema(fields={
+            "dict_field": DynamicSchemaFieldConfig(type="dict", keys_type="str", values_type="list")
+        })
+        schema = schema_spec.build_schema("DictSchema")
+        self.assertIs(schema.model_fields["dict_field"].annotation, Dict[str, List[Any]])
 
         # Dict with list values with invalid values_items_type
         with self.assertRaises(ValueError) as cm:

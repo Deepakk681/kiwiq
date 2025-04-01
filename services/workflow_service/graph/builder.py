@@ -61,7 +61,7 @@ class GraphBuilder:
     
     def __init__(
         self, 
-        registry: Dict[str, Type[BaseNode]], 
+        registry: MockRegistry, 
         # runtime_adapter: Optional[GraphRuntimeAdapter] = None
     ):
         """
@@ -711,6 +711,12 @@ class GraphBuilder:
         # self.graph_state = graph_state
         runtime_config = GraphBuilder.build_runtime_config(graph_schema, node_instances)
         # self.runtime_config = runtime_config
+
+        # TODO: FIXME!
+        # Add external objects like registry!
+        if not runtime_config.get("external"):
+            runtime_config["external"] = {}
+        runtime_config["external"]["registry"] = self.registry
         
         # Instantiate the GraphEntities with all components
         graph_entities = GraphEntities(

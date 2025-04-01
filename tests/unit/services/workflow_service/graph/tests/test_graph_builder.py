@@ -322,9 +322,9 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertTrue(hasattr(graph_state_type, "__annotations__"))
         
         # The graph state should contain all nodes plus the central state
-        print(graph_state_type.__annotations__)
+        print("\n\n\n\n ### graph_state_type.__annotations__ \n\n", graph_state_type.__annotations__, "\n\n\n\n")
         # NOTE: 
-        self.assertEqual(len(graph_state_type.__annotations__), 7)  # 4 nodes + central state + 1 input field (dynamically inferred!) + 1 node order field
+        self.assertEqual(len(graph_state_type.__annotations__), 7)  # 4 nodes + 1 central state + 1 input field (dynamically inferred!) + 1 node order field central state
         
         # Verify expected keys in annotations
         for node_id in [INPUT_NODE_NAME, "test1", "test2", OUTPUT_NODE_NAME,]:
