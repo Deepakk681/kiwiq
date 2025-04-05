@@ -808,4 +808,7 @@ class TestBasicLLMWorkflow(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # DOn't run tests as part of automation, they are exensive!
+    #    ONly run them manually!
     unittest.main() 
+

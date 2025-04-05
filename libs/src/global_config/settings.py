@@ -5,7 +5,7 @@ This module contains all the configuration settings for the application, loaded 
 environment variables with sensible defaults.
 """
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -34,9 +34,11 @@ class Settings(BaseSettings):
     # Project metadata
     PROJECT_NAME: str = "KiwiQ Backend"
     VERSION: str = "0.1.0"
+
+    APP_ENV: Literal["DEV", "PROD"] = "DEV"
     
     # Database settings
-    DATABASE_URL: str = ""  # Default SQLite for development
+    DATABASE_URL: str = ""  # Default Postgres for development
     DB_ECHO: bool = False  # SQL query logging
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
@@ -55,6 +57,8 @@ class Settings(BaseSettings):
     
     # Cache settings
     REDIS_URL: Optional[str] = None
+    MONGO_URL: Optional[str] = None
+    RABBITMQ_URL: Optional[str] = None
     CACHE_TTL: int = 3600  # seconds
     
     # Worker pool settings
@@ -65,7 +69,7 @@ class Settings(BaseSettings):
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_ACCESS_TOKEN: str = ""
     LINKEDIN_API_VERSION: str = "202502"
-    LINKEDIN_REDIRECT_URI: str = ""
+    LINKEDIN_REDIRECT_URL: str = ""
     
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,

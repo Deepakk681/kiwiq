@@ -14,31 +14,31 @@ The tests use pytest for test execution. You can run the tests in several ways:
 
 1. Run all tests:
 ```bash
-PYTHONPATH=.:./services pytest
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest
 ```
 
 2. Run tests with verbose output:
 ```bash
-PYTHONPATH=.:./services pytest -v
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest -v
 ```
 
 3. Run a specific test file:
 ```bash
-PYTHONPATH=.:./services pytest test_base.py
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest test_base.py
 ```
 
 4. Run a specific test function:
 ```bash
-PYTHONPATH=.:./services poetry run pytest -m unit -k "test_dynamic_schema_handling"
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest -m unit -k "test_dynamic_schema_handling"
 ```
 
 ```bash
-PYTHONPATH=.:./services poetry run pytest test_graph_builder.py::test_dynamic_schema_handling
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest test_graph_builder.py::test_dynamic_schema_handling
 ```
 
 5. Run tests with coverage report:
 ```bash
-PYTHONPATH=.:./services pytest --cov=services.workflow_service.registry.schemas.base
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest --cov=services.workflow_service.registry.schemas.base
 ```
 
 

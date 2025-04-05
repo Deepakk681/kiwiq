@@ -532,3 +532,28 @@ Maybe just use that!
 AI Editor
 Deep Researcher Report on AI Editor
 https://chatgpt.com/c/67e689aa-49f4-8006-ad54-2bbea38c554f
+
+
+
+# Temp task stack
+1. Annotate mock library everywhere its used so easier to refactor later!
+2. Create base library empty class and mock library subclasses from it
+3. Testing
+4. add token counting and billing!
+-- with message history
+-- with thinking type messages, especially from AWS, Anthropic, Fireworks!
+-- from each provider with diff config types! structured or str, reasoning!
+-- diff reasoning configs!
+-- with tools!
+-- dynamic schemas
+
+5. Stream in between stopped! Are the intermediate messages saved and can we continue generating from that state!!
+6. # TODO: verify structured outputs in AWS Deepseek!
+7. Fireworks -> check reasoning tokens parsed properly and new message created! Especially in structured output mode!
+
+
+TODO: log exception tracebacks!
+
+TODO: test LLM NOde / search with message history! + THINKING BLOCKS!
+
+

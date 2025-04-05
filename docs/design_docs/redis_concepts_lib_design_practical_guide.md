@@ -9,7 +9,8 @@ client = AsyncRedisClient(
     redis_url="redis://username:password@localhost:6379/0",
     pool_size=50,
     default_ttl_seconds=3600,
-    socket_connect_timeout=5.0
+    socket_connect_timeout=5.0,
+    decode_responses=True  # Default is True for string handling, set to False for binary data
 )
 ```
 
@@ -19,6 +20,7 @@ client = AsyncRedisClient(
 - Redis is a key-value store where keys are strings
 - Values can have different data types (strings, lists, sets, hashes, sorted sets)
 - Our client primarily works with JSON-serialized values for flexibility
+- Binary data (bytes) can be stored directly using specialized methods
 
 ### Connection Pool
 - Manages multiple connections to Redis server
@@ -45,6 +47,7 @@ client = AsyncRedisClient(
 
 ### Key-Value Caching
 - JSON serialization for structured data
+- Binary data support for storing raw bytes
 - Configurable TTL at both client and operation level
 - Atomic set and expire operations
 
@@ -66,6 +69,19 @@ await client.set_cache(
 
 # Retrieve the object
 user = await client.get_cache("user:1001")
+```
+
+### Working with Binary Data
+```python
+# Create a client that doesn't decode responses for binary data handling
+binary_client = AsyncRedisClient(redis_url, decode_responses=False)
+
+# Store binary data directly
+image_data = read_image_file("profile.jpg")  # Returns bytes
+await binary_client.set_cache("image:user:1001", image_data, ttl=3600)
+
+# Retrieve binary data
+stored_image = await binary_client.get_binary_cache("image:user:1001")
 ```
 
 ### Deleting Values
@@ -288,6 +304,56 @@ await client.set_cache(
 )
 ```
 
+### Binary Data Caching
+```python
+# Create a client for binary data
+binary_client = AsyncRedisClient(redis_url, decode_responses=False)
+
+# Cache binary data directly
+binary_data = b"Raw binary data \x00\x01\x02\xFF"
+await binary_client.set_cache("binary:key", binary_data, ttl=3600)
+
+# Retrieve binary data
+retrieved_data = await binary_client.get_binary_cache("binary:key")
+```
+
+### Compression for Large Objects
+```python
+# Create a client for binary data
+binary_client = AsyncRedisClient(redis_url, decode_responses=False)
+
+# Compress and cache a large object
+import zlib
+import json
+
+def cache_compressed_object(key, obj, ttl=3600):
+    # Serialize to JSON
+    json_str = json.dumps(obj)
+    
+    # Compress if it's large enough to benefit
+    if len(json_str) > 1024:  # Only compress objects larger than 1KB
+        compressed = zlib.compress(json_str.encode('utf-8'))
+        return binary_client.set_cache(key, compressed, ttl)
+    else:
+        # Use regular client for small objects
+        return client.set_cache(key, obj, ttl)
+
+async def get_compressed_object(key):
+    # Try to get as compressed data first
+    compressed = await binary_client.get_binary_cache(key)
+    
+    if compressed and isinstance(compressed, bytes):
+        try:
+            # Try to decompress it
+            decompressed = zlib.decompress(compressed).decode('utf-8')
+            return json.loads(decompressed)
+        except:
+            pass  # Not compressed or invalid, fall through
+    
+    # Fall back to regular cache
+    return await client.get_cache(key)
+```
+
 ### Cache-Aside Pattern
 ```python
 async def get_user(user_id):
@@ -475,13 +541,19 @@ async def set_large_cache(key, value, ttl=3600):
     # Only compress if it's worth it (>1KB)
     if len(json_str) > 1024:
         compressed = zlib.compress(json_str.encode())
-        await client.set_cache(f"{key}:compressed", compressed, ttl)
+        # Use binary client for compressed data
+        binary_client = AsyncRedisClient(redis_url, decode_responses=False)
+        await binary_client.set_cache(f"{key}:compressed", compressed, ttl)
+        await binary_client.close()
     else:
         await client.set_cache(key, value, ttl)
 
 async def get_large_cache(key):
     # Try compressed version first
-    compressed = await client.get_cache(f"{key}:compressed")
+    binary_client = AsyncRedisClient(redis_url, decode_responses=False)
+    compressed = await binary_client.get_binary_cache(f"{key}:compressed")
+    await binary_client.close()
+    
     if compressed:
         json_str = zlib.decompress(compressed).decode()
         return json.loads(json_str)

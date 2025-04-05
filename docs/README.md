@@ -35,6 +35,11 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
+## Incompatible dependencies
+`torch` can't be installed via poetry! it can only be installed via pip
+https://pytorch.org/get-started/locally/
+
+
 ## Local Libs (X-service dependencies)
 
 1. Within `libs` folder in project root, create a `pyproject.toml` file including all packages within `libs`. All packages must be in `libs/src`!
@@ -85,6 +90,10 @@ Also ensure the following setting in your VS code settings: (it should be there 
 ```bash
 PYTHONPATH=./libs:./services
 
+# OR
+
+PYTHONPATH=.:./services
+
 # OR!
 
 PYTHONPATH=./services
@@ -95,7 +104,7 @@ Since we add `services` to the python path, we can directly import from the indi
 
 ## Run code
 ```bash
-PYTHONPATH=.:./services poetry run path/to/file.py
+PYTHONPATH=$(pwd):$(pwd)/services poetry run path/to/file.py
 ```
 
 ## NOTE: IDE (VS Code / Cursor) will automatically load PYTHONPATH from .env file
@@ -104,7 +113,7 @@ FOLLOW instructions from docs/README.md!
 ## Tests
 
 ```bash
-PYTHONPATH=.:./services poetry run pytest
+PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest
 ```
 
 ## DB

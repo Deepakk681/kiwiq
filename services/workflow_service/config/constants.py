@@ -18,3 +18,6 @@ HITL_USER_SCHEMA_KEY = "__schema"
 
 PROMPT_CONSTRUCTOR_DELIMITER = "::"
 
+# Application Config
+APPLICATION_CONTEXT_KEY = "__application_context"
+EXTERNAL_CONTEXT_MANAGER_KEY = "__external_context_manager"
