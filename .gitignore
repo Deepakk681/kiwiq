@@ -25,6 +25,7 @@ htmlcov/
 
 # Virtual Environment
 .env
+.env.prod
 .venv
 env/
 venv/
