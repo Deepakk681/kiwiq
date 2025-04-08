@@ -51,12 +51,17 @@ psql -U db_admin -d postgres
 ```sql
 CREATE DATABASE workflow_service;
 ```
+
+`NOTE: Create prefect DB too, it should be same as $PREFECT_DB and different from *workflow_service* DB!`
+```sql
+CREATE DATABASE prefect_db;
+```
+
 Drop existing database
 
 ```sql
 DROP DATABASE workflow_service;
 ```
-
 
 ```bash
 psql -U db_admin -d workflow_service
@@ -82,7 +87,7 @@ DATABASE_URL="postgresql://db_admin:db_admin_password@localhost/db_name"
 
 3. setup database.py to create db session using sqlmodel wrappers
 
-4. setup alembic to create migrations
+4. INIT (first time) setup alembic to create migrations
 
 ```bash
 poetry run alembic init alembic
@@ -119,11 +124,23 @@ script_location = libs/src/db/alembic
 6. generate migration script
 
 ```bash
-poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Initial revision"
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Initial revision: Auth"
 ```
 
 7. apply migration script
 
 ```bash
-poetry run alembic -c libs/src/db/alembic.ini upgrade head
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini upgrade head
 ```
+
+8. (Only use this to reset Alembic's HEAD)
+
+```bash
+# <full postgress url>
+psql postgresql://db_admin:db_admin_password@localhost/db_name
+```
+
+```sql
+DROP TABLE alembic_version;
+```
+
