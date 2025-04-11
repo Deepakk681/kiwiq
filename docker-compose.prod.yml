@@ -42,14 +42,16 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile-dev.app # Use the same Dockerfile as dev for now
+      # Use the same Dockerfile as dev for now
+      dockerfile: Dockerfile-dev.app
       # Consider a separate Dockerfile.prod later for optimizations (e.g., no reload)
       # and to avoid running setup.sh on every start (see entrypoint note below).
     container_name: kiwiq_prod_app
     restart: unless-stopped
     # No ports exposed directly; Nginx handles external access.
     env_file:
-      - .env # Load production environment variables (includes full DB/Service URLs)
+      # Load production environment variables (includes full DB/Service URLs)
+      - .env
     environment:
       # Override any dev-specific settings if necessary
       APP_ENV: PROD
@@ -63,13 +65,13 @@ services:
       # In production, typically you don't mount the source code directly.
       # The code should be copied into the image during the build.
       # Remove this line if using a dedicated Dockerfile.prod that copies the code.
-      - ./:/app # Keep for now if using Dockerfile-dev.app, but consider removing
+      - ./:/app
     depends_on:
       # Explicitly depend on backend services and wait for postgres to be healthy
       mongo:
         condition: service_started
       postgres:
-        condition: service_healthy # Wait for postgres healthcheck
+        condition: service_healthy
       rabbitmq:
         condition: service_started
       redis:
@@ -92,17 +94,20 @@ services:
 
   # MongoDB Database Service
   mongo:
-    image: mongo:latest # Use a specific version tag in production (e.g., mongo:6.0)
+    # Use a specific version tag in production (e.g., mongo:6.0)
+    image: mongo:latest
     container_name: kiwiq_prod_mongo
     restart: unless-stopped
+    # Needed for MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD
     env_file:
-      - .env # Needed for MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD
+      - .env
     environment:
       # Load credentials from .env.prod
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    # Persist data
     volumes:
-      - mongo_data:/data/db # Persist data
+      - mongo_data:/data/db
     networks:
       - prod_network
     # No ports exposed externally
@@ -116,20 +121,24 @@ services:
 
   # PostgreSQL Database Service
   postgres:
-    image: postgres:latest # Use a specific version tag in production (e.g., postgres:15)
+    # Use a specific version tag in production (e.g., postgres:15)
+    image: postgres:latest
     container_name: kiwiq_prod_postgres
     restart: unless-stopped
+    # Needed for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
     env_file:
-      - .env # Needed for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+      - .env
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB} # Main DB, others created by setup.sh if needed
+      # Main DB, others created by setup.sh if needed
+      POSTGRES_DB: ${POSTGRES_DB}
       # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
       # Ensure it's defined in .env.prod
       # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
+    # Persist data
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Persist data
+      - postgres_data:/var/lib/postgresql/data
     networks:
       - prod_network
     # No ports exposed externally
@@ -139,24 +148,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s # Give some time for initialization
+      # Give some time for initialization
+      start_period: 10s
     # Optional: Add production logging
 
   # RabbitMQ Messaging Service
   rabbitmq:
-    image: rabbitmq:3-management-alpine # Use specific version (e.g., rabbitmq:3.11-management-alpine)
+    # Use specific version (e.g., rabbitmq:3.11-management-alpine)
+    image: rabbitmq:3-management-alpine
     container_name: kiwiq_prod_rabbitmq
     restart: unless-stopped
+    # Needed for RABBITMQ_DEFAULT_USER, RABBITMQ_DEFAULT_PASS
     env_file:
-      - .env # Needed for RABBITMQ_DEFAULT_USER, RABBITMQ_DEFAULT_PASS
+      - .env
     environment:
       # CRITICAL: Use strong, unique credentials from .env.prod
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       # Consider setting RABBITMQ_NODENAME for clarity
       # RABBITMQ_NODENAME: rabbit@kiwiq-prod
+    # Persist data
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq # Persist data
+      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - prod_network
     # No ports exposed externally (including management UI 15672)
@@ -171,14 +184,18 @@ services:
 
   # Redis Cache/Store Service
   redis:
-    image: redis:latest # Using latest Redis version for production
+    # Using latest Redis version for production
+    image: redis:latest
     container_name: kiwiq_prod_redis
     restart: unless-stopped
+    # Needed for REDIS_PASSWORD
     env_file:
-      - .env # Needed for REDIS_PASSWORD
-    command: redis-server --requirepass ${REDIS_PASSWORD} # Load password from .env.prod
+      - .env
+    # Load password from .env.prod
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    # Persist data
     volumes:
-      - redis_data:/data # Persist data
+      - redis_data:/data
     networks:
       - prod_network
     # No ports exposed externally
@@ -192,11 +209,13 @@ services:
 
   # Prefect Server Service (Orchestration API)
   prefect-server:
-    image: prefecthq/prefect:3-latest # Use specific version tag (e.g., prefecthq/prefect:3.0.1-python3.12)
+    # Use specific version tag (e.g., prefecthq/prefect:3.0.1-python3.12)
+    image: prefecthq/prefect:3-latest
     container_name: kiwiq_prod_prefect_server
     restart: unless-stopped
+    # Load Prefect specific variables
     env_file:
-      - .env # Load Prefect specific variables
+      - .env
     environment:
       # IMPORTANT: For production, consider using an external managed database (like RDS)
       # instead of the postgres container for Prefect's backend for better reliability/scalability.
@@ -204,22 +223,23 @@ services:
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
       # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
       PREFECT_API_URL: "http://localhost:4200/api"
-
       # Result Persistence (consider S3 or other external storage for production)
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT:-false}
       # PREFECT_RESULTS_DEFAULT_STORAGE_BLOCK: s3/your-prod-bucket # Example
     ports:
-      - "4200:4200"   
+      - "4200:4200"
     # NOTE: Exposing Prefect UI/API port directly (4200) might not be desired in production.
     # Consider accessing via Nginx (requires adding a location block) or SSH tunnel.
     # ports:
     #   - "4200:4200" # Map Prefect Server UI/API port if needed directly
+    # Persist Prefect server state (if using internal storage/SQLite)
     volumes:
-      # Persist Prefect server state (if using internal storage/SQLite)
       - prefect_data:/root/.prefect
     depends_on:
-      postgres: # Only if using the internal postgres container for Prefect DB
-        condition: service_healthy # Wait for postgres healthcheck
+      # Only if using the internal postgres container for Prefect DB
+      postgres:
+        # Wait for postgres healthcheck
+        condition: service_healthy
       app:
         condition: service_started
     networks:
@@ -232,20 +252,25 @@ services:
   prefect-agent:
     build:
       context: .
-      dockerfile: Dockerfile.worker # Use worker Dockerfile
+      # Use worker Dockerfile
+      dockerfile: Dockerfile.worker
       # Consider a separate Dockerfile.prod later.
     container_name: kiwiq_prod_prefect_agent
     restart: unless-stopped
+    # Load necessary credentials and config (includes full DB/Service URLs)
     env_file:
-      - .env # Load necessary credentials and config (includes full DB/Service URLs)
+      - .env
     depends_on:
-      prefect-server: # Wait for the server API
-        condition: service_started # Or add healthcheck to prefect-server and use service_healthy
+      # Wait for the server API
+      prefect-server:
+        # Or add healthcheck to prefect-server and use service_healthy
+        condition: service_started
       # Add dependencies based on what the agent/flows need (e.g., app, db, mq)
       # app: # Agent might need application code/utilities
       #   condition: service_started
       postgres:
-        condition: service_healthy # Wait for postgres healthcheck
+        # Wait for postgres healthcheck
+        condition: service_healthy
       mongo:
         condition: service_started
       rabbitmq:
@@ -263,9 +288,10 @@ services:
       # RABBITMQ_HOST: rabbitmq
       # REDIS_HOST: redis
       # Ensure DATABASE_URL, MONGO_URL etc. are correctly set via .env.prod or here if needed directly
+    # Similar to app, mount code only if necessary and not baked into the image
+    # Keep for now, consider removing for pure prod image
     volumes:
-      # Similar to app, mount code only if necessary and not baked into the image
-      - ./:/app # Keep for now, consider removing for pure prod image
+      - ./:/app
     # Command to start the agent polling a specific work pool and/or work queues
     # Replace 'default-agent-pool' and 'default' with your actual production work pool/queue name(s)
     # command: ["prefect", "agent", "start", "--pool", "default-agent-pool", "--work-queue", "default"]
@@ -284,5 +310,6 @@ volumes:
 
 # Define the custom network for inter-service communication
 networks:
+  # Default bridge network driver 
   prod_network:
-    driver: bridge # Default bridge network driver 
+    driver: bridge
