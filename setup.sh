@@ -83,14 +83,6 @@ echo "Database checks complete."
 # These scripts should ideally read database connection info from environment variables
 # (e.g., DATABASE_URL or individual POSTGRES_* variables).
 
-echo "Running initial DB setup script..."
-python services/kiwi_app/scripts/db_setup.py
-echo "DB setup script finished."
-
-echo "Running LangGraph Postgres setup script..."
-python services/kiwi_app/scripts/langgraph_postgres_setup.py
-echo "LangGraph Postgres setup script finished."
-
 # --- Run Alembic Migrations ---
 if command_exists alembic; then
   echo "Running Alembic migrations..."
@@ -101,6 +93,13 @@ else
     echo "Skipping Alembic migrations (command not found)."
 fi
 
+echo "Running initial DB setup script..."
+python services/kiwi_app/scripts/db_setup.py
+echo "DB setup script finished."
+
+echo "Running LangGraph Postgres setup script..."
+python services/kiwi_app/scripts/langgraph_postgres_setup.py
+echo "LangGraph Postgres setup script finished."
 
 # --- Set execution permissions ---
 # This line is commented out as it should be run once manually after creating the file,
