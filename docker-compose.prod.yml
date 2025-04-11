@@ -9,33 +9,34 @@ services:
 
   # Nginx Reverse Proxy with Certbot
   nginx:
-    build:
-      context: . # Use the root context
-      dockerfile: docker/nginx/Dockerfile.nginx # Build custom Nginx image
+    image: nginx:1.25-alpine
     container_name: kiwiq_prod_nginx
     restart: unless-stopped
     ports:
-      - "80:80"   # Expose HTTP port for initial Let's Encrypt challenge
-      - "443:443" # Expose HTTPS port for main traffic
+      - "80:80"
+      - "443:443"
     volumes:
-      # Persist certificates obtained by Certbot within the container
-      - letsencrypt_data:/etc/letsencrypt
-      # Persist challenge files (Certbot might place temporary files here)
-      - certbot_webroot:/var/www/certbot
-    env_file:
-      - .env # Needed for YOUR_DOMAIN, CERTBOT_EMAIL, APP_HOST, APP_PORT
-    depends_on:
-      app: # Ensure the backend app is started before Nginx tries to proxy to it
-        condition: service_started # Basic dependency, Nginx can start once app service starts
+      - ./docker/nginx/data/nginx:/etc/nginx/conf.d
+      - ./docker/nginx/data/certbot/conf:/etc/letsencrypt
+      - ./docker/nginx/data/certbot/www:/var/www/certbot
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
     networks:
       - prod_network
-    # Optional: Add production logging driver (e.g., awslogs, fluentd) if needed
-    # logging:
-    #   driver: "awslogs"
-    #   options:
-    #     awslogs-region: "your-region"
-    #     awslogs-group: "/your/log/group/prod"
-    #     awslogs-stream-prefix: "nginx"
+    depends_on:
+      app:
+        condition: service_started
+
+  # Certbot for Let's Encrypt SSL certificates
+  certbot:
+    image: certbot/certbot
+    container_name: kiwiq_prod_certbot
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/data/certbot/conf:/etc/letsencrypt
+      - ./docker/nginx/data/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - prod_network
 
   # Main Application Service (FastAPI/Uvicorn)
   app:
@@ -278,9 +279,7 @@ volumes:
   rabbitmq_data:
   redis_data:
   prefect_data:
-  # Volumes for Nginx/Certbot
-  letsencrypt_data: # Persist Let's Encrypt certificates and account info
-  certbot_webroot:  # Used for ACME challenge files
+  # Removed volumes for Nginx/Certbot as they're now using bind mounts
 
 # Define the custom network for inter-service communication
 networks:
