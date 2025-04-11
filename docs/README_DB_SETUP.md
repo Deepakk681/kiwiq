@@ -130,19 +130,7 @@ script_location = libs/src/db/alembic
 
 ```bash
 # migration #1
-PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Initial revision: Auth"
-
-# migration #2
-PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Add template, workflow and User notifications/HITL models"
-
-# migration #3
-PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Make Workflow Run model not require workflow reference and store config"
-
-# migration #4
-PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Add is_public field to Workflow Model and add template/run permissions"
-
-# migration #5
-PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Add cascade delete to org/user roles when org or user is deleted and cascade delete for access tokens if user is deleted"
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Initial revision"
 ```
 
 7. apply migration script
