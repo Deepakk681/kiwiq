@@ -23,7 +23,7 @@ These commands should be run manually *after* running `setup_ec2.sh` and logging
 # --- 1. Clone Your Repository ---
 # Replace <repo-url> and choose a deployment path
 REPO_URL="https://github.com/your-username/your-repo.git"
-DEPLOY_PATH="/home/ec2-user/my-app" # Example path
+DEPLOY_PATH="/home/ec2-user/stealth-backend"
 
 echo "Cloning repository from ${REPO_URL} to ${DEPLOY_PATH}..."
 git clone "${REPO_URL}" "${DEPLOY_PATH}"
@@ -49,7 +49,6 @@ echo "Save and exit the editor when done (Ctrl+X, then Y, then Enter in nano)."
 # DATABASE_URL=postgresql+psycopg2://user:password@your-rds-endpoint...
 # SECRET_KEY=your_production_secret_key
 nano .env.prod
-
 # --- 4. Secure the Environment File ---
 echo "Setting permissions for .env.prod..."
 chmod 600 .env.prod
@@ -59,33 +58,64 @@ chmod 600 .env.prod
 COMPOSE_FILE="docker-compose.prod.yml"
 
 echo "Building images (if needed)..."
-docker compose -f "${COMPOSE_FILE}" build
+# Use docker-compose (with hyphen)
+docker-compose -f "${COMPOSE_FILE}" build
 
 echo "Starting Docker Compose stack in detached mode..."
-docker compose -f "${COMPOSE_FILE}" up -d
+# Use docker-compose (with hyphen)
+docker-compose -f "${COMPOSE_FILE}" up -d
 
 echo "Waiting a few seconds for services to start..."
 sleep 10 # Give containers a moment to initialize
 
 echo "--- Current Container Status ---"
-docker compose -f "${COMPOSE_FILE}" ps
+# Use docker-compose (with hyphen)
+docker-compose -f "${COMPOSE_FILE}" ps
 
 echo "--- Check Logs (Press Ctrl+C to stop following) ---"
-docker compose -f "${COMPOSE_FILE}" logs -f nginx app # Check logs for key services
+# Use docker-compose (with hyphen)
+docker-compose -f "${COMPOSE_FILE}" logs -f nginx app # Check logs for key services
+
+# --- When setting up Systemd ---
+# Make sure the ExecStart/ExecStop commands also use 'docker-compose' (with hyphen)
+# Example for systemd file:
+# ExecStart=$(which docker-compose) -f "${COMPOSE_FILE_PATH}" up
+# ExecStop=$(which docker-compose) -f "${COMPOSE_FILE_PATH}" down
+
 
 # --- 6. Setup Systemd Service (for Reliability) ---
 # This section creates and enables the systemd service to manage your stack.
-# Run this AFTER confirming the stack starts correctly with the 'up -d' command above.
+# Run this AFTER confirming the stack starts correctly with 'up -d'.
 
-SERVICE_NAME="myapp-compose" # Choose a name for your service
+DEPLOY_PATH="/home/ec2-user/stealth-backend"
+
+# --- Configuration Variables (Ensure these are set correctly) ---
+SERVICE_NAME="kiwiq-backend" # Choose a name for your service (e.g., kiwiq-compose)
 USER="ec2-user" # User running the service
 GROUP="docker" # Group for docker permissions
-WORKING_DIRECTORY="${DEPLOY_PATH}" # Project directory path defined above
-COMPOSE_FILE_PATH="${WORKING_DIRECTORY}/${COMPOSE_FILE}" # Full path to compose file
+# DEPLOY_PATH should be set to your project directory from previous steps
+# Example: DEPLOY_PATH="/home/ec2-user/my-app"
+if [ -z "${DEPLOY_PATH}" ]; then
+  echo "Error: DEPLOY_PATH environment variable is not set. Please set it to your project directory."
+  exit 1
+fi
+WORKING_DIRECTORY="${DEPLOY_PATH}"
+# COMPOSE_FILE should be set to your production compose file name
+# Example: COMPOSE_FILE="docker-compose.prod.yml"
+if [ -z "${COMPOSE_FILE}" ]; then
+  echo "Error: COMPOSE_FILE environment variable is not set. Please set it to your compose file name."
+  exit 1
+fi
+COMPOSE_FILE_PATH="${WORKING_DIRECTORY}/${COMPOSE_FILE}"
 
 echo "Creating systemd service file at /etc/systemd/system/${SERVICE_NAME}.service..."
+echo "  Service Name: ${SERVICE_NAME}"
+echo "  User: ${USER}"
+echo "  Working Directory: ${WORKING_DIRECTORY}"
+echo "  Compose File: ${COMPOSE_FILE_PATH}"
 
-# Create the service file content using a heredoc
+# --- Create the systemd service file content using a heredoc ---
+# Uses 'docker-compose' (with hyphen) found via 'which'
 sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null <<EOF
 [Unit]
 Description=My App Docker Compose Stack (${SERVICE_NAME})
@@ -100,9 +130,10 @@ WorkingDirectory=${WORKING_DIRECTORY}
 # Stop attempts after 5 minutes
 TimeoutStartSec=300
 
-# Compose commands (use full path to docker if needed, e.g., /usr/bin/docker)
-ExecStart=$(which docker) compose -f "${COMPOSE_FILE_PATH}" up
-ExecStop=$(which docker) compose -f "${COMPOSE_FILE_PATH}" down
+# Compose commands using the standalone 'docker-compose' (hyphenated)
+# Use full path found by 'which' to ensure systemd finds the command
+ExecStart=$(which docker-compose) -f "${COMPOSE_FILE_PATH}" up
+ExecStop=$(which docker-compose) -f "${COMPOSE_FILE_PATH}" down
 
 # Restart policy
 Restart=on-failure
@@ -119,7 +150,8 @@ echo "Enabling and starting ${SERVICE_NAME} service..."
 # Enable means start on boot, --now starts it immediately
 sudo systemctl enable --now "${SERVICE_NAME}.service"
 
-echo "--- Checking status of ${SERVICE_NAME} service ---"
+echo "--- Checking status of ${SERVICE_NAME} service (wait a few seconds) ---"
+sleep 5 # Give service time to start
 sudo systemctl status "${SERVICE_NAME}.service"
 
 echo "--- Systemd setup complete. Your application should now be managed by systemd. ---"

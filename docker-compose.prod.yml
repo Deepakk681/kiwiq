@@ -2,6 +2,7 @@
 # Production environment Docker Compose configuration
 # Requires a .env.prod file in the same directory.
 
+# Version note: Using '3.8' or higher is recommended for newer features like healthcheck conditions.
 version: '3.8'
 
 services:
@@ -24,7 +25,8 @@ services:
     env_file:
       - .env.prod # Needed for YOUR_DOMAIN, CERTBOT_EMAIL, APP_HOST, APP_PORT
     depends_on:
-      - app # Ensure the backend app is started before Nginx tries to proxy to it
+      app: # Ensure the backend app is started before Nginx tries to proxy to it
+        condition: service_started # Basic dependency, Nginx can start once app service starts
     networks:
       - prod_network
     # Optional: Add production logging driver (e.g., awslogs, fluentd) if needed
@@ -41,38 +43,47 @@ services:
       context: .
       dockerfile: Dockerfile-dev.app # Use the same Dockerfile as dev for now
       # Consider a separate Dockerfile.prod later for optimizations (e.g., no reload)
+      # and to avoid running setup.sh on every start (see entrypoint note below).
     container_name: kiwiq_prod_app
     restart: unless-stopped
     # No ports exposed directly; Nginx handles external access.
     env_file:
-      - .env.prod # Load production environment variables
+      - .env.prod # Load production environment variables (includes full DB/Service URLs)
     environment:
       # Override any dev-specific settings if necessary
       APP_ENV: PROD
-      # Ensure DB/Service URLs point to internal service names
-      # POSTGRES_HOST: postgres # Connect to the postgres service
-      # MONGO_HOST: mongo       # Connect to the mongo service
-      # RABBITMQ_HOST: rabbitmq # Connect to the rabbitmq service
-      # REDIS_HOST: redis       # Connect to the redis service
-      # Add other production-specific env vars if needed
+      # Individual host vars are removed; rely on full URLs from .env.prod loaded above
+      # POSTGRES_HOST: postgres
+      # MONGO_HOST: mongo
+      # RABBITMQ_HOST: rabbitmq
+      # REDIS_HOST: redis
+      # Add other production-specific env vars if needed directly here
     volumes:
       # In production, typically you don't mount the source code directly.
       # The code should be copied into the image during the build.
       # Remove this line if using a dedicated Dockerfile.prod that copies the code.
       - ./:/app # Keep for now if using Dockerfile-dev.app, but consider removing
     depends_on:
-      # Explicitly depend on backend services
-      - mongo
-      - postgres
-      - rabbitmq
-      - redis
-      - prefect-server # Ensure Prefect API is available
-      - prefect-agent
+      # Explicitly depend on backend services and wait for postgres to be healthy
+      mongo:
+        condition: service_started
+      postgres:
+        condition: service_healthy # Wait for postgres healthcheck
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
+      prefect-server:
+        condition: service_started
+      prefect-agent:
+        condition: service_started
     networks:
       - prod_network
-    # # Production command: Use multiple workers, disable reload
-    # # Adjust worker count based on server resources
     # command: ["uvicorn", "services.kiwi_app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+    # NOTE on Entrypoint: Because this uses Dockerfile-dev.app, the ENTRYPOINT ["/app/setup.sh"]
+    # from that file will run every time this container starts. This includes DB creation checks
+    # and Alembic migrations. Ensure setup.sh is idempotent and consider if this is the desired
+    # behavior for production restarts vs. running migrations as a separate deployment step.
     # Optional: Add production logging
     # logging:
     #   driver: "awslogs"
@@ -92,6 +103,12 @@ services:
     networks:
       - prod_network
     # No ports exposed externally
+    # Optional: Add basic healthcheck for Mongo if needed
+    # healthcheck:
+    #   test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+    #   interval: 10s
+    #   timeout: 10s
+    #   retries: 5
     # Optional: Add production logging
 
   # PostgreSQL Database Service
@@ -102,14 +119,22 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB} # Main DB, others created by setup.sh
-      # Add POSTGRES_DATABASES if setup.sh needs it (ensure it's in .env.prod)
+      POSTGRES_DB: ${POSTGRES_DB} # Main DB, others created by setup.sh if needed
+      # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
+      # Ensure it's defined in .env.prod
       # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persist data
     networks:
       - prod_network
     # No ports exposed externally
+    healthcheck:
+      # Test if Postgres is ready to accept connections
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s # Give some time for initialization
     # Optional: Add production logging
 
   # RabbitMQ Messaging Service
@@ -129,6 +154,12 @@ services:
       - prod_network
     # No ports exposed externally (including management UI 15672)
     # Access management UI via SSH tunnel or internal network if needed.
+    # Optional: Add basic healthcheck
+    # healthcheck:
+    #   test: rabbitmq-diagnostics -q ping
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 5
     # Optional: Add production logging
 
   # Redis Cache/Store Service
@@ -142,6 +173,12 @@ services:
     networks:
       - prod_network
     # No ports exposed externally
+    # Optional: Add basic healthcheck
+    # healthcheck:
+    #   test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
     # Optional: Add production logging
 
   # Prefect Server Service (Orchestration API)
@@ -156,22 +193,27 @@ services:
       # instead of the postgres container for Prefect's backend for better reliability/scalability.
       # If using the postgres container:
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
-      # If using external DB, set PREFECT_API_DATABASE_CONNECTION_URL in .env.prod
+      # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
 
       # Result Persistence (consider S3 or other external storage for production)
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT:-false}
       # PREFECT_RESULTS_DEFAULT_STORAGE_BLOCK: s3/your-prod-bucket # Example
     ports:
-      - "4200:4200"                       # Map Prefect Server UI/API port
+      - "4200:4200"   
+    # NOTE: Exposing Prefect UI/API port directly (4200) might not be desired in production.
+    # Consider accessing via Nginx (requires adding a location block) or SSH tunnel.
+    # ports:
+    #   - "4200:4200" # Map Prefect Server UI/API port if needed directly
     volumes:
       # Persist Prefect server state (if using internal storage/SQLite)
       - prefect_data:/root/.prefect
     depends_on:
-      - postgres # Only if using the internal postgres container for Prefect DB
+      postgres: # Only if using the internal postgres container for Prefect DB
+        condition: service_healthy # Wait for postgres healthcheck
     networks:
       - prod_network
     entrypoint: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
-    # No ports exposed externally
+    # No ports exposed externally by default
     # Optional: Add production logging
 
   # Prefect Agent Service (Runs flows)
@@ -179,31 +221,39 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker # Use worker Dockerfile
+      # Consider a separate Dockerfile.prod later.
     container_name: kiwiq_prod_prefect_agent
     restart: unless-stopped
     depends_on:
-      - prefect-server # Wait for the server API
+      prefect-server: # Wait for the server API
+        condition: service_started # Or add healthcheck to prefect-server and use service_healthy
       # Add dependencies based on what the agent/flows need (e.g., app, db, mq)
-      - postgres
-      - mongo
-      - rabbitmq
-      - redis
+      # app: # Agent might need application code/utilities
+      #   condition: service_started
+      postgres:
+        condition: service_healthy # Wait for postgres healthcheck
+      mongo:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      redis:
+        condition: service_started
     env_file:
-      - .env.prod # Load necessary credentials and config
+      - .env.prod # Load necessary credentials and config (includes full DB/Service URLs)
     environment:
       # PREFECT_API_URL: "http://prefect-server:4200/api" # Internal URL
       PREFECT_LOGGING_LEVEL: INFO
-      # Pass necessary DB/Service credentials/URLs needed by flows
+      # Individual host vars are removed; rely on full URLs from .env.prod loaded above
       # POSTGRES_HOST: postgres
       # MONGO_HOST: mongo
       # RABBITMQ_HOST: rabbitmq
       # REDIS_HOST: redis
-      # Ensure DATABASE_URL, MONGO_URL etc. are correctly set via .env.prod or here
+      # Ensure DATABASE_URL, MONGO_URL etc. are correctly set via .env.prod or here if needed directly
     volumes:
       # Similar to app, mount code only if necessary and not baked into the image
       - ./:/app # Keep for now, consider removing for pure prod image
-    # # Command to start the agent polling a specific work pool
-    # # Replace 'default-agent-pool' with your actual production work pool name
+    # Command to start the agent polling a specific work pool and/or work queues
+    # Replace 'default-agent-pool' and 'default' with your actual production work pool/queue name(s)
     # command: ["prefect", "agent", "start", "--pool", "default-agent-pool", "--work-queue", "default"]
     networks:
       - prod_network
