@@ -40,18 +40,21 @@ COPY docker/nginx/entrypoint.sh /entrypoint.sh
 # Make the entrypoint script executable.
 RUN chmod +x /entrypoint.sh
 
-# --- Prepare for Certbot & Nginx Startup --- 
+# --- Prepare for Certbot & Nginx Startup ---
 # Create the directory where Certbot will place ACME challenge files
 RUN mkdir -p /var/www/certbot/.well-known/acme-challenge
 RUN chown nginx:nginx /var/www/certbot -R # Ensure nginx user can write if needed
 
-# Create placeholder files for SSL config includes that Certbot will generate later.
-# This allows Nginx -t (config test) to pass before Certbot runs.
+# Create base Let's Encrypt directory
 RUN mkdir -p /etc/letsencrypt
-RUN touch /etc/letsencrypt/options-ssl-nginx.conf
-RUN touch /etc/letsencrypt/ssl-dhparams.pem
-RUN chmod 600 /etc/letsencrypt/options-ssl-nginx.conf
-RUN chmod 600 /etc/letsencrypt/ssl-dhparams.pem
+
+# REMOVED: Let entrypoint handle creation of initial/placeholder SSL files
+# RUN touch /etc/letsencrypt/options-ssl-nginx.conf
+# RUN touch /etc/letsencrypt/ssl-dhparams.pem
+# RUN chmod 600 /etc/letsencrypt/options-ssl-nginx.conf
+# RUN chmod 600 /etc/letsencrypt/ssl-dhparams.pem
+
+# --- Optional: Pre-seed Let's Encrypt Data ---
 
 # --- Optional: Pre-seed Let's Encrypt Data ---
 # If you have existing certificates and account info, you can copy them here.

@@ -28,8 +28,8 @@ if not DATA_ROOT.exists():
         print(f"Warning: Failed to create data directory at {DATA_ROOT}: {e}")
 
 
-ENV_FILE_PATH = PROJECT_ROOT / ".env"
 PROD_ENV_FILE_PATH = PROJECT_ROOT / ".env.prod"
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
