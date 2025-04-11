@@ -21,7 +21,7 @@ from faststream import ContextRepo
 # Import settings and logger setup
 from kiwi_app.settings import settings
 from global_config.logger import get_logger
-from db.session import get_async_db_as_manager
+# from db.session import get_async_db_as_manager
 
 # Import WebSocket connection manager
 from kiwi_app.workflow_app.websockets import get_websocket_manager, ConnectionManager

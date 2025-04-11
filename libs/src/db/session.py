@@ -243,3 +243,32 @@ async def get_async_db_as_manager() -> AsyncGenerator[AsyncSession, None]:
         raise
     finally:
         await session.close()
+
+
+async def get_async_db_dependency() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Async context manager for asynchronous SQLModel database sessions.
+
+    Provides a SQLModel AsyncSession, managing commit, rollback, and closing.
+
+    Yields:
+        AsyncSession: SQLModel async session managed by the context.
+
+    Example:
+        ```python
+        async with get_async_db() as session:
+            # session is a SQLModel AsyncSession
+            results = await session.exec(select(Hero))
+            heroes = results.all()
+        ```
+    """
+    session = await get_async_session() # Uses the SQLModel async session factory
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+

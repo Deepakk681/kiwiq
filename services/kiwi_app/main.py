@@ -1,3 +1,4 @@
+# PYTHONPATH=$(pwd):$(pwd)/services  poetry run uvicorn services.kiwi_app.main:app --host 0.0.0.0 --port 8000
 # PYTHONPATH=$(pwd):$(pwd)/services  poetry run python ./services/kiwi_app/main.py
 # PYTHONPATH=$(pwd):$(pwd)/services  poetry run uvicorn main:app --app-dir services/kiwi_app --reload
 import asyncio

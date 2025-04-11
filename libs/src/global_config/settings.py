@@ -103,6 +103,7 @@ class Settings(BaseSettings):
 global_settings = Settings() 
 if not global_settings.LANGGRAPH_DATABASE_URL:
     global_settings.LANGGRAPH_DATABASE_URL = "/".join(global_settings.DATABASE_URL.split("/")[:-1] + [global_settings.LANGGRAPH_DATABASE_NAME])
+
 # print(global_settings.DATABASE_URL)
 # Setup up global logging for this module
 

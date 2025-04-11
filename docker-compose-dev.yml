@@ -105,7 +105,7 @@ services:
     environment:
       # Database connection URL using other service names (requires postgres service)
       # Format: postgresql+driver://user:password@host:port/database
-      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${PREFECT_DB}"
+      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${PREFECT_DB}"
       # Note: this is in ~/.prefect/storage directory by default! https://docs.prefect.io/v3/develop/results
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT}
       # Optional: Set UI API URL if needed explicitly
@@ -120,61 +120,78 @@ services:
     networks:
       - dev_network
 
-# --- Commented out Services (Examples) ---
+ # Example Application Service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-dev.app # Assumes Dockerfile.app exists
+    container_name: core-app-dev
+    restart: on-failure
+    ports:
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}" # Map app port, provide default if not set in .env
+    environment:
+      APP_ENV: ${APP_ENV:-development} # Set application environment
+      APP_PORT: ${APP_PORT:-8000}
+      # Database and Service URLs (using service names)
+      # Ensure these env vars match what your application expects
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DATABASES: ${POSTGRES_DATABASES}
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      # /?authSource=admin" # Added authSource
+      MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
+      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
+      REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
+      WEAVIATE_URL: "http://weaviate:8080"
+      PREFECT_API_URL: "http://prefect-server:4200/api"
+      # Set PYTHONPATH if your app structure requires it
+      # PYTHONPATH: /app:/app/services # Example
+    volumes:
+      - ./:/app # Mount application code for development (live reload)
+    depends_on: # Ensure backend services are started first
+      - weaviate
+      - mongo
+      - postgres
+      - rabbitmq
+      - redis
+      - prefect-server
+    networks:
+      - dev_network
 
-#  # Prefect Agent Service (Runs flows)
-#  prefect-agent:
-#    image: prefecthq/prefect:3-latest # Match server version
-#    container_name: prefect-agent-dev
-#    restart: on-failure
-#    depends_on:
-#      - prefect-server # Wait for the server API to be available
-#    environment:
-#      # Point agent to the server API URL (using service name)
-#      PREFECT_API_URL: "http://prefect-server:4200/api"
-#      PREFECT_LOGGING_LEVEL: INFO
-#      # Add any other env vars needed by your flows
-#    # Command to start the agent polling a specific work pool (replace 'default-pool' if needed)
-#    command: ["prefect", "agent", "start", "-p", "default-pool"]
-#    networks:
-#      - dev_network
-#    # Optional: Mount code if agent needs access to flow definitions locally
-#    # volumes:
-#    #   - .:/app # Example: Mount current directory to /app
-
-#  # Example Application Service
-#  app:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile.app # Assumes Dockerfile.app exists
-#    container_name: core-app-dev
-#    restart: on-failure
-#    ports:
-#      - "${APP_PORT:-8000}:${APP_PORT:-8000}" # Map app port, provide default if not set in .env
-#    environment:
-#      APP_ENV: ${APP_ENV:-development} # Set application environment
-#      APP_PORT: ${APP_PORT:-8000}
-#      # Database and Service URLs (using service names)
-#      # Ensure these env vars match what your application expects
-#      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-#      MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin" # Added authSource
-#      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
-#      REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
-#      WEAVIATE_URL: "http://weaviate:8080"
-#      PREFECT_API_URL: "http://prefect-server:4200/api"
-#      # Set PYTHONPATH if your app structure requires it
-#      # PYTHONPATH: /app:/app/services # Example
-#    volumes:
-#      - ./:/app # Mount application code for development (live reload)
-#    depends_on: # Ensure backend services are started first
-#      - weaviate
-#      - mongo
-#      - postgres
-#      - rabbitmq
-#      - redis
-#      - prefect-server
-#    networks:
-#      - dev_network
+  # Prefect Agent Service (Runs flows)
+  prefect-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker # Assumes Dockerfile.worker exists
+    container_name: prefect-agent-dev
+    restart: on-failure
+    depends_on:
+      - prefect-server # Wait for the server API to be available
+      - app
+    environment:
+      # Point agent to the server API URL (using service name)
+      PREFECT_API_URL: "http://prefect-server:4200/api"
+      PREFECT_LOGGING_LEVEL: INFO
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DATABASES: ${POSTGRES_DATABASES}
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      # /?authSource=admin" # Added authSource
+      MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
+      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
+      REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
+      WEAVIATE_URL: "http://weaviate:8080"
+      # Add any other env vars needed by your flows
+    # Command to start the agent polling a specific work pool (replace 'default-pool' if needed)
+    networks:
+      - dev_network
+    # Optional: Mount code if agent needs access to flow definitions locally
+    volumes:
+      - .:/app # Example: Mount current directory to /app
 
 # Define named volumes for data persistence
 volumes:

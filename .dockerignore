@@ -1,0 +1,118 @@
+# --- Git / Version Control ---
+.git/
+.gitignore
+
+# --- Docker specific ---
+# Avoid copying the Dockerfile or the ignore file itself
+Dockerfile
+.dockerignore
+
+# --- Python / Poetry Virtual Environments ---
+# Common names for virtual environments
+.venv
+venv
+env
+# Also ignore if nested within directories
+*/.venv
+*/venv
+*/env
+# Poetry's own environment directory if created locally (less common)
+.poetry/
+
+# --- Python bytecode and cache ---
+__pycache__/
+*.py[cod] # Matches .pyc, .pyo, .pyd
+$py.class # Jython
+*.so # C extensions
+
+# --- Python Distribution / Build artifacts ---
+build/
+dist/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+develop-eggs/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# --- Testing artifacts ---
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+# Add other test report formats if you use them (e.g., *.junit.xml)
+
+# --- Type checker cache ---
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# --- IDE / Editor configuration ---
+.idea/
+.vscode/
+*.sublime-*
+nbproject/ # Netbeans
+
+# --- OS generated files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Logs and temporary files ---
+*.log
+*.log.*
+*.swp # Vim swap files
+*~ # Backup files
+
+# --- Data directories (IMPORTANT: Customize!) ---
+# Add directories containing large datasets, raw data, models,
+# intermediate results, or anything else that shouldn't be in the image.
+# These are often better mounted as volumes at runtime if needed.
+data/
+datasets/
+raw_data/
+processed_data/
+models/
+# If you have specific large data files not in directories:
+# *.csv
+# *.json # Be careful not to ignore small config json files
+# *.parquet
+# *.hdf5
+# *.pkl
+
+# --- Notebooks ---
+# Often contain large outputs or are only for development/exploration
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+
+# --- Environment files ---
+# Avoid copying local development environment variables and secrets.
+# Inject production configuration at runtime (e.g., via docker-compose environment).
+.env
+# Use *.env cautiously if you DO need to copy a specific '.env.prod' etc.
+# *.env
+
+# --- Documentation / Other (Optional: keep image smaller) ---
+# Uncomment if you don't need these in the image
+# README.md
+# README.rst
+# CONTRIBUTING.md
+# LICENSE
+# docs/
+# examples/
