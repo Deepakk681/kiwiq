@@ -93,7 +93,7 @@ else
     echo "Skipping Alembic migrations (command not found)."
 fi
 
-echo "Running initial DB setup script..."
+echo "Running initial DB setup script -> to create super user, permissions, etc!..."
 python services/kiwi_app/scripts/db_setup.py
 echo "DB setup script finished."
 
