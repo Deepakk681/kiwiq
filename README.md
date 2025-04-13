@@ -11,7 +11,7 @@ Multi-service, multi-tier, Kubernetes-based platform.
 ```bash
 - docker-compose -f docker-compose-dev.yml up --build
 ```
-Go to [http://localhost:8000/docs]()
+Go to [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ## Repo Structure
 
@@ -27,8 +27,3 @@ Key app/service paths:
 ## License
 
 Copyright (c) [2025] [KiwiQ AI]
-
-
-
-
-
