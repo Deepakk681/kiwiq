@@ -24,6 +24,8 @@ from kiwi_app.workflow_app.exceptions import (
     WorkflowRunNotFoundException,
     TemplateNotFoundException
 )
+from workflow_service.registry import registry
+from workflow_service.services.db_node_register import register_node_templates
 from workflow_service.services.external_context_manager import get_workflow_mongo_client
 
 # --- DAO Dependency Factories --- #
@@ -48,6 +50,26 @@ def get_user_notification_dao() -> crud.UserNotificationDAO:
 
 def get_hitl_job_dao() -> crud.HITLJobDAO:
     return crud.HITLJobDAO()
+
+db_registry = None
+
+async def get_node_template_registry() -> registry.DBRegistry:
+    global db_registry
+    if db_registry is None:
+        node_template_dao =  crud.NodeTemplateDAO()
+        workflow_dao = crud.WorkflowDAO()
+        prompt_template_dao = crud.PromptTemplateDAO()
+        schema_template_dao = crud.SchemaTemplateDAO()
+
+        db_registry = registry.DBRegistry(
+            node_template_dao = node_template_dao,
+            schema_template_dao = schema_template_dao,
+            prompt_template_dao = prompt_template_dao,
+            workflow_dao = workflow_dao,
+        )
+
+        await register_node_templates(db_registry)
+    return db_registry
 
 # --- Service Dependency Factory --- #
 

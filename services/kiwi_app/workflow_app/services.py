@@ -182,7 +182,7 @@ class WorkflowService:
     ) -> bool:
         """Deletes a workflow."""
         # DAO handles the deletion and org check
-        deleted_workflow = await self.workflow_dao.remove_by_id_and_org(db, id=workflow.id, owner_org_id=workflow.owner_org_id)
+        deleted_workflow = await self.workflow_dao.remove_obj(db, obj=workflow)
         # TODO: Consider implications - should deleting a workflow delete its runs?
         # Add logic here to handle cascading deletes or archiving if necessary
         return deleted_workflow is not None

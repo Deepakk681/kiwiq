@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from libs.src.db.session import get_async_session, get_async_db_dependency # Added get_async_db_dependency
 # Change relative to absolute imports
 from kiwi_app.auth import crud, models, schemas, security, dependencies, linkedin, utils, services, email_verify # Added email_verify
-from kiwi_app.auth.utils import auth_logger
+# from kiwi_app.auth.utils import auth_logger
+from kiwi_app.utils import get_kiwi_logger
+
+auth_logger = get_kiwi_logger(name="kiwi_app.auth")
+
 from kiwi_app.auth.constants import Permissions
 from kiwi_app.auth.exceptions import (
     EmailAlreadyExistsException,
@@ -385,7 +389,7 @@ async def linkedin_callback_endpoint(
 
 # === User Management Endpoints ===
 
-@router.get("/users/me", response_model=schemas.UserRead, tags=["users"])
+@router.get("/users/me", response_model=schemas.UserReadWithSuperuserStatus, tags=["users"])
 async def read_users_me_endpoint(
     # Depends on get_current_user which loads necessary relationships
     current_user: models.User = Depends(dependencies.get_current_active_user)

@@ -5,13 +5,15 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Union, Sequence
 from pydantic import BaseModel, Field, validator, ConfigDict, field_validator, model_validator
 
-from kiwi_app.workflow_app.constants import LaunchStatus, WorkflowRunStatus, NotificationType, HITLJobStatus, SchemaType
-# Import base User/Org schemas if needed for nesting, or use full models if simpler
-# from kiwi_app.auth.schemas import UserRead, OrganizationRead
-# Import GraphSchema for type hinting if needed, but graph_config will be stored as Dict
-from workflow_service.graph.graph import GraphSchema
+# from kiwi_app.workflow_app.constants import LaunchStatus, WorkflowRunStatus, NotificationType, HITLJobStatus, SchemaType
+from kiwi_client.schemas.workflow_constants import LaunchStatus, WorkflowRunStatus, NotificationType, HITLJobStatus, SchemaType
+
+# from workflow_service.graph.graph import GraphSchema
+from kiwi_client.schemas.graph_schema import GraphSchema
+
 # Import event schemas for detailing run results
-from workflow_service.services import events as event_schemas
+# from workflow_service.services import events as event_schemas
+from kiwi_client.schemas import events_schema as event_schemas
 
 # --- NodeTemplate Schemas --- #
 

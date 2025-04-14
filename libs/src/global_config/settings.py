@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     LINKEDIN_API_VERSION: str = "202502"
     LINKEDIN_REDIRECT_URL: str = ""
 
-    LOG_LEVEL: str = "WARNING"
+    LOG_LEVEL: str = "INFO"
     LOG_FILE_NAME: str = "kiwiq_backend.log"
     LOG_PREFECT_FILE_NAME: str = "prefect_worker.log"
     

@@ -124,7 +124,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile-dev.app # Assumes Dockerfile.app exists
+      dockerfile: docker/Dockerfile.dev.app # Assumes Dockerfile.app exists
     container_name: core-app-dev
     restart: on-failure
     ports:
@@ -164,7 +164,7 @@ services:
   prefect-agent:
     build:
       context: .
-      dockerfile: Dockerfile.worker # Assumes Dockerfile.worker exists
+      dockerfile: docker/Dockerfile.worker # Assumes Dockerfile.worker exists
     container_name: prefect-agent-dev
     restart: on-failure
     depends_on:

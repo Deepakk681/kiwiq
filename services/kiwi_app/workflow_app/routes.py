@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+import traceback
 from typing import List, Optional, Dict, Any, Annotated, Union, AsyncGenerator
 
 from fastapi import (
@@ -32,9 +33,14 @@ from kiwi_app.workflow_app import schemas, services, models, dependencies as wf_
 
 # --- Event Schemas ---
 # Import event schemas for stream response type
+from workflow_service.registry import registry
 from workflow_service.services import events as event_schemas
 
 from kiwi_app.workflow_app.websockets import websocket_router
+# from kiwi_app.workflow_app.utils import workflow_logger
+from kiwi_app.utils import get_kiwi_logger
+
+workflow_logger = get_kiwi_logger(name="kiwi_app.workflow")
 
 # --- Permission Checker Dependencies (Imported from wf_deps correctly now) ---
 # Example: wf_deps.RequireWorkflowRead, wf_deps.RequireWorkflowCreate, etc.
@@ -72,26 +78,38 @@ async def list_node_templates(
     - Supports pagination via `skip` and `limit`.
     - Requires `template:read` permission on the active organization.
     """
-    if constants.LaunchStatus.EXPERIMENTAL in query_params.launch_status and not user.is_superuser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Experimental templates are not accessible to regular users.")
+    try:
+        if constants.LaunchStatus.EXPERIMENTAL in query_params.launch_status and not user.is_superuser:
+            workflow_logger.warning(f"User {user.id} attempted to access experimental templates without superuser privileges")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Experimental templates are not accessible to regular users.")
 
-    return await workflow_service.list_node_templates(
-        db=db,
-        launch_statuses=query_params.launch_status,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+        templates = await workflow_service.list_node_templates(
+            db=db,
+            launch_statuses=query_params.launch_status,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {user.id} listed {len(templates)} node templates with filters: {query_params}")
+        return templates
+    except HTTPException as e:
+        # Re-raise HTTP exceptions as they're already properly formatted
+        raise
+    except Exception as e:
+        # Log unexpected errors with traceback
+        workflow_logger.error(f"Error listing node templates: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing node templates")
 
 @template_router.get(
     "/nodes/{name}/{version}",
     response_model=schemas.NodeTemplateRead,
-    summary="Get Node Template by Name and Version",
+    summary="Get Node Template by Name and Version; set version to 'latest' for latest production version.",
     # dependencies=[Depends(wf_deps.RequireTemplateRead)]
 )
 async def get_node_template(
     user: User = Depends(get_current_active_verified_user),
     name: str = Path(..., description="Name of the node template"),
     version: str = Path(..., description="Version of the node template"),
+    db_registry: registry.DBRegistry = Depends(wf_deps.get_node_template_registry),
     db: AsyncSession = Depends(get_async_db_dependency),
     workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
 ):
@@ -100,12 +118,35 @@ async def get_node_template(
 
     - Requires `template:read` permission.
     """
-    template = await workflow_service.get_node_template(db=db, name=name, version=version)
-    if not template:
-        raise exceptions.TemplateNotFoundException(f"Node template '{name}' version '{version}' not found.")
-    if template.launch_status == constants.LaunchStatus.EXPERIMENTAL and not user.is_superuser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Experimental templates are not accessible to regular users.")
-    return template
+    try:
+        # NOTE: this can only be implemented via the registry!
+        if version == "latest":
+            try:
+                node = db_registry.get_node(node_name=name, version=None)
+                version = node.node_version
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        template = await workflow_service.get_node_template(db=db, name=name, version=version)
+        if not template:
+            workflow_logger.warning(f"User {user.id} attempted to access non-existent node template: {name} v{version}")
+            raise exceptions.TemplateNotFoundException(f"Node template '{name}' version '{version}' not found.")
+        
+        if template.launch_status == constants.LaunchStatus.EXPERIMENTAL and not user.is_superuser:
+            workflow_logger.warning(f"User {user.id} attempted to access experimental template {name} v{version} without superuser privileges")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Experimental templates are not accessible to regular users.")
+        
+        workflow_logger.info(f"User {user.id} retrieved node template: {name} v{version}")
+        return template
+    except exceptions.TemplateNotFoundException as e:
+        # Re-raise template not found exception
+        raise
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log unexpected errors with traceback
+        workflow_logger.error(f"Error retrieving node template {name} v{version}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the node template")
 
 
 # -- Prompt Templates --
@@ -128,10 +169,20 @@ async def create_prompt_template(
 
     - Requires `template:create_org` permission on the active organization.
     """
-    # Service layer handles potential name/version conflicts within the org
-    return await workflow_service.create_prompt_template(
-        db=db, template_in=template_in, owner_org_id=active_org_id, user=current_user
-    )
+    try:
+        # Service layer handles potential name/version conflicts within the org
+        template = await workflow_service.create_prompt_template(
+            db=db, template_in=template_in, owner_org_id=active_org_id, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} created prompt template '{template.name}' (id: {template.id}) for org {active_org_id}")
+        return template
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log unexpected errors with traceback
+        workflow_logger.error(f"Error creating prompt template '{template_in.name}' for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the prompt template")
 
 @template_router.get(
     "/prompts/",
@@ -142,7 +193,7 @@ async def create_prompt_template(
 async def list_prompt_templates(
     query_params: Annotated[schemas.PromptTemplateListQuery, Query()],
     active_org_id: uuid.UUID = Depends(get_active_org_id),
-    # current_user: User = Depends(wf_deps.RequireTemplateReadActiveOrg), # Needed only if superuser bypasses active_org_id
+    current_user: User = Depends(get_current_active_verified_user),
     db: AsyncSession = Depends(get_async_db_dependency),
     workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
 ):
@@ -155,15 +206,21 @@ async def list_prompt_templates(
     - Superusers can potentially filter by a different `owner_org_id` (requires service/checker support).
     - Requires `template:read` permission on the active organization.
     """
-    # Superuser filtering by owner_org_id needs to be handled in the service layer
-    # based on the current_user's is_superuser flag if needed.
-    return await workflow_service.list_prompt_templates(
-        db=db,
-        owner_org_id=active_org_id, # Pass active org as context
-        include_system=query_params.include_system,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+    try:
+        # Superuser filtering by owner_org_id needs to be handled in the service layer
+        # based on the current_user's is_superuser flag if needed.
+        templates = await workflow_service.list_prompt_templates(
+            db=db,
+            owner_org_id=active_org_id, # Pass active org as context
+            include_system=query_params.include_system,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed {len(templates)} prompt templates for org {active_org_id} (include_system: {query_params.include_system})")
+        return templates
+    except Exception as e:
+        workflow_logger.error(f"Error listing prompt templates for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing prompt templates")
 
 @template_router.get(
     "/prompts/{template_id}",
@@ -174,7 +231,7 @@ async def list_prompt_templates(
 async def get_prompt_template(
     template_id: uuid.UUID = Path(..., description="The ID of the prompt template"),
     active_org_id: uuid.UUID = Depends(get_active_org_id), # For context if accessing org template
-    # current_user: User = Depends(get_current_active_verified_user), # Needed if checking access to system templates differently
+    current_user: User = Depends(get_current_active_verified_user),
     db: AsyncSession = Depends(get_async_db_dependency),
     workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
 ):
@@ -189,9 +246,14 @@ async def get_prompt_template(
         template = await workflow_service.get_prompt_template(
             db=db, template_id=template_id, owner_org_id=active_org_id # Pass org context for check
         )
+        workflow_logger.info(f"User {current_user.id} retrieved prompt template {template_id}")
+        return template
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to access non-existent prompt template: {template_id}")
         raise e # Re-raise the specific 404 exception from the service layer
-    return template
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving prompt template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the prompt template")
 
 
 @template_router.put(
@@ -220,12 +282,17 @@ async def update_prompt_template(
         template = await workflow_service.get_prompt_template(
             db=db, template_id=template_id, owner_org_id=active_org_id
         )
+        updated_template = await workflow_service.update_prompt_template(
+            db=db, template=template, template_update=template_update, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} updated prompt template {template_id} for org {active_org_id}")
+        return updated_template
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to update non-existent prompt template: {template_id}")
         raise e
-    # Dependency ensures template belongs to active org before calling service
-    return await workflow_service.update_prompt_template(
-        db=db, template=template, template_update=template_update, user=current_user
-    )
+    except Exception as e:
+        workflow_logger.error(f"Error updating prompt template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while updating the prompt template")
 
 @template_router.delete(
     "/prompts/{template_id}",
@@ -251,10 +318,15 @@ async def delete_prompt_template(
         template = await workflow_service.get_prompt_template(
             db=db, template_id=template_id, owner_org_id=active_org_id
         )
+        await workflow_service.delete_prompt_template(db=db, template=template, user=current_user)
+        workflow_logger.info(f"User {current_user.id} deleted prompt template {template_id} for org {active_org_id}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT) # Explicitly return 204
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to delete non-existent prompt template: {template_id}")
         raise e
-    await workflow_service.delete_prompt_template(db=db, template=template, user=current_user)
-    return Response(status_code=status.HTTP_204_NO_CONTENT) # Explicitly return 204
+    except Exception as e:
+        workflow_logger.error(f"Error deleting prompt template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while deleting the prompt template")
 
 # TODO: FIXME: add custom validators to ensure every prompt variable exists in the prompt template
 #   and every placeholder variable `{...}` in template exists as variable
@@ -280,9 +352,17 @@ async def create_schema_template(
 
     - Requires `template:create_org` permission on the active organization.
     """
-    return await workflow_service.create_schema_template(
-        db=db, template_in=template_in, owner_org_id=active_org_id, user=current_user
-    )
+    try:
+        template = await workflow_service.create_schema_template(
+            db=db, template_in=template_in, owner_org_id=active_org_id, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} created schema template '{template.name}' (id: {template.id}) for org {active_org_id}")
+        return template
+    except HTTPException as e:
+        raise
+    except Exception as e:
+        workflow_logger.error(f"Error creating schema template '{template_in.name}' for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the schema template")
 
 @template_router.get(
     "/schemas/",
@@ -302,13 +382,19 @@ async def list_schema_templates(
 
      - Requires `template:read` permission on the active organization.
     """
-    return await workflow_service.list_schema_templates(
-        db=db,
-        owner_org_id=(query_params.owner_org_id if current_user.is_superuser else None) or active_org_id,
-        include_system=query_params.include_system,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+    try:
+        templates = await workflow_service.list_schema_templates(
+            db=db,
+            owner_org_id=(query_params.owner_org_id if current_user.is_superuser else None) or active_org_id,
+            include_system=query_params.include_system,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed {len(templates)} schema templates for org {active_org_id} (include_system: {query_params.include_system})")
+        return templates
+    except Exception as e:
+        workflow_logger.error(f"Error listing schema templates for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing schema templates")
 
 @template_router.get(
     "/schemas/{template_id}",
@@ -319,7 +405,7 @@ async def list_schema_templates(
 async def get_schema_template(
     template_id: uuid.UUID = Path(..., description="The ID of the schema template"),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
-    # current_user: User = Depends(get_current_active_verified_user),
+    current_user: User = Depends(get_current_active_verified_user),
     db: AsyncSession = Depends(get_async_db_dependency),
     workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
 ):
@@ -333,9 +419,14 @@ async def get_schema_template(
         template = await workflow_service.get_schema_template(
             db=db, template_id=template_id, owner_org_id=active_org_id
         )
+        workflow_logger.info(f"User {current_user.id} retrieved schema template {template_id}")
+        return template
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to access non-existent schema template: {template_id}")
         raise e
-    return template
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving schema template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the schema template")
 
 @template_router.put(
     "/schemas/{template_id}",
@@ -361,11 +452,17 @@ async def update_schema_template(
         template = await workflow_service.get_schema_template(
             db=db, template_id=template_id, owner_org_id=active_org_id
         )
+        updated_template = await workflow_service.update_schema_template(
+            db=db, template=template, template_update=template_update, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} updated schema template {template_id} for org {active_org_id}")
+        return updated_template
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to update non-existent schema template: {template_id}")
         raise e
-    return await workflow_service.update_schema_template(
-        db=db, template=template, template_update=template_update, user=current_user
-    )
+    except Exception as e:
+        workflow_logger.error(f"Error updating schema template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while updating the schema template")
 
 @template_router.delete(
     "/schemas/{template_id}",
@@ -390,10 +487,15 @@ async def delete_schema_template(
         template = await workflow_service.get_schema_template(
             db=db, template_id=template_id, owner_org_id=active_org_id
         )
+        await workflow_service.delete_schema_template(db=db, template=template, user=current_user)
+        workflow_logger.info(f"User {current_user.id} deleted schema template {template_id} for org {active_org_id}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     except exceptions.TemplateNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to delete non-existent schema template: {template_id}")
         raise e
-    await workflow_service.delete_schema_template(db=db, template=template, user=current_user)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as e:
+        workflow_logger.error(f"Error deleting schema template {template_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while deleting the schema template")
 
 
 # === Workflow Endpoints ===
@@ -418,10 +520,18 @@ async def create_workflow(
     - The `graph_config` defines the structure and nodes of the workflow.
     - Requires `workflow:create` permission on the active organization.
     """
-    # Service layer handles potential name conflicts within the org
-    return await workflow_service.create_workflow(
-        db=db, workflow_in=workflow_in, owner_org_id=active_org_id, user=current_user
-    )
+    try:
+        # Service layer handles potential name conflicts within the org
+        workflow = await workflow_service.create_workflow(
+            db=db, workflow_in=workflow_in, owner_org_id=active_org_id, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} created workflow '{workflow.name}' (id: {workflow.id}) for org {active_org_id}")
+        return workflow
+    except HTTPException as e:
+        raise
+    except Exception as e:
+        workflow_logger.error(f"Error creating workflow '{workflow_in.name}' for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the workflow")
 
 @workflow_router.get(
     "/",
@@ -444,27 +554,36 @@ async def list_workflows(
     - Supports pagination via `skip` and `limit`.
     - Requires `workflow:read` permission on the active organization (or superuser status for cross-org listing).
     """
-    list_org_id = active_org_id
-    # Allow superuser to list workflows for other orgs
-    if current_user.is_superuser and query_params.owner_org_id:
-        list_org_id = query_params.owner_org_id
-    elif not current_user.is_superuser and query_params.owner_org_id and query_params.owner_org_id != active_org_id:
-         # If not superuser, cannot list for other orgs
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail="Insufficient permissions to list workflows for other organizations."
-         )
+    try:
+        list_org_id = active_org_id
+        # Allow superuser to list workflows for other orgs
+        if current_user.is_superuser and query_params.owner_org_id:
+            list_org_id = query_params.owner_org_id
+        elif not current_user.is_superuser and query_params.owner_org_id and query_params.owner_org_id != active_org_id:
+             # If not superuser, cannot list for other orgs
+             raise HTTPException(
+                 status_code=status.HTTP_403_FORBIDDEN,
+                 detail="Insufficient permissions to list workflows for other organizations."
+             )
 
-    # Pass relevant filters (excluding pagination) to the service layer
-    # launch_status filter is removed as it's not on the workflow model according to models.py
-    return await workflow_service.list_workflows(
-        db=db,
-        owner_org_id=list_org_id, # Use the determined org_id
-        # launch_status=query_params.launch_status,
-        include_public=query_params.include_public,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+        # Pass relevant filters (excluding pagination) to the service layer
+        # launch_status filter is removed as it's not on the workflow model according to models.py
+        workflows = await workflow_service.list_workflows(
+            db=db,
+            owner_org_id=list_org_id, # Use the determined org_id
+            # launch_status=query_params.launch_status,
+            include_public=query_params.include_public,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed workflows for org {list_org_id}")
+        return workflows
+    except HTTPException as e:
+        workflow_logger.warning(f"Permission error for user {current_user.id} listing workflows: {str(e)}")
+        raise
+    except Exception as e:
+        workflow_logger.error(f"Error listing workflows for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing workflows")
 
 @workflow_router.get(
     "/{workflow_id}",
@@ -487,12 +606,21 @@ async def get_workflow(
     - Ensures the workflow belongs to the user's active organization.
     - Requires `workflow:read` permission on the active organization.
     """
-    return await workflow_service.get_workflow(
-        db=db,
-        user=current_user,
-        workflow_id=workflow_id,
-        owner_org_id=active_org_id
-    )
+    try:
+        workflow = await workflow_service.get_workflow(
+            db=db,
+            user=current_user,
+            workflow_id=workflow_id,
+            owner_org_id=active_org_id
+        )
+        workflow_logger.info(f"User {current_user.id} retrieved workflow {workflow_id} for org {active_org_id}")
+        return workflow
+    except exceptions.WorkflowNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to retrieve non-existent workflow: {workflow_id}")
+        raise e
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving workflow {workflow_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow")
 
 @workflow_router.put(
     "/{workflow_id}",
@@ -517,11 +645,24 @@ async def update_workflow(
     - Only workflows belonging to the active organization can be updated.
     - Requires `workflow:update` permission on the active organization.
     """
-    workflow = await workflow_dao.get_by_id_and_org(db, workflow_id=workflow_id, org_id=active_org_id)
-    # Dependency handles fetch and ensures it's in the active org
-    return await workflow_service.update_workflow(
-        db=db, workflow=workflow, workflow_update=workflow_update, user=current_user
-    )
+    try:
+        workflow = await workflow_dao.get_by_id_and_org(db, workflow_id=workflow_id, org_id=active_org_id)
+        # Dependency handles fetch and ensures it's in the active org
+        updated_workflow = await workflow_service.update_workflow(
+            db=db, workflow=workflow, workflow_update=workflow_update, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} updated workflow {workflow_id} for org {active_org_id}")
+        return updated_workflow
+    except exceptions.WorkflowNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to update non-existent workflow: {workflow_id}")
+        raise e
+    # except exceptions.WorkflowNameConflictException as e:
+    #     workflow_logger.warning(f"User {current_user.id} attempted to update workflow {workflow_id} with conflicting name: {str(e)}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error updating workflow {workflow_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while updating the workflow")
+
 @workflow_router.delete(
     "/{workflow_id}",
     response_model=schemas.WorkflowRead,
@@ -543,10 +684,22 @@ async def delete_workflow(
     - Note: Associated workflow runs are typically *not* deleted by default (check FK constraints).
     - Requires `workflow:delete` permission on the active organization.
     """
-    workflow = await workflow_dao.get_by_id_and_org(db, workflow_id=workflow_id, org_id=active_org_id)
-    # Dependency handles fetch and ensures it's in the active org
-    await workflow_service.delete_workflow(db=db, workflow=workflow, user=current_user)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        workflow = await workflow_dao.get_by_id_and_org(db, workflow_id=workflow_id, org_id=active_org_id)
+        # Dependency handles fetch and ensures it's in the active org
+        await workflow_service.delete_workflow(db=db, workflow=workflow, user=current_user)
+        workflow_logger.info(f"User {current_user.id} deleted workflow {workflow_id} for org {active_org_id}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except exceptions.WorkflowNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to delete non-existent workflow: {workflow_id}")
+        raise e
+    # TODO: handle this case when workflow is in use!
+    # except exceptions.WorkflowInUseException as e:
+    #     workflow_logger.warning(f"User {current_user.id} attempted to delete workflow {workflow_id} that is in use: {str(e)}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error deleting workflow {workflow_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while deleting the workflow")
 
 
 # === Workflow Run Endpoints ===
@@ -575,12 +728,24 @@ async def submit_workflow_run(
     - Returns the initial `WorkflowRun` record (usually in `SCHEDULED` state).
     - Requires `workflow:execute` permission on the active organization.
     """
-    if not active_org_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active organization not found")
-    # Service layer handles creating ad-hoc workflow if needed and triggering execution
-    return await workflow_service.submit_workflow_run(
-        db=db, run_submit=run_submit, owner_org_id=active_org_id, user=current_user
-    )
+    try:
+        if not active_org_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active organization not found")
+        # Service layer handles creating ad-hoc workflow if needed and triggering execution
+        run = await workflow_service.submit_workflow_run(
+            db=db, run_submit=run_submit, owner_org_id=active_org_id, user=current_user
+        )
+        workflow_logger.info(f"User {current_user.id} submitted workflow run for org {active_org_id}, run_id: {run.id}")
+        return run
+    except exceptions.WorkflowNotFoundException as e:
+        workflow_logger.warning(f"User {current_user.id} attempted to run non-existent workflow: {str(e)}")
+        raise e
+    # except exceptions.InvalidWorkflowInputsException as e:
+    #     workflow_logger.warning(f"User {current_user.id} submitted invalid workflow inputs: {str(e)}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error submitting workflow run for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while submitting the workflow run")
 
 
 @run_router.get(
@@ -608,40 +773,49 @@ async def list_runs(
     - Supports pagination via `skip` and `limit`.
     - Requires `run:read` permission on the active organization (or superuser status).
     """
-    list_org_id = active_org_id
-    list_user_id = query_params.triggered_by_user_id
-
-    # Apply superuser logic for cross-org and cross-user filtering
-    if current_user.is_superuser:
-        if query_params.owner_org_id:
-            list_org_id = query_params.owner_org_id or active_org_id
-        # Superuser can filter by any user ID or None
-        list_user_id = query_params.triggered_by_user_id or current_user.id
-    else:
-        # Non-superuser checks
-        if query_params.owner_org_id and query_params.owner_org_id != active_org_id:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot list runs for other organizations.")
-        if query_params.triggered_by_user_id and query_params.triggered_by_user_id != current_user.id:
-             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot filter runs triggered by other users.")
-        # If filter is None or current_user.id, it's allowed
+    try:
+        list_org_id = active_org_id
         list_user_id = query_params.triggered_by_user_id
 
-    # Prepare filters for service layer, converting schema to dict/kwargs if needed
-    service_filters = schemas.WorkflowRunListQuery(
-        workflow_id=query_params.workflow_id,
-        status=query_params.status,
-        triggered_by_user_id=list_user_id,
-        owner_org_id=list_org_id # Pass the determined org_id to the service
-        # Pagination handled separately
-    )
+        # Apply superuser logic for cross-org and cross-user filtering
+        if current_user.is_superuser:
+            if query_params.owner_org_id:
+                list_org_id = query_params.owner_org_id or active_org_id
+            # Superuser can filter by any user ID or None
+            list_user_id = query_params.triggered_by_user_id or current_user.id
+        else:
+            # Non-superuser checks
+            if query_params.owner_org_id and query_params.owner_org_id != active_org_id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot list runs for other organizations.")
+            if query_params.triggered_by_user_id and query_params.triggered_by_user_id != current_user.id:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot filter runs triggered by other users.")
+            # If filter is None or current_user.id, it's allowed
+            list_user_id = query_params.triggered_by_user_id
 
-    return await workflow_service.list_runs(
-        db=db,
-        owner_org_id=list_org_id, # Pass final org id for main query scope
-        filters=service_filters, # Pass filters object
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+        # Prepare filters for service layer, converting schema to dict/kwargs if needed
+        service_filters = schemas.WorkflowRunListQuery(
+            workflow_id=query_params.workflow_id,
+            status=query_params.status,
+            triggered_by_user_id=list_user_id,
+            owner_org_id=list_org_id # Pass the determined org_id to the service
+            # Pagination handled separately
+        )
+
+        runs = await workflow_service.list_runs(
+            db=db,
+            owner_org_id=list_org_id, # Pass final org id for main query scope
+            filters=service_filters, # Pass filters object
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed workflow runs for org {list_org_id}")
+        return runs
+    except HTTPException as e:
+        workflow_logger.warning(f"Permission error for user {current_user.id} listing runs: {str(e)}")
+        raise
+    except Exception as e:
+        workflow_logger.error(f"Error listing workflow runs for org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing workflow runs")
 
 @run_router.get(
     "/{run_id}",
@@ -664,13 +838,18 @@ async def get_run_status(
     - May attempt to augment the status with the latest update from the event stream (MongoDB) if available.
     - Requires `run:read` permission on the active organization.
     """
-    # Dependency handles fetch and access check against active org
-    # Call service method that might augment with Mongo status
-    # async with db_manager as db:
-    #     return await workflow_service.get_run_summary_with_mongo_status(
-    #         db=db, run_id=run.id, owner_org_id=run.owner_org_id, user=current_user # Use org_id from fetched run
-    #     )
-    return run
+    try:
+        # Dependency handles fetch and access check against active org
+        # Call service method that might augment with Mongo status
+        # async with db_manager as db:
+        #     return await workflow_service.get_run_summary_with_mongo_status(
+        #         db=db, run_id=run.id, owner_org_id=run.owner_org_id, user=current_user # Use org_id from fetched run
+        #     )
+        workflow_logger.info(f"Retrieved workflow run status for run {run.id}")
+        return run
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving workflow run status for run {run.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow run status")
 
 @run_router.get(
     "/{run_id}/details",
@@ -692,8 +871,17 @@ async def get_run_details(
     - Includes node outputs, status changes, message chunks, etc.
     - Requires `run:read` permission on the active organization.
     """
-    # Dependency handles fetch and access check
-    return await workflow_service.get_run_details(db=db, run=run, user=current_user)
+    try:
+        # Dependency handles fetch and access check
+        details = await workflow_service.get_run_details(db=db, run=run, user=current_user)
+        workflow_logger.info(f"User {current_user.id} retrieved details for workflow run {run.id}")
+        return details
+    # except exceptions.RunDetailsNotFoundException as e:
+    #     workflow_logger.warning(f"User {current_user.id} attempted to retrieve details for run with no events: {run.id}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving workflow run details for run {run.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow run details")
 
 @run_router.get(
     "/{run_id}/stream",
@@ -716,10 +904,20 @@ async def get_run_stream(
     - Supports pagination using `skip` and `limit`.
     - Requires `run:read` permission on the active organization.
     """
-    # Dependency handles fetch and access check
-    return await workflow_service.get_run_stream(db=db, run=run,
-                                                # skip=skip, limit=limit,
-                                                user=current_user)
+    try:
+        # Dependency handles fetch and access check
+        events = await workflow_service.get_run_stream(db=db, run=run,
+                                                    # skip=skip, limit=limit,
+                                                    user=current_user)
+        workflow_logger.info(f"User {current_user.id} retrieved event stream for workflow run {run.id}")
+        return events
+    # NOTE: internally, 404 is raised if object not found!
+    # except exceptions.RunEventsNotFoundException as e:
+    #     workflow_logger.warning(f"User {current_user.id} attempted to retrieve events for run with no events: {run.id}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving workflow run events for run {run.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow run events")
 
 
 # @run_router.post(
@@ -769,14 +967,20 @@ async def list_user_notifications(
     - Supports sorting by `created_at` (default: descending).
     - Supports pagination via `skip` and `limit`.
     """
-    return await workflow_service.list_user_notifications(
-        db=db,
-        user_id=current_user.id,
-        org_id=active_org_id,
-        filters=query_params,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+    try:
+        notifications = await workflow_service.list_user_notifications(
+            db=db,
+            user_id=current_user.id,
+            org_id=active_org_id,
+            filters=query_params,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed notifications for org {active_org_id}")
+        return notifications
+    except Exception as e:
+        workflow_logger.error(f"Error listing notifications for user {current_user.id} in org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing notifications")
 
 @notification_router.post(
     "/{notification_id}/read",
@@ -797,12 +1001,22 @@ async def mark_notification_read(
 
     - Raises 404 if the notification does not exist or does not belong to the user.
     """
-    # Dependency fetched and verified ownership
-    return await workflow_service.mark_notification_read(
-        db=db,
-        notification_id=notification.id,
-        user_id=current_user.id
-    )
+    try:
+        # Dependency fetched and verified ownership
+        marked_notification = await workflow_service.mark_notification_read(
+            db=db,
+            notification_id=notification.id,
+            user_id=current_user.id
+        )
+        workflow_logger.info(f"User {current_user.id} marked notification {notification.id} as read")
+        return marked_notification
+    # NOTE: internally, 404 is raised if object not found!
+    # except exceptions.NotificationNotFoundException as e:
+    #     workflow_logger.warning(f"User {current_user.id} attempted to mark non-existent notification as read: {notification.id}")
+    #     raise e
+    except Exception as e:
+        workflow_logger.error(f"Error marking notification {notification.id} as read: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while marking the notification as read")
 
 @notification_router.post(
     "/read-all",
@@ -820,12 +1034,17 @@ async def mark_all_notifications_read(
     Marks all currently unread notifications as read for the current user
     within their active organization.
     """
-    count = await workflow_service.mark_all_notifications_read(
-        db=db,
-        user_id=current_user.id,
-        org_id=active_org_id
-    )
-    return {"message": f"{count} notifications marked as read"}
+    try:
+        count = await workflow_service.mark_all_notifications_read(
+            db=db,
+            user_id=current_user.id,
+            org_id=active_org_id
+        )
+        workflow_logger.info(f"User {current_user.id} marked {count} notifications as read in org {active_org_id}")
+        return {"message": f"{count} notifications marked as read"}
+    except Exception as e:
+        workflow_logger.error(f"Error marking all notifications as read for user {current_user.id} in org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while marking all notifications as read")
 
 @notification_router.get(
     "/unread-count",
@@ -843,10 +1062,15 @@ async def get_unread_notification_count(
     Gets the count of unread notifications for the current user
     in their active organization.
     """
-    return await workflow_service.count_unread_notifications(
-        db=db, user_id=current_user.id, org_id=active_org_id
-    )
-
+    try:
+        count = await workflow_service.count_unread_notifications(
+            db=db, user_id=current_user.id, org_id=active_org_id
+        )
+        workflow_logger.info(f"User {current_user.id} retrieved unread notification count for org {active_org_id}")
+        return count
+    except Exception as e:
+        workflow_logger.error(f"Error getting unread notification count for user {current_user.id} in org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while getting the unread notification count")
 
 # === HITL Job Endpoints ===
 
@@ -877,15 +1101,24 @@ async def list_hitl_jobs(
         - `exclude_cancelled=false`: Set to false to include 'cancelled' jobs (default is true).
     - Supports pagination via `skip` and `limit`.
     """
-    # Service layer handles complex filtering logic, including 'me' translation and superuser checks
-    return await workflow_service.list_hitl_jobs(
-        db=db,
-        owner_org_id=active_org_id, # Pass active org as context
-        user=current_user,
-        filters=query_params,
-        skip=query_params.skip,
-        limit=query_params.limit
-    )
+    try:
+        # Service layer handles complex filtering logic, including 'me' translation and superuser checks
+        jobs = await workflow_service.list_hitl_jobs(
+            db=db,
+            owner_org_id=active_org_id, # Pass active org as context
+            user=current_user,
+            filters=query_params,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+        workflow_logger.info(f"User {current_user.id} listed HITL jobs for org {active_org_id} with filters: {query_params}")
+        return jobs
+    # except PermissionDeniedException as e:
+    #     workflow_logger.warning(f"Permission denied for user {current_user.id} listing HITL jobs: {str(e)}")
+    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except Exception as e:
+        workflow_logger.error(f"Error listing HITL jobs for user {current_user.id} in org {active_org_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing HITL jobs")
 
 @hitl_router.get(
     "/{job_id}",
@@ -897,7 +1130,7 @@ async def get_hitl_job(
     # Fetch job ensuring it belongs to active org and user can access it
     job: models.HITLJob = Depends(wf_deps.get_hitl_job_for_org),
     # Re-inject dependencies needed by the service method (if any beyond db)
-    # current_user: User = Depends(get_current_active_verified_user), # Already injected by get_hitl_job_for_user
+    current_user: User = Depends(get_current_active_verified_user), # Already injected by get_hitl_job_for_user
     db: AsyncSession = Depends(get_async_db_dependency),
     workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
 ):
@@ -907,10 +1140,13 @@ async def get_hitl_job(
     - Requires the job to be in the active organization and accessible by the user
       (assigned to them or unassigned).
     """
-    # Dependency handles fetch and access checks
-    # Service method might add extra processing if needed, but here just return job
-    # return await workflow_service.get_hitl_job(db=db, job=job, user=current_user) # Service method just returns job
-    return job
+    try:
+        # Dependency handles fetch and access checks
+        workflow_logger.info(f"User {current_user.id} retrieved HITL job {job.id}")
+        return job
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving HITL job {job.id} for user {current_user.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the HITL job")
 
 # @hitl_router.post(
 #     "/{job_id}/respond",
@@ -964,4 +1200,17 @@ async def cancel_hitl_job(
     - Note: This may or may not automatically fail the associated workflow run,
       depending on the workflow's design.
     """
-    return await workflow_service.cancel_hitl_job(db=db, job=job, user=current_user)
+    try:
+        updated_job = await workflow_service.cancel_hitl_job(db=db, job=job, user=current_user)
+        workflow_logger.info(f"User {current_user.id} cancelled HITL job {job.id}")
+        return updated_job
+    except ValueError as e:
+        # For expected validation errors like job already cancelled
+        workflow_logger.warning(f"Invalid attempt to cancel HITL job {job.id} by user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    # except PermissionDeniedException as e:
+    #     workflow_logger.warning(f"Permission denied for user {current_user.id} cancelling HITL job {job.id}: {str(e)}")
+    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    except Exception as e:
+        workflow_logger.error(f"Error cancelling HITL job {job.id} by user {current_user.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while cancelling the HITL job")

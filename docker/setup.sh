@@ -94,17 +94,12 @@ else
 fi
 
 echo "Running initial DB setup script -> to create super user, permissions, etc!..."
-python services/kiwi_app/scripts/db_setup.py
+python /app/services/kiwi_app/scripts/db_setup.py
 echo "DB setup script finished."
 
 echo "Running LangGraph Postgres setup script..."
-python services/kiwi_app/scripts/langgraph_postgres_setup.py
+python /app/services/kiwi_app/scripts/langgraph_postgres_setup.py
 echo "LangGraph Postgres setup script finished."
-
-# --- Set execution permissions ---
-# This line is commented out as it should be run once manually after creating the file,
-# not every time the script itself runs.
-# chmod +x setup.sh
 
 echo "Setup script completed successfully."
 

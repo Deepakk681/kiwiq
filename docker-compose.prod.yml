@@ -49,7 +49,7 @@ services:
     build:
       context: .
       # Use the same Dockerfile as dev for now
-      dockerfile: Dockerfile-dev.app
+      dockerfile: docker/Dockerfile.prod.app
       # Consider a separate Dockerfile.prod later for optimizations (e.g., no reload)
       # and to avoid running setup.sh on every start (see entrypoint note below).
     container_name: kiwiq_prod_app
@@ -89,7 +89,7 @@ services:
     networks:
       - prod_network
     # command: ["uvicorn", "services.kiwi_app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
-    # NOTE on Entrypoint: Because this uses Dockerfile-dev.app, the ENTRYPOINT ["/app/setup.sh"]
+    # NOTE on Entrypoint: Because this uses Dockerfile.prod.app, the ENTRYPOINT ["/app/setup.sh"]
     # from that file will run every time this container starts. This includes DB creation checks
     # and Alembic migrations. Ensure setup.sh is idempotent and consider if this is the desired
     # behavior for production restarts vs. running migrations as a separate deployment step.
@@ -260,7 +260,7 @@ services:
     build:
       context: .
       # Use worker Dockerfile
-      dockerfile: Dockerfile.worker
+      dockerfile: docker/Dockerfile.worker
       # Consider a separate Dockerfile.prod later.
     container_name: kiwiq_prod_prefect_agent
     restart: unless-stopped

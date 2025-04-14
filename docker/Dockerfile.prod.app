@@ -28,7 +28,7 @@ RUN poetry config virtualenvs.create false && poetry install --no-interaction --
 # Copy the rest of the application code
 COPY . .
 # Set execution permissions for the setup script
-RUN chmod +x /app/setup.sh
+RUN chmod +x /app/docker/setup.sh
 # Copy prod env
 # NOTE: to use same cmd in local and remote, just copy local prod .env to remote machine!
 # COPY .env.prod /app/.env
@@ -45,7 +45,7 @@ EXPOSE ${APP_PORT}
 # Set the working directory in the container
 WORKDIR /app
 
-ENTRYPOINT ["/app/setup.sh"]
+ENTRYPOINT ["/app/docker/setup.sh"]
 
 # Default command: run the application
 # For production, you might run: poetry run python app.py

@@ -1,0 +1,273 @@
+import uuid
+import logging
+from pydantic import BaseModel
+from typing import List, Optional
+
+from kiwi_client.schemas.graph_schema import GraphSchema
+
+# --- Configuration ---
+# Replace with your actual API base URL
+BASE_HOST = "http://127.0.0.1:8000" # Example: http://localhost:8000
+API_BASE_URL = f"{BASE_HOST}/api/v1" # Example: http://localhost:8000
+
+# Replace with your test user credentials
+TEST_USER_EMAIL = "admin@example.com"
+TEST_USER_PASSWORD = "testpass"
+
+# Replace with a valid organization UUID accessible by the test user
+# This will be used for the X-Active-Org header
+# You might need to register the test user and create/find an org ID first.
+TEST_ORG_ID = uuid.UUID("cfcc3bc7-7d30-4ab1-b842-846a34b6d427") # Example Org ID
+
+# --- Standard Headers ---
+BASE_HEADERS = {
+    "accept": "application/json",
+    "Content-Type": "application/json",
+}
+
+CLIENT_LOG_LEVEL = logging.WARNING
+
+# --- API Endpoints ---
+# Define constants for endpoint paths for easier maintenance
+
+# Auth
+REGISTER_URL = f"{API_BASE_URL}/auth/register"
+LOGIN_URL = f"{API_BASE_URL}/auth/login/token"
+REFRESH_URL = f"{API_BASE_URL}/auth/refresh"
+REQUEST_VERIFY_EMAIL_URL = f"{API_BASE_URL}/auth/request-verify-email"
+VERIFY_EMAIL_URL = f"{API_BASE_URL}/auth/verify-email"
+CHANGE_PASSWORD_URL = f"{API_BASE_URL}/auth/users/me/change-password"
+REQUEST_PASSWORD_RESET_URL = f"{API_BASE_URL}/auth/request-password-reset"
+VERIFY_PASSWORD_RESET_URL = f"{API_BASE_URL}/auth/verify-password-reset-token"
+RESET_PASSWORD_URL = f"{API_BASE_URL}/auth/reset-password"
+LINKEDIN_LOGIN_URL = f"{API_BASE_URL}/auth/linkedin/login" # Note: Testing OAuth might be complex
+LINKEDIN_CALLBACK_URL = f"{API_BASE_URL}/auth/linkedin/callback"
+
+# Users
+USERS_ME_URL = f"{API_BASE_URL}/auth/users/me"
+USERS_ME_ORGS_URL = f"{API_BASE_URL}/auth/users/me/organizations"
+
+# Orgs
+ORGANIZATIONS_URL = f"{API_BASE_URL}/auth/organizations"
+ORG_USERS_URL = lambda org_id: f"{ORGANIZATIONS_URL}/{org_id}/users"
+
+# Roles (Admin)
+ROLES_URL = f"{API_BASE_URL}/auth/roles"
+
+# Templates
+NODE_TEMPLATES_URL = f"{API_BASE_URL}/templates/nodes/"
+NODE_TEMPLATE_DETAIL_URL = lambda name, version: f"{NODE_TEMPLATES_URL}{name}/{version}"
+PROMPT_TEMPLATES_URL = f"{API_BASE_URL}/templates/prompts/"
+PROMPT_TEMPLATE_DETAIL_URL = lambda template_id: f"{PROMPT_TEMPLATES_URL}{template_id}"
+SCHEMA_TEMPLATES_URL = f"{API_BASE_URL}/templates/schemas/"
+SCHEMA_TEMPLATE_DETAIL_URL = lambda template_id: f"{SCHEMA_TEMPLATES_URL}{template_id}"
+
+# Workflows
+WORKFLOWS_URL = f"{API_BASE_URL}/workflows/"
+WORKFLOW_DETAIL_URL = lambda workflow_id: f"{WORKFLOWS_URL}{workflow_id}"
+
+# Runs
+RUNS_URL = f"{API_BASE_URL}/runs/"
+RUN_DETAIL_URL = lambda run_id: f"{RUNS_URL}{run_id}"
+RUN_DETAILS_URL = lambda run_id: f"{RUNS_URL}{run_id}/details"
+RUN_STREAM_URL = lambda run_id: f"{RUNS_URL}{run_id}/stream"
+# RUN_CANCEL_URL = lambda run_id: f"{RUNS_URL}{run_id}/cancel" # If implemented
+
+# Notifications
+NOTIFICATIONS_URL = f"{API_BASE_URL}/notifications/"
+NOTIFICATION_READ_URL = lambda notification_id: f"{NOTIFICATIONS_URL}{notification_id}/read"
+NOTIFICATIONS_READ_ALL_URL = f"{NOTIFICATIONS_URL}read-all"
+NOTIFICATIONS_UNREAD_COUNT_URL = f"{NOTIFICATIONS_URL}unread-count"
+
+# HITL
+HITL_JOBS_URL = f"{API_BASE_URL}/hitl/"
+HITL_JOB_DETAIL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}"
+# HITL_JOB_RESPOND_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/respond" # If implemented
+HITL_JOB_CANCEL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/cancel"
+
+# WebSockets (Base URLs - specific paths depend on run_id etc.)
+# Note: httpx doesn't handle cookies automatically for websockets in the same way
+#       as HTTP requests. Token needs to be passed manually if required by endpoint.
+WS_RUN_BASE_URL = API_BASE_URL.replace("http", "ws") + "/ws/runs"
+WS_NOTIFICATIONS_URL = API_BASE_URL.replace("http", "ws") + "/ws/notifications"
+
+
+# # Example Graph Schema (from test_worker_job.py's basic LLM graph)
+# # You might want to define more complex examples or load from files
+# class LLMConfig(BaseModel):
+#     """Configuration specific to an LLM node."""
+#     model_provider: str = "anthropic"
+#     model_name: str = "claude-3-5-sonnet-20240620" # Use a valid model enum if available
+#     temperature: float = 0.7
+#     max_tokens: int = 100
+#     output_type: str = "text" # or "json"
+#     system_prompt: Optional[str] = None
+
+# class NodeConfig(BaseModel):
+#     """Represents configuration for a single node in the graph."""
+#     node_type: str # Matches the registered node template name
+#     node_name: str # Unique identifier within this graph
+#     node_config: LLMConfig # Specific config depends on node_type
+#     # Example: node_config: Union[LLMConfig, OtherNodeConfig]
+
+# class EdgeConfig(BaseModel):
+#     """Represents a connection between two nodes."""
+#     source_node: str # node_name of the source
+#     target_node: str # node_name of the target
+#     # Optional: specify source/target handles if nodes have multiple outputs/inputs
+#     # source_handle: Optional[str] = None
+#     # target_handle: Optional[str] = None
+#     # Optional: Condition for conditional edges
+#     # condition: Optional[str] = None
+
+# class GraphSchema(BaseModel):
+#     """Represents the structure and configuration of a workflow graph."""
+#     nodes: List[NodeConfig]
+#     edges: List[EdgeConfig]
+#     start_node: str # node_name of the entry point node
+#     # Optional: Global graph configuration (e.g., timeouts, retry strategies)
+#     # config: Optional[Dict[str, Any]] = None
+
+
+
+# from tests.unit.services.workflow_service.graph.runtime.tests.test_AI_loop import create_ai_loop_graph, human_review_handler, HumanReviewNode, AIGeneratorNode, ApprovalRouterNode, FinalProcessorNode
+# from workflow_service.registry.nodes.llm.tests.test_basic_llm_workflow import create_basic_llm_graph
+# test_graph_schema: GraphSchema = create_ai_loop_graph()
+# test_graph_schema: GraphSchema = create_basic_llm_graph(
+#     model_provider=LLMModelProvider.ANTHROPIC,
+#     model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
+#     output_type="text"
+# )
+
+# print(test_graph_schema.model_dump_json(indent=4))
+
+
+EXAMPLE_BASIC_LLM_GRAPH_CONFIG = {
+    "nodes": {
+        "input_node": {
+            "node_id": "input_node",
+            "node_name": "input_node",
+            "node_version": None,
+            "node_config": {},
+            "dynamic_input_schema": None,
+            "dynamic_output_schema": None,
+            "dynamic_config_schema": None,
+            "enable_dynamic_fields_from_edges": True,
+            "enable_node_fan_in": False
+        },
+        "llm_node": {
+            "node_id": "llm_node",
+            "node_name": "llm",
+            "node_version": None,
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {
+                        "provider": "anthropic",
+                        "model": "claude-3-7-sonnet-20250219"
+                    },
+                    "max_tokens": 100,
+                    "temperature": 0.0,
+                    "force_temperature_setting_when_thinking": False,
+                    "reasoning_effort_class": None,
+                    "reasoning_effort_number": None,
+                    "reasoning_tokens_budget": None,
+                    "kwargs": None
+                },
+                "default_system_prompt": None,
+                "thinking_tokens_in_prompt": "all",
+                "api_key_override": None,
+                "cache_responses": True,
+                "output_schema": {
+                    "schema_from_registry": None,
+                    "dynamic_schema_spec": None
+                },
+                "stream": True,
+                "tool_calling_config": {
+                    "enable_tool_calling": False,
+                    "tool_choice": None,
+                    "parallel_tool_calls": True
+                },
+                "tools": None,
+                "web_search_options": None
+            },
+            "dynamic_input_schema": None,
+            "dynamic_output_schema": None,
+            "dynamic_config_schema": None,
+            "enable_dynamic_fields_from_edges": True,
+            "enable_node_fan_in": False
+        },
+        "output_node": {
+            "node_id": "output_node",
+            "node_name": "output_node",
+            "node_version": None,
+            "node_config": {},
+            "dynamic_input_schema": None,
+            "dynamic_output_schema": None,
+            "dynamic_config_schema": None,
+            "enable_dynamic_fields_from_edges": True,
+            "enable_node_fan_in": False
+        }
+    },
+    "edges": [
+        {
+            "src_node_id": "input_node",
+            "dst_node_id": "llm_node",
+            "mappings": [
+                {
+                    "src_field": "user_prompt",
+                    "dst_field": "user_prompt",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "messages_history",
+                    "dst_field": "messages_history",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "system_prompt",
+                    "dst_field": "system_prompt",
+                    "override_type_validation": False
+                }
+            ]
+        },
+        {
+            "src_node_id": "llm_node",
+            "dst_node_id": "output_node",
+            "mappings": [
+                {
+                    "src_field": "structured_output",
+                    "dst_field": "structured_output",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "metadata",
+                    "dst_field": "metadata",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "current_messages",
+                    "dst_field": "current_messages",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "content",
+                    "dst_field": "content",
+                    "override_type_validation": False
+                },
+                {
+                    "src_field": "web_search_result",
+                    "dst_field": "web_search_result",
+                    "override_type_validation": False
+                }
+            ]
+        }
+    ],
+    "input_node_id": "input_node",
+    "output_node_id": "output_node",
+    "metadata": {}
+}
+
+EXAMPLE_BASIC_LLM_RUN_INPUTS = {
+    "user_prompt": "Write a very short poem about a cloud."
+} 
+

@@ -5,15 +5,15 @@ import asyncio
 import logging # Import logging
 from contextlib import asynccontextmanager # Import asynccontextmanager
 from fastapi import FastAPI
-from global_config.logger import get_logger
+from kiwi_app.utils import get_kiwi_logger
 from kiwi_app import auth
 from kiwi_app.settings import settings # Import settings
 
 from kiwi_app.workflow_app import routes as workflow_routes
 from kiwi_app.workflow_app import event_consumer
+from kiwi_app.workflow_app import dependencies as wf_deps
 
 # Get a logger instance for the main application
-kiwi_logger = get_logger('kiwi_app')
 
 tags_metadata = [
     {
@@ -43,8 +43,10 @@ tags_metadata = [
 async def lifespan(app: FastAPI):
     """Handles application startup and shutdown events."""
     # Startup logic
+    kiwi_logger = get_kiwi_logger()
     kiwi_logger.info("Application starting up...")
     kiwi_logger.info(f"Log level set to: {settings.LOG_LEVEL.upper()}")
+    await wf_deps.get_node_template_registry()
     # Add any other startup logic/logging here (e.g., initializing DB connections, loading models)
     # await init_db() # Ensure this is commented out if using Alembic
 

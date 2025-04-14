@@ -161,6 +161,7 @@ def setup_logging(
     # Note: This message goes through the queue now.
     logging.getLogger(__name__).info("Asynchronous logging setup complete.")
 
+logging_is_setup = False
 
 def get_logger(
         name: str, 
@@ -185,13 +186,16 @@ def get_logger(
     Returns:
         logging.Logger: The logger instance.
     """
-    setup_logging(
-        log_level=log_level,
-        log_to_console=log_to_console,
-        log_to_file=log_to_file,
-        log_dir=log_dir,
-        log_filename=log_filename
-    )
+    global logging_is_setup
+    if not logging_is_setup:
+        setup_logging(
+            log_level=log_level,
+            log_to_console=log_to_console,
+            log_to_file=log_to_file,
+            log_dir=log_dir,
+            log_filename=log_filename
+        )
+        # logging_is_setup = True
     # Simply return the logger. Configuration is handled at the root level.
     return logging.getLogger(name)
 

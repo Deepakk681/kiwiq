@@ -89,6 +89,8 @@ class UserRead(UUIDModel, TimestampModel):
     # is_superuser: bool
     linkedin_id: Optional[str] = None
 
+class UserReadWithSuperuserStatus(UserRead):
+    is_superuser: bool
 
 # --- UserOrganizationRole Link Schemas with User ---
 class UserOrganizationRoleReadWithUser(BaseModel):

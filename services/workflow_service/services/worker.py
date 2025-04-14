@@ -20,8 +20,8 @@ from langchain_core.load import dumps # Added dumps for logging complex objects
 
 from db.session import get_async_pool, get_async_db_as_manager # Assuming this provides psycopg pool
 from global_config.settings import global_settings
-from global_config.logger import get_logger
-
+# from global_config.logger import get_logger
+from workflow_service.utils.utils import get_prefect_logger
 # Local workflow service imports
 from workflow_service.graph.graph import GraphSchema
 from workflow_service.graph.builder import GraphBuilder
@@ -59,14 +59,15 @@ from workflow_service.config.constants import STATE_KEY_DELIMITER
 external_context_global = None
 
 # TODO: mount logs volume to persist logs!
-configured_logger = get_logger(
-    name="workflow-execution-worker",
-    log_level=global_settings.LOG_LEVEL,
-    log_filename=global_settings.LOG_PREFECT_FILE_NAME,
-    # log_dir=,
-    # log_to_console=,
-    log_to_file=True,
-)
+configured_logger = get_prefect_logger()
+# get_logger(
+#     name="workflow-execution-worker",
+#     log_level=global_settings.LOG_LEVEL,
+#     log_filename=global_settings.LOG_PREFECT_FILE_NAME,
+#     # log_dir=,
+#     # log_to_console=,
+#     log_to_file=True,
+# )
 
 @flow(
     name="workflow-execution",

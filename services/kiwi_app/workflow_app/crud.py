@@ -324,6 +324,13 @@ class WorkflowDAO(BaseDAO[models.Workflow, schemas.WorkflowCreate, schemas.Workf
         await db.commit()
         await db.refresh(db_obj)
         return db_obj
+    
+    async def remove_obj(self, db: AsyncSession, *, obj: models.Workflow) -> Optional[models.Workflow]:
+        """Deletes a workflow only if it belongs to the specified organization."""
+        if obj:
+            await db.delete(obj)
+            await db.commit()
+        return obj
 
     async def remove_by_id_and_org(self, db: AsyncSession, *, id: uuid.UUID, owner_org_id: uuid.UUID) -> Optional[models.Workflow]:
         """Deletes a workflow only if it belongs to the specified organization."""

@@ -8,7 +8,7 @@ from pydantic import BaseModel, HttpUrl, Field, EmailStr
 from urllib.parse import urlencode
 from global_config.settings import global_settings
 from kiwi_app.settings import settings
-from kiwi_app.auth.utils import auth_logger
+# from kiwi_app.auth.utils import auth_logger
 from kiwi_app.auth.schemas import LinkedInUser
 
 # Load configuration from settings
