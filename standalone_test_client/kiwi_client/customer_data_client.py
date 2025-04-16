@@ -29,6 +29,8 @@ from kiwi_client.test_config import (
 )
 # Import schemas and constants from the workflow app
 from kiwi_client.schemas import workflow_api_schemas as wf_schemas
+# Import Template Client for schema creation/cleanup
+from kiwi_client.template_client import TemplateTestClient
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -571,6 +573,9 @@ async def main():
     v_doc_name_str = f"versioned_str_{uuid.uuid4().hex[:6]}"
     uv_doc_name_json = f"unversioned_json_{uuid.uuid4().hex[:6]}"
     uv_doc_name_int = f"unversioned_int_{uuid.uuid4().hex[:6]}"
+    schema_template_name = f"cust_data_test_schema_{uuid.uuid4().hex[:6]}"
+    schema_template_version = "1.0.0"
+    temp_schema_template_id: Optional[uuid.UUID] = None
 
     # List to keep track of created documents for cleanup
     created_docs_for_cleanup = []
@@ -582,6 +587,39 @@ async def main():
         async with AuthenticatedClient() as auth_client:
             print("Authenticated.")
             data_tester = CustomerDataTestClient(auth_client)
+            template_tester = TemplateTestClient(auth_client) # Instantiate template client
+
+            # --- Setup: Create Schema Template ---
+            print(f"\n--- Setup: Creating Schema Template: {schema_template_name} v{schema_template_version} ---")
+            test_json_schema = {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "The primary key"},
+                    "count": {"type": "integer", "description": "A counter value"},
+                    "nested": {
+                        "type": "object",
+                        "properties": {"flag": {"type": "boolean"}},
+                        "required": ["flag"] # Make nested flag required
+                    },
+                    "optional_field": {"type": "string"}
+                },
+                "required": ["key", "count"],
+                "additionalProperties": False # 'nested' is optional at top level
+            }
+            schema_create_payload = wf_schemas.SchemaTemplateCreate(
+                name=schema_template_name,
+                version=schema_template_version,
+                description="Schema for customer data client tests (JSON)",
+                schema_definition=test_json_schema,
+                schema_type=wf_schemas.SchemaType.JSON_SCHEMA,
+                is_public=False, # Org-specific
+                is_system_entity=False
+            )
+            created_schema_template = await template_tester.create_schema_template(schema_create_payload)
+            assert created_schema_template is not None, "Failed to create schema template"
+            temp_schema_template_id = created_schema_template.id # Store for cleanup
+            print(f"   ✓ Created Schema Template ID: {temp_schema_template_id}")
+
 
             # --- Versioned Document Tests (JSON) ---
             print(f"\n--- Testing Versioned Document (JSON): {test_ns}/{v_doc_name_json} ---")
@@ -603,6 +641,18 @@ async def main():
                    f"Initialized data mismatch. Expected: {expected_init_data}, Got: {init_result_json.data}"
             print("   ✓ Initialized user-specific JSON document.")
             
+            # 1a. Apply Schema to Versioned Document
+            print(f"   Applying schema '{schema_template_name}' to versioned doc...")
+            schema_update_payload = wf_schemas.CustomerDataSchemaUpdate(
+                is_shared=False,
+                schema_template_name=schema_template_name,
+                schema_template_version=schema_template_version
+                # Alternatively, could provide schema_content directly
+            )
+            applied_schema = await data_tester.update_versioned_document_schema(test_ns, v_doc_name_json, schema_update_payload)
+            assert applied_schema is not None, "Failed to apply schema to versioned document"
+            assert applied_schema == test_json_schema, "Applied schema content doesn't match expected"
+            print("   ✓ Applied schema to versioned document.")
 
             # 2. Get (User Specific, JSON, version v1.0)
             get_result_json = await data_tester.get_versioned_document(test_ns, v_doc_name_json, is_shared=False, version="v1.0")
@@ -611,7 +661,7 @@ async def main():
                    f"Get document data mismatch. Expected: {expected_init_data}, Got: {get_result_json.data}"
             print("   ✓ Got user-specific JSON document v1.0.")
 
-            # 3. Update (User Specific, JSON, version v1.0)
+            # 3. Update (Valid Full, User Specific, JSON, version v1.0) - Should pass schema
             update_payload_json = {"key": "value_updated", "count": 1, "nested": {"flag": True}}
             update_data_json = wf_schemas.CustomerDataVersionedUpdate(
                 is_shared=False,
@@ -622,7 +672,64 @@ async def main():
             assert update_result_json is not None, "Update document failed, expected a result."
             assert update_result_json.data == update_payload_json, \
                    f"Updated data mismatch. Expected: {update_payload_json}, Got: {update_result_json.data}"
-            print("   ✓ Updated user-specific JSON document v1.0.")
+            print("   ✓ Updated (Valid Full) user-specific JSON document v1.0 - Schema OK.")
+
+            # 3a. Update (Invalid Full, User Specific, JSON, version v1.0) - Missing required 'key'
+            print("   Testing Invalid Full Update (non-existent-key 'non-existent-key')...")
+            update_invalid_payload_missing = {"non-existent-key": "value", "nested": {"flag": False}}
+            update_invalid_data_missing = wf_schemas.CustomerDataVersionedUpdate(
+                is_shared=False, data=update_invalid_payload_missing, version="v1.0"
+            )
+            update_invalid_result_missing = await data_tester.update_versioned_document(test_ns, v_doc_name_json, update_invalid_data_missing)
+            print(f"   ✗ Invalid Full Update (non-existent-key 'non-existent-key') result: {update_invalid_result_missing}")
+            assert update_invalid_result_missing is None, "Expected invalid update (missing key) to fail"
+            print("   ✓ Invalid Full Update (missing 'key') correctly failed.")
+
+            # 3b. Update (Invalid Full, User Specific, JSON, version v1.0) - Wrong type for 'count'
+            print("   Testing Invalid Full Update (wrong type for 'count')...")
+            update_invalid_payload_type = {"key": "another_key", "count": "not_an_integer", "nested": {"flag": True}}
+            update_invalid_data_type = wf_schemas.CustomerDataVersionedUpdate(
+                is_shared=False, data=update_invalid_payload_type, version="v1.0"
+            )
+            update_invalid_result_type = await data_tester.update_versioned_document(test_ns, v_doc_name_json, update_invalid_data_type)
+            assert update_invalid_result_type is None, "Expected invalid update (wrong type) to fail"
+            print("   ✓ Invalid Full Update (wrong type) correctly failed.")
+
+            # 3c. Update (Valid Partial, User Specific, JSON, version v1.0) - Update only 'count'
+            print("   Testing Valid Partial Update (only 'count')...")
+            # Fetch current data first to simulate partial update
+            current_data_for_partial = await data_tester.get_versioned_document(test_ns, v_doc_name_json, is_shared=False, version="v1.0")
+            assert current_data_for_partial is not None, "Failed to get data for partial update"
+            partial_update_payload_valid = current_data_for_partial.data.copy() # Get existing data
+            partial_update_payload_valid["count"] = 99 # Modify only count
+            # Add an optional field
+            partial_update_payload_valid["optional_field"] = "partial update value"
+
+            update_partial_valid_data = wf_schemas.CustomerDataVersionedUpdate(
+                is_shared=False, data=partial_update_payload_valid, version="v1.0"
+            )
+            update_partial_valid_result = await data_tester.update_versioned_document(test_ns, v_doc_name_json, update_partial_valid_data)
+            assert update_partial_valid_result is not None, "Expected valid partial update to succeed"
+            assert update_partial_valid_result.data["count"] == 99, "Valid partial update 'count' failed"
+            assert update_partial_valid_result.data["key"] == "value_updated", "Valid partial update modified 'key' unexpectedly"
+            assert update_partial_valid_result.data["optional_field"] == "partial update value", "Valid partial update 'optional_field' failed"
+            print("   ✓ Valid Partial Update (only 'count' + optional) succeeded.")
+
+            # 3d. Update (Invalid Partial, User Specific, JSON, version v1.0) - Change 'count' to wrong type
+            print("   Testing Invalid Partial Update ('count' wrong type)...")
+            # Fetch current data again
+            current_data_for_partial_invalid = await data_tester.get_versioned_document(test_ns, v_doc_name_json, is_shared=False, version="v1.0")
+            assert current_data_for_partial_invalid is not None
+            partial_update_payload_invalid = current_data_for_partial_invalid.data.copy()
+            partial_update_payload_invalid["count"] = "ninety-nine" # Invalid type
+
+            update_partial_invalid_data = wf_schemas.CustomerDataVersionedUpdate(
+                is_shared=False, data=partial_update_payload_invalid, version="v1.0"
+            )
+            update_partial_invalid_result = await data_tester.update_versioned_document(test_ns, v_doc_name_json, update_partial_invalid_data)
+            assert update_partial_invalid_result is None, "Expected invalid partial update (wrong type) to fail"
+            print("   ✓ Invalid Partial Update (wrong type) correctly failed.")
+
 
             # 4. Get History (JSON, version v1.0)
             history_json = await data_tester.get_version_history(test_ns, v_doc_name_json, is_shared=False, version="v1.0")
@@ -670,7 +777,7 @@ async def main():
             )
             update_active_result_json = await data_tester.update_versioned_document(test_ns, v_doc_name_json, update_active_data_json)
             assert update_active_result_json is not None, "Update active version failed, expected a result."
-            expected_update_response = {'nested': {'flag': True}} | update_active_payload_json
+            expected_update_response = {'nested': {'flag': True}, 'optional_field': 'partial update value'} | update_active_payload_json
             assert update_active_result_json.data == expected_update_response, \
                    f"Update active data mismatch. Expected: {expected_update_response}, Got: {update_active_result_json.data}"
             print("   ✓ Updated active version (v1.1, JSON).")
@@ -754,11 +861,58 @@ async def main():
                    f"Create unversioned JSON data mismatch. Expected: {uv_create_payload_json}, Got: {uv_create_result_json.data}"
             print("   ✓ Created/Updated shared unversioned JSON document.")
             
+            # 13a. Update Unversioned (Shared, JSON) - Make it conform to schema
+            print("   Updating unversioned doc to conform to schema...")
+            uv_conform_payload_json = {"key": "uv_key", "count": 10, "optional_field": "optional_value"} # 'config' is not in schema, should be ignored or error depending on backend strictness
+            uv_conform_data_json = wf_schemas.CustomerDataUnversionedCreateUpdate(
+                is_shared=True,
+                data=uv_conform_payload_json,
+                schema_template_name=schema_template_name,
+                schema_template_version=schema_template_version,
+            )
+            uv_conform_result_json = await data_tester.create_or_update_unversioned_document(test_ns, uv_doc_name_json, uv_conform_data_json)
+            # Assertion depends on whether backend validation is strict for extra fields.
+            # If strict=False (default for Pydantic usually), extra fields are ignored.
+            # If strict=True or backend uses other validation, this might fail.
+            # Let's assume non-strict validation for now.
+            assert uv_conform_result_json is not None, "Update unversioned JSON to conform failed, expected result."
+            # Check if the expected *schema* fields are present and correct
+            assert uv_conform_result_json.data.get("key") == "uv_key", "Unversioned conforming update 'key' mismatch"
+            assert uv_conform_result_json.data.get("count") == 10, "Unversioned conforming update 'count' mismatch"
+            print("   ✓ Updated unversioned JSON document to likely conform.")
+
+            # 13b. Update Unversioned (Invalid - Missing required 'count', Shared, JSON)
+            print("   Testing Invalid Unversioned Update (missing 'count')...")
+            uv_invalid_payload_missing = {"key": "uv_key_invalid"} # Missing 'count'
+            uv_invalid_data_missing = wf_schemas.CustomerDataUnversionedCreateUpdate(
+                is_shared=True, data=uv_invalid_payload_missing,
+                schema_template_name=schema_template_name,
+                schema_template_version=schema_template_version,
+            )
+            uv_invalid_result_missing = await data_tester.create_or_update_unversioned_document(test_ns, uv_doc_name_json, uv_invalid_data_missing)
+            assert uv_invalid_result_missing is None, "Expected invalid unversioned update (missing count) to fail"
+            print("   ✓ Invalid Unversioned Update (missing 'count') correctly failed (assuming schema is applied).")
+
+            # 13c. Update Unversioned (Valid Partial - update 'count', Shared, JSON)
+            print("   Testing Valid Partial Unversioned Update...")
+            current_uv_data = await data_tester.get_unversioned_document(test_ns, uv_doc_name_json, is_shared=True)
+            assert current_uv_data is not None
+            uv_partial_valid_payload = current_uv_data.data.copy()
+            uv_partial_valid_payload["count"] = 11 # Update count
+            uv_partial_valid_data = wf_schemas.CustomerDataUnversionedCreateUpdate(
+                is_shared=True, data=uv_partial_valid_payload
+            )
+            uv_partial_valid_result = await data_tester.create_or_update_unversioned_document(test_ns, uv_doc_name_json, uv_partial_valid_data)
+            assert uv_partial_valid_result is not None, "Expected valid partial unversioned update to succeed"
+            assert uv_partial_valid_result.data["count"] == 11, "Valid partial unversioned update 'count' mismatch"
+            print("   ✓ Valid Partial Unversioned Update succeeded.")
+
             # 14. Get Unversioned (Shared, JSON)
             uv_get_result_json = await data_tester.get_unversioned_document(test_ns, uv_doc_name_json, is_shared=True)
             assert uv_get_result_json is not None, "Get unversioned JSON failed, expected result."
-            assert uv_get_result_json.data == uv_create_payload_json, \
-                   f"Get unversioned JSON data mismatch. Expected: {uv_create_payload_json}, Got: {uv_get_result_json.data}"
+            expected_uv_data = {'key': 'uv_key', 'count': 11, 'optional_field': 'optional_value'}
+            assert uv_get_result_json.data == expected_uv_data, \
+                   f"Get unversioned JSON data mismatch. Expected: {expected_uv_data}, Got: {uv_get_result_json.data}"
             print("   ✓ Got shared unversioned JSON document.")
 
             # 15. Update Unversioned (Shared, JSON)
@@ -882,8 +1036,24 @@ async def main():
                              print(f"     ✗ Deletion failed for {ns}/{dn}: {del_e}")
 
             except Exception as cleanup_e:
-                print(f"   Overall cleanup process failed: {cleanup_e}")
-                logger.exception("Cleanup error:")
+                print(f"   Overall document cleanup process failed: {cleanup_e}")
+                logger.exception("Document cleanup error:")
+
+            # Cleanup Schema Template if ID exists
+            if temp_schema_template_id:
+                print(f"   Cleaning up Schema Template {temp_schema_template_id}...")
+                try:
+                    # Need a new client context for cleanup if the main one closed due to error
+                    async with AuthenticatedClient() as auth_client:
+                        template_tester = TemplateTestClient(auth_client)
+                        deleted_schema = await template_tester.delete_schema_template(temp_schema_template_id)
+                        print(f"     {'✓' if deleted_schema else '✗'} Deleted Schema Template.")
+                except Exception as schema_cleanup_e:
+                    print(f"   Schema Template cleanup failed: {schema_cleanup_e}")
+                    logger.exception("Schema Template cleanup error:")
+            else:
+                 print("   No Schema Template ID recorded for cleanup.")
+
 
         print("\n--- Customer Data API Test Finished --- ")
 

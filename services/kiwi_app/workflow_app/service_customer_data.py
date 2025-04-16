@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional, Tuple, Union, Type, cast
 from datetime import datetime
 
 from fastapi import HTTPException, status
+from jsonschema import Draft202012Validator, ValidationError
+import jsonschema
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from kiwi_app.auth.models import User
@@ -12,7 +14,9 @@ from kiwi_app.workflow_app import schemas, services, models
 from kiwi_app.workflow_app.constants import SchemaType
 from mongo_client import AsyncMongoDBClient, AsyncMongoVersionedClient
 from kiwi_app.settings import settings
+from kiwi_app.utils import get_kiwi_logger
 
+customer_data_logger = get_kiwi_logger(name="kiwi_app.service_customer_data")
 
 class CustomerDataService:
     """
@@ -146,11 +150,12 @@ class CustomerDataService:
             include_public_system_entities=True,
             user=user,
         )
-        
+        # customer_data_logger.info(f" CUSTOMER DATA SERVICE: Found {len(templates)} templates")
         if not templates:
             return None
             
         # If no specific version provided, use the first one returned (likely the latest)
+        # TODO: FIXME: prioritize fetching owned templates over system templates!
         template = templates[0]
         
         if template.schema_type != SchemaType.JSON_SCHEMA:
@@ -226,6 +231,12 @@ class CustomerDataService:
                 schema=schema,
                 allowed_prefixes=allowed_prefixes,
             )
+
+            if not result:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Document '{namespace}/{docname}' already exists for org {org_id}"
+                )
             
             # Update with initial data if initialization was successful
             if result and initial_data:
@@ -814,6 +825,15 @@ class CustomerDataService:
             # TODO: Implement schema validation for unversioned documents
             # This requires custom validation since unversioned client doesn't have built-in schema validation
             # For now, we'll skip this and just store the data
+            try:
+                jsonschema.validate(instance=data, schema=schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+            except ValidationError as e:
+                error_path = "/".join(str(part) for part in e.path)
+                error_msg = f"{error_path}: {e.message}" if error_path else e.message
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"HITL input validation failed: {error_msg}"
+                )
             
         try:
             result = await self.mongo_client.create_or_update_object(

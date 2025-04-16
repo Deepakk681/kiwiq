@@ -19,6 +19,9 @@ from kiwi_app.workflow_app import models, schemas
 from kiwi_app.workflow_app.constants import WorkflowRunStatus, NotificationType, HITLJobStatus, LaunchStatus, SchemaType
 from kiwi_app.auth.crud_util import build_load_options
 from global_utils import datetime_now_utc
+from kiwi_app.utils import get_kiwi_logger
+
+crud_logger = get_kiwi_logger(name="kiwi_app.workflow_app.crud")
 
 ModelType = TypeVar("ModelType", bound=models.SQLModel)
 CreateSchemaType = TypeVar("CreateSchemaType", bound=PydanticBaseModel)
@@ -92,6 +95,7 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         Returns:
             List of matching entity objects
         """
+        # crud_logger.info(f"Searching for {self.model.__name__} by name: {name}, version: {version}, owner_org_id: {owner_org_id}, include_public: {include_public}, include_system_entities: {include_system_entities}, is_superuser: {is_superuser}")
         # Start with name filter
         stmt = select(self.model).where(getattr(self.model, "name") == name)
         
@@ -116,7 +120,9 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         
         # Execute query
         result = await db.execute(stmt)
-        return result.scalars().all()
+        response = result.scalars().all()
+        # crud_logger.info(f"Found {len(response)} {self.model.__name__}s")
+        return response
 
     async def get_multi(
         self, db: AsyncSession, *, skip: int = 0, limit: int = 100

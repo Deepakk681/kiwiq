@@ -67,6 +67,9 @@ ROLES_URL = f"{API_BASE_URL}/auth/roles"
 # Templates
 # --- API Endpoint URLs ---
 # Construct absolute URLs using the base URL from config
+NODE_TEMPLATES_URL = f"{API_BASE_URL}/templates/nodes/"
+NODE_TEMPLATE_DETAIL_URL = lambda template_id: f"{NODE_TEMPLATES_URL}{template_id}"
+
 PROMPT_TEMPLATES_URL = f"{API_BASE_URL}/templates/prompts/"
 PROMPT_TEMPLATE_DETAIL_URL = lambda template_id: f"{PROMPT_TEMPLATES_URL}{template_id}"
 PROMPT_TEMPLATES_SEARCH_URL = f"{PROMPT_TEMPLATES_URL}search"
