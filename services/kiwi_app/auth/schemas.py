@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional, Set
-from pydantic import BaseModel, EmailStr, Field, HttpUrl # Use Field for validation
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator # Use Field for validation
 from datetime import datetime
 
 # Import base models from models.py to inherit from
@@ -63,6 +63,45 @@ class UserOrganizationRoleRead(BaseModel):
     organization: OrganizationRead
     role: RoleRead # Embed role details, which includes permissions
     created_at: datetime
+
+class UserDeleteRequest(BaseModel):
+    """
+    Schema for requesting user deletion.
+    
+    This schema is used when a user or admin requests to delete a user account.
+    It supports deletion by either email or user_id, with at least one required.
+    
+    Attributes:
+        email: Optional email address of the user to delete
+        user_id: Optional UUID of the user to delete
+        permanent: Whether to permanently delete the user or just deactivate
+        confirmation: Required confirmation string to prevent accidental deletions
+    """
+    email: Optional[EmailStr] = None
+    user_id: Optional[uuid.UUID] = None
+    # permanent: bool = False  # Default to soft delete (deactivation)
+    # confirmation: str = Field(
+    #     ...,  # Required field
+    #     description="Type 'DELETE' to confirm this destructive action"
+    # )
+    
+    # @validator('confirmation')
+    # def validate_confirmation(cls, v):
+    #     """Validates that the confirmation field contains the expected value."""
+    #     if v != "DELETE":
+    #         raise ValueError("Confirmation must be exactly 'DELETE' to proceed with user deletion")
+    #     return v
+    
+    @model_validator(mode='before')
+    def check_email_or_id_present(cls, values):
+        """Validates that at least one identifier (email or user_id) is provided."""
+        email = values.get('email')
+        user_id = values.get('user_id')
+        if not email and not user_id:
+            raise ValueError("Either email or user_id must be provided")
+        if email and user_id:
+            raise ValueError("Only one of email or user_id should be provided")
+        return values
 
 
 class UserAssignRole(BaseModel):

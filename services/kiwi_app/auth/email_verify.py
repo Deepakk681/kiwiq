@@ -194,7 +194,8 @@ async def trigger_send_verification_email(
     #     return None # Don't proceed if token couldn't be saved
 
     # Construct the verification URL with the JWT
-    URL = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_EMAIL_URL}"
+    URL = base_url
+    # URL = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_EMAIL_URL}"
     verification_link = f"{URL}?token={token}"
     if settings.VERIFY_EMAIL_SPA_URL:
         verification_link = f"{settings.VERIFY_EMAIL_SPA_URL}?token={token}"
@@ -390,7 +391,8 @@ async def trigger_send_password_reset_email(
     # Example: http://frontend.com/reset-password?token=JWT_HERE
     # The frontend will then use this token to call the backend /reset-password endpoint.
     # ADJUST THE BASE_URL/PATH AS NEEDED FOR YOUR FRONTEND ROUTING
-    URL = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL}"
+    URL = base_url
+    # URL = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL}"
     reset_link = f"{URL}?token={token}"
     if settings.VERIFY_PASSWORD_RESET_TOKEN_SPA_URL:
         reset_link = f"{settings.VERIFY_PASSWORD_RESET_TOKEN_SPA_URL}?token={token}"

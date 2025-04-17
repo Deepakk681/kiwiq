@@ -59,8 +59,9 @@ def _set_refresh_cookie(response: Response, token: str):
         max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600 # In seconds
     )
 
-def _get_base_url(request: Request):
-    return settings.AUTH_REDIRECT_BASE_URL if settings.APP_ENV == "PROD" else str(request.base_url)
+def _get_base_url(request: Request, dev_env_suffix: str = ""):
+    URL = f"{str(request.base_url).rstrip('/')}{settings.API_V1_PREFIX}{dev_env_suffix}"
+    return settings.AUTH_REDIRECT_BASE_URL if settings.APP_ENV == "PROD" else URL
 
 # === Email/Password Authentication Endpoints ===
 
@@ -78,7 +79,7 @@ async def register_user_endpoint(
     using background tasks.
     """
     # Get base URL for verification link
-    base_url = _get_base_url(request)
+    base_url = _get_base_url(request, settings.AUTH_VERIFY_EMAIL_URL)
     try:
         # Service method now handles adding email task to background
         user = await auth_service.register_new_user(
@@ -194,7 +195,7 @@ async def request_email_verification_endpoint(
         if user.is_verified:
             return JSONResponse(content={"message": "Email is already verified."}, status_code=status.HTTP_200_OK)
 
-        base_url = _get_base_url(request)
+        base_url = _get_base_url(request, settings.AUTH_VERIFY_EMAIL_URL)
         # Use the trigger function which adds to background tasks
         await email_verify.trigger_send_verification_email(background_tasks=background_tasks, db=db, user=user, base_url=base_url)
         # Message returned is generic, log action
@@ -274,7 +275,7 @@ async def request_password_reset_endpoint(
     Always returns a 202 Accepted response to prevent email enumeration.
     """
     try:
-        base_url = _get_base_url(request) # API base URL
+        base_url = _get_base_url(request, settings.AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL) # API base URL
         result = await auth_service.request_password_reset(
             db=db,
             email=request_data.email,
@@ -448,12 +449,6 @@ async def list_my_organizations(
 
     return current_user_with_orgs
 
-    links_to_return = current_user_with_orgs.organization_links
-
-    # Option 2: Use a specific DAO method if created for this purpose
-    # links = await crud.user_dao.get_user_organizations_with_roles(db, user_id=current_user.id)
-
-    return links_to_return # FastAPI handles conversion to the response_model
 
 # === Organization & Role Management Endpoints ===
 
@@ -605,6 +600,126 @@ async def remove_user_from_organization_endpoint(
 
 
 # === Admin/Superuser Endpoints (Example) ===
+
+
+@router.delete("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
+async def delete_user_account_endpoint(
+    delete_request: schemas.UserDeleteRequest,
+    db: AsyncSession = Depends(get_async_db_dependency),
+    superuser: models.User = Depends(dependencies.get_current_active_superuser),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    Delete a user account.
+    
+    This endpoint allows superusers to delete user accounts. This is a destructive operation
+    that removes the user's personal data, organization memberships, and other associated data
+    depending on the implementation in the service layer.
+    
+    Returns:
+        204 No Content on successful deletion
+        
+    Raises:
+        HTTPException: 
+            - 500 for unexpected errors during deletion process
+    """
+    try:
+        # Call the service method to handle the deletion logic
+        await auth_service.delete_user(db=db, user_id=delete_request.user_id, email=delete_request.email)
+        
+        # Log the successful deletion
+        auth_logger.info(f"User account deleted: {delete_request.email or delete_request.user_id}")
+        
+        # Return 204 No Content on successful deletion
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as e:
+        # Log the error but don't expose details to the client
+        auth_logger.exception(f"Error deleting user account {delete_request.email or delete_request.user_id}", exc_info=e)
+        # TODO: remove exception from error message once API accessible to regular users!
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"An error occurred while deleting your account: {str(e)}"
+        )
+
+
+@router.get("/users", response_model=List[schemas.UserRead], tags=["admin"])
+async def list_users_endpoint(
+    skip: int = Query(0, ge=0, description="Number of users to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of users to return"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: models.User = Depends(dependencies.get_current_active_superuser),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    List all users in the system (for admin interface).
+    
+    This endpoint is restricted to superusers only and provides a paginated list of all users.
+    
+    Args:
+        skip: Number of users to skip (for pagination)
+        limit: Maximum number of users to return (for pagination)
+        db: Database session
+        current_user: The authenticated superuser making the request
+        auth_service: Service for user-related operations
+        
+    Returns:
+        List[UserRead]: A list of user objects with their basic information
+        
+    Raises:
+        HTTPException: 
+            - 403 if the user is not a superuser (handled by dependency)
+            - 500 for unexpected errors
+    """
+    try:
+        users = await auth_service.list_users(db=db, skip=skip, limit=limit)
+        auth_logger.info(f"User list retrieved by superuser: {current_user.email}")
+        return users
+    except Exception as e:
+        auth_logger.exception(f"Error listing users by superuser {current_user.email}", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while retrieving the user list"
+        )
+
+@router.get("/organizations", response_model=List[schemas.OrganizationRead], tags=["admin"])
+async def list_organizations_endpoint(
+    skip: int = Query(0, ge=0, description="Number of organizations to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of organizations to return"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: models.User = Depends(dependencies.get_current_active_superuser),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    List all organizations with pagination, for admin interface.
+    
+    This endpoint provides a paginated list of all organizations in the system.
+    
+    Args:
+        skip: Number of organizations to skip (for pagination)
+        limit: Maximum number of organizations to return (for pagination)
+        db: Database session
+        current_user: The authenticated user making the request
+        auth_service: Service for organization-related operations
+        
+    Returns:
+        List[OrganizationRead]: A list of organization objects with their basic information
+        
+    Raises:
+        HTTPException: 
+            - 401 if the user is not authenticated (handled by dependency)
+            - 500 for unexpected errors
+    """
+    try:
+        organizations = await auth_service.list_organizations(db=db, skip=skip, limit=limit)
+        auth_logger.info(f"Organization list retrieved by user: {current_user.email}")
+        return organizations
+    except Exception as e:
+        auth_logger.exception(f"Error listing organizations for user {current_user.email}", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while retrieving the organization list"
+        )
+
 
 @router.post("/roles", response_model=schemas.RoleCreate, status_code=status.HTTP_201_CREATED, tags=["admin"])
 async def create_role_endpoint(

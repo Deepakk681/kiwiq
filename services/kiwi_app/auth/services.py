@@ -214,6 +214,175 @@ class AuthService:
 
         return new_access_token, new_refresh_token_obj
 
+    async def delete_user(
+        self, 
+        db: AsyncSession, 
+        *,
+        user_id: Optional[uuid.UUID] = None,
+        email: Optional[str] = None,
+        user: Optional[models.User] = None
+    ) -> models.User:
+        """
+        Deletes a user from the system by either ID, email, or user object.
+        
+        This method will completely remove the user and all associated data from the database,
+        including removing the user from all organizations they belong to.
+        Exactly one of user_id, email, or user must be provided.
+        
+        Args:
+            db: Database session
+            user_id: UUID of the user to delete
+            email: Email of the user to delete
+            user: User object to delete
+            
+        Returns:
+            models.User: The deleted user object
+            
+        Raises:
+            ValueError: If no identifier or multiple identifiers are provided
+            UserNotFoundException: If the user cannot be found
+            HTTPException: If there's a database error during deletion
+        """
+        # Validate that exactly one identifier is provided
+        provided_params = sum(1 for param in [user_id, email, user] if param is not None)
+        
+        if provided_params == 0:
+            raise ValueError("At least one of user_id, email, or user must be provided")
+        elif provided_params > 1:
+            raise ValueError("Only one of user_id, email, or user should be provided")
+        
+        # Get the user object if not already provided
+        db_user = user
+        if not db_user:
+            if user_id:
+                db_user = await self.user_dao.get(db, id=user_id, load_relations=["organization_links"])
+            elif email:
+                db_user = await self.user_dao.get_by_email(db, email=email)
+                
+        # Check if user exists
+        if not db_user:
+            identifier = user_id or email or "provided user object"
+            auth_logger.warning(f"Attempted to delete non-existent user: {identifier}")
+            raise UserNotFoundException(detail=f"User not found with the provided identifier: {identifier}")
+        
+        try:
+            # First revoke all refresh tokens for this user
+            await self.refresh_token_dao.revoke_all_for_user(db, user_id=db_user.id)
+            auth_logger.info(f"Revoked all refresh tokens for user {db_user.email} before deletion")
+            
+            # Remove user from all organizations they belong to
+            if hasattr(db_user, 'organization_links') and db_user.organization_links:
+                for link in db_user.organization_links:
+                    await self.user_dao.remove_user_from_org(
+                        db=db, 
+                        user_id=db_user.id, 
+                        org_id=link.organization_id
+                    )
+                auth_logger.info(f"Removed user {db_user.email} from all organizations")
+            
+            # Delete the user
+            deleted_user = await self.user_dao.remove(db, id=db_user.id)
+            
+            if deleted_user:
+                auth_logger.info(f"User '{deleted_user.email}' (ID: {deleted_user.id}) successfully deleted")
+                return deleted_user
+            else:
+                # This should not happen if we already verified the user exists
+                auth_logger.error(f"Failed to delete user {db_user.email} - delete operation returned None")
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to delete user due to a database error"
+                )
+                
+        except Exception as e:
+            auth_logger.error(
+                f"Database error deleting user {db_user.email}: {e}", 
+                exc_info=True
+            )
+            # Forward the exception message
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to delete user: {str(e)}"
+            )
+
+
+    async def list_users(
+        self, 
+        db: AsyncSession, 
+        *, 
+        skip: int = 0, 
+        limit: int = 100
+    ) -> List[models.User]:
+        """
+        Retrieve a list of users with pagination.
+        
+        This method fetches multiple user records from the database with
+        pagination support. It's useful for admin interfaces or when
+        displaying user listings.
+        
+        Args:
+            db: Database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List[models.User]: A list of user objects
+            
+        Note:
+            This method uses the base get_multi method from the DAO pattern
+            which handles the pagination logic.
+        """
+        auth_logger.info(f"Listing users with skip={skip}, limit={limit}")
+        try:
+            users = await self.user_dao.get_multi(db=db, skip=skip, limit=limit)
+            auth_logger.debug(f"Retrieved {len(users)} users")
+            return users
+        except Exception as e:
+            auth_logger.error(f"Error listing users: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve users: {str(e)}"
+            )
+    
+    async def list_organizations(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[models.Organization]:
+        """
+        Retrieve a list of organizations with pagination.
+        
+        This method fetches multiple organization records from the database with
+        pagination support. It's useful for admin interfaces or when
+        displaying organization listings.
+        
+        Args:
+            db: Database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            List[models.Organization]: A list of organization objects
+            
+        Note:
+            This method uses the base get_multi method from the DAO pattern
+            which handles the pagination logic.
+        """
+        auth_logger.info(f"Listing organizations with skip={skip}, limit={limit}")
+        try:
+            organizations = await self.org_dao.get_multi(db=db, skip=skip, limit=limit)
+            auth_logger.debug(f"Retrieved {len(organizations)} organizations")
+            return organizations
+        except Exception as e:
+            auth_logger.error(f"Error listing organizations: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve organizations: {str(e)}"
+            )
+
+
     async def handle_linkedin_callback(self, db: AsyncSession, linkedin_user: schemas.LinkedInUser) -> models.User:
         """
         Handles user lookup/creation after successful LinkedIn OAuth.
