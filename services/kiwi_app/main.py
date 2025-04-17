@@ -101,7 +101,7 @@ origins = [
     "https://127.0.0.1:3000",  # Alternative localhost
     "http://localhost:3000",  # Your frontend URL
     "http://127.0.0.1:3000",  # Alternative localhost
-    "https://api.prod.kiwiq.ai",
+    "https://beta.kiwiq.ai",
 ]
 
 app.add_middleware(
