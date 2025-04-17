@@ -5,6 +5,7 @@ import asyncio
 import logging # Import logging
 from contextlib import asynccontextmanager # Import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from kiwi_app.utils import get_kiwi_logger
 from kiwi_app import auth
 from kiwi_app.settings import settings # Import settings
@@ -94,6 +95,22 @@ app = FastAPI(
     openapi_url="/openapi.json",
     openapi_tags=tags_metadata,
     )
+
+origins = [
+    "https://localhost:3000",  # Your frontend URL
+    "https://127.0.0.1:3000",  # Alternative localhost
+    "http://localhost:3000",  # Your frontend URL
+    "http://127.0.0.1:3000",  # Alternative localhost
+    "https://api.prod.kiwiq.ai",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include the authentication routes using the exposed router
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
