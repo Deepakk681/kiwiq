@@ -8,9 +8,9 @@ import json
 from pydantic import ValidationError # Import for catching validation errors
 
 # Assuming your refactored code is in 'workflow_nodes.py'
-from workflow_service.registry.nodes.core.flow_nodes_v1 import (  # flow_nodes_gemini_CURRENT_GOOD  flow_nodes
+from workflow_service.registry.nodes.core.flow_nodes import (  # flow_nodes_gemini_CURRENT_GOOD  flow_nodes
     FilterNode,
-    IfElseNode,
+    IfElseConditionNode,
     FilterTargets,
     FilterConfigSchema,
     IfElseConfigSchema,
@@ -49,7 +49,939 @@ class TestFilterNodeUnittest(BaseNodeTest):
         node = FilterNode(config=config, node_id="filter1", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.filtered_data, input_data_dict)
+    
+    def test_object_filter_simple_allow_mode(self):
+        """
+        Test filtering with ALLOW mode on a simple object without lists.
+        This test demonstrates how to:
+        1. Use ALLOW mode to keep fields when conditions pass
+        2. Test filtering on non-list data structures
+        """
+        # Create test data with a simple object structure
+        test_data = {
+            "person": {
+                "name": "John Doe",
+                "age": 30,
+                "email": "john@example.com",
+                "ssn": "123-45-6789",
+                "address": {
+                    "street": "123 Main St",
+                    "city": "Anytown",
+                    "zip": "12345"
+                }
+            },
+            "account_info": {
+                "account_number": "A12345",
+                "balance": 1500.75,
+                "type": "checking"
+            }
+        }
+        
+        # Config to:
+        # 1. Keep person.name and person.age fields (ALLOW mode with conditions)
+        # 2. Keep account_number and type by removing balance field
+        config = {
+            "targets": [
+                # Target 1: Keep name field when it's not empty
+                {"filter_target": "person.name", "condition_groups": [
+                    {"conditions": [
+                        {"field": "person.name", "operator": "is_not_empty", "value": None}
+                    ]}
+                ], "filter_mode": "allow"},
+                
+                # Target 2: Keep age field when it's greater than 18
+                {"filter_target": "person.age", "condition_groups": [
+                    {"conditions": [
+                        {"field": "person.age", "operator": "greater_than", "value": 18}
+                    ]}
+                ], "filter_mode": "allow"},
+                
+                # Target 3: Remove email field
+                {"filter_target": "person.email", "condition_groups": [
+                    {"conditions": [
+                        {"field": "person.email", "operator": "is_not_empty", "value": None}
+                    ]}
+                ], "filter_mode": "deny"},
+                
+                # Target 4: Remove ssn field
+                {"filter_target": "person.ssn", "condition_groups": [
+                    {"conditions": [
+                        {"field": "person.ssn", "operator": "is_not_empty", "value": None}
+                    ]}
+                ], "filter_mode": "deny"},
+                
+                # Target 5: Remove address field
+                {"filter_target": "person.address", "condition_groups": [
+                    {"conditions": [
+                        {"field": "person.address", "operator": "is_not_empty", "value": None}
+                    ]}
+                ], "filter_mode": "deny"},
+                
+                # Target 6: Remove balance field
+                {"filter_target": "account_info.balance", "condition_groups": [
+                    {"conditions": [
+                        {"field": "account_info.balance", "operator": "is_not_empty", "value": None}
+                    ]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="allow_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Filtered objects with only specified fields
+        expected_data = {
+            "person": {
+                "name": "John Doe",
+                "age": 30
+            },
+            "account_info": {
+                "account_number": "A12345",
+                "type": "checking"
+            }
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify sensitive fields were removed
+        self.assertNotIn("ssn", result.filtered_data["person"])
+        self.assertNotIn("email", result.filtered_data["person"])
+        self.assertNotIn("address", result.filtered_data["person"])
+        self.assertNotIn("balance", result.filtered_data["account_info"])
+    
+    def test_mixed_allow_deny_modes(self):
+        """
+        Test using both ALLOW and DENY modes in the same filter configuration.
+        This demonstrates how to:
+        1. Combine different filter modes in a single node
+        2. Handle complex filtering scenarios with mixed approaches
+        """
+        # Create test data with mixed structure
+        test_data = {
+            "user_data": {
+                "personal": {
+                    "name": "Alex Johnson",
+                    "dob": "1990-05-15",
+                    "ssn": "987-65-4321"
+                },
+                "professional": {
+                    "title": "Software Engineer",
+                    "salary": 95000,
+                    "department": "Engineering",
+                    "manager": "Sarah Chen"
+                }
+            },
+            "app_settings": {
+                "notifications": {
+                    "email": True,
+                    "sms": False,
+                    "push": True
+                },
+                "privacy": {
+                    "share_data": False,
+                    "analytics_opt_in": True
+                },
+                "display": {
+                    "theme": "light",
+                    "font_size": "medium"
+                }
+            }
+        }
+        
+        # Config to:
+        # 1. Keep name and dob fields from personal info
+        # 2. Remove salary and manager from professional info
+        # 3. Keep theme but remove font_size from display settings
+        config = {
+            "targets": [
+                # Target 1: Keep name field when it exists
+                {"filter_target": "user_data.personal.name", "condition_groups": [
+                    {"conditions": [{"field": "user_data.personal.name", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "allow"},
+                
+                # Target 2: Keep dob field when it exists
+                {"filter_target": "user_data.personal.dob", "condition_groups": [
+                    {"conditions": [{"field": "user_data.personal.dob", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "allow"},
+                
+                # Target 3: Remove ssn field
+                {"filter_target": "user_data.personal.ssn", "condition_groups": [
+                    {"conditions": [{"field": "user_data.personal.ssn", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 4: Remove salary field
+                {"filter_target": "user_data.professional.salary", "condition_groups": [
+                    {"conditions": [{"field": "user_data.professional.salary", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 5: Remove manager field
+                {"filter_target": "user_data.professional.manager", "condition_groups": [
+                    {"conditions": [{"field": "user_data.professional.manager", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 6: Keep theme field
+                {"filter_target": "app_settings.display.theme", "condition_groups": [
+                    {"conditions": [{"field": "app_settings.display.theme", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "allow"},
+                
+                # Target 7: Remove font_size field
+                {"filter_target": "app_settings.display.font_size", "condition_groups": [
+                    {"conditions": [{"field": "app_settings.display.font_size", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="mixed_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Complex filtered structure
+        expected_data = {
+            "user_data": {
+                "personal": {
+                    "name": "Alex Johnson",
+                    "dob": "1990-05-15"
+                },
+                "professional": {
+                    "title": "Software Engineer",
+                    "department": "Engineering"
+                }
+            },
+            "app_settings": {
+                "notifications": {
+                    "email": True,
+                    "sms": False,
+                    "push": True
+                },
+                "privacy": {
+                    "share_data": False,
+                    "analytics_opt_in": True
+                },
+                "display": {
+                    "theme": "light"
+                }
+            }
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify specific fields were handled correctly
+        self.assertNotIn("ssn", result.filtered_data["user_data"]["personal"])
+        self.assertNotIn("salary", result.filtered_data["user_data"]["professional"])
+        self.assertNotIn("manager", result.filtered_data["user_data"]["professional"])
+        self.assertNotIn("font_size", result.filtered_data["app_settings"]["display"])
+    
+    def test_object_filter_deny_mode_with_nested_objects(self):
+        """
+        Test filtering with DENY mode on nested objects without lists.
+        This test demonstrates how to:
+        1. Use DENY mode to remove specific nested fields
+        2. Test complex path traversal in non-list structures
+        """
+        # Create test data with nested objects
+        test_data = {
+            "customer": {
+                "profile": {
+                    "basic_info": {
+                        "name": "Jane Smith",
+                        "age": 28
+                    },
+                    "contact": {
+                        "email": "jane@example.com",
+                        "phone": "555-123-4567"
+                    },
+                    "security": {
+                        "password_hash": "abcdef123456",
+                        "security_questions": {
+                            "q1": "First pet's name",
+                            "a1": "Fluffy"
+                        }
+                    }
+                },
+                "preferences": {
+                    "notifications": True,
+                    "theme": "dark"
+                }
+            },
+            "system": {
+                "version": "1.0.3",
+                "debug_mode": True
+            }
+        }
+        
+        # Config to:
+        # 1. Remove security information
+        # 2. Remove debug_mode from system
+        config = {
+            "targets": [
+                # Target 1: Remove entire security object
+                {"filter_target": "customer.profile.security", "condition_groups": [
+                    {"conditions": [{"field": "customer.profile.security", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 2: Remove phone from contact info
+                {"filter_target": "customer.profile.contact.phone", "condition_groups": [
+                    {"conditions": [{"field": "customer.profile.contact.phone", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 3: Remove debug_mode from system
+                {"filter_target": "system.debug_mode", "condition_groups": [
+                    {"conditions": [{"field": "system.debug_mode", "operator": "equals", "value": True}]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="nested_deny_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Objects with sensitive fields removed
+        expected_data = {
+            "customer": {
+                "profile": {
+                    "basic_info": {
+                        "name": "Jane Smith",
+                        "age": 28
+                    },
+                    "contact": {
+                        "email": "jane@example.com"
+                    }
+                },
+                "preferences": {
+                    "notifications": True,
+                    "theme": "dark"
+                }
+            },
+            "system": {
+                "version": "1.0.3"
+            }
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify specific fields were removed
+        self.assertNotIn("security", result.filtered_data["customer"]["profile"])
+        self.assertNotIn("phone", result.filtered_data["customer"]["profile"]["contact"])
+        self.assertNotIn("debug_mode", result.filtered_data["system"])
+    
+    
+    
+    def test_edge_case_empty_objects_after_filtering(self):
+        """
+        Test edge case where filtering results in empty objects.
+        This demonstrates how the filter node handles:
+        1. Objects that become empty after filtering
+        2. Proper handling of edge cases in complex structures
+        """
+        # Create test data with potentially empty objects after filtering
+        test_data = {
+            "main": {
+                "section_a": {
+                    "field1": "value1",
+                    "sensitive": "secret"
+                },
+                "section_b": {
+                    "sensitive_only": "top_secret"
+                },
+                "section_c": {
+                    "field1": "keep_me",
+                    "field2": "also_keep"
+                }
+            },
+            "metadata": {
+                "created_at": "2023-01-01",
+                "sensitive_info": "metadata_secret"
+            }
+        }
+        
+        # Config to:
+        # 1. Remove all sensitive fields
+        # 2. This will make section_b empty
+        config = {
+            "targets": [
+                {"filter_target": "main.section_a.sensitive", "condition_groups": [
+                    {"conditions": [{"field": "main.section_a.sensitive", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                {"filter_target": "main.section_b.sensitive_only", "condition_groups": [
+                    {"conditions": [{"field": "main.section_b.sensitive_only", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"},
+                
+                {"filter_target": "metadata.sensitive_info", "condition_groups": [
+                    {"conditions": [{"field": "metadata.sensitive_info", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="empty_objects_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Structure with empty section_b object
+        expected_data = {
+            "main": {
+                "section_a": {
+                    "field1": "value1"
+                },
+                "section_b": {}, # Empty object after filtering
+                "section_c": {
+                    "field1": "keep_me",
+                    "field2": "also_keep"
+                }
+            },
+            "metadata": {
+                "created_at": "2023-01-01"
+            }
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify section_b exists but is empty
+        self.assertIn("section_b", result.filtered_data["main"])
+        self.assertEqual(result.filtered_data["main"]["section_b"], {})
+    
+    def test_conditional_field_removal_based_on_other_fields(self):
+        """
+        Test removing fields conditionally based on values in other fields.
+        This demonstrates how to:
+        1. Use conditions on one field to determine filtering of another field
+        2. Implement complex conditional logic in filtering
+        """
+        # Create test data with fields that should be conditionally removed
+        test_data = {
+            "records": [
+                {
+                    "id": 1,
+                    "access_level": "public",
+                    "content": "This is public information",
+                    "details": "Additional public details"
+                },
+                {
+                    "id": 2,
+                    "access_level": "private",
+                    "content": "This is private information",
+                    "details": "Additional private details"
+                },
+                {
+                    "id": 3,
+                    "access_level": "restricted",
+                    "content": "This is restricted information",
+                    "details": "Additional restricted details"
+                }
+            ],
+            "single_record": {
+                "id": 4,
+                "access_level": "private",
+                "content": "This is a private single record",
+                "details": "Additional private details for single record"
+            }
+        }
+        
+        # Config to:
+        # 1. Remove content and details fields from any record with access_level != "public"
+        config = {
+            "targets": [
+                # Target 1: Remove content from non-public records in the list
+                {"filter_target": "records.content", "condition_groups": [
+                    {"conditions": [{"field": "records.access_level", "operator": "not_equals", "value": "public"}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 2: Remove details from non-public records in the list
+                {"filter_target": "records.details", "condition_groups": [
+                    {"conditions": [{"field": "records.access_level", "operator": "not_equals", "value": "public"}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 3: Remove content from non-public single record
+                {"filter_target": "single_record.content", "condition_groups": [
+                    {"conditions": [{"field": "single_record.access_level", "operator": "not_equals", "value": "public"}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 4: Remove details from non-public single record
+                {"filter_target": "single_record.details", "condition_groups": [
+                    {"conditions": [{"field": "single_record.access_level", "operator": "not_equals", "value": "public"}]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="conditional_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Only public records have content and details
+        expected_data = {
+            "records": [
+                {
+                    "id": 1,
+                    "access_level": "public",
+                    "content": "This is public information",
+                    "details": "Additional public details"
+                },
+                {
+                    "id": 2,
+                    "access_level": "private"
+                },
+                {
+                    "id": 3,
+                    "access_level": "restricted"
+                }
+            ],
+            "single_record": {
+                "id": 4,
+                "access_level": "private"
+            }
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify content and details were removed from non-public records
+        self.assertIn("content", result.filtered_data["records"][0])  # Public record
+        self.assertNotIn("content", result.filtered_data["records"][1])  # Private record
+        self.assertNotIn("content", result.filtered_data["records"][2])  # Restricted record
+        self.assertNotIn("content", result.filtered_data["single_record"])  # Private single record
 
+    def test_object_filter_with_deny_mode(self):
+        """
+        Test filtering with DENY mode to explicitly remove fields from objects.
+        This test demonstrates how to:
+        1. Filter out an entire object based on a name condition
+        2. Use DENY mode to explicitly remove specific fields from objects
+        """
+        # Create test data with multiple user objects
+        test_data = {
+            "users": [
+                {"name": "Alice", "age": 35, "email": "alice@example.com", "role": "admin"},
+                {"name": "Bob", "age": 42, "email": "bob@example.com", "role": "user"},
+                {"name": "Charlie", "age": 28, "email": "charlie@example.com", "role": "user"}
+            ],
+            "settings": {"mode": "production", "features": ["a", "b", "c"]}
+        }
+        
+        # Config to:
+        # 1. Filter out any user with name "Bob" (entire object)
+        # 2. Remove "email" field from all remaining users (DENY specific field)
+        config = {
+            "targets": [
+                # Target 1: Filter out users named "Bob"
+                {"filter_target": "users", "condition_groups": [
+                    {"conditions": [{"field": "users.name", "operator": "equals", "value": "Bob"}]}
+                ], "filter_mode": "deny"},
+                
+                # Target 2: Remove email field from all remaining users
+                {"filter_target": "users.email", "condition_groups": [
+                    {"conditions": [{"field": "users.email", "operator": "is_not_empty", "value": None}]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="deny_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Two users (Bob removed), both missing email field
+        expected_data = {
+            "users": [
+                {"name": "Alice", "age": 35, "role": "admin"},
+                {"name": "Charlie", "age": 28, "role": "user"}
+            ],
+            "settings": {"mode": "production", "features": ["a", "b", "c"]}
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify Bob was removed
+        user_names = [user["name"] for user in result.filtered_data["users"]]
+        self.assertNotIn("Bob", user_names)
+        
+        # Verify no user has an email field
+        for user in result.filtered_data["users"]:
+            self.assertNotIn("email", user)
+    
+    def test_complex_deny_filtering_with_multiple_conditions(self):
+        """
+        Test more complex DENY filtering with multiple condition groups.
+        This demonstrates how to use multiple conditions to determine which fields
+        or objects should be removed.
+        """
+        # Create test data with sensitive information
+        test_data = {
+            "records": [
+                {"id": 1, "type": "personal", "data": {"ssn": "123-45-6789", "name": "Alice", "address": "123 Main St"}},
+                {"id": 2, "type": "business", "data": {"tax_id": "87-1234567", "name": "ACME Corp", "address": "456 Business Ave"}},
+                {"id": 3, "type": "personal", "data": {"ssn": "987-65-4321", "name": "Bob", "address": "789 Oak Dr"}}
+            ],
+            "metadata": {"classification": "confidential", "owner": "HR Department"}
+        }
+        
+        # Config to:
+        # 1. Remove SSN field from personal records
+        # 2. Remove tax_id from business records
+        # 3. Remove the entire metadata object if classification is confidential
+        config = {
+            "targets": [
+                # Target 1: Remove SSN from personal records
+                {"filter_target": "records.data.ssn", "condition_groups": [
+                    {"conditions": [
+                        {"field": "records.type", "operator": "equals", "value": "personal"},
+                        {"field": "records.data.ssn", "operator": "is_not_empty", "value": None}
+                    ], "logical_operator": "and"}
+                ], "filter_mode": "deny"},
+                
+                # Target 2: Remove tax_id from business records
+                {"filter_target": "records.data.tax_id", "condition_groups": [
+                    {"conditions": [
+                        {"field": "records.type", "operator": "equals", "value": "business"}
+                    ]}
+                ], "filter_mode": "deny"},
+                
+                # Target 3: Remove entire metadata object if classification is confidential
+                {"filter_target": "metadata", "condition_groups": [
+                    {"conditions": [
+                        {"field": "metadata.classification", "operator": "equals", "value": "confidential"}
+                    ]}
+                ], "filter_mode": "deny"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="complex_deny_filter", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Records with sensitive fields removed, metadata removed
+        expected_data = {
+            "records": [
+                {"id": 1, "type": "personal", "data": {"name": "Alice", "address": "123 Main St"}},
+                {"id": 2, "type": "business", "data": {"name": "ACME Corp", "address": "456 Business Ave"}},
+                {"id": 3, "type": "personal", "data": {"name": "Bob", "address": "789 Oak Dr"}}
+            ]
+        }
+        
+        # Verify results
+        self.assertEqual(result.filtered_data, expected_data)
+        
+        # Verify sensitive fields were removed
+        for record in result.filtered_data["records"]:
+            if record["type"] == "personal":
+                self.assertNotIn("ssn", record["data"])
+            elif record["type"] == "business":
+                self.assertNotIn("tax_id", record["data"])
+        
+        # Verify metadata was removed
+        self.assertNotIn("metadata", result.filtered_data)
+    def test_filter_with_nonexistent_target_field(self):
+        """
+        Test filtering when the target field doesn't exist in the data.
+        The filter should be skipped gracefully without errors.
+        """
+        # Create test data without the target fields
+        test_data = {
+            "user": {"name": "Alice", "age": 30},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config targeting a field that doesn't exist
+        config = {
+            "targets": [
+                {"filter_target": "nonexistent_field", "condition_groups": [
+                    {"conditions": [
+                        {"field": "user.name", "operator": "equals", "value": "Alice"}
+                    ]}
+                ]}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="nonexistent_target", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Data should remain unchanged since the target doesn't exist
+        self.assertEqual(result.filtered_data, test_data)
+    
+    def test_filter_with_nonexistent_condition_field(self):
+        """
+        Test filtering when the condition field doesn't exist in the data.
+        Conditions on non-existent fields should fail for most operators.
+        """
+        # Create test data
+        test_data = {
+            "user": {"name": "Alice"},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config with condition on non-existent field
+        config = {
+            "targets": [
+                {"filter_target": "metadata", "condition_groups": [
+                    {"conditions": [
+                        {"field": "user.nonexistent_field", "operator": "equals", "value": "some_value"}
+                    ]}
+                ]}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="nonexistent_condition", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: metadata should be removed since condition fails
+        expected_data = {"user": {"name": "Alice"}}
+        self.assertEqual(result.filtered_data, expected_data)
+    
+    def test_filter_with_mixed_existent_nonexistent_conditions(self):
+        """
+        Test filtering with multiple condition groups where some reference 
+        non-existent fields and others reference existing fields.
+        """
+        # Create test data
+        test_data = {
+            "user": {"name": "Alice", "age": 30},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config with mixed conditions (one exists, one doesn't)
+        config = {
+            "targets": [
+                {"filter_target": "metadata", "condition_groups": [
+                    # This group should fail (non-existent field)
+                    {"conditions": [
+                        {"field": "user.nonexistent_field", "operator": "equals", "value": "some_value"}
+                    ]},
+                    # This group should pass
+                    {"conditions": [
+                        {"field": "user.name", "operator": "equals", "value": "Alice"}
+                    ]}
+                ], "group_logical_operator": "or"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="mixed_conditions", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: metadata should be kept since one condition group passes
+        self.assertEqual(result.filtered_data, test_data)
+    
+    def test_filter_with_all_nonexistent_condition_fields(self):
+        """
+        Test filtering when all condition fields in all groups don't exist.
+        All conditions should fail and the target should be filtered accordingly.
+        """
+        # Create test data
+        test_data = {
+            "user": {"name": "Alice"},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config with multiple condition groups, all referencing non-existent fields
+        config = {
+            "targets": [
+                {"filter_target": "metadata", "condition_groups": [
+                    {"conditions": [
+                        {"field": "nonexistent1", "operator": "equals", "value": "value1"}
+                    ]},
+                    {"conditions": [
+                        {"field": "nonexistent2", "operator": "equals", "value": "value2"}
+                    ]}
+                ], "group_logical_operator": "or"}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="all_nonexistent", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: metadata should be removed since all condition groups fail
+        expected_data = {"user": {"name": "Alice"}}
+        self.assertEqual(result.filtered_data, expected_data)
+    
+    def test_filter_with_is_empty_on_nonexistent_field(self):
+        """
+        Test filtering with is_empty operator on non-existent fields.
+        The is_empty operator should return True for non-existent fields.
+        """
+        # Create test data
+        test_data = {
+            "user": {"name": "Alice"},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config using is_empty on non-existent field
+        config = {
+            "targets": [
+                {"filter_target": "metadata", "condition_groups": [
+                    {"conditions": [
+                        {"field": "user.nonexistent_field", "operator": "is_empty", "value": None}
+                    ]}
+                ]}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="is_empty_nonexistent", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: metadata should be kept since is_empty returns True for non-existent fields
+        self.assertEqual(result.filtered_data, test_data)
+    def test_filter_with_is_not_empty_on_nonexistent_field(self):
+        """
+        Test filtering with is_not_empty operator on non-existent fields.
+        The is_not_empty operator should return False for non-existent fields.
+        """
+        # Create test data
+        test_data = {
+            "user": {"name": "Alice"},
+            "metadata": {"source": "test"}
+        }
+        
+        # Config using is_not_empty on non-existent field
+        config = {
+            "targets": [
+                {"filter_target": "metadata", "condition_groups": [
+                    {"conditions": [
+                        {"field": "user.nonexistent_field", "operator": "is_not_empty", "value": None}
+                    ]}
+                ]}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="is_not_empty_nonexistent", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: metadata should be removed since is_not_empty returns False for non-existent fields
+        expected_data = {"user": {"name": "Alice"}}
+        self.assertEqual(result.filtered_data, expected_data)
+    
+    def test_filter_entire_object_with_complex_conditions(self):
+        """
+        Test filtering the entire object with complex conditions using filter_target=None.
+        This test demonstrates how to:
+        1. Use filter_target=None to apply conditions to the entire object
+        2. Combine multiple conditions with AND logic
+        3. Test with complex nested data structures
+        """
+        # Create test data with nested structure
+        test_data = {
+            "user": {
+                "id": "U123",
+                "profile": {
+                    "name": "John Smith",
+                    "email": "john@example.com",
+                    "preferences": {
+                        "notifications": True,
+                        "theme": "dark"
+                    }
+                },
+                "subscription": {
+                    "plan": "premium",
+                    "status": "active",
+                    "renewal_date": "2023-12-31"
+                }
+            },
+            "metrics": {
+                "login_count": 42,
+                "last_active": "2023-09-15T14:30:00Z"
+            },
+            "features_enabled": True
+        }
+        
+        # Config targeting the entire object with multiple conditions
+        config = {
+            "targets": [
+                {"filter_target": None, "condition_groups": [
+                    {"conditions": [
+                        {"field": "user.subscription.plan", "operator": "equals", "value": "premium"},
+                        {"field": "user.subscription.status", "operator": "equals", "value": "active"},
+                        {"field": "features_enabled", "operator": "equals", "value": True}
+                    ], "logical_operator": "and"}
+                ]}
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="entire_object_complex", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: All conditions pass, so the entire object should be kept
+        self.assertEqual(result.filtered_data, test_data)
+        
+        # Test with modified data that should fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["user"]["subscription"]["status"] = "inactive"
+        
+        result2 = node.process(modified_data)
+        
+        # Expected: Conditions fail, so filtered_data should be None
+        self.assertIsNone(result2.filtered_data)
+    
+    def test_filter_entire_object_with_nested_list_conditions(self):
+        """
+        Test filtering the entire object with conditions on nested lists using filter_target=None.
+        This test demonstrates how to:
+        1. Apply conditions to elements within nested lists
+        2. Use filter_target=None to evaluate the entire object
+        3. Test complex list traversal logic
+        """
+        # Create test data with nested lists
+        test_data = {
+            "organization": {
+                "name": "Acme Corp",
+                "departments": [
+                    {
+                        "name": "Engineering",
+                        "employees": [
+                            {"id": "E1", "name": "Alice", "role": "Developer", "level": "Senior"},
+                            {"id": "E2", "name": "Bob", "role": "QA", "level": "Mid"}
+                        ]
+                    },
+                    {
+                        "name": "Marketing",
+                        "employees": [
+                            {"id": "E3", "name": "Charlie", "role": "Manager", "level": "Senior"},
+                            {"id": "E4", "name": "Diana", "role": "Specialist", "level": "Junior"}
+                        ]
+                    }
+                ]
+            },
+            "active": True
+        }
+        
+        # Config targeting the entire object with conditions on nested list elements
+        config = {
+            "targets": [
+                {"filter_target": None, "condition_groups": [
+                    {"conditions": [
+                        {"field": "organization.departments.employees.level", "operator": "equals", "value": "Senior"},
+                        {"field": "active", "operator": "equals", "value": True}
+                    ], "logical_operator": "and"}
+                ], "nested_list_logical_operator": "or"}  # At least one employee must be Senior
+            ]
+        }
+        
+        # Create and process the node
+        node = FilterNode(config=config, node_id="entire_object_nested_lists", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected: Conditions pass (there are Senior employees), so the entire object should be kept
+        self.assertEqual(result.filtered_data, test_data)
+        
+        # Test with modified data that should fail
+        modified_data = copy.deepcopy(test_data)
+        # Change all employee levels to non-Senior
+        for dept in modified_data["organization"]["departments"]:
+            for emp in dept["employees"]:
+                emp["level"] = "Mid"
+        
+        result2 = node.process(modified_data)
+        
+        # Expected: Conditions fail (no Senior employees), so filtered_data should be None
+        self.assertIsNone(result2.filtered_data)
     def test_object_filter_simple_fail(self):
         config = {"targets": [{"filter_target": None, "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}]}
         node = FilterNode(config=config, node_id="filter2", prefect_mode=False)
@@ -282,38 +1214,38 @@ class TestIfElseNodeUnittest(BaseNodeTest):
     # --- Basic Tests ---
     def test_ifelse_single_tag_pass(self):
         config = {"tagged_conditions": [{"tag": "check1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}]}
-        node = IfElseNode(config=config, node_id="ifelse1", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse1", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"check1": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH); self.assertEqual(result.data, input_data_dict)
 
     def test_ifelse_single_tag_fail(self):
         config = {"tagged_conditions": [{"tag": "check1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}]}
-        node = IfElseNode(config=config, node_id="ifelse2", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse2", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"check1": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
     # --- Multi-Tag Logic ---
     def test_ifelse_multi_tag_and_pass(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Alice"}]}]}], "branch_logic_operator": "and"}
-        node = IfElseNode(config=config, node_id="ifelse3", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse3", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": True, "user": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
 
     def test_ifelse_multi_tag_and_fail(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Bob"}]}]}], "branch_logic_operator": "and"}
-        node = IfElseNode(config=config, node_id="ifelse4", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse4", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": True, "user": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
     def test_ifelse_multi_tag_or_pass(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Alice"}]}]}], "branch_logic_operator": "or"}
-        node = IfElseNode(config=config, node_id="ifelse5", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse5", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": False, "user": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
 
     def test_ifelse_multi_tag_or_fail(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Bob"}]}]}], "branch_logic_operator": "or"}
-        node = IfElseNode(config=config, node_id="ifelse6", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse6", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": False, "user": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
@@ -321,7 +1253,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
     def test_ifelse_nested_list_cond_eval(self):
         # Config: Tag=True if OR(orders value) > 200
         config = {"tagged_conditions": [{"tag": "order_check", "condition_groups": [{"conditions": [{"field": "orders.value", "operator": "greater_than", "value": 200}]}], "nested_list_logical_operator": "or"}], "branch_logic_operator": "and"}
-        node = IfElseNode(config=config, node_id="ifelse7", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse7", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         # Should be True because order id=3 has value 210
         self.assertEqual(result.tag_results, {"order_check": True})
@@ -343,9 +1275,1107 @@ class TestIfElseNodeUnittest(BaseNodeTest):
 
     def test_ifelse_data_passthrough(self):
         config = {"tagged_conditions": [{"tag": "t1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}]}
-        node = IfElseNode(config=config, node_id="ifelse8", prefect_mode=False)
+        node = IfElseConditionNode(config=config, node_id="ifelse8", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
         self.assertEqual(result.data, input_data_dict) # Compare dict directly
+    
+
+    # --- Complex Nested Structure Tests ---
+    def test_ifelse_complex_nested_dict(self):
+        """
+        Test IfElseNode with complex nested dictionary structures.
+        This test demonstrates how to:
+        1. Evaluate conditions on deeply nested fields
+        2. Use multiple condition groups with different logical operators
+        """
+        # Create test data with complex nested structure
+        test_data = {
+            "customer": {
+                "profile": {
+                    "personal": {
+                        "name": "Jane Smith",
+                        "age": 28,
+                        "contact": {
+                            "email": "jane@example.com",
+                            "phone": "555-1234"
+                        }
+                    },
+                    "preferences": {
+                        "notifications": {
+                            "email": True,
+                            "sms": False
+                        },
+                        "theme": "dark"
+                    }
+                },
+                "subscription": {
+                    "plan": "premium",
+                    "status": "active",
+                    "payment": {
+                        "method": "credit_card",
+                        "details": {
+                            "last_four": "1234",
+                            "expiry": "12/25"
+                        }
+                    }
+                }
+            },
+            "analytics": {
+                "visits": 42,
+                "conversion": {
+                    "rate": 0.15,
+                    "source": "organic"
+                }
+            }
+        }
+        
+        # Config with multiple condition groups checking deeply nested fields
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "premium_user",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "customer.subscription.plan", "operator": "equals", "value": "premium"},
+                                {"field": "customer.subscription.status", "operator": "equals", "value": "active"}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "engaged_user",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "analytics.visits", "operator": "greater_than", "value": 30},
+                                {"field": "customer.profile.preferences.notifications.email", "operator": "equals", "value": True}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "payment_method",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "customer.subscription.payment.method", "operator": "equals", "value": "credit_card"}
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "branch_logic_operator": "and"
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="complex_nested", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # All conditions should pass
+        expected_tags = {
+            "premium_user": True,
+            "engaged_user": True,
+            "payment_method": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data that should fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["customer"]["subscription"]["status"] = "suspended"
+        modified_data["analytics"]["visits"] = 25
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "premium_user": False,  # Status is no longer active
+            "engaged_user": False,  # Visits below threshold
+            "payment_method": True  # Still using credit card
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+
+    def test_ifelse_nested_lists_complex(self):
+        """
+        Test IfElseNode with complex nested list structures.
+        This test demonstrates how to:
+        1. Evaluate conditions on fields within nested lists
+        2. Use different nested list logical operators
+        3. Combine multiple conditions across different levels of nesting
+        """
+        # Create test data with nested lists
+        test_data = {
+            "organization": {
+                "name": "Acme Corp",
+                "departments": [
+                    {
+                        "name": "Engineering",
+                        "budget": 500000,
+                        "teams": [
+                            {
+                                "name": "Frontend",
+                                "members": [
+                                    {"id": 101, "name": "Alice", "level": "senior", "skills": ["javascript", "react", "css"]},
+                                    {"id": 102, "name": "Bob", "level": "mid", "skills": ["javascript", "angular"]}
+                                ],
+                                "projects": [
+                                    {"name": "Website Redesign", "status": "in_progress", "priority": "high"},
+                                    {"name": "Mobile App", "status": "planning", "priority": "medium"}
+                                ]
+                            },
+                            {
+                                "name": "Backend",
+                                "members": [
+                                    {"id": 201, "name": "Charlie", "level": "senior", "skills": ["python", "django", "sql"]},
+                                    {"id": 202, "name": "Diana", "level": "senior", "skills": ["java", "spring", "kafka"]}
+                                ],
+                                "projects": [
+                                    {"name": "API Refactor", "status": "in_progress", "priority": "critical"},
+                                    {"name": "Database Migration", "status": "completed", "priority": "high"}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Marketing",
+                        "budget": 300000,
+                        "teams": [
+                            {
+                                "name": "Digital",
+                                "members": [
+                                    {"id": 301, "name": "Eve", "level": "mid", "skills": ["seo", "analytics"]},
+                                    {"id": 302, "name": "Frank", "level": "junior", "skills": ["social media", "content"]}
+                                ],
+                                "projects": [
+                                    {"name": "Q4 Campaign", "status": "in_progress", "priority": "high"}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "fiscal_year": 2023,
+            "quarter": "Q3"
+        }
+        
+        # Config to check for critical projects and senior engineers
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "has_critical_projects",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "organization.departments.teams.projects.priority", "operator": "equals", "value": "critical"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"
+                },
+                {
+                    "tag": "senior_heavy",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "organization.departments.teams.members.level", "operator": "equals", "value": "senior"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"
+                },
+                {
+                    "tag": "high_budget_department",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "organization.departments.budget", "operator": "greater_than", "value": 400000}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"
+                }
+            ],
+            "branch_logic_operator": "and"
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="nested_lists_complex", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # All conditions should pass
+        expected_tags = {
+            "has_critical_projects": True,  # Backend team has a critical project
+            "senior_heavy": True,           # There are senior engineers
+            "high_budget_department": True  # Engineering has budget > 400000
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data that should fail one condition
+        modified_data = copy.deepcopy(test_data)
+        # Change all project priorities
+        for dept in modified_data["organization"]["departments"]:
+            for team in dept["teams"]:
+                for project in team["projects"]:
+                    project["priority"] = "medium"
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "has_critical_projects": False,  # No more critical projects
+            "senior_heavy": True,            # Still have senior engineers
+            "high_budget_department": True   # Budget still high
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+
+    def test_ifelse_mixed_nested_structures(self):
+        """
+        Test IfElseNode with a mix of nested dictionaries and lists with complex conditions.
+        This test demonstrates how to:
+        1. Combine conditions across different types of nested structures
+        2. Use OR logic between condition groups
+        3. Test complex real-world data scenarios
+        """
+        # Create test data with mixed nested structures
+        test_data = {
+            "user": {
+                "id": "U123",
+                "name": "John Doe",
+                "account": {
+                    "type": "business",
+                    "tier": "enterprise",
+                    "features": {
+                        "api_access": True,
+                        "white_labeling": True,
+                        "support_level": "premium"
+                    }
+                }
+            },
+            "transactions": [
+                {
+                    "id": "T001",
+                    "amount": 5000.00,
+                    "currency": "USD",
+                    "status": "completed",
+                    "date": "2023-09-15",
+                    "items": [
+                        {"sku": "PRO-1", "quantity": 2, "price": 2000.00},
+                        {"sku": "SRV-3", "quantity": 1, "price": 1000.00}
+                    ]
+                },
+                {
+                    "id": "T002",
+                    "amount": 750.00,
+                    "currency": "USD",
+                    "status": "pending",
+                    "date": "2023-09-20",
+                    "items": [
+                        {"sku": "SRV-2", "quantity": 3, "price": 250.00}
+                    ]
+                }
+            ],
+            "activity_log": [
+                {"type": "login", "timestamp": "2023-09-21T08:30:00Z", "ip": "192.168.1.1"},
+                {"type": "api_call", "timestamp": "2023-09-21T09:15:00Z", "endpoint": "/data/export"},
+                {"type": "settings_change", "timestamp": "2023-09-21T10:45:00Z", "field": "notification_preferences"}
+            ],
+            "system": {
+                "environment": "production",
+                "version": "2.5.1",
+                "flags": {
+                    "beta_features": False,
+                    "maintenance_mode": False
+                }
+            }
+        }
+        
+        # Config with multiple condition groups using OR logic
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "enterprise_customer",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "user.account.tier", "operator": "equals", "value": "enterprise"},
+                                {"field": "user.account.features.support_level", "operator": "equals", "value": "premium"}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "high_value_transactions",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "transactions.amount", "operator": "greater_than", "value": 1000.00}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"
+                },
+                {
+                    "tag": "api_user",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "activity_log.type", "operator": "equals", "value": "api_call"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"
+                }
+            ],
+            "branch_logic_operator": "or"  # Using OR between tags
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="mixed_nested", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # All conditions should pass
+        expected_tags = {
+            "enterprise_customer": True,
+            "high_value_transactions": True,
+            "api_user": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where only one condition passes
+        modified_data = copy.deepcopy(test_data)
+        # Change account tier
+        modified_data["user"]["account"]["tier"] = "standard"
+        # Change transaction amounts
+        for transaction in modified_data["transactions"]:
+            transaction["amount"] = 500.00
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "enterprise_customer": False,
+            "high_value_transactions": False,
+            "api_user": True  # This one still passes
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertTrue(result2.condition_result)  # OR logic means one true makes all true
+        self.assertEqual(result2.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with all conditions failing
+        modified_data2 = copy.deepcopy(modified_data)
+        # Remove api_call activity
+        modified_data2["activity_log"] = [log for log in modified_data2["activity_log"] if log["type"] != "api_call"]
+        
+        result3 = node.process(modified_data2)
+        expected_tags3 = {
+            "enterprise_customer": False,
+            "high_value_transactions": False,
+            "api_user": False
+        }
+        
+        self.assertEqual(result3.tag_results, expected_tags3)
+        self.assertFalse(result3.condition_result)
+        self.assertEqual(result3.branch, BranchPath.FALSE_BRANCH)
+    def test_ifelse_with_all_nonexistent_and_some_existing_fields(self):
+        """
+        Test IfElseNode with conditions referencing fields that don't exist.
+        This demonstrates how to:
+        1. Handle gracefully when referenced fields don't exist
+        2. Test behavior with missing fields in different operators
+        """
+        # Create test data with some fields but missing others
+        test_data = {
+            "user": {
+                "name": "Alice Smith",
+                "email": "alice@example.com"
+                # Note: 'role' and 'permissions' fields are missing
+            },
+            "account": {
+                "status": "active"
+                # Note: 'subscription' field is missing
+            }
+        }
+        
+        # Config with conditions on both existing and non-existing fields
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "admin_check",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "user.role", "operator": "equals", "value": "admin"},  # Non-existent field
+                                {"field": "user.name", "operator": "is_not_empty", "value": None}  # Existing field
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "subscription_check",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "account.subscription.plan", "operator": "equals", "value": "premium"}  # Deeply nested non-existent field
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "tag": "active_user",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "account.status", "operator": "equals", "value": "active"}  # Existing field
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "branch_logic_operator": "or"  # Any true condition will make the overall result true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="nonexistent_fields", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results:
+        # - admin_check: False (non-existent field evaluates to false in AND with true)
+        # - subscription_check: False (non-existent nested field)
+        # - active_user: True (existing field with matching value)
+        expected_tags = {
+            "admin_check": False,
+            "subscription_check": False,
+            "active_user": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)  # OR logic means one true makes all true
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with all conditions on non-existent fields
+        config_all_nonexistent = {
+            "tagged_conditions": [
+                {
+                    "tag": "missing_fields",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "user.role", "operator": "equals", "value": "admin"},
+                                {"field": "user.permissions.admin", "operator": "equals", "value": True}
+                            ],
+                            "logical_operator": "or"  # Even with OR, both false = false
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        node2 = IfElseConditionNode(config=config_all_nonexistent, node_id="all_nonexistent", prefect_mode=False)
+        result2 = node2.process(test_data)
+        
+        self.assertEqual(result2.tag_results, {"missing_fields": False})
+        self.assertFalse(result2.condition_result)
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+
+        # Test with all conditions on non-existent fields
+        config_some_nonexistent = {
+            "tagged_conditions": [
+                {
+                    "tag": "some_missing_fields",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "account.status", "operator": "equals", "value": "active"},
+                                {"field": "user.role", "operator": "equals", "value": "admin"},
+                                {"field": "user.permissions.admin", "operator": "equals", "value": True}
+                            ],
+                            "logical_operator": "or"  # Even with OR, both false = false and true
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        node2 = IfElseConditionNode(config=config_some_nonexistent, node_id="some_nonexistent", prefect_mode=False)
+        result2 = node2.process(test_data)
+        
+        self.assertEqual(result2.tag_results, {"some_missing_fields": True})
+        self.assertTrue(result2.condition_result)
+        self.assertEqual(result2.branch, BranchPath.TRUE_BRANCH)
+
+        # Test with all conditions on non-existent fields
+        config_some_nonexistent = {
+            "tagged_conditions": [
+                {
+                    "tag": "some_nonexistent",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "user.role", "operator": "equals", "value": "admin"},
+                                {"field": "user.permissions.admin", "operator": "equals", "value": True}
+                            ],
+                            "logical_operator": "and"  # Even with AND, both false = false
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        node2 = IfElseConditionNode(config=config_some_nonexistent, node_id="some_nonexistent", prefect_mode=False)
+        result2 = node2.process(test_data)
+        
+        self.assertEqual(result2.tag_results, {"some_nonexistent": False})
+        self.assertFalse(result2.condition_result)
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+    
+    def test_ifelse_complex_operators_on_lists(self):
+        """
+        Test IfElseNode with complex operators on nested lists.
+        This demonstrates how to:
+        1. Use different operators on list items
+        2. Combine AND/OR logic across nested list evaluations
+        3. Test with various comparison operators
+        """
+        # Create test data with nested lists
+        test_data = {
+            "products": [
+                {"id": "P1", "category": "electronics", "price": 1200.00, "stock": 5, "tags": ["premium", "new"]},
+                {"id": "P2", "category": "electronics", "price": 800.00, "stock": 15, "tags": ["sale", "popular"]},
+                {"id": "P3", "category": "books", "price": 25.00, "stock": 100, "tags": ["bestseller"]},
+                {"id": "P4", "category": "clothing", "price": 49.99, "stock": 30, "tags": ["seasonal", "sale"]}
+            ],
+            "store": {
+                "name": "SuperStore",
+                "locations": [
+                    {"id": "L1", "city": "New York", "employees": 50, "size": "large"},
+                    {"id": "L2", "city": "Boston", "employees": 20, "size": "medium"},
+                    {"id": "L3", "city": "Chicago", "employees": 35, "size": "large"}
+                ]
+            }
+        }
+        
+        # Config with complex conditions on nested lists with different operators
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "has_expensive_electronics",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "products.category", "operator": "equals", "value": "electronics"},
+                                {"field": "products.price", "operator": "greater_than", "value": 1000.00}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # ANY product matching both conditions
+                },
+                {
+                    "tag": "all_products_in_stock",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "products.stock", "operator": "greater_than", "value": 0}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "and"  # ALL products must be in stock
+                },
+                {
+                    "tag": "has_large_locations",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "store.locations.size", "operator": "equals", "value": "large"},
+                                {"field": "store.locations.employees", "operator": "greater_than_or_equals", "value": 30}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # ANY location matching both conditions
+                },
+                {
+                    "tag": "has_sale_items",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "products.tags", "operator": "contains", "value": "sale"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # ANY product with "sale" tag
+                }
+            ],
+            "branch_logic_operator": "and"  # ALL tagged conditions must be true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="complex_list_operators", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results:
+        # - has_expensive_electronics: True (P1 matches)
+        # - all_products_in_stock: True (all have stock > 0)
+        # - has_large_locations: True (L1 and L3 match)
+        # - has_sale_items: True (P2 and P4 have "sale" tag)
+        expected_tags = {
+            "has_expensive_electronics": True,
+            "all_products_in_stock": True,
+            "has_large_locations": True,
+            "has_sale_items": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where some conditions fail
+        modified_data = copy.deepcopy(test_data)
+        # Make one product out of stock
+        modified_data["products"][0]["stock"] = 0
+        # Remove all large locations
+        for location in modified_data["store"]["locations"]:
+            if location["size"] == "large":
+                location["size"] = "medium"
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "has_expensive_electronics": True,  # Still true
+            "all_products_in_stock": False,     # Now false (one product has 0 stock)
+            "has_large_locations": False,       # Now false (no large locations)
+            "has_sale_items": True              # Still true
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+    
+    def test_ifelse_mixed_logical_operators(self):
+        """
+        Test IfElseNode with mixed logical operators in different condition groups.
+        This demonstrates how to:
+        1. Use different logical operators in different condition groups
+        2. Test complex combinations of AND/OR logic
+        3. Handle conditions with various operators on the same data
+        """
+        # Create test data
+        test_data = {
+            "order": {
+                "id": "ORD-12345",
+                "customer_type": "business",
+                "total": 1500.00,
+                "items": 8,
+                "status": "processing",
+                "payment": {
+                    "method": "credit_card",
+                    "verified": True
+                },
+                "shipping": {
+                    "method": "express",
+                    "address": {
+                        "country": "USA",
+                        "state": "CA"
+                    }
+                }
+            },
+            "flags": {
+                "priority": True,
+                "international": False,
+                "tax_exempt": True
+            }
+        }
+        
+        # Config with mixed logical operators in different condition groups
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "high_value_business_order",
+                    "condition_groups": [
+                        # First group: Must be business AND high value
+                        {
+                            "conditions": [
+                                {"field": "order.customer_type", "operator": "equals", "value": "business"},
+                                {"field": "order.total", "operator": "greater_than", "value": 1000.00}
+                            ],
+                            "logical_operator": "and"
+                        },
+                        # Second group: OR must be priority with express shipping
+                        {
+                            "conditions": [
+                                {"field": "flags.priority", "operator": "equals", "value": True},
+                                {"field": "order.shipping.method", "operator": "equals", "value": "express"}
+                            ],
+                            "logical_operator": "or"
+                        }
+                    ],
+                    "group_logical_operator": "or"  # Either group can make this tag true
+                },
+                {
+                    "tag": "special_handling",
+                    "condition_groups": [
+                        # First group: International orders
+                        {
+                            "conditions": [
+                                {"field": "flags.international", "operator": "equals", "value": True}
+                            ]
+                        },
+                        # Second group: Large orders (many items)
+                        {
+                            "conditions": [
+                                {"field": "order.items", "operator": "greater_than", "value": 5}
+                            ]
+                        },
+                        # Third group: Very high value orders
+                        {
+                            "conditions": [
+                                {"field": "order.total", "operator": "greater_than", "value": 2000.00}
+                            ]
+                        }
+                    ],
+                    "group_logical_operator": "or"  # Any group can make this tag true
+                },
+                {
+                    "tag": "tax_compliance",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "flags.tax_exempt", "operator": "equals", "value": True},
+                                {"field": "order.customer_type", "operator": "equals", "value": "business"}
+                            ],
+                            "logical_operator": "and"  # Both conditions must be true
+                        }
+                    ]
+                }
+            ],
+            "branch_logic_operator": "and"  # All tagged conditions must be true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="mixed_operators", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results:
+        # - high_value_business_order: True (matches both condition groups)
+        # - special_handling: True (matches second group - items > 5)
+        # - tax_compliance: True (tax_exempt and business customer)
+        expected_tags = {
+            "high_value_business_order": True,
+            "special_handling": True,
+            "tax_compliance": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where some conditions fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["order"]["customer_type"] = "individual"
+        modified_data["order"]["items"] = 3
+        modified_data["flags"]["priority"] = False
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "high_value_business_order": True,  # Still true because of express shipping
+            "special_handling": False,          # Now false (not international, items <= 5, total <= 2000)
+            "tax_compliance": False             # Now false (not a business customer)
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+    def test_ifelse_with_contains_operator(self):
+        """
+        Test IfElseNode with the CONTAINS operator.
+        This demonstrates how to:
+        1. Use the contains operator with strings
+        2. Use the contains operator with lists
+        3. Test both positive and negative cases
+        """
+        # Create test data with strings and lists
+        test_data = {
+            "product": {
+                "name": "Premium Smartphone XL",
+                "description": "Latest model with advanced features",
+                "categories": ["electronics", "mobile", "premium"],
+                "tags": ["new", "featured", "sale"]
+            },
+            "customer": {
+                "search_history": ["laptop", "smartphone", "headphones"],
+                "preferences": "dark mode, notifications enabled, auto-updates"
+            }
+        }
+        
+        # Config with contains conditions on different field types
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "premium_product",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "product.name", "operator": "contains", "value": "Premium"},
+                                {"field": "product.categories", "operator": "contains", "value": "premium"}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "customer_interested_in_smartphones",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "customer.search_history", "operator": "contains", "value": "smartphone"}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "tag": "notifications_enabled",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "customer.preferences", "operator": "contains", "value": "notifications enabled"}
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "branch_logic_operator": "and"  # All tagged conditions must be true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="contains_operator", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results - all conditions should pass
+        expected_tags = {
+            "premium_product": True,
+            "customer_interested_in_smartphones": True,
+            "notifications_enabled": True
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where some conditions fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["product"]["name"] = "Standard Smartphone"
+        modified_data["customer"]["preferences"] = "light mode, notifications disabled"
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "premium_product": False,  # Name no longer contains "Premium"
+            "customer_interested_in_smartphones": True,  # This still passes
+            "notifications_enabled": False  # Preferences changed
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+
+    def test_ifelse_with_not_contains_operator(self):
+        """
+        Test IfElseNode with the NOT_CONTAINS operator.
+        This demonstrates how to:
+        1. Use the not_contains operator with strings and lists
+        2. Combine not_contains with other operators
+        """
+        # Create test data
+        test_data = {
+            "document": {
+                "title": "Confidential Report",
+                "content": "This document contains sensitive information.",
+                "metadata": {
+                    "tags": ["internal", "confidential", "quarterly"],
+                    "access_level": "restricted"
+                }
+            },
+            "user": {
+                "roles": ["viewer", "editor"],
+                "departments": ["marketing", "research"]
+            }
+        }
+        
+        # Config with not_contains conditions
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "public_document",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "document.content", "operator": "not_contains", "value": "sensitive"},
+                                {"field": "document.metadata.tags", "operator": "not_contains", "value": "confidential"}
+                            ],
+                            "logical_operator": "and"
+                        }
+                    ]
+                },
+                {
+                    "tag": "admin_user",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "user.roles", "operator": "not_contains", "value": "admin"}
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "branch_logic_operator": "or"  # Any tagged condition can be true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="not_contains_operator", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results
+        expected_tags = {
+            "public_document": False,  # Document contains "sensitive" and has "confidential" tag
+            "admin_user": True         # User does not have "admin" role
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)  # OR logic means one true makes all true
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where all conditions fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["user"]["roles"].append("admin")
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "public_document": False,  # Still false
+            "admin_user": False        # Now false because user has admin role
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
+
+    def test_ifelse_with_starts_with_ends_with_operators(self):
+        """
+        Test IfElseNode with the STARTS_WITH and ENDS_WITH operators.
+        This demonstrates how to:
+        1. Use string prefix and suffix matching
+        2. Combine these operators with other conditions
+        """
+        # Create test data
+        test_data = {
+            "files": [
+                {"name": "report_2023Q4.pdf", "path": "/documents/reports/", "size": 1024},
+                {"name": "invoice_12345.docx", "path": "/documents/finance/", "size": 512},
+                {"name": "image.jpg", "path": "/media/images/", "size": 2048}
+            ],
+            "email": {
+                "subject": "RE: Project Update",
+                "sender": "manager@company.com",
+                "recipients": ["team@company.com", "client@external.org"]
+            }
+        }
+        
+        # Config with starts_with and ends_with conditions
+        config = {
+            "tagged_conditions": [
+                {
+                    "tag": "has_report",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "files.name", "operator": "starts_with", "value": "report_"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # Any file can match
+                },
+                {
+                    "tag": "has_pdf",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {"field": "files.name", "operator": "ends_with", "value": ".pdf"}
+                            ]
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # Any file can match
+                },
+                {
+                    "tag": "company_email",
+                    "condition_groups": [
+                        {
+                            "conditions": [
+                                {
+                                    "field": "email.recipients", "operator": "ends_with", "value": "company.com",
+                                    "apply_to_each_value_in_list_field": True,
+                                    "list_field_logical_operator": LogicalOperator.OR,
+                                }
+                            ],
+                        }
+                    ],
+                    "nested_list_logical_operator": "or"  # Any recipient can match
+                }
+            ],
+            "branch_logic_operator": "and"  # All tagged conditions must be true
+        }
+        
+        # Create and process the node
+        node = IfElseConditionNode(config=config, node_id="string_prefix_suffix", prefect_mode=False)
+        result = node.process(test_data)
+        
+        # Expected results
+        expected_tags = {
+            "has_report": True,   # There is a file starting with "report_"
+            "has_pdf": True,      # There is a file ending with ".pdf"
+            "company_email": True  # There is a recipient ending with "company.com"
+        }
+        
+        # Verify results
+        self.assertEqual(result.tag_results, expected_tags)
+        self.assertTrue(result.condition_result)
+        self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
+        
+        # Test with modified data where some conditions fail
+        modified_data = copy.deepcopy(test_data)
+        modified_data["files"] = [
+            {"name": "data_analysis.xlsx", "path": "/documents/reports/", "size": 1024},
+            {"name": "invoice_12345.docx", "path": "/documents/finance/", "size": 512}
+        ]
+        
+        result2 = node.process(modified_data)
+        expected_tags2 = {
+            "has_report": False,  # No file starts with "report_"
+            "has_pdf": False,     # No file ends with ".pdf"
+            "company_email": True  # Still has a recipient ending with "company.com"
+        }
+        
+        self.assertEqual(result2.tag_results, expected_tags2)
+        self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
+        self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
 
 # === unittest execution ===
 if __name__ == '__main__':

@@ -5,6 +5,10 @@ from workflow_service.registry.registry import DBRegistry
 from workflow_service.registry.nodes.llm.llm_node import LLMNode
 from workflow_service.registry.nodes.llm.prompt import PromptConstructorNode
 from workflow_service.registry.nodes.core.dynamic_nodes import InputNode, OutputNode, HITLNode  # , DynamicRouterNode
+from workflow_service.registry.nodes.core.flow_nodes import (  # flow_nodes_gemini_CURRENT_GOOD  flow_nodes
+    FilterNode,
+    IfElseConditionNode
+)
 from tests.unit.services.workflow_service.graph.runtime.tests.test_AI_loop import HumanReviewNode, AIGeneratorNode, ApprovalRouterNode, FinalProcessorNode
 
 
@@ -19,6 +23,8 @@ async def register_node_templates(db_registry: DBRegistry):
         await db_registry.register_node_template(db, AIGeneratorNode)
         await db_registry.register_node_template(db, ApprovalRouterNode)
         await db_registry.register_node_template(db, FinalProcessorNode)
+        await db_registry.register_node_template(db, FilterNode)
+        await db_registry.register_node_template(db, IfElseConditionNode)
         # print("metadata keys:: ", db_registry._metadata.keys())
 
 # if __name__ == "__main__":
