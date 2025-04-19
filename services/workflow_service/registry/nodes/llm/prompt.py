@@ -11,7 +11,7 @@ import re
 from pydantic import Field
 
 from kiwi_app.workflow_app.constants import LaunchStatus
-from workflow_service.config.constants import PROMPT_CONSTRUCTOR_DELIMITER
+from workflow_service.config.constants import OBJECT_PATH_REFERENCE_DELIMITER
 from workflow_service.registry.nodes.core.base import BaseNode, BaseSchema
 from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode
 
@@ -52,7 +52,7 @@ class PromptConstructorNode(BaseDynamicNode):
     config_schema_cls: ClassVar[Type[PromptTemplateConfig]] = PromptTemplateConfig
     
     # Default delimiter for template-specific variable names
-    DELIMITER: ClassVar[str] = PROMPT_CONSTRUCTOR_DELIMITER
+    DELIMITER: ClassVar[str] = OBJECT_PATH_REFERENCE_DELIMITER
 
     # instance params
     config: PromptTemplateConfig

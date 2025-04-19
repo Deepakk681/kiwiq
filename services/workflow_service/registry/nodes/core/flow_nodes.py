@@ -865,41 +865,8 @@ class FilterNode(BaseDynamicNode):
         if isinstance(input_data, dict):
             return copy.deepcopy(input_data)
         return input_data.model_dump(mode='json')
-    def _get_config(self, config_override: Optional[Union[Dict[str, Any], FilterTargets]]) -> FilterTargets:
-        """
-        Resolves and validates the configuration to use for processing.
-        
-        This method handles different ways configuration can be provided:
-        1. As a pre-validated FilterTargets object
-        2. As a dictionary that needs validation
-        3. From the node's existing configuration
-        
-        Args:
-            config_override: Optional configuration to override the node's default config
-            
-        Returns:
-            FilterTargets: A validated configuration object
-            
-        Raises:
-            ValueError: If the provided configuration is invalid
-            TypeError: If the configuration is of an unsupported type
-        """
-        config_to_use = config_override or self.config
-        if isinstance(config_to_use, FilterTargets): 
-            return config_to_use
-        if isinstance(config_to_use, dict):
-             try: 
-                 return self.config_schema_cls(**config_to_use)
-             except Exception as e: 
-                 raise ValueError(f"Invalid config override for FilterNode: {e}") from e
-        if isinstance(self.config, dict) and config_override is None:
-             try: 
-                 return self.config_schema_cls(**self.config)
-             except Exception as e: 
-                 raise ValueError(f"Invalid instance config for FilterNode: {e}") from e
-        raise TypeError(f"Config must be dict or FilterTargets for FilterNode, got {type(config_to_use).__name__}")
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Union[Dict[str, Any], FilterTargets]] = None, *args: Any, **kwargs: Any) -> FilterOutputSchema:
+    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> FilterOutputSchema:
         """
         Processes input data by applying filter conditions according to the configuration.
         
@@ -925,7 +892,7 @@ class FilterNode(BaseDynamicNode):
         original_input_dict = self._prepare_input_data(input_data) 
         try:
             # Resolve and validate the configuration
-            active_config = self._get_config(config)
+            active_config = self.config
             # Create a separate copy to modify during filtering
             result_data = copy.deepcopy(original_input_dict) 
 
@@ -1130,36 +1097,7 @@ class IfElseConditionNode(BaseDynamicNode):
          if isinstance(input_data, dict): return copy.deepcopy(input_data)
          return input_data.model_dump(mode='json')  #  if hasattr(input_data, "model_dump") else dict(input_data)
 
-    def _get_config(self, config_override: Optional[Union[Dict[str, Any], IfElseConfigSchema]]) -> IfElseConfigSchema:
-        """
-        Resolves and validates the configuration to use for processing.
-        
-        This method handles different ways configuration can be provided:
-        1. As a pre-validated IfElseConfigSchema object
-        2. As a dictionary that needs validation
-        3. From the node's existing configuration
-        
-        Args:
-            config_override: Optional configuration to override the node's default config
-            
-        Returns:
-            IfElseConfigSchema: A validated configuration object
-            
-        Raises:
-            ValueError: If the provided configuration is invalid
-            TypeError: If the configuration is of an unsupported type
-        """
-        config_to_use = config_override or self.config
-        if isinstance(config_to_use, IfElseConfigSchema): return config_to_use
-        if isinstance(config_to_use, dict):
-             try: return self.config_schema_cls(**config_to_use)
-             except Exception as e: raise ValueError(f"Invalid config override: {e}") from e
-        if isinstance(self.config, dict) and config_override is None:
-             try: return self.config_schema_cls(**self.config)
-             except Exception as e: raise ValueError(f"Invalid instance config: {e}") from e
-        raise TypeError(f"Config must be dict or IfElseConfigSchema, got {type(config_to_use).__name__}")
-
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Union[Dict[str, Any], IfElseConfigSchema]] = None, *args: Any, **kwargs: Any) -> IfElseOutputSchema:
+    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> IfElseOutputSchema:
         """
         Evaluates conditions against input data and determines the branch path.
         
@@ -1183,7 +1121,7 @@ class IfElseConditionNode(BaseDynamicNode):
         original_input_passthrough = input_dict_copy.copy()
         try:
             # Resolve and validate the configuration
-            active_config = self._get_config(config)
+            active_config = self.config
             # Track results for each tagged condition
             tag_results: Dict[str, bool] = {}
             

@@ -128,7 +128,7 @@ _PRIMITIVE_TYPES_EXTENDED: Tuple[type, ...] = tuple(list(_CORE_PRIMITIVE_TYPES) 
 _PRIMITIVE_TYPES = _PRIMITIVE_TYPES_EXTENDED
 
 class BaseSchema(BaseModel, ABC):
-    model_config = ConfigDict(extra='ignore')  # Don't allow additional arguments during model init!
+    model_config = ConfigDict(extra='ignore')  # Allow additional arguments during model init!
     PRIMITIVE_TYPES: ClassVar[Tuple[type, ...]] = _PRIMITIVE_TYPES
     # CORE_PRIMITIVE_TYPES: ClassVar[Tuple[type, ...]] = _CORE_PRIMITIVE_TYPES
     """

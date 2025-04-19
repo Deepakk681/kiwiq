@@ -564,7 +564,9 @@ class GraphBuilder:
         """
         runtime_config = {
             "inputs": {},
-            "outputs": {}
+            "outputs": {},
+            "outgoing_edges": defaultdict(dict),
+            "incoming_edges": defaultdict(dict),
         }
         edge_out_from_src = defaultdict(list)
         edge_in_to_dst = defaultdict(list)
@@ -607,6 +609,9 @@ class GraphBuilder:
                 # Edge from one node to another
                 if target_id not in runtime_config["inputs"]:
                     runtime_config["inputs"][target_id] = {}
+                
+                runtime_config["outgoing_edges"][source_id][target_id] = edge
+                runtime_config["incoming_edges"][target_id][source_id] = edge
                 
                 # Process each field mapping in this edge
                 for mapping in edge.mappings:
@@ -737,102 +742,3 @@ class GraphBuilder:
         
         # Use the runtime adapter to build the graph
         return graph_entities
-    
-    # def build_graph(
-    #     self, 
-    #     graph_schema: GraphSchema, 
-    #     workflow_id: str,
-    #     run_id: Optional[str] = None,
-    #     user_id: Optional[str] = None,
-    #     use_checkpointing: bool = False,
-    #     checkpoint_id: Optional[str] = None
-    # ) -> Tuple[GraphEntities, Any]:
-    #     """
-    #     Build a workflow graph from a graph schema.
-        
-    #     Instantiates nodes, validates edge connections, and constructs a
-    #     graph for execution using the configured runtime adapter.
-        
-    #     Args:
-    #         graph_schema (GraphSchema): The graph schema to build from.
-    #         workflow_id (str): ID of the workflow.
-    #         run_id (Optional[str]): ID for the execution run.
-    #         user_id (Optional[str]): ID of the user.
-    #         use_checkpointing (bool): Whether to use checkpointing.
-    #         checkpoint_id (Optional[str]): ID for checkpointing.
-            
-    #     Returns:
-    #         Tuple[Any, Dict[str, Any]]: The constructed graph and initial state.
-            
-    #     Raises:
-    #         ValueError: If the graph schema is invalid.
-    #     """
-    #     if not self.runtime_adapter:
-    #         raise ValueError("Runtime adapter is not set!")
-    #     graph_entities = self.build_graph_entities(graph_schema)
-        
-    #     return graph_entities, self.runtime_adapter.build_graph(
-    #         graph_entities=graph_entities
-    #     )
-        # # Create a runtime configuration
-        # runtime_config = GraphRunConfig.from_graph_schema(
-        #     graph_schema=graph_schema,
-        #     workflow_id=workflow_id,
-        #     run_id=run_id,
-        #     user_id=user_id,
-        #     use_checkpointing=use_checkpointing,
-        #     checkpoint_id=checkpoint_id
-        # )
-        
-        # Use the runtime adapter to build the graph
-        # return self.runtime_adapter.build_graph(
-        #     graph_schema=graph_schema, 
-        #     runtime_config=runtime_config.to_runtime_config()
-        # )
-
-
-class RuntimeConfig:
-    """
-    Runtime configuration for workflow execution.
-    
-    This class is responsible for creating the runtime configuration
-    for LangGraph execution, including the context manager and other
-    settings.
-    
-    Attributes:
-        workflow_id (str): ID of the workflow being executed.
-        run_id (str): ID of the current run.
-        user_id (Optional[str]): ID of the user executing the workflow.
-    """
-    
-    def __init__(self, workflow_id: str, run_id: str, user_id: Optional[str] = None):
-        """
-        Initialize the runtime configuration.
-        
-        Args:
-            workflow_id (str): ID of the workflow being executed.
-            run_id (str): ID of the current run.
-            user_id (Optional[str]): ID of the user executing the workflow.
-        """
-        self.workflow_id = workflow_id
-        self.run_id = run_id
-        self.user_id = user_id
-    
-    def create_config(self) -> RunnableConfig:
-        """
-        Create a LangGraph runtime configuration.
-        
-        Returns:
-            RunnableConfig: The configuration for LangGraph execution.
-        """
-        # Create a config dict for LangGraph
-        config = {
-            "metadata": {
-                "workflow_id": self.workflow_id,
-                "run_id": self.run_id,
-                "user_id": self.user_id,
-            },
-            # Other configuration options can be added here
-        }
-        
-        return cast(RunnableConfig, config) 

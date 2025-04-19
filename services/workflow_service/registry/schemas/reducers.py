@@ -178,6 +178,29 @@ class DefaultReducers:
         return left + right
     
     @staticmethod
+    def collect_values(left: Optional[List[T]], right: T) -> List[T]:
+        """
+        Collect values into a list, initializing if needed.
+        
+        If left is None, creates a new list containing right.
+        If left is not a list, converts it to a single-element list before appending.
+        This is useful for accumulating values when the initial state might be None or a single value.
+        
+        Args:
+            left: Existing list, single value, or None
+            right: Value to append to the list
+            
+        Returns:
+            List with the new value appended
+        """
+        if not isinstance(left, list):
+            if left is None:
+                return [right]
+            else:
+                left = [left]
+        return left + [right]
+    
+    @staticmethod
     def conditional_update(
         left: T, 
         right: T, 
@@ -213,6 +236,7 @@ class ReducerType(str, Enum):
     UNION_SETS = "union_sets"
     MERGE_DICTS = "merge_dicts"
     DEEP_MERGE_DICTS = "deep_merge_dicts"
+    COLLECT_VALUES = "collect_values"
     
     # Comparison reducers
     MAX = "max"
@@ -233,6 +257,7 @@ REDUCER_FUNCTION_MAP: Dict[str, Callable[[Any, Any], Any]] = {
     ReducerType.UNION_SETS: DefaultReducers.union_sets,
     ReducerType.MERGE_DICTS: DefaultReducers.merge_dicts,
     ReducerType.DEEP_MERGE_DICTS: DefaultReducers.deep_merge_dicts,
+    ReducerType.COLLECT_VALUES: DefaultReducers.collect_values,
     ReducerType.MAX: DefaultReducers.max_value,
     ReducerType.MIN: DefaultReducers.min_value,
     ReducerType.CONCATENATE: DefaultReducers.concatenate_strings,
@@ -323,6 +348,7 @@ append_list = DefaultReducers.append_list
 union_sets = DefaultReducers.union_sets
 merge_dicts = DefaultReducers.merge_dicts
 deep_merge_dicts = DefaultReducers.deep_merge_dicts
+collect_values = DefaultReducers.collect_values
 max_value = DefaultReducers.max_value
 min_value = DefaultReducers.min_value
 concatenate = DefaultReducers.concatenate_strings
@@ -337,4 +363,3 @@ concatenate = DefaultReducers.concatenate_strings
 #     messages: Annotated[list[AnyMessage], add_messages]
 #     counter: Annotated[int, add]
 #     settings: Annotated[dict, merge_dicts]
-

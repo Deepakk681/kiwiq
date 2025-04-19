@@ -1,4 +1,5 @@
 import json
+from logging import Logger
 import re
 from typing import Any, Callable, ClassVar, Dict, Generic, Optional, Type, TypeVar, Union, get_type_hints
 import inspect
@@ -7,6 +8,8 @@ from abc import ABC, abstractmethod
 # FIXME: DEBUG: Prefect test!
 from prefect import flow, task
 from prefect.cache_policies import NO_CACHE
+
+from langgraph.types import Command, Send, Interrupt
 
 from workflow_service.config.constants import NODE_EXECUTION_ORDER_KEY
 from workflow_service.registry.schemas.base import BaseSchema
@@ -22,7 +25,6 @@ StateT = TypeVar('StateT')  # For langgraph state type
 
 from pydantic import BaseModel
 
-from global_config.constants import EnvFlag
 from workflow_service.utils.utils import get_node_output_state_key
 # from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME, STATE_KEY_DELIMITER
 
@@ -31,6 +33,9 @@ from typing import TYPE_CHECKING # Import ClassVar
 # TYPE_CHECKING helps avoid runtime circular dependencies if Task hints itself
 if TYPE_CHECKING:
     from prefect.tasks import Task
+
+
+from global_config.logger import get_logger
 
 
 class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], ABC):
@@ -79,6 +84,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
 
     runtime_postprocessor: ClassVar[Optional[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None
     runtime_preprocessor: ClassVar[Optional[Callable[[Dict[str, Any]], Dict[str, Any]]]] = None
+    logger: ClassVar[Logger] = None
 
     # FIXME: DEBUG: Prefect test!
     # --- The Fix ---
@@ -91,6 +97,11 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     config: Optional[Union[ConfigSchemaT, Dict[str, Any]]] = None
     # Whether to run the node in Prefect mode for logging and tracking flow/tasks
     prefect_mode: bool = True
+    
+    # Whether to run the node in private input mode (directly accepting previous node's output)
+    #   Useful for map/reduce or branching patterns or maintaining private states
+    private_input_mode: bool = False
+    private_output_mode: bool = False
 
     @classmethod
     def __pydantic_init_subclass__(cls, *args, **kwargs):
@@ -107,6 +118,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             return  # Skip validation for abstract classes
         
         assert cls.node_name is not None and re.match(r"^[a-zA-Z0-9_\. \(\),]+$", cls.node_name), f"Valid characters for node_name are: a-z, A-Z, 0-9, _, ., (, ), , and space!"
+        
+        cls.logger = get_logger(f"{__name__}.{cls.__name__}")
 
         if cls.input_schema_cls is None:
             cls.input_schema_cls = None
@@ -160,7 +173,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     #     # TODO: Implement event emission logic
     #     pass
 
-    def build_input_state(self, state: StateT, config: Dict[str, Any]) -> Dict[str, Any]:
+    def build_input_state(self, state: StateT, config: Dict[str, Any], only_fetch_central_state: bool = False, build_input_schema_obj: bool = True) -> Dict[str, Any]:
         """
         Build the input state for the node.
         """
@@ -207,6 +220,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             # Get value from state using the mapped state key
             for state_key_instance in state_key:
                 if isinstance(state_key_instance, list):
+                    if only_fetch_central_state:
+                        continue
                 
                     # Get value from state using the mapped state key
                     # NOTE: this handles the case when a router node creates multiple fan outs and a subsequent node receives multiple fan ins from router nodes at runtime!
@@ -252,6 +267,9 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         #         if field_info.is_required() and any(p == False for p in parents_run_status.values()):
         #             print(f"fname: {fname} is required but not found in input_dict: {input_dict}")
         #             return None
+        if not build_input_schema_obj:
+            return input_dict
+
         input_obj = self.input_schema_cls(**input_dict)
         # print("\n\n\n\n#### input_dict (in build input state)", input_obj.model_dump_json(indent=4), "\n\n\n\n")
         return input_obj
@@ -315,7 +333,16 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             # print("\n\n\n\n#### state (in run) START!", state, "\n\n\n\n")
             # Extract input data from state based on runtime config mapping
             # config format: - {"inputs": node_id: {<input_field_key> : ["source_node", "field_key_in_source_node"] | OR | graph_state_key_source_of_input }}
-            input_data = self.build_input_state(state, config)
+            if self.private_input_mode:
+                # fetch central state inputs!
+                input_data_dict = self.build_input_state(state, config, only_fetch_central_state=True, build_input_schema_obj=False)
+                # assume the received input is entire input!
+                #   for conflicting keys, overwrite central state values with private values!
+                input_data_dict.update(state)
+                # TODO: Potentially use model_validate(...)?
+                input_data = self.input_schema_cls(**input_data_dict)
+            else:
+                input_data = self.build_input_state(state, config)
             if input_data is None:
                 # print("\n\n\n\n NODE EARLY EXIT -> REQUIRED NOT FULFILLED!!!!!: ", "="*100, "\n\n\n\n")
                 # TODO: FIXME:
@@ -367,7 +394,13 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
             
             # Convert output to dict and return as state update
-            state_update = self.build_output_state_update(output_data, config)
+            # NOTE: in case a Command / Send is generated in the process(...) method, this method to build state update should be called from there directly since otehrwise
+            #       the Command / Send will not make it to langgraph and state will be built with atleast the node order update!
+            #       Also if the Command / Send don't include the central state update, the node order won't be captured!
+            if isinstance(output_data, (Command, Send, Interrupt)):
+                state_update = output_data
+            else:
+                state_update = self.build_output_state_update(output_data, config)
             # print(f"\n\n\n\n#### state_update (in run) --> {state_update.__class__}", state_update, "\n\n\n\n")
             # if self.node_id == "join":
             #     import ipdb; ipdb.set_trace()
@@ -375,8 +408,32 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
 
             state_update = state_update if state_update else output_data   # state_update could be None if no output schema defined but output_data may be a runtime command / interupt!
 
-            if self.__class__.runtime_postprocessor:
+            if self.__class__.runtime_postprocessor and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
                 state_update = self.__class__.runtime_postprocessor(self, state_update, config, *args, **kwargs)
+            
+            if (isinstance(output_data, dict) or isinstance(output_data, BaseSchema)) and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
+                # assume this is standard state_update and not Command / Send / Interrupts for eg
+                if self.private_output_mode:
+                    # update central state with private output!
+                    output_to_nodes = {}
+                    for out_node_id, out_node_edge in config.get("outgoing_edges", {}).get(self.node_id, {}).items():
+                        output_to_node = {}
+                        for mapping in out_node_edge.mappings:
+                            # Get source field value from state_update, handling both dict and BaseSchema objects
+                            if isinstance(output_data, dict):
+                                src_value = state_update.get(mapping.src_field, None)
+                            else:  # BaseSchema
+                                src_value = getattr(output_data, mapping.src_field, None)
+                            
+                            # Set the destination field in output_data
+                            if src_value is not None:
+                                output_to_node[mapping.dst_field] = src_value
+                        output_to_nodes[out_node_id] = output_to_node
+                    # Ignore any other state update apart from a dictionary, potentialy ignore Command / Send / Interrupt!
+                    state_update = state_update if isinstance(state_update, dict) else None
+                    # TODO: langgraph dependency!
+                    response = Command(goto=[Send(node_id, node_input) for node_id, node_input in output_to_nodes.items()], update=state_update, )
+                    return response
 
             # print("\n\n\n\n#### state_update (in run)", state_update, "\n\n\n\n")
             # print("\n\n\n\n NODE EXIT: ", "="*100, "\n\n\n\n")

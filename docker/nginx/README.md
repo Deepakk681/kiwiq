@@ -4,6 +4,8 @@ This directory contains a simplified setup for Nginx with automatic SSL certific
 
 ## How to use
 
+### NOTE: `nginx.conf` needs to copied + renamed after modification to `nginx/data/nginx/app.conf`
+
 ### 0. EC2 incoming traffix rules:
 
 NOTE: you will have to open both ports 80 and 443 since lets encrypt will visit the http endpoint to verify your domain!

@@ -443,7 +443,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
             # state update
             update=update,
             # control flow
-            goto=state_update.get(ROUTER_CHOICE_KEY, None)
+            goto=state_update.get(ROUTER_CHOICE_KEY, None) or None  # Don't allow empty lists for standardization!
         )
 
     @staticmethod

@@ -235,6 +235,9 @@ class AnthropicModels(str, EnumWithAttr):
     }))
 
 
+# TODO:
+# integrate gemini 2.5 flash https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/gemini-2.5-flash-preview-04-17?authuser=2&hl=en&project=soy-lore-443610-k3
+# implement thinking budget params https://github.com/langchain-ai/langchain-google/issues/872
 
 GEMINI_METADATA = ModelMetadata(
     provider=LLMModelProvider.GEMINI,

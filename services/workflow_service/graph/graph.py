@@ -24,7 +24,7 @@ class EdgeMapping(BaseModel):
     """
     src_field: str = Field(..., description="Field name in the source node's output")
     dst_field: str = Field(..., description="Field name in the target node's input")
-    override_type_validation: Optional[bool] = Field(False, description=" Override type validation for the src and target field")
+    override_type_validation: Optional[bool] = Field(False, description=" [DEPRECATED] Override type validation for the src and target field")
     # transform: Optional[str] = Field(None, description="Optional transformation to apply")
 
 
@@ -64,7 +64,11 @@ class NodeConfig(BaseModel):
     node_name: str = Field(..., description="Name of the node type. There may be multiple nodes with same name / type!")
     node_version: Optional[str] = Field(None, description="Version of the node implementation") 
     node_config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Node-specific configuration parameters")
+    private_input_mode: Optional[bool] = Field(False, description="Enable private input mode for the node which means the node will receive direct inputs instead of whole graph state, this is useful for map/reduce or branching patterns or maintaining private states.")
+    private_output_mode: Optional[bool] = Field(False, description="Enable private output mode for the node which means the node will send direct outputs to connected nodes, this is useful for map/reduce or branching patterns or maintaining private states. NOTE: the branches will converge to the next node where this is unset and they are collapsing to it, and that node will receive the full graph state. For reducing, you have to use the central state field with the correct reducer!")
     # TODO: implement support for JSON Schema which can be converted to Pydantic models using: https://github.com/koxudaxi/datamodel-code-generator
+    #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
+    #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     dynamic_input_schema: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic schema for the node input")
     dynamic_output_schema: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic schema for the node output")
@@ -112,6 +116,15 @@ class GraphSchema(BaseModel):
     input_node_id: str = Field(default=INPUT_NODE_NAME, description="ID of the input node")
     output_node_id: str = Field(default=OUTPUT_NODE_NAME, description="ID of the output node")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional metadata")
+    # check builder.py for paths of the below keys
+    # metadata={
+    #     # GRAPH_STATE_SPECIAL_NODE_NAME: {
+    #     #     CONFIG_REDUCER_KEY: {
+    #     #         # central state key : reducer name
+    #     #         "messages": "collect_values"  # Use collect_values reducer for collecting states not initialized as lists!
+    #     #     }
+    #     # },
+    # },
     # TODO: implement central graph state reducer config or default reducers for each field type??!
     # TODO: a special graph central state fake node -> schema just defines fields, edges to fields and reducers! This is a fake node
     #    set in dyanmic config and node outputs in central channel instead of node specific channel!
