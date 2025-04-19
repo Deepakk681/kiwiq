@@ -26,6 +26,7 @@ from kiwi_client.test_config import (
     LIST_DOCUMENTS_URL,
     CLIENT_LOG_LEVEL,
     TEST_ORG_ID,
+    DOCUMENT_METADATA_URL,
 )
 # Import schemas and constants from the workflow app
 from kiwi_client.schemas import workflow_api_schemas as wf_schemas
@@ -136,15 +137,36 @@ class CustomerDataTestClient:
         docname: str,
         is_shared: bool,
         version: Optional[str] = None,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[wf_schemas.CustomerDataRead]:
         """
         Tests getting a versioned document via GET /customer-data/versioned/{namespace}/{docname}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            version (Optional[str]): Specific version to retrieve. If not provided, retrieves the active version.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is stored in 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[wf_schemas.CustomerDataRead]: Document data if successful, None otherwise.
         """
         logger.info(f"Attempting to get versioned document: {namespace}/{docname} (shared={is_shared}, version={version})")
         url = VERSIONED_DOC_URL(namespace, docname)
         params = {"is_shared": is_shared}
         if version:
             params["version"] = version
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
@@ -169,13 +191,33 @@ class CustomerDataTestClient:
         namespace: str,
         docname: str,
         is_shared: bool,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> bool:
         """
         Tests deleting a versioned document via DELETE /customer-data/versioned/{namespace}/{docname}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is deleted from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
         """
         logger.info(f"Attempting to delete versioned document: {namespace}/{docname} (shared={is_shared})")
         url = VERSIONED_DOC_URL(namespace, docname)
         params = {"is_shared": is_shared}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.delete(url, params=params)
             response.raise_for_status() # Raises for non-2xx
@@ -194,13 +236,33 @@ class CustomerDataTestClient:
         namespace: str,
         docname: str,
         is_shared: bool,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[List[wf_schemas.CustomerDataVersionInfo]]:
         """
         Tests listing versions via GET /customer-data/versioned/{namespace}/{docname}/versions.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is accessed from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[List[wf_schemas.CustomerDataVersionInfo]]: List of version info objects if successful, None otherwise.
         """
         logger.info(f"Attempting to list versions for: {namespace}/{docname} (shared={is_shared})")
         url = VERSIONED_DOC_VERSIONS_URL(namespace, docname)
         params = {"is_shared": is_shared}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
@@ -288,15 +350,37 @@ class CustomerDataTestClient:
         is_shared: bool,
         version: Optional[str] = None,
         limit: int = 100,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[List[wf_schemas.CustomerDataVersionHistoryItem]]:
         """
         Tests getting history via GET /customer-data/versioned/{namespace}/{docname}/history.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            version (Optional[str]): Specific version to get history for.
+            limit (int): Maximum number of history entries to return.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is accessed from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[List[wf_schemas.CustomerDataVersionHistoryItem]]: List of history items if successful, None otherwise.
         """
         logger.info(f"Attempting to get history for: {namespace}/{docname} (shared={is_shared}, version={version})")
         url = VERSIONED_DOC_HISTORY_URL(namespace, docname)
         params = {"is_shared": is_shared, "limit": limit}
         if version:
             params["version"] = version
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
@@ -322,15 +406,37 @@ class CustomerDataTestClient:
         sequence: int,
         is_shared: bool,
         version: Optional[str] = None,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[wf_schemas.CustomerDataRead]:
         """
         Tests previewing restore via GET /customer-data/versioned/{namespace}/{docname}/preview-restore/{sequence}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            sequence (int): Sequence number to restore to.
+            is_shared (bool): Whether this is a shared document.
+            version (Optional[str]): Specific version to restore.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is accessed from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[wf_schemas.CustomerDataRead]: Preview of restored document if successful, None otherwise.
         """
         logger.info(f"Attempting to preview restore for: {namespace}/{docname} (seq={sequence}, shared={is_shared}, version={version})")
         url = VERSIONED_DOC_PREVIEW_RESTORE_URL(namespace, docname, sequence)
         params = {"is_shared": is_shared}
         if version:
             params["version"] = version
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
@@ -385,20 +491,40 @@ class CustomerDataTestClient:
         namespace: str,
         docname: str,
         is_shared: bool,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Tests getting schema via GET /customer-data/versioned/{namespace}/{docname}/schema.
+        Tests getting document schema via GET /customer-data/versioned/{namespace}/{docname}/schema.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is accessed from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[Dict[str, Any]]: Document schema if successful, None otherwise.
         """
         logger.info(f"Attempting to get schema for: {namespace}/{docname} (shared={is_shared})")
         url = VERSIONED_DOC_SCHEMA_URL(namespace, docname)
         params = {"is_shared": is_shared}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
-            response_json = response.json()
-            # Assuming the response is a valid JSON schema dictionary
-            logger.info(f"Successfully retrieved schema for: {namespace}/{docname}")
-            return response_json
+            # Schema response is a raw JSON Schema object
+            schema = response.json()
+            logger.info(f"Successfully got schema for: {namespace}/{docname}")
+            return schema
         except httpx.HTTPStatusError as e:
             logger.error(f"Error getting schema: {e.response.status_code} - {e.response.text}")
         except httpx.RequestError as e:
@@ -473,19 +599,40 @@ class CustomerDataTestClient:
         namespace: str,
         docname: str,
         is_shared: bool,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[wf_schemas.CustomerDataUnversionedRead]:
         """
         Tests getting an unversioned document via GET /customer-data/unversioned/{namespace}/{docname}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is accessed from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[wf_schemas.CustomerDataUnversionedRead]: Document data if successful, None otherwise.
         """
         logger.info(f"Attempting to get unversioned document: {namespace}/{docname} (shared={is_shared})")
         url = UNVERSIONED_DOC_URL(namespace, docname)
         params = {"is_shared": is_shared}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
             response_json = response.json()
             validated_response = wf_schemas.CustomerDataUnversionedRead.model_validate(response_json)
             logger.info(f"Successfully retrieved unversioned document: {namespace}/{docname}")
+            logger.debug(f"Get response validated: {validated_response.model_dump_json(indent=2)}")
             return validated_response
         except httpx.HTTPStatusError as e:
             logger.error(f"Error getting unversioned document: {e.response.status_code} - {e.response.text}")
@@ -503,18 +650,38 @@ class CustomerDataTestClient:
         namespace: str,
         docname: str,
         is_shared: bool,
+        is_system_entity: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> bool:
         """
         Tests deleting an unversioned document via DELETE /customer-data/unversioned/{namespace}/{docname}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_shared (bool): Whether this is a shared document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is deleted from 
+                                     system paths instead of organization-specific paths. The is_shared parameter 
+                                     still applies normally to determine if it's shared with the org or user-specific.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise.
         """
         logger.info(f"Attempting to delete unversioned document: {namespace}/{docname} (shared={is_shared})")
         url = UNVERSIONED_DOC_URL(namespace, docname)
         params = {"is_shared": is_shared}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
         try:
             response = await self._client.delete(url, params=params)
-            response.raise_for_status()
+            response.raise_for_status() # Raises for non-2xx
             logger.info(f"Successfully deleted unversioned document: {namespace}/{docname}")
-            return response.status_code == 204
+            return response.status_code == 204 # Check for No Content
         except httpx.HTTPStatusError as e:
             logger.error(f"Error deleting unversioned document: {e.response.status_code} - {e.response.text}")
         except httpx.RequestError as e:
@@ -532,25 +699,55 @@ class CustomerDataTestClient:
         include_user_specific: bool = True,
         skip: int = 0,
         limit: int = 100,
+        include_system_entities: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
     ) -> Optional[List[wf_schemas.CustomerDocumentMetadata]]:
         """
         Tests listing documents via GET /customer-data/list.
+        
+        Args:
+            namespace (Optional[str]): Filter by namespace.
+            include_shared (bool): Include shared documents.
+            include_user_specific (bool): Include user-specific documents.
+            skip (int): Number of documents to skip.
+            limit (int): Maximum number of documents to return.
+            include_system_entities (bool): Include system entities (superusers only). When True, documents from 
+                                           system paths are included along with organization-specific paths. 
+                                           System documents use a separate storage path from regular organization 
+                                           documents but still respect the is_shared flag for access control.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter only affects user-specific documents,
+                                                       not shared documents or system entities. It lets superusers
+                                                       view documents belonging to a specific user.
+            
+        Returns:
+            Optional[List[wf_schemas.CustomerDocumentMetadata]]: List of document metadata if successful, None otherwise.
         """
-        logger.info(f"Attempting to list documents (namespace={namespace}, shared={include_shared}, user={include_user_specific})")
+        logger.info(f"Attempting to list documents (namespace filter: {namespace})")
+        url = LIST_DOCUMENTS_URL
+        
         params: Dict[str, Any] = {
             "include_shared": include_shared,
             "include_user_specific": include_user_specific,
             "skip": skip,
             "limit": limit,
         }
+        
         if namespace:
             params["namespace"] = namespace
+        if include_system_entities:
+            params["include_system_entities"] = include_system_entities
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
+            
         try:
-            response = await self._client.get(LIST_DOCUMENTS_URL, params=params)
+            response = await self._client.get(url, params=params)
             response.raise_for_status()
             response_json = response.json()
+            # Use Pydantic to validate a list of CustomerDocumentMetadata objects
+            CustomerDocumentMetadataListAdapter = TypeAdapter(List[wf_schemas.CustomerDocumentMetadata])
             validated_response = CustomerDocumentMetadataListAdapter.validate_python(response_json)
-            logger.info(f"Successfully listed {len(validated_response)} documents.")
+            logger.info(f"Successfully listed {len(validated_response)} documents")
             return validated_response
         except httpx.HTTPStatusError as e:
             logger.error(f"Error listing documents: {e.response.status_code} - {e.response.text}")
@@ -561,6 +758,61 @@ class CustomerDataTestClient:
             logger.debug(f"Invalid response JSON: {response_json if 'response_json' in locals() else 'No response JSON'}")
         except Exception as e:
             logger.exception("Unexpected error listing documents.")
+        return None
+
+    async def get_document_metadata(
+        self,
+        namespace: str,
+        docname: str,
+        is_system_entity: bool = False,
+        is_shared: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+    ) -> Optional[wf_schemas.CustomerDocumentMetadata]:
+        """
+        Tests retrieving metadata for a document via GET /customer-data/metadata/{namespace}/{docname}.
+        
+        Args:
+            namespace (str): The namespace of the document.
+            docname (str): The name of the document.
+            is_system_entity (bool): Whether this is a system entity (superusers only). When True, data is stored in 
+                                     system paths instead of organization-specific paths. The is_shared parameter in the
+                                     query still applies normally to determine if it's shared with the org or user-specific.
+            is_shared (bool): Whether this is a shared document.
+            on_behalf_of_user_id (Optional[uuid.UUID]): Optional user ID to act on behalf of (superusers only).
+                                                       Note: This parameter won't work if accessing system entities or
+                                                       shared documents, as these are not tied to specific users.
+            
+        Returns:
+            Optional[wf_schemas.CustomerDocumentMetadata]: Document metadata if successful, None otherwise.
+        """
+        logger.info(f"Attempting to get metadata for document: {namespace}/{docname}")
+        url = DOCUMENT_METADATA_URL(namespace, docname)
+        
+        params: Dict[str, Any] = {}
+        if is_system_entity:
+            params["is_system_entity"] = is_system_entity
+        if on_behalf_of_user_id:
+            params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
+        if is_shared:
+            params["is_shared"] = is_shared
+            
+        try:
+            response = await self._client.get(url, params=params)
+            response.raise_for_status()
+            response_json = response.json()
+            validated_response = wf_schemas.CustomerDocumentMetadata.model_validate(response_json)
+            logger.info(f"Successfully retrieved metadata for document: {namespace}/{docname}")
+            logger.debug(f"Metadata: {validated_response.model_dump_json(indent=2)}")
+            return validated_response
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error getting document metadata: {e.response.status_code} - {e.response.text}")
+        except httpx.RequestError as e:
+            logger.error(f"Request error getting document metadata: {e}")
+        except ValidationError as e:
+            logger.error(f"Response validation error getting document metadata: {e}")
+            logger.debug(f"Invalid response JSON: {response_json if 'response_json' in locals() else 'No response JSON'}")
+        except Exception as e:
+            logger.exception("Unexpected error getting document metadata.")
         return None
 
 
@@ -1058,6 +1310,158 @@ async def main():
 
         print("\n--- Customer Data API Test Finished --- ")
 
+# --- Example Usage for System Entity Features and Metadata Route ---
+async def main2():
+    """
+    Demonstrates testing advanced Customer Data API features including:
+    - System entities: These are stored in system paths instead of organization paths but still respect is_shared
+    - Acting on behalf of other users: Only works for user-specific docs, not shared or system entities
+    - Document metadata retrieval: Shows how to access document metadata information
+    """
+    print("\n--- Starting Advanced Customer Data API Test --- ")
+    
+    # Generate unique test names with UUIDs to avoid collisions
+    test_ns = f"test_sys_ns_{uuid.uuid4().hex[:6]}"
+    v_doc_name = f"sys_versioned_{uuid.uuid4().hex[:6]}"
+    uv_doc_name = f"sys_unversioned_{uuid.uuid4().hex[:6]}"
+    
+    # List to keep track of created documents for cleanup
+    created_docs_for_cleanup = []
+    
+    try:
+        async with AuthenticatedClient() as auth_client:
+            print("Authenticated.")
+            data_tester = CustomerDataTestClient(auth_client)
+            
+            # --- Test 1: Initialize a Versioned Document as System Entity ---
+            print(f"\n--- Test 1: Creating System Entity Versioned Document: {test_ns}/{v_doc_name} ---")
+            print("  (When is_system_entity=True, document is stored in system paths instead of org paths)")
+            init_data = wf_schemas.CustomerDataVersionedInitialize(
+                is_shared=True,  # Make it a shared document
+                initial_data={"key": "system_value", "count": 42},
+                initial_version="v1.0",
+                is_system_entity=True  # Mark as system entity - puts it in system path, not org-specific path
+            )
+            init_result = await data_tester.initialize_versioned_document(test_ns, v_doc_name, init_data)
+            created_docs_for_cleanup.append({
+                "namespace": test_ns, "docname": v_doc_name, 
+                "is_shared": True, "is_versioned": True, "is_system_entity": True
+            })
+            
+            if init_result:
+                print(f"   ✓ Created system entity versioned document: {init_result.data}")
+            else:
+                print(f"   ✗ Failed to create system entity versioned document")
+                
+            # --- Test 2: Get Document Metadata ---
+            print(f"\n--- Test 2: Getting Document Metadata: {test_ns}/{v_doc_name} ---")
+            print("  (Metadata shows is_system_entity=True and is_shared=True from prior step)")
+            metadata = await data_tester.get_document_metadata(
+                namespace=test_ns, 
+                docname=v_doc_name,
+                is_shared=True,
+                is_system_entity=True  # Must specify this flag to access system entities
+            )
+            
+            if metadata:
+                print(f"   ✓ Got document metadata: {metadata}")
+                print(f"     - Organization ID: {metadata.org_id}")
+                print(f"     - Is System Entity: {metadata.is_system_entity}")
+                print(f"     - Is Shared: {metadata.is_shared}")
+                print(f"     - Is Versioned: {metadata.is_versioned}")
+            else:
+                print(f"   ✗ Failed to get document metadata")
+                
+            # --- Test 3: Create Unversioned Document as System Entity ---
+            print(f"\n--- Test 3: Creating System Entity Unversioned Document: {test_ns}/{uv_doc_name} ---")
+            print("  (Using is_system_entity=True with is_shared=True stores in system/shared path)")
+            uv_data = wf_schemas.CustomerDataUnversionedCreateUpdate(
+                is_shared=True,  # Document accessible by anyone in the organization
+                data={"type": "system_config", "settings": {"feature_flags": {"advanced_mode": True}}},
+                is_system_entity=True  # Store in system paths not org-specific paths
+            )
+            uv_result = await data_tester.create_or_update_unversioned_document(test_ns, uv_doc_name, uv_data)
+            created_docs_for_cleanup.append({
+                "namespace": test_ns, "docname": uv_doc_name, 
+                "is_shared": True, "is_versioned": False, "is_system_entity": True
+            })
+            
+            if uv_result:
+                print(f"   ✓ Created system entity unversioned document: {uv_result.data}")
+            else:
+                print(f"   ✗ Failed to create system entity unversioned document")
+                
+            # --- Test 4: List Documents Including System Entities ---
+            print(f"\n--- Test 4: Listing Documents Including System Entities ---")
+            print("  (Need to specify include_system_entities=True to see system path documents)")
+            documents = await data_tester.list_documents(
+                namespace=test_ns, 
+                include_system_entities=True  # Without this, system entities would be excluded from results
+            )
+            
+            if documents:
+                print(f"   ✓ Listed {len(documents)} documents")
+                sys_docs = [doc for doc in documents if doc.is_system_entity]
+                print(f"     - Found {len(sys_docs)} system entity documents")
+                for doc in sys_docs:
+                    print(f"     - {doc.namespace}/{doc.docname} (shared={doc.is_shared}, versioned={doc.is_versioned})")
+            else:
+                print(f"   ✗ Failed to list documents")
+                
+            # --- Optional Test 5: On Behalf of User operations (if you're a superuser) ---
+            # This test requires superuser privileges and a valid user ID to act on behalf of
+            print(f"\n--- Test 5: On Behalf of User Operations (Superuser Only) ---")
+            print("  (Note: on_behalf_of_user_id won't work with system entities or shared docs)")
+            # For demonstration purposes only - this would fail for non-superusers
+            target_user_id = uuid.uuid4()  # Replace with a real user ID if available
+            print(f"   Attempting to get document on behalf of user {target_user_id}")
+            try:
+                on_behalf_result = await data_tester.get_versioned_document(
+                    namespace=test_ns, 
+                    docname=v_doc_name, 
+                    is_shared=True,
+                    is_system_entity=True,
+                    on_behalf_of_user_id=target_user_id  # This param is ignored for system entities & shared docs
+                )
+                if on_behalf_result:
+                    print(f"   ✓ Got document on behalf of user {target_user_id} : \n\n{on_behalf_result}\n\n")
+                    print("   Note: When getting system/shared documents, on_behalf_of_user_id has no effect")
+                else:
+                    print(f"   ✗ Failed to get document on behalf of user")
+            except Exception as e:
+                print(f"   ✗ Error in on-behalf-of operation (expected for non-superusers): {e}")
+                
+    finally:
+        # --- Cleanup ---
+        print("\n--- Cleanup ---")
+        if len(created_docs_for_cleanup) > 0:
+            print(f"Cleaning up {len(created_docs_for_cleanup)} documents...")
+            async with AuthenticatedClient() as auth_client:
+                data_tester = CustomerDataTestClient(auth_client)
+                for doc in created_docs_for_cleanup:
+                    try:
+                        if doc.get("is_versioned", True):
+                            result = await data_tester.delete_versioned_document(
+                                namespace=doc["namespace"], 
+                                docname=doc["docname"], 
+                                is_shared=doc["is_shared"],
+                                is_system_entity=doc.get("is_system_entity", False)
+                            )
+                        else:
+                            result = await data_tester.delete_unversioned_document(
+                                namespace=doc["namespace"], 
+                                docname=doc["docname"], 
+                                is_shared=doc["is_shared"],
+                                is_system_entity=doc.get("is_system_entity", False)
+                            )
+                        print(f"{'✓' if result else '✗'} Deleted {doc['namespace']}/{doc['docname']}")
+                    except Exception as e:
+                        print(f"✗ Error deleting {doc['namespace']}/{doc['docname']}: {e}")
+        
+        print("--- Advanced Customer Data API Test Completed ---")
+
+
 if __name__ == "__main__":
-    print("Running Customer Data Test Client...")
-    asyncio.run(main())
+    import asyncio
+    # asyncio.run(main())
+    asyncio.run(main2())  # Run the advanced tests

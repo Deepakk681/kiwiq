@@ -1,7 +1,7 @@
 """Customer Data Service for managing versioned and unversioned customer data."""
 
 import uuid
-from typing import List, Dict, Any, Optional, Tuple, Union, Type, cast
+from typing import List, Dict, Any, Optional, Tuple, Union, Type, cast, Set
 from datetime import datetime
 
 from fastapi import HTTPException, status
@@ -19,6 +19,7 @@ from kiwi_app.utils import get_kiwi_logger
 
 customer_data_logger = get_kiwi_logger(name="kiwi_app.service_customer_data")
 
+
 class CustomerDataService:
     """
     Service for managing customer data stored in MongoDB.
@@ -28,10 +29,14 @@ class CustomerDataService:
     - User-specific data within organizations
     - Schema validation using templates from the schema template service
     - Version control for documents (only with versioned documents)
+
+    TODO: FIXME: detect if document exists anf if its versioned or not before mutating a path!
     """
     
     # Constant for shared document user ID placeholder
     SHARED_DOC_PLACEHOLDER = "_shared_"
+    PRIVATE_DOC_PLACEHOLDER = "_private_"
+    SYSTEM_DOC_PLACEHOLDER = "_system_"
     
     def __init__(
         self,
@@ -59,19 +64,29 @@ class CustomerDataService:
                 f"got {settings.MONGO_CUSTOMER_SEGMENTS}"
             )
     
-    def _get_user_id_segment(self, is_shared: bool, user: User) -> str:
+    def _get_user_id_segment(
+        self, 
+        is_shared: bool, 
+        user: User, 
+        on_behalf_of_user_id: Optional[uuid.UUID] = None
+    ) -> str:
         """
         Get the user_id segment for document paths.
         
         Args:
             is_shared: Whether this is a shared document
             user: User object for user-specific documents
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             
         Returns:
-            The user_id segment (either user ID or shared placeholder)
+            The user_id segment (either user ID, on-behalf user ID, or shared placeholder)
         """
         if is_shared:
             return self.SHARED_DOC_PLACEHOLDER
+            
+        if on_behalf_of_user_id and user.is_superuser:
+            return str(on_behalf_of_user_id)
+            
         return str(user.id)
     
     def _build_base_path(
@@ -81,6 +96,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> List[str]:
         """
         Build the base path for a document.
@@ -91,31 +108,66 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object for user-specific documents
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             The base path as a list of segments
         """
-        user_id_segment = self._get_user_id_segment(is_shared, user)
-        return [str(org_id), user_id_segment, namespace, docname]
+        # For system entities, use CustomerDataService.SYSTEM_DOC_PLACEHOLDER instead of org_id
+        org_id_segment = CustomerDataService.SYSTEM_DOC_PLACEHOLDER if is_system_entity else str(org_id)
+        
+        # Get user ID segment (handles shared docs and on-behalf actions)
+        user_id_segment = self._get_user_id_segment(is_shared, user, on_behalf_of_user_id)
+        
+        return [org_id_segment, user_id_segment, namespace, docname]
     
-    def _get_allowed_prefixes(self, org_id: uuid.UUID, user: User) -> List[List[str]]:
+    def _get_allowed_prefixes(
+        self, 
+        org_id: uuid.UUID, 
+        user: User, 
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_mutation: bool = False,
+        is_system_entity: bool = False,
+    ) -> List[List[str]]:
         """
         Get the allowed prefixes for the current user.
         
         Args:
             org_id: Organization ID
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_mutation: Whether this operation modifies data
+            is_system_entity: Whether this is a system entity
             
         Returns:
             List of allowed path prefixes
         """
-        # User can access:
-        # 1. Organization shared data: org_id/shared/*
-        # 2. User-specific data: org_id/user_id/*
-        return [
+        prefixes: List[List[str]] = []
+    
+
+        prefixes.extend([
             [str(org_id), self.SHARED_DOC_PLACEHOLDER],  # Shared docs
-            [str(org_id), str(user.id)],  # User-specific docs
-        ]
+            [str(org_id), str(user.id)],                # Their own docs
+        ])
+
+        if not is_mutation:
+            prefixes.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.SHARED_DOC_PLACEHOLDER])
+            
+        # Regular organization prefixes
+        if user.is_superuser:
+            if on_behalf_of_user_id:
+                # Superuser acting on behalf of another user
+                prefixes.extend([
+                    [str(org_id), str(on_behalf_of_user_id)],    # Specific user docs
+                ])
+            # System prefixes for superusers regardless of context
+            prefixes.extend([
+                [CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.SHARED_DOC_PLACEHOLDER],
+                [CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.PRIVATE_DOC_PLACEHOLDER],
+            ])
+                
+        return prefixes
     
     async def _get_schema_from_template(
         self,
@@ -189,6 +241,8 @@ class CustomerDataService:
         schema_template_version: Optional[str] = None,
         initial_data: Any = None,
         is_complete: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Initialize a new versioned document.
@@ -205,15 +259,45 @@ class CustomerDataService:
             schema_template_version: Version of schema template (optional)
             initial_data: Initial document data
             is_complete: Whether the initial data is complete (for validation)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if document was initialized, False if already exists
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can create system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         # Get schema from template if provided
         schema = None
@@ -276,6 +360,8 @@ class CustomerDataService:
         is_complete: Optional[bool] = None,
         schema_template_name: Optional[str] = None,
         schema_template_version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Update a versioned document.
@@ -292,15 +378,45 @@ class CustomerDataService:
             is_complete: Whether the document is complete after update (optional)
             schema_template_name: Name of schema template to update with (optional)
             schema_template_version: Version of schema template (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if document was updated successfully
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         # Update schema if template provided
         if schema_template_name:
@@ -343,6 +459,8 @@ class CustomerDataService:
         is_shared: bool,
         user: User,
         version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> Any:
         """
         Get a versioned document.
@@ -354,15 +472,39 @@ class CustomerDataService:
             is_shared: Whether this is a shared document
             user: User object
             version: Specific version to retrieve (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             The document data
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,
+            is_system_entity=is_system_entity
+        )
         
         try:
             document = await self.versioned_mongo_client.get_document(
@@ -395,6 +537,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Delete a versioned document.
@@ -405,15 +549,45 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if document was deleted successfully
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can delete system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             result = await self.versioned_mongo_client.delete_document(
@@ -445,6 +619,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> List[schemas.CustomerDataVersionInfo]:
         """
         List all versions of a versioned document.
@@ -455,15 +631,39 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             List of version info objects
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,
+            is_system_entity=is_system_entity
+        )
         
         try:
             versions = await self.versioned_mongo_client.list_versions(
@@ -498,6 +698,8 @@ class CustomerDataService:
         user: User,
         new_version: str,
         from_version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Create a new version of a versioned document.
@@ -510,15 +712,45 @@ class CustomerDataService:
             user: User object
             new_version: Name for the new version
             from_version: Version to branch from (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if version was created successfully
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             await self.versioned_mongo_client.create_version(
@@ -542,6 +774,8 @@ class CustomerDataService:
         is_shared: bool,
         user: User,
         version: str,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Set the active version of a versioned document.
@@ -553,15 +787,45 @@ class CustomerDataService:
             is_shared: Whether this is a shared document
             user: User object
             version: Version to set as active
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if active version was set successfully
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             await self.versioned_mongo_client.set_active_version(
@@ -585,6 +849,8 @@ class CustomerDataService:
         user: User,
         version: Optional[str] = None,
         limit: int = 100,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> List[schemas.CustomerDataVersionHistoryItem]:
         """
         Get the history of a versioned document.
@@ -597,15 +863,39 @@ class CustomerDataService:
             user: User object
             version: Specific version to get history for (optional)
             limit: Maximum number of history entries to return
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             List of version history items
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,
+            is_system_entity=is_system_entity
+        )
         
         try:
             history = await self.versioned_mongo_client.get_version_history(
@@ -642,6 +932,8 @@ class CustomerDataService:
         user: User,
         sequence: int,
         version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> Any:
         """
         Preview restoring a versioned document to a previous state.
@@ -654,15 +946,45 @@ class CustomerDataService:
             user: User object
             sequence: Sequence number to restore to
             version: Specific version to restore (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             The document state at the specified sequence number
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+        
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             data = await self.versioned_mongo_client.preview_restore(
@@ -698,6 +1020,8 @@ class CustomerDataService:
         user: User,
         sequence: int,
         version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Restore a versioned document to a previous state.
@@ -710,15 +1034,45 @@ class CustomerDataService:
             user: User object
             sequence: Sequence number to restore to
             version: Specific version to restore (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if document was restored successfully
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             result = await self.versioned_mongo_client.restore(
@@ -752,6 +1106,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Get the schema of a versioned document.
@@ -762,15 +1118,39 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             The document schema or None if not found
         """
         if not self.versioned_mongo_client:
             raise ValueError("Versioned MongoDB client is required")
+        
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
             
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,
+            is_system_entity=is_system_entity
+        )
         
         try:
             schema = await self.versioned_mongo_client.get_schema(
@@ -798,6 +1178,8 @@ class CustomerDataService:
         data: Any,
         schema_template_name: Optional[str] = None,
         schema_template_version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> Tuple[str, bool]:
         """
         Create or update an unversioned document.
@@ -812,12 +1194,42 @@ class CustomerDataService:
             data: Document data
             schema_template_name: Name of schema template to validate against (optional)
             schema_template_version: Version of schema template (optional)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             Tuple of (document_id, is_created)
         """
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can create or update system entities"
+            )
+        
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         # Validate against schema if provided
         if schema_template_name:
@@ -865,6 +1277,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> Any:
         """
         Get an unversioned document.
@@ -875,12 +1289,36 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
             
         Returns:
             The document data
         """
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,
+            is_system_entity=is_system_entity
+        )
         
         try:
             document = await self.mongo_client.fetch_object(
@@ -912,6 +1350,8 @@ class CustomerDataService:
         docname: str,
         is_shared: bool,
         user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> bool:
         """
         Delete an unversioned document.
@@ -922,12 +1362,42 @@ class CustomerDataService:
             docname: Document name
             is_shared: Whether this is a shared document
             user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             True if document was deleted successfully
         """
-        base_path = self._build_base_path(org_id, namespace, docname, is_shared, user)
-        allowed_prefixes = self._get_allowed_prefixes(org_id, user)
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can delete system entities"
+            )
+            
+        base_path = self._build_base_path(
+            org_id=org_id, 
+            namespace=namespace, 
+            docname=docname, 
+            is_shared=is_shared, 
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id, 
+            user=user, 
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=is_system_entity
+        )
         
         try:
             result = await self.mongo_client.delete_object(
@@ -952,6 +1422,122 @@ class CustomerDataService:
                 detail=f"Failed to delete document: {str(e)}",
             )
     
+    async def get_document_metadata(
+        self,
+        org_id: uuid.UUID,
+        namespace: str,
+        docname: str,
+        is_shared: bool,
+        user: User,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
+    ) -> schemas.CustomerDocumentMetadata:
+        """
+        Retrieve document metadata at the specified path.
+        
+        Args:
+            org_id: Organization ID
+            namespace: Document namespace
+            docname: Document name
+            is_shared: Whether this is a shared document
+            user: User object
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
+            
+        Returns:
+            Document metadata including versioning information
+            
+        Raises:
+            HTTPException: If document not found or access denied
+        """
+        # Permission checks
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        if is_system_entity and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can access system entities"
+            )
+        
+        # Build the document path
+        base_path = self._build_base_path(
+            org_id=org_id,
+            namespace=namespace,
+            docname=docname,
+            is_shared=is_shared,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        
+        # Get allowed prefixes for permission checking
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,  # This is a read operation
+            is_system_entity=is_system_entity
+        )
+        
+        try:
+            # Include the document type field to determine if it's versioned
+            include_fields = [self.mongo_client.DOC_TYPE_KEY]
+
+            print(f"Fetching document at path: {base_path}")
+            print(f"Allowed prefixes: {allowed_prefixes}")
+            print(f"Include fields: {include_fields}")
+            
+            # Fetch the document
+            document = await self.versioned_mongo_client.client.fetch_object(
+                path=base_path,
+                allowed_prefixes=allowed_prefixes,
+                include_fields=include_fields
+            )
+
+            print(f"Document: {document}")
+            
+            # Check if document exists
+            if not document:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Document '{namespace}/{docname}' not found"
+                )
+            
+            # Determine if document is versioned
+            is_versioned = document.get(self.mongo_client.DOC_TYPE_KEY) == self.mongo_client.DOC_TYPE_VERSIONED
+            
+            # Extract path components
+            org_id_str = str(org_id) if not is_system_entity else CustomerDataService.SYSTEM_DOC_PLACEHOLDER
+            user_id_str = self.SHARED_DOC_PLACEHOLDER if is_shared else (
+                str(on_behalf_of_user_id) if on_behalf_of_user_id and user.is_superuser else str(user.id)
+            )
+            
+            # Create and return metadata
+            return schemas.CustomerDocumentMetadata(
+                org_id=uuid.UUID(org_id_str) if not is_system_entity else None,
+                user_id_or_shared_placeholder=user_id_str,
+                namespace=namespace,
+                docname=docname,
+                is_versioned=is_versioned,
+                is_shared=is_shared,
+                is_system_entity=is_system_entity,
+            )
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            customer_data_logger.error(f"Error fetching document at path {base_path}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to retrieve document: {str(e)}"
+            )
+
+    
     # --- List Documents --- #
     
     async def list_documents(
@@ -963,6 +1549,8 @@ class CustomerDataService:
         include_user_specific: bool = True,
         skip: int = 0,
         limit: int = 100,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        include_system_entities: bool = False,
     ) -> List[schemas.CustomerDocumentMetadata]:
         """
         List documents accessible to the user.
@@ -975,39 +1563,74 @@ class CustomerDataService:
             include_user_specific: Include user-specific documents
             skip: Number of documents to skip
             limit: Maximum number of documents to return
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            include_system_entities: Whether to include system entities (superusers only)
             
         Returns:
             List of document metadata
         """
-        if not include_shared and not include_user_specific:
+        if not include_shared and not include_user_specific and not include_system_entities:
             return []
-            
-        allowed_prefixes = []
-        if include_shared:
-            allowed_prefixes.append([str(org_id), self.SHARED_DOC_PLACEHOLDER])
-        if include_user_specific:
-            allowed_prefixes.append([str(org_id), str(user.id)])
-            
-        # Build pattern based on namespace filter
-        if namespace_filter:
-            # Filter by specific namespace
-            pattern = [str(org_id), "*", namespace_filter, "*"]
-        else:
-            # List all documents
-            pattern = [str(org_id), "*", "*", "*"]
-            
-        try:
-            # Fetch both versioned and unversioned documents
-            # Approach: First query the base mongo client to get all document paths
-            docs = await self.mongo_client.list_objects(
-                pattern=pattern,
-                allowed_prefixes=allowed_prefixes,
-                include_data=False,
+         
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
             )
+            
+        if include_system_entities and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can list all system entities"
+            )
+        
+        # Get allowed prefixes from our helper method
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=False,  # Listing is not a mutation operation
+            is_system_entity=False  # Basic prefixes, specific system patterns added below
+        )
+        
+        # Build patterns to search for
+        patterns = []
+        
+        # Organization patterns
+        namespace_filter_pattern = namespace_filter if namespace_filter else "*"
+        if include_shared or include_user_specific:
+            if include_shared:
+                patterns.append([str(org_id), self.SHARED_DOC_PLACEHOLDER, namespace_filter_pattern, "*"])
+            if include_user_specific:
+                user_id = str(on_behalf_of_user_id) if on_behalf_of_user_id and user.is_superuser else str(user.id)
+                patterns.append([str(org_id), user_id, namespace_filter_pattern, "*"])
+        
+        # System patterns
+        if include_system_entities or (not user.is_superuser):  # Regular users can still see shared system docs
+            patterns.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.SHARED_DOC_PLACEHOLDER, namespace_filter, "*"])
+            # Only superusers can access private system docs
+            if user.is_superuser and include_system_entities:
+                patterns.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.PRIVATE_DOC_PLACEHOLDER, namespace_filter_pattern, "*"])
+        
+        try:
+            # Process each pattern and combine results
+            all_docs = {}
+            
+            for pattern in patterns:
+                docs = await self.versioned_mongo_client.client.search_objects(
+                    # NOTE: we only wanna fetch all docs where the version/sequence no. segments are unset!
+                    key_pattern=pattern + [None] * len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES),
+                    allowed_prefixes=allowed_prefixes,
+                    include_fields=self.versioned_mongo_client.segment_names + [self.mongo_client.DOC_TYPE_KEY],
+                )
+                all_docs.update(
+                    {tuple(self.versioned_mongo_client.client._segments_to_path(doc)): doc for doc in docs}
+                )
             
             # Process results into metadata objects
             result = []
-            for doc_path in docs:
+            for doc_path, _doc_metadata in all_docs.items():
                 # Skip if not a list (should not happen)
                 if not isinstance(doc_path, list) or len(doc_path) != 4:
                     continue
@@ -1015,28 +1638,41 @@ class CustomerDataService:
                 # Extract path components
                 org_id_str, user_id_str, namespace, docname = doc_path
                 
-                # Determine if shared
+                # Determine if shared and system
                 is_shared = user_id_str == self.SHARED_DOC_PLACEHOLDER
+                is_system = org_id_str == CustomerDataService.SYSTEM_DOC_PLACEHOLDER
                 
-                # We don't know if it's versioned yet - need to check if a metadata document exists
-                # For simplicity, let's assume it's versioned if we can use a versioned client
-                # A more robust approach would inspect the document structure
-                is_versioned = self.versioned_mongo_client is not None
+                # Skip system entities if not requested
+                if is_system and not include_system_entities and not is_shared:
+                    continue
+                
+                is_versioned = _doc_metadata.get(self.mongo_client.DOC_TYPE_KEY) == self.mongo_client.DOC_TYPE_VERSIONED
                 
                 # Create metadata object
                 metadata = schemas.CustomerDocumentMetadata(
-                    org_id=uuid.UUID(org_id_str),
+                    org_id=uuid.UUID(org_id_str) if not is_system else None,
                     user_id_or_shared_placeholder=user_id_str,
                     namespace=namespace,
                     docname=docname,
                     is_versioned=is_versioned,
                     is_shared=is_shared,
+                    is_system_entity=is_system,
                 )
                 
                 result.append(metadata)
-                
+            
+            # Remove duplicates (in case the same document matched multiple patterns)
+            unique_result = []
+            seen_paths = set()
+            
+            for metadata in result:
+                path_key = f"{metadata.org_id or CustomerDataService.SYSTEM_DOC_PLACEHOLDER}/{metadata.user_id_or_shared_placeholder}/{metadata.namespace}/{metadata.docname}"
+                if path_key not in seen_paths:
+                    seen_paths.add(path_key)
+                    unique_result.append(metadata)
+            
             # Apply pagination
-            paginated_result = result[skip:skip + limit]
+            paginated_result = unique_result[skip:skip + limit]
             
             return paginated_result
         except Exception as e:

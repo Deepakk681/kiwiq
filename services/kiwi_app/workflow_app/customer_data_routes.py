@@ -55,6 +55,8 @@ async def initialize_versioned_document(
         schema_template_version=data.schema_template_version,
         initial_data=data.initial_data,
         is_complete=data.is_complete,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     if not result:
@@ -72,6 +74,8 @@ async def initialize_versioned_document(
         is_shared=data.is_shared,
         user=current_user,
         version=data.initial_version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     customer_data_logger.info(f"Document: {document}")
     
@@ -107,6 +111,8 @@ async def update_versioned_document(
         is_complete=data.is_complete,
         schema_template_name=data.schema_template_name,
         schema_template_version=data.schema_template_version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Get the updated document to return it
@@ -117,6 +123,8 @@ async def update_versioned_document(
         is_shared=data.is_shared,
         user=current_user,
         version=data.version,  # Use the same version as the update
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     customer_data_logger.debug(f"Updated document: {namespace}/{docname} for org {active_org_id}")
@@ -134,6 +142,8 @@ async def get_versioned_document(
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
     version: Optional[str] = Query(None, description="Specific version to retrieve. If not provided, retrieves the active version."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -147,6 +157,8 @@ async def get_versioned_document(
         is_shared=is_shared,
         user=current_user,
         version=version,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     return schemas.CustomerDataRead(data=document)
@@ -162,6 +174,8 @@ async def delete_versioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -174,6 +188,8 @@ async def delete_versioned_document(
         docname=docname,
         is_shared=is_shared,
         user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     customer_data_logger.info(f"Deleted versioned document: {namespace}/{docname} for org {active_org_id}")
@@ -190,6 +206,8 @@ async def list_versioned_document_versions(
     namespace: str = Path(..., description="Namespace for the document"),
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -202,6 +220,8 @@ async def list_versioned_document_versions(
         docname=docname,
         is_shared=is_shared,
         user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     return versions
@@ -231,6 +251,8 @@ async def create_versioned_document_version(
         user=current_user,
         new_version=data.new_version,
         from_version=data.from_version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Get all versions to find the newly created one
@@ -240,6 +262,8 @@ async def create_versioned_document_version(
         docname=docname,
         is_shared=data.is_shared,
         user=current_user,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Find the newly created version in the list
@@ -279,6 +303,8 @@ async def set_active_version(
         is_shared=data.is_shared,
         user=current_user,
         version=data.version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Get all versions to find the newly activated one
@@ -288,6 +314,8 @@ async def set_active_version(
         docname=docname,
         is_shared=data.is_shared,
         user=current_user,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Find the active version in the list
@@ -316,6 +344,8 @@ async def get_version_history(
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
     version: Optional[str] = Query(None, description="Specific version to get history for. If not provided, gets history for the active version."),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of history entries to return."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -330,6 +360,8 @@ async def get_version_history(
         user=current_user,
         version=version,
         limit=limit,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     return history
@@ -347,6 +379,8 @@ async def preview_restore(
     sequence: int = Path(..., ge=0, description="Sequence number to restore to."),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
     version: Optional[str] = Query(None, description="Specific version to restore. If not provided, restores the active version."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -361,6 +395,8 @@ async def preview_restore(
         user=current_user,
         sequence=sequence,
         version=version,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     return schemas.CustomerDataRead(data=data)
@@ -390,6 +426,8 @@ async def restore_document(
         user=current_user,
         sequence=data.sequence,
         version=data.version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     # Get the restored document to return it
@@ -400,6 +438,8 @@ async def restore_document(
         is_shared=data.is_shared,
         user=current_user,
         version=data.version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     customer_data_logger.info(f"Restored document to sequence {data.sequence} for document: {namespace}/{docname}")
@@ -416,6 +456,8 @@ async def get_versioned_document_schema(
     namespace: str = Path(..., description="Namespace for the document"),
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -428,6 +470,8 @@ async def get_versioned_document_schema(
         docname=docname,
         is_shared=is_shared,
         user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     if schema is None:
@@ -477,9 +521,17 @@ async def update_versioned_document_schema(
             docname=docname,
             is_shared=data.is_shared,
             user=current_user,
+            on_behalf_of_user_id=data.on_behalf_of_user_id,
+            is_system_entity=data.is_system_entity,
         ),
         schema=schema,
-        allowed_prefixes=service._get_allowed_prefixes(active_org_id, current_user),
+        allowed_prefixes=service._get_allowed_prefixes(
+            org_id=active_org_id, 
+            user=current_user,
+            on_behalf_of_user_id=data.on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=data.is_system_entity,
+        ),
     )
     
     customer_data_logger.info(f"Updated schema for document: {namespace}/{docname} for org {active_org_id}")
@@ -515,6 +567,8 @@ async def create_or_update_unversioned_document(
         data=data.data,
         schema_template_name=data.schema_template_name,
         schema_template_version=data.schema_template_version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
     )
     
     action = "Created" if is_created else "Updated"
@@ -533,6 +587,8 @@ async def get_unversioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -545,6 +601,8 @@ async def get_unversioned_document(
         docname=docname,
         is_shared=is_shared,
         user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     return schemas.CustomerDataUnversionedRead(data=document)
@@ -560,6 +618,8 @@ async def delete_unversioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
     docname: str = Path(..., description="Name of the document"),
     is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user),
     service: CustomerDataService = Depends(get_customer_data_service_dependency),
@@ -572,6 +632,8 @@ async def delete_unversioned_document(
         docname=docname,
         is_shared=is_shared,
         user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
     )
     
     customer_data_logger.info(f"Deleted unversioned document: {namespace}/{docname} for org {active_org_id}")
@@ -590,6 +652,8 @@ async def list_documents(
     namespace: Optional[str] = Query(None, description="Filter by namespace."),
     include_shared: bool = Query(True, description="Include shared documents."),
     include_user_specific: bool = Query(True, description="Include user-specific documents."),
+    include_system_entities: bool = Query(False, description="Include system entities (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
     skip: int = Query(0, ge=0, description="Number of documents to skip."),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of documents to return."),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
@@ -613,7 +677,40 @@ async def list_documents(
         include_user_specific=include_user_specific,
         skip=skip,
         limit=limit,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        include_system_entities=include_system_entities,
     )
     
     customer_data_logger.debug(f"Found {len(documents)} documents for org {active_org_id}")
     return documents
+
+@customer_data_router.get(
+    "/metadata/{namespace}/{docname}",
+    response_model=schemas.CustomerDocumentMetadata,
+    dependencies=[Depends(RequireOrgDataReadActiveOrg)],
+    summary="Get document metadata",
+    description="Gets metadata for a document by path."
+)
+async def get_document_metadata(
+    namespace: str = Path(..., description="Namespace for the document"),
+    docname: str = Path(..., description="Name of the document"),
+    is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_verified_user),
+    service: CustomerDataService = Depends(get_customer_data_service_dependency),
+):
+    """Get metadata for a document."""
+    customer_data_logger.info(f"Getting metadata for document: {namespace}/{docname} for org {active_org_id}")
+    metadata = await service.get_document_metadata(
+        org_id=active_org_id,
+        namespace=namespace,
+        docname=docname,
+        is_shared=is_shared,
+        user=current_user,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
+    )
+    
+    return metadata

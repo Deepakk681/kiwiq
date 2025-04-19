@@ -114,6 +114,7 @@ VERSIONED_DOC_RESTORE_URL = lambda namespace, docname: f"{CUSTOMER_DATA_BASE_URL
 VERSIONED_DOC_SCHEMA_URL = lambda namespace, docname: f"{CUSTOMER_DATA_BASE_URL}/versioned/{namespace}/{docname}/schema"
 UNVERSIONED_DOC_URL = lambda namespace, docname: f"{CUSTOMER_DATA_BASE_URL}/unversioned/{namespace}/{docname}"
 LIST_DOCUMENTS_URL = f"{CUSTOMER_DATA_BASE_URL}/list"
+DOCUMENT_METADATA_URL = lambda namespace, docname: f"{CUSTOMER_DATA_BASE_URL}/metadata/{namespace}/{docname}"
 
 # WebSockets (Base URLs - specific paths depend on run_id etc.)
 # Note: httpx doesn't handle cookies automatically for websockets in the same way

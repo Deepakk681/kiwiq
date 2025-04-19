@@ -35,7 +35,10 @@ class AsyncMongoDBClient:
     
     # Secure delimiter that's unlikely to appear in path segments
     PATH_DELIMITER = ":::"
-    
+    DOC_TYPE_KEY = "__doc_type__"
+    DOC_TYPE_UNVERSIONED = "unversioned"
+    DOC_TYPE_VERSIONED = "versioned"
+
     def __init__(
         self, 
         uri: str,
@@ -184,7 +187,7 @@ class AsyncMongoDBClient:
         if not isinstance(path, list):
             raise ValueError(f"Path must be a list of strings, not {type(path)}")
             
-        # Check for empty segments
+        # # Check for empty segments
         if any(not segment for segment in path):
             raise ValueError(f"Path {path} contains empty segments, which is not allowed")
         
@@ -213,13 +216,14 @@ class AsyncMongoDBClient:
         if not isinstance(pattern, list):
             raise ValueError(f"Pattern must be a list of strings, not {type(pattern)}")
             
-        # Check for empty segments
-        if any(not isinstance(segment, str) or not segment for segment in pattern):
-            raise ValueError(f"Pattern {pattern} contains empty segments, which is not allowed")
+        # NOTE: this behaviour has changed so that patterns can have None for a segment to only fetch docs without that segment!
+        # # Check for empty segments
+        # if any(not isinstance(segment, str) or not segment for segment in pattern):
+        #     raise ValueError(f"Pattern {pattern} contains empty segments, which is not allowed")
         
         # Check for path delimiter in segments
         for i, segment in enumerate(pattern):
-            if self.PATH_DELIMITER in segment:
+            if segment and self.PATH_DELIMITER in segment:
                 raise ValueError(f"Pattern segment {i} '{segment}' contains the reserved delimiter '{self.PATH_DELIMITER}', which is not allowed")
     
     def _validate_allowed_prefixes(self, allowed_prefixes: List[List[str]]) -> None:
@@ -364,6 +368,13 @@ class AsyncMongoDBClient:
             
         Returns:
             MongoDB query dictionary
+        
+        NOTE: TODO: query if segments unset!
+        # all docs where “myField” is not present
+        cursor = collection.find({ "myField": { "$exists": False } })
+
+        # matches docs where myField == null OR myField is missing
+        cursor = collection.find({ "myField": None })
         """
         # Validate pattern
         self._validate_pattern(pattern)
@@ -383,7 +394,7 @@ class AsyncMongoDBClient:
                 segment_name = self.segment_names[i]
                 
                 # Handle embedded wildcards within a segment (e.g., "ab*cd")
-                if '*' in part:
+                if part and '*' in part:
                     # Escape special regex characters except *
                     escaped_part = part
                     for char in '.^$+?()[]{}|\\':
@@ -515,7 +526,8 @@ class AsyncMongoDBClient:
         return {
             "_id": self._path_to_id(path),
             **segments,
-            "data": data
+            "data": data,
+            AsyncMongoDBClient.DOC_TYPE_KEY: AsyncMongoDBClient.DOC_TYPE_UNVERSIONED,
         }
     
     async def _process_operation_with_retry(
@@ -938,7 +950,8 @@ class AsyncMongoDBClient:
     async def fetch_object(
         self, 
         path: List[str], 
-        allowed_prefixes: Optional[List[List[str]]] = None
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        include_fields: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Fetches a document by exact path, with optional permission check.
@@ -949,7 +962,8 @@ class AsyncMongoDBClient:
         Args:
             path: Path as list of segments
             allowed_prefixes: Optional list of allowed path prefixes as lists
-            
+            include_fields: Optional list of fields to include in the results
+
         Returns:
             Document if found and allowed, None otherwise
             
@@ -970,7 +984,15 @@ class AsyncMongoDBClient:
             
             # Fetch document
             collection = await self._get_collection()
-            document = await collection.find_one(query)
+
+            kwargs = {}
+            if include_fields:
+                kwargs["projection"] = {field: 1 for field in include_fields}
+                # Always include _id field
+                if "_id" not in kwargs["projection"]:
+                    kwargs["projection"]["_id"] = 1
+
+            document = await collection.find_one(query, **kwargs)
             
             if document:
                 logger.debug(f"Fetched document for path '{path}'")
@@ -1113,7 +1135,8 @@ class AsyncMongoDBClient:
         text_search_query: Optional[str] = None,
         value_filter: Optional[Dict[str, Any]] = None,
         allowed_prefixes: Optional[List[List[str]]] = None,
-        value_sort_by: Optional[List[Tuple[str, int]]] = None
+        value_sort_by: Optional[List[Tuple[str, int]]] = None,
+        include_fields: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Searches objects by pattern, text search, and value filters.
@@ -1126,7 +1149,9 @@ class AsyncMongoDBClient:
             text_search_query: Optional text search query
             value_filter: Optional data field filters
             allowed_prefixes: Optional list of allowed path prefixes as lists
-            sort_by: Optional list of sort fields and directions
+            value_sort_by: Optional list of sort fields and directions
+            include_fields: Optional list of fields to include in the results
+            
         Returns:
             List of matching documents
             
@@ -1167,8 +1192,20 @@ class AsyncMongoDBClient:
             
             logger.debug(f"Searching objects with query: {final_query}")
             
+            # Prepare projection if include_fields is specified
+            projection = None
+            if include_fields:
+                projection = {field: 1 for field in include_fields}
+                # Always include _id field
+                if "_id" not in projection:
+                    projection["_id"] = 1
+            
             # Execute search
-            cursor = collection.find(final_query)
+            find_kwargs = {}
+            if projection:
+                find_kwargs["projection"] = projection
+            
+            cursor = collection.find(final_query, **find_kwargs)
             
             # Add sort for text search relevance if needed
             value_sort_by = value_sort_by or []
@@ -1305,7 +1342,8 @@ class AsyncMongoDBClient:
     async def batch_fetch_objects(
         self,
         paths: List[List[str]],
-        allowed_prefixes: Optional[List[List[str]]] = None
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        include_fields: Optional[List[str]] = None
     ) -> Dict[str, Optional[Dict[str, Any]]]:
         """
         Fetches multiple documents by their paths in a batch operation.
@@ -1316,7 +1354,7 @@ class AsyncMongoDBClient:
         Args:
             paths: List of paths as lists of segments
             allowed_prefixes: Optional list of allowed path prefixes as lists
-            
+            include_fields: Optional list of fields to include in the projection
         Returns:
             Dictionary mapping stringified paths to document objects (or None if not found/denied)
             
@@ -1362,9 +1400,12 @@ class AsyncMongoDBClient:
             try:
                 # Create a mapping from document ID to path for O(1) lookups
                 id_to_path_set = {self._path_to_id(path): str(path) for path in allowed_paths}
+                kwargs = {}
+                if include_fields:
+                    kwargs["projection"] = {field: 1 for field in include_fields}
                 
                 # Fetch all matching documents in one query
-                async for doc in collection.find(id_query):
+                async for doc in collection.find(id_query, **kwargs):
                     # Get the document ID
                     doc_id = doc["_id"]
                     

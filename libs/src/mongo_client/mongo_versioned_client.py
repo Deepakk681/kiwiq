@@ -494,6 +494,7 @@ class AsyncMongoVersionedClient:
         # Create initial metadata
         timestamp = datetime_now_utc().isoformat()
         metadata = {
+            AsyncMongoDBClient.DOC_TYPE_KEY: AsyncMongoDBClient.DOC_TYPE_VERSIONED,
             "created_at": timestamp,
             "updated_at": timestamp,
             "active_version": initial_version,
