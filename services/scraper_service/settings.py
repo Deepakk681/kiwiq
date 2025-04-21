@@ -6,7 +6,7 @@ inheriting from the global settings configuration.
 """
 
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 from global_config.settings import Settings as GlobalSettings
 
@@ -25,12 +25,24 @@ class RapidAPISettings(GlobalSettings):
     RAPID_API_BASE_URL: str = "linkedin-profiles-and-company-data.p.rapidapi.com"
     RAPID_API_HOST: str = "linkedin-profiles-and-company-data.p.rapidapi.com"
     
+    # Test Settings
+    TEST_PROFILE_USERNAME: str = ""
+    TEST_PROFILE_URL: str = ""
+    TEST_POST_PROFILE_USERNAME: str = ""
+    TEST_POST_COMPANY_USERNAME: str = ""
+    TEST_COMPANY_USERNAME: str = ""
+    TEST_COMPANY_URL: str = ""
+
+    
+    # Retry configuration
+    MAX_RETRIES: int = 3
+    RETRY_DELAY: int = 2  # seconds
+    
     # Request Settings
-    DEFAULT_POST_LIMIT: int = 3
-    DEFAULT_COMMENT_LIMIT: int = 10
-    DEFAULT_REACTION_LIMIT: int = 5
-    DEFAULT_PROFILE_LIMIT: int = 5
-    DEFAULT_COMPANY_LIMIT: int = 5
+    DEFAULT_POST_LIMIT: int = 50  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
+    DEFAULT_COMMENT_LIMIT: int = 49 
+    DEFAULT_REACTION_LIMIT: int = 49
+
     
     # Rate Limiting Settings
     DEFAULT_DELAY_SECONDS: int = 5
@@ -38,7 +50,6 @@ class RapidAPISettings(GlobalSettings):
     RATE_LIMIT_REQUESTS: int = 10  # Number of requests per time window
     RATE_LIMIT_PERIOD: int = 60    # Time window in seconds
     RATE_LIMIT_BACKOFF: int = 2    # Exponential backoff multiplier
-    MAX_RETRIES: int = 3           # Maximum number of retry attempts
     
     # Default Headers
     @property
@@ -54,11 +65,7 @@ class RapidAPISettings(GlobalSettings):
     MAX_PAGE_SIZE: int = 100
     MIN_PAGE_SIZE: int = 5
     
-    # Cache Settings
-    CACHE_EXPIRY: int = 3600  # Default cache expiry in seconds (1 hour)
-    PROFILE_CACHE_EXPIRY: int = 86400  # Profile cache expiry (24 hours)
-    COMPANY_CACHE_EXPIRY: int = 86400  # Company cache expiry (24 hours)
-    POST_CACHE_EXPIRY: int = 3600  # Post cache expiry (1 hour)
+
     
     # Request Timeout
     REQUEST_TIMEOUT: int = 30  # Request timeout in seconds
@@ -67,14 +74,11 @@ class RapidAPISettings(GlobalSettings):
     ENDPOINTS: Dict[str, str] = {
         "profile": "/",
         "company": "/get-company-details",
+        "company_details": "/get-company-details",
         "posts": "/get-post",
         "comments": "/get-post-comments",
         "reactions": "/get-post-reactions"
     }
-    
-    # Test Mode
-    TEST_MODE: bool = os.getenv("RAPID_API_TEST_MODE", "False").lower() == "true"
-    TEST_DATA_DIR: str = os.path.join(os.path.dirname(__file__), "test_data")
     
     class Config:
         """
@@ -83,33 +87,6 @@ class RapidAPISettings(GlobalSettings):
         env_file = ".env"
         env_prefix = "SCRAPER_"
         case_sensitive = True
-        
-    def get_scraper_settings(self) -> Dict[str, Any]:
-        """
-        Get all scraper-specific settings as a dictionary.
-        Used for configuration overrides.
-        
-        Returns:
-            Dict[str, Any]: Dictionary of scraper settings
-        """
-        return {
-            "rapid_api_key": self.RAPID_API_KEY,
-            "rapid_api_host": self.RAPID_API_HOST,
-            "rapid_api_base_url": self.RAPID_API_BASE_URL,
-            "default_post_limit": self.DEFAULT_POST_LIMIT,
-            "default_comment_limit": self.DEFAULT_COMMENT_LIMIT,
-            "default_reaction_limit": self.DEFAULT_REACTION_LIMIT,
-            "test_mode": self.TEST_MODE
-        }
-
-    def validate_api_key(self) -> bool:
-        """
-        Validate that the API key is set.
-        
-        Returns:
-            bool: True if API key is set, False otherwise
-        """
-        return bool(self.RAPID_API_KEY)
 
 # Create settings instance
 rapid_api_settings = RapidAPISettings() 
