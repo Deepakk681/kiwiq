@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Awaitable
 import unittest
 
 from workflow_service.config.constants import (
@@ -21,7 +21,7 @@ from workflow_service.registry.registry import DBRegistry
 from workflow_service.registry.nodes.core.dynamic_nodes import InputNode, OutputNode
 
 
-def create_prompt_constructor_graph():
+async def create_prompt_constructor_graph():
     """
     Create a workflow graph with a prompt constructor node.
     
@@ -131,9 +131,9 @@ def create_prompt_constructor_graph():
     )
 
 
-def build_and_run_prompt_constructor_graph(input_data: Dict[str, Any]) -> Dict[str, Any]:
+async def build_and_run_prompt_constructor_graph(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Build and run the prompt constructor graph.
+    Build and run the prompt constructor graph asynchronously.
     
     Args:
         input_data: Dictionary containing prompt variables
@@ -149,7 +149,7 @@ def build_and_run_prompt_constructor_graph(input_data: Dict[str, Any]) -> Dict[s
     
     
     # Create graph schema
-    graph_schema = create_prompt_constructor_graph()
+    graph_schema = await create_prompt_constructor_graph()
     
     # Setup registry with prompt constructor node
     
@@ -172,8 +172,8 @@ def build_and_run_prompt_constructor_graph(input_data: Dict[str, Any]) -> Dict[s
     # Build graph
     graph = adapter.build_graph(graph_entities)
     
-    # Execute graph
-    result = adapter.execute_graph(
+    # Execute graph asynchronously
+    result = await adapter.aexecute_graph(
         graph=graph,
         input_data=input_data,
         config=runtime_config,
@@ -183,17 +183,28 @@ def build_and_run_prompt_constructor_graph(input_data: Dict[str, Any]) -> Dict[s
     return result
 
 
-class TestPromptConstructorNode(unittest.TestCase):
-    def test_prompt_constructor_node(self):
+class TestPromptConstructorNode(unittest.IsolatedAsyncioTestCase):
+    async def test_prompt_constructor_node(self):
+        """
+        Tests the prompt constructor node by building and running the graph asynchronously.
+        Verifies that the output prompts are constructed correctly based on input data
+        and template defaults/overrides.
+        """
         input_data = {
             "t1_variable3": "`3x Hello, world!`",
             "write_variable1": "`1x Hello, world!`"
         }
-        result = build_and_run_prompt_constructor_graph(input_data)
-        assert result == {
-        'system_prompt': 'This is a template with `1x Hello, world!` and USER_OVERRIDE_VALUE_2 and `3x Hello, world!`', 
-        'user_prompt': 'Another template with `1x Hello, world!`'
-    }
+        # Execute the graph asynchronously and get the result
+        result = await build_and_run_prompt_constructor_graph(input_data)
+        
+        # Expected output based on the templates and input data
+        expected_output = {
+            'system_prompt': 'This is a template with `1x Hello, world!` and USER_OVERRIDE_VALUE_2 and `3x Hello, world!`', 
+            'user_prompt': 'Another template with `1x Hello, world!`'
+        }
+        
+        # Assert that the actual result matches the expected output
+        self.assertDictEqual(result, expected_output)
 
 if __name__ == "__main__":
     unittest.main()

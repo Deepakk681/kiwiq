@@ -4,6 +4,7 @@ from typing import Dict, Any
 
 # Use real imports
 from pydantic import ValidationError # Import for catching validation errors
+from unittest import IsolatedAsyncioTestCase # Import async test case
 
 # Import nodes and schemas to test
 from workflow_service.registry.nodes.data_ops.transform_node import (
@@ -21,7 +22,7 @@ from workflow_service.registry.nodes.data_ops.transform_node import (
 # from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema
 
 # === Base Test Class ===
-class BaseTransformNodeTest(unittest.TestCase):
+class BaseTransformNodeTest(IsolatedAsyncioTestCase): # Inherit from IsolatedAsyncioTestCase
     """Base class for setting up common test data."""
     def setUp(self):
         """Set up sample data structures for testing."""
@@ -78,7 +79,7 @@ class BaseTransformNodeTest(unittest.TestCase):
 class TestTransformerNode(BaseTransformNodeTest):
     """Test suite for the TransformerNode."""
 
-    def test_transform_basic_mapping(self):
+    async def test_transform_basic_mapping(self): # Make test method async
         """Test simple field-to-field mapping."""
         config = {
             "mappings": [
@@ -87,11 +88,11 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform1")
-        result = node.process(self.sample_data_simple)
+        result = await node.process(self.sample_data_simple) # Await the process call
         expected = {"customer_name": "Alice", "item_cost": 99.99}
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_nested_source(self):
+    async def test_transform_nested_source(self): # Make test method async
         """Test mapping from a nested source path."""
         config = {
             "mappings": [
@@ -99,11 +100,11 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform2")
-        result = node.process(self.sample_data_nested)
+        result = await node.process(self.sample_data_nested) # Await the process call
         expected = {"email_address": "bob.s@example.net"}
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_nested_destination(self):
+    async def test_transform_nested_destination(self): # Make test method async
         """Test mapping to a nested destination path, creating intermediate dicts."""
         config = {
             "mappings": [
@@ -112,7 +113,7 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform3")
-        result = node.process(self.sample_data_simple)
+        result = await node.process(self.sample_data_simple) # Await the process call
         expected = {
             "output": {
                 "user_data": {"id": 101},
@@ -121,7 +122,7 @@ class TestTransformerNode(BaseTransformNodeTest):
         }
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_map_list_and_dict(self):
+    async def test_transform_map_list_and_dict(self): # Make test method async
         """Test mapping entire lists and dictionaries."""
         config = {
             "mappings": [
@@ -130,13 +131,13 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform4")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         expected_users = copy.deepcopy(self.sample_data_for_mapping["users"])
         expected_dept = copy.deepcopy(self.sample_data_for_mapping["departments"][0])
         expected = {"all_users": expected_users, "first_department": expected_dept}
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_overwrite_value(self):
+    async def test_transform_overwrite_value(self): # Make test method async
         """Test that later mappings overwrite earlier ones at the same destination."""
         config = {
             "mappings": [
@@ -145,11 +146,11 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform5")
-        result = node.process(self.sample_data_simple)
+        result = await node.process(self.sample_data_simple) # Await the process call
         expected = {"target": {"value": "XYZ123"}}
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_source_path_not_found(self):
+    async def test_transform_source_path_not_found(self): # Make test method async
         """Test mapping when the source path does not exist (should be skipped)."""
         config = {
             "mappings": [
@@ -158,11 +159,11 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform6")
-        result = node.process(self.sample_data_simple)
+        result = await node.process(self.sample_data_simple) # Await the process call
         expected = {"name": "Alice"} # Only the valid mapping is applied
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_source_value_is_none(self):
+    async def test_transform_source_value_is_none(self): # Make test method async
         """Test mapping when the source value exists but is None."""
         data_with_none = copy.deepcopy(self.sample_data_simple)
         data_with_none["user"]["email"] = None
@@ -172,11 +173,11 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform7")
-        result = node.process(data_with_none)
+        result = await node.process(data_with_none) # Await the process call
         expected = {"contact_email": None}
         self.assertEqual(result.transformed_data, expected)
 
-    def test_transform_complex_nested_structure(self):
+    async def test_transform_complex_nested_structure(self): # Make test method async
         """Test complex mapping involving multiple nested levels."""
         config = {
             "mappings": [
@@ -187,7 +188,7 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform8")
-        result = node.process(self.sample_data_nested)
+        result = await node.process(self.sample_data_nested) # Await the process call
         expected = {
             "output": {
                 "customer": {"first": "Bob", "last": "Smith"},
@@ -208,7 +209,7 @@ class TestTransformerNode(BaseTransformNodeTest):
                 {"source_path": "valid.path", "destination_path": "  "}
             ])
 
-    def test_transform_empty_input(self):
+    async def test_transform_empty_input(self): # Make test method async
         """Test transforming an empty input dictionary."""
         config = {
             "mappings": [
@@ -216,7 +217,7 @@ class TestTransformerNode(BaseTransformNodeTest):
             ]
         }
         node = TransformerNode(config=config, node_id="transform9")
-        result = node.process({})
+        result = await node.process({}) # Await the process call
         expected = {} # No source paths found
         self.assertEqual(result.transformed_data, expected)
 
@@ -230,7 +231,7 @@ class TestTransformerNode(BaseTransformNodeTest):
 class TestMapperNode(BaseTransformNodeTest):
     """Test suite for the MapperNode."""
 
-    def test_map_basic_one_to_many(self):
+    async def test_map_basic_one_to_many(self): # Make test method async
         """Test basic one-to-many join (departments -> users)."""
         config = {
             "joins": [
@@ -245,7 +246,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map1")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         expected_data = copy.deepcopy(self.sample_data_for_mapping)
         # Expected nested structure
         expected_data["departments"][0]["members"] = [
@@ -257,7 +258,7 @@ class TestMapperNode(BaseTransformNodeTest):
         ]
         self.assertEqual(result.mapped_data, expected_data)
 
-    def test_map_basic_one_to_one(self):
+    async def test_map_basic_one_to_one(self): # Make test method async
         """Test basic one-to-one join (users -> departments)."""
         config = {
             "joins": [
@@ -272,7 +273,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map2")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         expected_data = copy.deepcopy(self.sample_data_for_mapping)
         # Expected nested structure
         dept1_info = copy.deepcopy(self.sample_data_for_mapping["departments"][0])
@@ -282,7 +283,7 @@ class TestMapperNode(BaseTransformNodeTest):
         expected_data["users"][2]["department_info"] = dept1_info
         self.assertEqual(result.mapped_data, expected_data)
 
-    def test_map_nested_paths_all(self):
+    async def test_map_nested_paths_all(self): # Make test method async
         """Test join with nested paths for lists, keys, and output."""
         nested_data = {
             "data": {
@@ -304,14 +305,14 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map3")
-        result = node.process(nested_data)
+        result = await node.process(nested_data) # Await the process call
         # Check if nesting happened correctly
         user1_dept = result.mapped_data["data"]["all_users"][0]["dept"]["details"]
         self.assertEqual(user1_dept["name"], "Engineering")
         user2_dept = result.mapped_data["data"]["all_users"][1]["dept"]["details"]
         self.assertEqual(user2_dept["name"], "Marketing")
 
-    def test_map_nested_join_keys(self):
+    async def test_map_nested_join_keys(self): # Make test method async
         """Test join using nested keys within list items."""
         data = {
             "students": [
@@ -336,13 +337,13 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map4")
-        result = node.process(data)
+        result = await node.process(data) # Await the process call
         student1_advisor = result.mapped_data["students"][0]["advisor_details"]
         student2_advisor = result.mapped_data["students"][1]["advisor_details"]
         self.assertEqual(student1_advisor["details"]["name"], "Dr. Foo")
         self.assertEqual(student2_advisor["details"]["name"], "Dr. Bar")
 
-    def test_map_single_object_primary(self):
+    async def test_map_single_object_primary(self): # Make test method async
         """Test joining when the primary path points to a single object."""
         config = {
             "joins": [
@@ -357,14 +358,14 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map5")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         expected_data = copy.deepcopy(self.sample_data_for_mapping)
         expected_data["single_user"]["department_info"] = copy.deepcopy(self.sample_data_for_mapping["departments"][1])
         self.assertEqual(result.mapped_data, expected_data)
         # Verify the primary object itself was modified, not wrapped in a list
         self.assertIsInstance(result.mapped_data["single_user"], dict)
 
-    def test_map_single_object_secondary(self):
+    async def test_map_single_object_secondary(self): # Make test method async
         """Test joining when the secondary path points to a single object."""
         config = {
             "joins": [
@@ -379,7 +380,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map6")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         expected_data = copy.deepcopy(self.sample_data_for_mapping)
         # Only users matching the single dept ID ("d3") would get it, others get None
         expected_data["users"][0]["department_info"] = None
@@ -388,12 +389,12 @@ class TestMapperNode(BaseTransformNodeTest):
         # Modify data to test a match
         data_with_match = copy.deepcopy(self.sample_data_for_mapping)
         data_with_match["users"][0]["department_id"] = "d3"
-        result_match = node.process(data_with_match)
+        result_match = await node.process(data_with_match) # Await the process call
         expected_match_dept = copy.deepcopy(data_with_match["single_dept"])
         self.assertEqual(result_match.mapped_data["users"][0]["department_info"], expected_match_dept)
         self.assertIsNone(result_match.mapped_data["users"][1]["department_info"])
 
-    def test_map_missing_join_key_primary(self):
+    async def test_map_missing_join_key_primary(self): # Make test method async
         """Test when primary join key is missing in some items."""
         data_with_missing = copy.deepcopy(self.sample_data_for_mapping)
         del data_with_missing["users"][1]["department_id"] # Bob has no dept ID
@@ -410,7 +411,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map7")
-        result = node.process(data_with_missing)
+        result = await node.process(data_with_missing) # Await the process call
         dept1_info = copy.deepcopy(self.sample_data_for_mapping["departments"][0])
         # Alice and Charlie should get dept info
         self.assertEqual(result.mapped_data["users"][0]["department_info"], dept1_info)
@@ -418,7 +419,7 @@ class TestMapperNode(BaseTransformNodeTest):
         # Bob should get None (default for missing key in one-to-one)
         self.assertIsNone(result.mapped_data["users"][1]["department_info"])
 
-    def test_map_missing_join_key_secondary(self):
+    async def test_map_missing_join_key_secondary(self): # Make test method async
         """Test when secondary join key is missing in some items (lookup ignores them)."""
         data_with_missing = copy.deepcopy(self.sample_data_for_mapping)
         del data_with_missing["departments"][1]["dept_id"] # Marketing has no ID
@@ -435,7 +436,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map8")
-        result = node.process(data_with_missing)
+        result = await node.process(data_with_missing) # Await the process call
         dept1_info = copy.deepcopy(self.sample_data_for_mapping["departments"][0])
         # Alice and Charlie match Engineering (d1)
         self.assertEqual(result.mapped_data["users"][0]["department_info"], dept1_info)
@@ -443,7 +444,7 @@ class TestMapperNode(BaseTransformNodeTest):
         # Bob tries to match Marketing (d2), but Marketing is missing its key, so no match found
         self.assertIsNone(result.mapped_data["users"][1]["department_info"])
 
-    def test_map_no_match_found(self):
+    async def test_map_no_match_found(self): # Make test method async
         """Test when a primary key value has no corresponding secondary key value."""
         data_no_match = copy.deepcopy(self.sample_data_for_mapping)
         data_no_match["users"][1]["department_id"] = "d_non_existent" # Bob's dept doesn't exist
@@ -460,7 +461,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map9")
-        result = node.process(data_no_match)
+        result = await node.process(data_no_match) # Await the process call
         dept1_info = copy.deepcopy(self.sample_data_for_mapping["departments"][0])
         # Alice and Charlie match Engineering
         self.assertEqual(result.mapped_data["users"][0]["department_info"], [dept1_info])
@@ -468,7 +469,7 @@ class TestMapperNode(BaseTransformNodeTest):
         # Bob finds no match, gets empty list for one-to-many
         self.assertEqual(result.mapped_data["users"][1]["department_info"], [])
 
-    def test_map_empty_primary_list(self):
+    async def test_map_empty_primary_list(self): # Make test method async
         """Test joining when the primary list is empty."""
         config = {
             "joins": [
@@ -483,13 +484,13 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map10")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         # The empty list should remain empty, no errors
         self.assertEqual(result.mapped_data["empty_users"], [])
         # Other data remains unchanged
         self.assertEqual(result.mapped_data["departments"], self.sample_data_for_mapping["departments"])
 
-    def test_map_empty_secondary_list(self):
+    async def test_map_empty_secondary_list(self): # Make test method async
         """Test joining when the secondary list is empty."""
         config = {
             "joins": [
@@ -504,12 +505,12 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map11")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
         # All users should get an empty list nested, as no matches are found
         for user in result.mapped_data["users"]:
             self.assertEqual(user["department_info"], [])
 
-    def test_map_multiple_sequential_joins(self):
+    async def test_map_multiple_sequential_joins(self): # Make test method async
         """Test performing multiple joins sequentially within one node."""
         config = {
             "joins": [
@@ -534,7 +535,7 @@ class TestMapperNode(BaseTransformNodeTest):
             ]
         }
         node = DataJoinNode(config=config, node_id="map12")
-        result = node.process(self.sample_data_for_mapping)
+        result = await node.process(self.sample_data_for_mapping) # Await the process call
 
         # Verify first join results (department_info)
         user1 = result.mapped_data["users"][0]
@@ -553,7 +554,7 @@ class TestMapperNode(BaseTransformNodeTest):
         self.assertEqual(user2_posts[0]["post_id"], "p2")
         self.assertEqual(len(user3_posts), 0) # Charlie has no posts
 
-    def test_map_list_contains_non_dict(self):
+    async def test_map_list_contains_non_dict(self): # Make test method async
         """Test join robustness when lists contain non-dictionary items."""
         data_mixed = copy.deepcopy(self.sample_data_for_mapping)
         data_mixed["users"].append("not_a_dict") # Add invalid item to primary
@@ -572,7 +573,7 @@ class TestMapperNode(BaseTransformNodeTest):
         }
         node = DataJoinNode(config=config, node_id="map13")
         # Expect processing to succeed, skipping invalid items
-        result = node.process(data_mixed)
+        result = await node.process(data_mixed) # Await the process call
         # Check valid users were processed
         self.assertIn("department_info", result.mapped_data["users"][0])
         self.assertIn("department_info", result.mapped_data["users"][1])
@@ -581,7 +582,7 @@ class TestMapperNode(BaseTransformNodeTest):
         # Check that the invalid secondary item didn't break the lookup for valid items
         self.assertIsNotNone(result.mapped_data["users"][0]["department_info"]) # Should still find Engineering
 
-    def test_map_critical_error_path_not_found(self):
+    async def test_map_critical_error_path_not_found(self): # Make test method async
         """Test that a critical error (primary/secondary list path not found) returns None."""
         config_primary = {
             "joins": [{"primary_list_path": "non_existent_users", "secondary_list_path": "departments", "primary_join_key": "a", "secondary_join_key": "b", "output_nesting_field": "c"}]
@@ -591,19 +592,19 @@ class TestMapperNode(BaseTransformNodeTest):
         }
         node1 = DataJoinNode(config=config_primary, node_id="map_err1")
         node2 = DataJoinNode(config=config_secondary, node_id="map_err2")
-        result1 = node1.process(self.sample_data_for_mapping)
-        result2 = node2.process(self.sample_data_for_mapping)
+        result1 = await node1.process(self.sample_data_for_mapping) # Await the process call
+        result2 = await node2.process(self.sample_data_for_mapping) # Await the process call
         self.assertIsNone(result1.mapped_data)
         self.assertIsNone(result2.mapped_data)
 
-    def test_map_critical_error_path_not_list_or_dict(self):
+    async def test_map_critical_error_path_not_list_or_dict(self): # Make test method async
         """Test critical error if path points to neither list nor dict."""
         data_invalid_type = {"users": "this_is_a_string", "departments": [1,2,3]}
         config = {
             "joins": [{"primary_list_path": "users", "secondary_list_path": "departments", "primary_join_key": "a", "secondary_join_key": "b", "output_nesting_field": "c"}]
         }
         node = DataJoinNode(config=config, node_id="map_err3")
-        result = node.process(data_invalid_type)
+        result = await node.process(data_invalid_type) # Await the process call
         self.assertIsNone(result.mapped_data)
 
     def test_map_validation_empty_path(self):

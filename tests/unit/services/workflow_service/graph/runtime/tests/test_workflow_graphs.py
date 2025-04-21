@@ -6,10 +6,11 @@ demonstrating various node types and workflow patterns.
 """
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, ClassVar, Type, cast, Tuple, Callable
+from typing import Any, Dict, List, Optional, ClassVar, Type, cast, Tuple, Callable, Awaitable
 from pydantic import Field
 from enum import Enum
 import json
+import asyncio
 
 from workflow_service.config.constants import (
     INPUT_NODE_NAME, OUTPUT_NODE_NAME, HITL_NODE_NAME_PREFIX,
@@ -69,7 +70,7 @@ class NumberGeneratorNode(BaseNode[None, NumberSchema, NumberSchema]):
     output_schema_cls = NumberSchema
     config_schema_cls = NumberSchema
     
-    def process(self, input_data, config: Dict[str, Any], *args: Any, **kwargs: Any) -> NumberSchema:
+    async def process(self, input_data, config: Dict[str, Any], *args: Any, **kwargs: Any) -> NumberSchema:
         """
         Generate a number based on configuration.
         
@@ -99,7 +100,7 @@ class NumberMultiplierNode(BaseNode[NumberSchema, NumberSchema, NumberSchema]):
     output_schema_cls = NumberSchema
     config_schema_cls = NumberSchema
     
-    def process(self, input_data: NumberSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> NumberSchema:
+    async def process(self, input_data: NumberSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> NumberSchema:
         """
         Multiply the input number by the configured factor.
         
@@ -134,7 +135,7 @@ class TextGeneratorNode(BaseNode[None, TextSchema, TextSchema]):
     output_schema_cls = TextSchema
     config_schema_cls = TextSchema
     
-    def process(self, input_data, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
+    async def process(self, input_data, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
         """
         Generate text based on configuration.
         
@@ -164,7 +165,7 @@ class TextProcessorNode(BaseNode[TextSchema, TextSchema, None]):
     output_schema_cls = TextSchema
     config_schema_cls = None
     
-    def process(self, input_data: TextSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
+    async def process(self, input_data: TextSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
         """
         Process text (convert to uppercase).
         
@@ -210,7 +211,7 @@ class SimpleRouterNode(DynamicRouterNode):
     # instance config
     config: SimpleRouterConfig
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         Decide routing based on a numeric value compared to a threshold.
         
@@ -268,7 +269,7 @@ class ReviewHITLNode(HITLNode):
     node_name: ClassVar[str] = f"{HITL_NODE_NAME_PREFIX}review"
     node_version: ClassVar[str] = "1.0.0"
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
         """
         Process input data through human review.
         
@@ -310,7 +311,7 @@ class DataTransformNode(BaseNode[NumberSchema, TextSchema, None]):
     output_schema_cls = TextSchema
     config_schema_cls = None
     
-    def process(self, input_data: NumberSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
+    async def process(self, input_data: NumberSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> TextSchema:
         """
         Transform a number into text with analysis.
         
@@ -354,7 +355,7 @@ class JoinDataNode(BaseNode[TextSchema, TextSchema, None]):
     output_schema_cls = TextSchema
     config_schema_cls = None
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
         """
         Join data from multiple inputs.
         
@@ -1287,9 +1288,9 @@ def setup_registry() -> DBRegistry:
     
     return registry
 
-def run_simple_number_graph() -> Dict[str, Any]:
+async def arun_simple_number_graph() -> Dict[str, Any]:
     """
-    Build and run the simple number graph.
+    Build and run the simple number graph asynchronously.
     
     Returns:
         Dict[str, Any]: The output of the graph execution
@@ -1308,7 +1309,7 @@ def run_simple_number_graph() -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
 
     runtime_config = graph_entities["runtime_config"]
-    runtime_config["thread_id"] = 1
+    runtime_config["thread_id"] = str(uuid.uuid4()) # Use unique thread_id for async tests
     runtime_config["use_checkpointing"] = True
 
     print("\n\n\n\n#### graph_entities", graph_entities["runtime_config"], "\n\n\n\n")
@@ -1316,14 +1317,14 @@ def run_simple_number_graph() -> Dict[str, Any]:
     # Build graph
     graph = adapter.build_graph(graph_entities)
     
-    # Execute graph
-    result = adapter.execute_graph(graph, input_data={}, config=runtime_config, output_node_id=graph_entities["output_node_id"])
+    # Execute graph asynchronously
+    result = await adapter.aexecute_graph(graph, input_data={}, config=runtime_config, output_node_id=graph_entities["output_node_id"])
     
     return result
 
-def run_router_graph(input_value: float = 75.0) -> Dict[str, Any]:
+async def arun_router_graph(input_value: float = 75.0) -> Dict[str, Any]:
     """
-    Build and run the router graph.
+    Build and run the router graph asynchronously.
     
     Args:
         input_value (float): The value to use for routing decision
@@ -1348,7 +1349,7 @@ def run_router_graph(input_value: float = 75.0) -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
     
     runtime_config = graph_entities["runtime_config"]
-    runtime_config["thread_id"] = 1
+    runtime_config["thread_id"] = str(uuid.uuid4()) # Use unique thread_id for async tests
     runtime_config["use_checkpointing"] = True
 
     print("\n\n\n\n#### graph_entities", graph_entities["runtime_config"], "\n\n\n\n")
@@ -1356,14 +1357,14 @@ def run_router_graph(input_value: float = 75.0) -> Dict[str, Any]:
     # Build graph
     graph = adapter.build_graph(graph_entities)
     
-    # Execute graph
-    result = adapter.execute_graph(graph, input_data={"value": input_value}, config=runtime_config, output_node_id=graph_entities["output_node_id"])
+    # Execute graph asynchronously
+    result = await adapter.aexecute_graph(graph, input_data={"value": input_value}, config=runtime_config, output_node_id=graph_entities["output_node_id"])
     
     return result
 
-def run_hitl_graph() -> Dict[str, Any]:
+async def arun_hitl_graph() -> Dict[str, Any]:
     """
-    Build and run the HITL graph.
+    Build and run the HITL graph asynchronously.
     
     Returns:
         Dict[str, Any]: The output of the graph execution
@@ -1382,18 +1383,18 @@ def run_hitl_graph() -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
 
     runtime_config = graph_entities["runtime_config"]
-    runtime_config["thread_id"] = 1
+    runtime_config["thread_id"] = str(uuid.uuid4()) # Use unique thread_id for async tests
     runtime_config["use_checkpointing"] = True
     print("\n\n\n\n#### graph_entities", graph_entities["runtime_config"], "\n\n\n\n")
     # Build graph
     graph = adapter.build_graph(graph_entities)
 
     ################################################################################################################
-    def get_value_from_human(
+    async def aget_value_from_human(
         interrupt_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Get a value from a human.
+        Asynchronously get a value from a human (mocked).
         
         In a test environment, this function mocks human input by returning
         a predefined response based on the interrupt data schema.
@@ -1426,20 +1427,23 @@ def run_hitl_graph() -> Dict[str, Any]:
             "text": user_prompt.get("text", "") + " [REVIEWED BY TEST]"
         }
         
+        # Simulate async delay if needed
+        await asyncio.sleep(0) 
+
         # In a real environment, we would use:
-        # response = input()
+        # response = await get_input_async()
         # But for testing, we use the mock response
         return mock_response
     ################################################################################################################
 
-    # Execute graph
-    result = adapter.execute_graph(graph, input_data={"value": 100}, config=runtime_config, output_node_id=graph_entities["output_node_id"], interrupt_handler=get_value_from_human)
+    # Execute graph asynchronously with async interrupt handler
+    result = await adapter.aexecute_graph(graph, input_data={"value": 100}, config=runtime_config, output_node_id=graph_entities["output_node_id"], interrupt_handler=aget_value_from_human)
     
     return result
 
-def run_complex_graph(input_value: float = 60.0) -> Dict[str, Any]:
+async def arun_complex_graph(input_value: float = 60.0) -> Dict[str, Any]:
     """
-    Build and run the complex graph.
+    Build and run the complex graph asynchronously.
     
     Args:
         input_value (float): The initial value for the workflow
@@ -1468,18 +1472,18 @@ def run_complex_graph(input_value: float = 60.0) -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
 
     runtime_config = graph_entities["runtime_config"]
-    runtime_config["thread_id"] = 1
+    runtime_config["thread_id"] = str(uuid.uuid4()) # Use unique thread_id for async tests
     runtime_config["use_checkpointing"] = True
     
     # Build graph
     graph = adapter.build_graph(graph_entities)
 
     ################################################################################################################
-    def get_value_from_human(
+    async def aget_value_from_human(
         interrupt_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Get a value from a human.
+        Asynchronously get a value from a human (mocked).
         
         In a test environment, this function mocks human input by returning
         a predefined response based on the interrupt data schema.
@@ -1514,14 +1518,17 @@ def run_complex_graph(input_value: float = 60.0) -> Dict[str, Any]:
             "text": user_prompt.get("text", "") + " [REVIEWED BY TEST]"
         }
         
+        # Simulate async delay if needed
+        await asyncio.sleep(0)
+
         # In a real environment, we would use:
-        # response = input()
+        # response = await get_input_async()
         # But for testing, we use the mock response
         return mock_response
     ################################################################################################################
     
-    # Execute graph
-    result = adapter.execute_graph(graph, input_data={"value": input_value, "description": "test"}, config=runtime_config, output_node_id=graph_entities["output_node_id"], interrupt_handler=get_value_from_human)
+    # Execute graph asynchronously with async interrupt handler
+    result = await adapter.aexecute_graph(graph, input_data={"value": input_value, "description": "test"}, config=runtime_config, output_node_id=graph_entities["output_node_id"], interrupt_handler=aget_value_from_human)
     
     return result
 
@@ -1529,31 +1536,31 @@ def run_complex_graph(input_value: float = 60.0) -> Dict[str, Any]:
 # Main Test Function
 # ===============================
 
-def run_all_tests():
-    # """Run all test graphs and print results."""
+async def arun_all_tests():
+    """Run all test graphs asynchronously and print results."""
     print("Running Simple Number Graph...")
-    simple_result = run_simple_number_graph()
+    simple_result = await arun_simple_number_graph()
     print(f"Result: {simple_result}\n")
     
     print("Running Router Graph with High Path (value=75)...")
-    high_result = run_router_graph(75.0)
+    high_result = await arun_router_graph(75.0)
     print(f"Result: {high_result}\n")
     
     print("Running Router Graph with Low Path (value=25)...")
-    low_result = run_router_graph(25.0)
+    low_result = await arun_router_graph(25.0)
     print(f"Result: {low_result}\n")
     
     print("Running HITL Review Graph...")
-    hitl_result = run_hitl_graph()
+    hitl_result = await arun_hitl_graph()
     print(f"Result: {hitl_result}\n")
     
     print("Running Complex Graph with High Path (value=75)...")
-    complex_high_result = run_complex_graph(75.0)
+    complex_high_result = await arun_complex_graph(75.0)
     print(f"Result: {complex_high_result}\n")
     
     print("Running Complex Graph with Low Path (value=25)...")
-    complex_low_result = run_complex_graph(25.0)
+    complex_low_result = await arun_complex_graph(25.0)
     print(f"Result: {complex_low_result}\n")
 
 if __name__ == "__main__":
-    run_all_tests() 
+    asyncio.run(arun_all_tests()) 

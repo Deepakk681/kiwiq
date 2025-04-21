@@ -459,7 +459,7 @@ class InputNode(BaseDynamicNode):
     # output_schema_cls = DynamicSchema
     config_schema_cls = None
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
         """
         Process the input data.
         
@@ -501,7 +501,7 @@ class OutputNode(BaseDynamicNode):
     # output_schema_cls = DynamicSchema
     config_schema_cls = None
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
         """
         Process the input data.
         
@@ -562,7 +562,7 @@ class HITLNode(BaseDynamicNode):
     # output_schema_cls = DynamicSchema
     # config_schema_cls = None
 
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> DynamicSchema:
         """
         Process the input data through human review.
         
@@ -624,7 +624,7 @@ class DynamicRouterNode(BaseDynamicNode, ABC):
     config: RouterSchema
 
     @abstractmethod
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         Process input data and determine routing destination(s).
         

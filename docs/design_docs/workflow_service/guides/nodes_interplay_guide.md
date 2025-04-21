@@ -55,7 +55,7 @@ Here are the core node types available for building workflows (refer to their in
     *   `store_customer_data`: Saves workflow data back into storage. ([Guide](nodes/store_customer_data_node_guide.md))
 *   **LLM & Prompts:**
     *   `prompt_constructor`: Builds text prompts using templates and variables. ([Guide](nodes/prompt_constructor_node_guide.md))
-    *   `llm`: Interacts with Large Language Models (like GPT, Claude, Gemini). ([Guide](nodes/llm_node_guide.md))
+    *   `llm`: Interacts with Large Language Models (like GPT, Claude, Gemini), supporting text/structured output, tool calling, and web search. ([Guide](nodes/llm_node_guide.md))
 
 *(Refer to `services/workflow_service/services/db_node_register.py` for the authoritative list of registered nodes.)*
 
@@ -94,19 +94,23 @@ Edges define how nodes are connected and how data flows between them. They are d
 
 -   This often implies that the connection is primarily for control flow (ensuring one node runs after another) or that the destination node might read data from a central workflow state rather than directly from the source node's output. However, relying on specific data transfer usually requires explicit mappings.
 
-**Special Case: Central Workflow State**
+**Special Case: The Central Workflow State (`"$graph_state"`)**
 
--   You might see edges connecting to or from a special ID like `__GRAPH_STATE__` (or similar, check constants like `GRAPH_STATE_SPECIAL_NODE_NAME`).
--   This represents a central "memory" or state for the workflow.
--   An edge *from* `__GRAPH_STATE__` to a node means the node is reading data previously stored in the central state.
--   An edge *to* `__GRAPH_STATE__` from a node means the node is saving its output data into the central state.
--   Mappings are still used to specify which fields are being read from or written to the central state. (See `test_AI_loop.py` for examples).
+-   Think of the workflow having a shared **memory** or **scratchpad** that nodes can write to and read from throughout the process. This shared memory is accessed using the special node ID `"$graph_state"`.
+-   Using this shared memory is essential when data needs to be available across different steps that aren't directly connected, or when information needs to be remembered between loops (like in the AI review example).
+-   **Writing to Shared Memory:** An edge with `src_node_id` as a regular node and `dst_node_id` as `"$graph_state"` saves data *into* the shared memory.
+-   **Reading from Shared Memory:** An edge with `src_node_id` as `"$graph_state"` and `dst_node_id` as a regular node reads data *from* the shared memory.
+-   **Mappings Still Apply:** Even when interacting with the shared memory, you still use `mappings`. `src_field` specifies the data field from the node (when writing) or the key in the shared memory (when reading). `dst_field` specifies the key in the shared memory (when writing) or the input field name for the node (when reading).
+
+    *Example: Saving a score:* `src_node_id: "calculate_score"`, `dst_node_id: "$graph_state"`, `mappings: [{ "src_field": "final_score", "dst_field": "current_lead_score" }]` (Saves the node's `final_score` into the shared memory under the key `current_lead_score`).
+    *Example: Reading the score:* `src_node_id: "$graph_state"`, `dst_node_id: "send_email"`, `mappings: [{ "src_field": "current_lead_score", "dst_field": "score_to_include" }]` (Reads the value associated with `current_lead_score` from shared memory and provides it to the `send_email` node as `score_to_include`).
 
 ## 4. Data Schemas: Defining Input and Output
 
 Every node expects data in a certain format (its **input schema**) and produces data in a certain format (its **output schema**).
 
--   **Static Schemas:** Many nodes have fixed, predefined schemas. For example, the `llm` node always expects inputs like `user_prompt` or `messages_history` and produces outputs like `content` and `metadata`. You need to use `EdgeMapping` to map data *to* these expected input names and *from* these known output names.
+-   **Static Schemas:** Many nodes have fixed, predefined schemas. For example, the `llm` node always expects inputs like `user_prompt` or `messages_history` and produces known outputs like `content` and `metadata`. You need to use `EdgeMapping` to map data *to* these expected input names and *from* these known output names.
+-   **Statically Defined Structured Output:** Some nodes, like `llm`, can be configured to produce *structured* output (JSON) instead of just text. You define the desired structure in the node's `node_config` (using `output_schema`), and the node attempts to format its response accordingly. You then map *from* the fields within this structured output (e.g., `structured_output::field_name`).
 -   **Dynamic Schemas:** Some nodes are flexible and adapt their schemas based on how they are used:
     *   **`InputNode`**: Its *output* schema is defined by the `src_field` names in the `EdgeMapping`s of edges *originating from it*. These `src_field`s become the required inputs for the entire workflow.
     *   **`OutputNode`**: Its *input* schema is defined by the `dst_field` names in the `EdgeMapping`s of edges *pointing to it*. These `dst_field`s define the final output structure of the workflow.
@@ -179,11 +183,11 @@ Here are examples of how nodes work together:
     `InputNode` -> `AIGeneratorNode` -> `HumanReviewNode` -> `ApprovalRouterNode` --(yes)--> `FinalProcessorNode`
                      ^                                                |
                      |-------------------(no)--------------------------|
-    *   `AIGeneratorNode` generates content (potentially using `PromptConstructorNode` first).
+    *   `AIGeneratorNode` (often an `llm` node) generates content (potentially using `PromptConstructorNode` first). It might produce text or structured output.
     *   `HumanReviewNode` (HITL) presents content, gets `approved` status ("yes"/"no") and `review_comments`.
     *   `ApprovalRouterNode` checks the `approved` status.
     *   If "yes", routes to `FinalProcessorNode`.
-    *   If "no", routes back to `AIGeneratorNode` (passing `review_comments` via central state or direct mapping).
+    *   If "no", routes back to `AIGeneratorNode` (passing `review_comments` potentially via the central state `"$graph_state"`).
 
 -   **Fetching and Combining Data:**
     `InputNode` -> `LoadCustomerDataNode` -> `DataJoinNode` -> `OutputNode`

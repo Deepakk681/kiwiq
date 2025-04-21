@@ -166,7 +166,7 @@ class RouterNode(DynamicRouterNode):
                  print(f"Warning: Could not convert input data of type {type(input_data)} to dict. Proceeding with empty data.")
                  return {}
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         Processes input data to determine the routing destination(s).
 

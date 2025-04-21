@@ -12,7 +12,11 @@ import re
 import time
 from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Literal
 
-from pydantic import Field, field_validator
+# Add jsonschema imports
+import jsonschema
+from jsonschema import Draft202012Validator
+
+from pydantic import Field, field_validator, model_validator, BaseModel
 from pydantic import ConfigDict
 
 from anthropic import Anthropic
@@ -33,13 +37,21 @@ from langchain_core.runnables import Runnable
 from langchain.chat_models import init_chat_model
 from langchain_community.chat_models import ChatPerplexity
 
+# Add db and service imports
+# from kiwi_app.auth.models import User
+from db.session import get_async_db_as_manager
+# Add context key imports
+from workflow_service.config.constants import (
+    APPLICATION_CONTEXT_KEY,
+    EXTERNAL_CONTEXT_MANAGER_KEY
+)
 
 from kiwi_app.workflow_app.constants import LaunchStatus
 from workflow_service.config.settings import settings
 from workflow_service.registry.registry import DBRegistry
 from workflow_service.registry.nodes.core.base import BaseNode, BaseSchema
 from workflow_service.registry.nodes.core.dynamic_nodes import ConstructDynamicSchema, DynamicSchema
-from workflow_service.registry.nodes.llm.config import LLMModelProvider, PROVIDER_MODEL_MAP, AnthropicModels, AWS_REGION, ModelMetadata, THINKING_MESSAGE_TYPES, REDACED_THINKING_MESSAGE_TYPES, GEMINI_PARAM_KEY_OVERRIDES, PARAM_KEY_OVERRIDES
+from workflow_service.registry.nodes.llm.config import LLMModelProvider, PROVIDER_MODEL_MAP, AnthropicModels, AWS_REGION, ModelMetadata, THINKING_MESSAGE_TYPES, REDACED_THINKING_MESSAGE_TYPES, GEMINI_PARAM_KEY_OVERRIDES, PARAM_KEY_OVERRIDES, AI_MESSAGE_TYPES
 from workflow_service.registry.schemas.base import create_dynamic_schema_with_fields
 
 
@@ -98,6 +110,7 @@ class LLMMetadata(BaseSchema):
     finish_reason: Optional[str] = Field(None, description="Reason for finish (e.g., 'stop', 'length', 'tool_calls')")
     latency: Optional[float] = Field(None, description="Latency in seconds")
     cached: Optional[bool] = Field(default=False, description="Whether the response was cached")
+    iteration_count: Optional[int] = Field(default=0, description="Number of LLM Generation iterations")
 
 
 class ToolCall(BaseSchema):
@@ -229,44 +242,116 @@ class SchemaFromRegistryConfig(BaseSchema):
 
 
 class LLMStructuredOutputSchema(BaseSchema):
-    """Output format types.
-    
+    """Output format types. Defines how the structured output schema is specified.
+
+    Exactly one of the following must be provided:
+    - dynamic_schema_spec: Define the schema directly using Pydantic fields.
+    - schema_template_name: Load the schema from a named template in the registry.
+    - schema_definition: Provide the raw JSON schema definition directly.
+
     NOTE: Some providers do not support strict structured output or JSON mode and use / force tool calling to fill the schema instead.
     You may want to add additional instructions to the prompt to ensure the tool is called, including reinforcing the output schema format expected.
 
-    For eg, Anthropic structured output relies on forced tool calling, which is not supported when `thinking` is enabled. Sometimes, the tool calls are not generated leading to parser errors. 
+    For eg, Anthropic structured output relies on forced tool calling, which is not supported when `thinking` is enabled. Sometimes, the tool calls are not generated leading to parser errors.
     Consider disabling `thinking` or adjust your prompt to ensure the tool is called.
     """
-    schema_from_registry: Optional[SchemaFromRegistryConfig] = Field(None, description="Output schema from registry")
-    # NOTE: if both are specified, fields from dynamic schema spec will overwrite fields from the schema from registry if same field name, 
-    #     otherwise all schema from registry fields will be added to the dynamic schema, aside from new fields from the spec!
-    dynamic_schema_spec: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic Schema specification for the output")
+    # Option 1: Dynamic Pydantic Schema
+    dynamic_schema_spec: Optional[ConstructDynamicSchema] = Field(
+        None,
+        description="Dynamic Pydantic Schema specification for the output."
+    )
+    # Option 2: Schema from Registry Template
+    schema_template_name: Optional[str] = Field(
+        None,
+        description="Name of the schema template to load from the registry."
+    )
+    schema_template_version: Optional[str] = Field(
+        None,
+        description="Version of the schema template (optional, defaults to latest)."
+    )
+    # Option 3: Direct JSON Schema Definition
+    schema_definition: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Raw JSON schema definition for the output."
+    )
 
-    def is_output_str(self):
-        return self.schema_from_registry is None and self.dynamic_schema_spec is None
+    @model_validator(mode='before')
+    def check_exclusive_options(cls, values):
+        if not values:
+            return values
+        """Ensure exactly one schema option is provided."""
+        provided_options = [
+            values.get('dynamic_schema_spec') is not None,
+            values.get('schema_template_name') is not None,
+            values.get('schema_definition') is not None
+        ]
+        if sum(provided_options) > 1:
+            raise ValueError("Only one of 'dynamic_schema_spec', 'schema_template_name', or 'schema_definition' can be provided.")
+        return values
 
-    def get_schema(self, registry: DBRegistry = None, built_schema_name = None):
+    @model_validator(mode='after')
+    def check_template_version(self):
+        """Ensure version is provided only if name is provided."""
+        if self.schema_template_version is not None and self.schema_template_name is None:
+            raise ValueError("'schema_template_version' can only be provided if 'schema_template_name' is also provided.")
+        return self
+
+    def is_output_str(self) -> bool:
+        """Check if no structured output schema is defined."""
+        return self.dynamic_schema_spec is None and self.schema_template_name is None and self.schema_definition is None
+
+    async def get_schema(
+        self,
+        org_id: str,
+        user,  # : User
+        customer_data_service,  # : CustomerDataService
+        built_schema_name: Optional[str] = None
+    ) -> Union[Type[BaseSchema], Dict[str, Any], None]:
         """
-        Get schema config from registry
+        Get the output schema based on the configuration.
 
-        NOTE: dynamic schema spec ovewrite fields from registry schema
+        Retrieves the schema either by building a dynamic Pydantic model,
+        loading a JSON schema from a template in the registry, or using
+        a directly provided JSON schema definition.
+
+        Args:
+            org_id: The organization ID.
+            user: The user object.
+            customer_data_service: Service to interact with customer data and schemas.
+            built_schema_name: Optional name for the dynamically built Pydantic schema.
+
+        Returns:
+            The Pydantic model class, a JSON schema dictionary, or None if is_output_str() is True.
+
+        Raises:
+            ValueError: If the schema template is not found or configuration is invalid.
         """
-        schema = None
-        if self.schema_from_registry:
-            assert registry is not None, "Registry must be provided if schema_from_registry is used"
-            schema = registry.get_schema(self.schema_from_registry.schema_name, self.schema_from_registry.schema_version)
+        if self.is_output_str():
+            return None
+
         if self.dynamic_schema_spec:
-            dynamic_schema = self.dynamic_schema_spec.build_schema(schema_name=built_schema_name)
-            if schema is not None:
-                original_schema_fields = {k:None for k in schema.model_fields.keys()}
-                for field_name, field_def in dynamic_schema.model_fields.items():
-                    original_schema_fields[field_name] = (field_def.annotation, field_def)
-                schema = create_dynamic_schema_with_fields(schema, fields=original_schema_fields)
-            else:
-                schema = dynamic_schema
-        # else:
-        #     raise ValueError("No schema config provided")
-        return schema
+            # Build Pydantic schema from dynamic spec
+            schema_name = built_schema_name or f"{self.__class__.__name__}DynamicOutputSchema"
+            return self.dynamic_schema_spec.build_schema(schema_name=schema_name)
+        elif self.schema_template_name:
+            # Load JSON schema from registry template
+            async with get_async_db_as_manager() as db:
+                loaded_schema = await customer_data_service._get_schema_from_template(  # : Optional[SchemaTemplate]
+                    db=db,
+                    template_name=self.schema_template_name,
+                    template_version=self.schema_template_version,
+                    org_id=org_id,
+                    user=user
+                )
+            if not loaded_schema:
+                raise ValueError(f"Schema template '{self.schema_template_name}' (version: {self.schema_template_version or 'latest'}) not found or has no definition.")
+            return loaded_schema  # .schema_definition
+        elif self.schema_definition:
+            # Use directly provided JSON schema
+            return self.schema_definition
+        else:
+            # Should not happen due to validator, but included for completeness
+            raise ValueError("Invalid LLMStructuredOutputSchema configuration: No schema source specified.")
 
 
 class ToolConfig(BaseSchema):
@@ -403,7 +488,7 @@ class LLMNodeConfigSchema(BaseSchema):
     )
 
     # Output configuration
-    output_schema: LLMStructuredOutputSchema = Field(
+    output_schema: Optional[LLMStructuredOutputSchema] = Field(
         default_factory=LLMStructuredOutputSchema,
         description="JSON schema for structured output (required if output_format is 'structured')"
     )
@@ -472,7 +557,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
     # instance config
     config: LLMNodeConfigSchema
 
-    def process(self, input_data: LLMNodeInputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> LLMNodeOutputSchema:
+    async def process(self, input_data: LLMNodeInputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> LLMNodeOutputSchema:
         """
         Process LLM request using node config (self.config) and runtime parameters.
         
@@ -481,23 +566,66 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         - Runtime config (passed parameter) used for execution context
         - Registry accessed through kwargs
         """
-        external_config = config.get("configurable", {}).get("external", {})
+        # Extract context from runtime config
+        if not config:
+            self.logger.error("Missing runtime config (config argument).")
+            # TODO: Consider returning a default error output or raising an exception
+            return LLMNodeOutputSchema(
+                current_messages=[],
+                metadata=LLMMetadata(model_name=self.config.llm_config.model_spec.model),
+            )
+        config = config.get("configurable")
+
+        app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
+        ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
+        registry = ext_context.db_registry  # : Optional[DBRegistry]
+
+        if not app_context or not ext_context:
+            self.logger.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY}, {EXTERNAL_CONTEXT_MANAGER_KEY} in external config.")
+            return LLMNodeOutputSchema(
+                current_messages=[],
+                metadata=LLMMetadata(model_name=self.config.llm_config.model_spec.model),
+            )
+
+        user = app_context.get("user")  # : Optional[User]
+        run_job = app_context.get("workflow_run_job")  # : Optional[WorkflowRunJobCreate]
+        customer_data_service = ext_context.customer_data_service  # : Optional[CustomerDataService]
+
+        if not user or not run_job or not customer_data_service:
+            self.logger.error("Missing 'user', 'workflow_run_job', or 'customer_data_service' in context.")
+            return LLMNodeOutputSchema(
+                current_messages=[],
+                metadata=LLMMetadata(model_name=self.config.llm_config.model_spec.model),
+            )
+
+        org_id = run_job.owner_org_id
+
         # Initialize model using node config
         try:
             model_metadata: ModelMetadata
             chat_model, model_metadata = self._init_model()
         except Exception as e:
+            self.logger.exception("Model initialization failed")
             raise ValueError(f"Model initialization failed: {str(e)}, \n{e.__traceback__}") from e
 
         # Prepare messages using node config
         messages_for_model, current_messages = self._prepare_messages(input_data, model_metadata)
 
-        registry: DBRegistry = external_config.get('registry')
-        
-        # Configure structured output if specified in node config
-        if self.config.output_schema and (not self.config.output_schema.is_output_str()):
+        # Determine and fetch the structured output schema if configured
+        determined_output_schema: Union[Type[BaseSchema], Dict[str, Any], None] = None
+        if self.config.output_schema and not self.config.output_schema.is_output_str():
             assert model_metadata.structured_output, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support structured output!"
-            chat_model = self._apply_structured_output(chat_model, registry, model_metadata)
+            try:
+                determined_output_schema = await self.config.output_schema.get_schema(
+                    org_id=org_id,
+                    user=user,
+                    customer_data_service=customer_data_service,
+                    built_schema_name=f"{self.__class__.node_name}StructuredOutputSchema"
+                )
+                chat_model = self._apply_structured_output(chat_model, determined_output_schema, model_metadata)
+            except Exception as e:
+                self.logger.exception("Failed to get or apply structured output schema")
+                raise ValueError(f"Structured output configuration failed: {str(e)}") from e
 
         # Bind tools if configured in node config
         if self.config.tool_calling_config.enable_tool_calling and self.config.tools:
@@ -516,11 +644,11 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # import ipdb; ipdb.set_trace()
             latency = time.time() - start_time
         except Exception as e:
+            self.logger.exception("Model execution failed")
             raise RuntimeError(f"Model execution failed: {str(e)}") from e
 
         # Parse and validate response using node config
-        structured_output_schema = self._get_structured_output_schema(registry)
-        return self._parse_response(response, input_data.messages_history, current_messages, latency, structured_output_schema, model_metadata)
+        return self._parse_response(response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata)
     
     
     
@@ -670,26 +798,37 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         return messages, current_messages
     
-    def _get_structured_output_schema(self, registry: DBRegistry) -> Any:
-        """Get structured output schema from node config."""
-        if self.config.output_schema:
-            return self.config.output_schema.get_schema(registry, built_schema_name=f"{self.__class__.node_name}StructuredOutputSchema")
-        return None
-    
-    def _apply_structured_output(self, model: Any, registry: DBRegistry, model_metadata: ModelMetadata) -> Any:
-        """Apply structured output from node config."""
+    def _apply_structured_output(self, model: Any, output_schema: Union[Type[BaseSchema], Dict[str, Any]], model_metadata: ModelMetadata) -> Any:
+        """Apply structured output configuration to the model.
+
+        Args:
+            model: The LangChain chat model instance.
+            output_schema: The Pydantic model or JSON schema dictionary to enforce.
+            model_metadata: Metadata about the model's capabilities.
+
+        Returns:
+            The model instance with structured output configured.
+
+        Raises:
+            ValueError: If structured output configuration fails.
+        """
         try:
-            output_schema = self._get_structured_output_schema(registry)
             kwargs = {}
-            if model_metadata.provider == LLMModelProvider.OPENAI:
-                kwargs["strict"] = True
+            # Langchain's with_structured_output determines method based on schema type (Pydantic or dict)
+            # For OpenAI, we might still want to enforce strict mode if possible and schema is dict
+            # TODO: Check if Langchain handles strict mode automatically for dict schemas with OpenAI
+            if model_metadata.provider == LLMModelProvider.OPENAI:  #  and isinstance(output_schema, dict):
+                #  kwargs["mode"] = "json"
+                kwargs["strict"] = True # Strict is often implicit with JSON mode
+
             return model.with_structured_output(
                 schema=output_schema,
-                method="json_schema",  # json_schema
+                method="json_schema", # Let langchain infer method based on schema type
                 include_raw=True,
                 **kwargs
             )
         except Exception as e:
+            self.logger.exception("Failed to apply structured output to model")
             raise ValueError(f"Structured output configuration failed: {str(e)}") from e
 
     def _bind_tools(self, model: Any, model_metadata: ModelMetadata, registry: DBRegistry) -> Any:
@@ -825,17 +964,39 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             tool_calls = [t for t in tool_calls if t["name"] != output_schema.__name__]
         return tool_calls
     
-    def _parse_response(self, original_response: Any, message_history: List[AnyMessage], current_messages: List[AnyMessage], latency: float, output_schema: Any, model_metadata: ModelMetadata) -> LLMNodeOutputSchema:
-        """Parse response using node config values.
-        
+    def _parse_response(
+        self,
+        original_response: Any,
+        message_history: List[AnyMessage],
+        current_messages: List[AnyMessage],
+        latency: float,
+        output_schema: Union[Type[BaseSchema], Dict[str, Any], None],
+        model_metadata: ModelMetadata
+    ) -> LLMNodeOutputSchema:
+        """Parse response, handle structured output validation/parsing, and format the final output.
+
+        Handles both Pydantic model parsing and JSON schema validation.
         https://python.langchain.com/docs/how_to/response_metadata/
 
         NOTE: reasoning mode with JSON mode in Fireworks:
         https://docs.fireworks.ai/structured-responses/structured-response-formatting#reasoning-model-json-mode
         """
-        has_tool_calls = hasattr(original_response, 'tool_calls') and original_response.tool_calls
-        if has_tool_calls:
-            filtered_tool_calls = self.filter_tool_calls(original_response.tool_calls, output_schema)
+        # Determine if the model actually made tool calls (excluding potential internal structured output calls)
+        has_tool_calls = False
+        filtered_tool_calls = []
+        if hasattr(original_response, 'tool_calls') and original_response.tool_calls:
+            # We filter here ONLY if a structured output schema was provided.
+            # If output_schema is None, we assume any tool call is a legitimate external tool call.
+            schema_name_to_filter = None
+            if output_schema:
+                if isinstance(output_schema, dict):
+                    schema_name_to_filter = output_schema.get("title", output_schema.get("$id", None))
+                else:
+                    schema_name_to_filter = output_schema.__name__
+            if schema_name_to_filter:
+                 filtered_tool_calls = [t for t in original_response.tool_calls if t["name"] != schema_name_to_filter]
+            else:
+                 filtered_tool_calls = original_response.tool_calls # Keep all if no structured output or JSON schema
             has_tool_calls = bool(filtered_tool_calls)
 
         # import ipdb; ipdb.set_trace()
@@ -885,7 +1046,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             model_name=self.config.llm_config.model_spec.model,
             latency=latency,
             token_usage=normalized_metadata["token_usage"] if normalized_metadata else None,
-            finish_reason=normalized_metadata["finish_reason"] if normalized_metadata else None
+            finish_reason=normalized_metadata["finish_reason"] if normalized_metadata else None,
+            # cached=self.config.cache_responses)
         )
 
         # Handle tool calls
@@ -909,20 +1071,30 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         if not has_tool_calls:
             if not self.config.output_schema.is_output_str():
                 try:
+                    # NOTE: parsing non-list content probably woudn't be neccessary and should be the same attempt as the result in `parsed` key below!
+                    raw_content = response.content
                     if isinstance(response.content, list):
-                        structured_output = output_schema.parse_raw(response.content[-1]["text"])
+                        raw_content = response.content[-1]["text"]
+                        
+                        
+                    parsed_json_data = json.loads(raw_content)
+                    structured_output = parsed_json_data
+                    if issubclass(output_schema, BaseModel):
+                        structured_output = output_schema.model_validate(parsed_json_data)
                     else:
-                        # NOTE: this probably woudn't be neccessary and should be the same attempt as the result in `parsed` key below!
-                        structured_output = output_schema.parse_raw(response.content)
+                        jsonschema.validate(instance=parsed_json_data, schema=output_schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
                 except Exception as e:
                     pass
                     # logger.warning(f"Error parsing structured output: {e}")
                 structured_output = structured_output or (original_response["parsed"] if not original_response["parsing_error"] else None)
-                structured_output = structured_output.model_dump() if structured_output else None
+                structured_output = structured_output.model_dump() if isinstance(structured_output, BaseModel) else structured_output
                 
+        
+        current_messages=current_messages + [response]
+        metadata.iteration_count = self._get_iteration_count(current_messages)
         # import ipdb; ipdb.set_trace()
         return LLMNodeOutputSchema(
-            current_messages=current_messages + [response],
+            current_messages=current_messages,
             content=response.content,
             metadata=metadata,
             structured_output=structured_output,
@@ -1044,19 +1216,25 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         
         return messages
     
+    @staticmethod
+    def get_attr_or_key(obj: Any, key: str) -> Any:
+        """Get the attribute or key from the object."""
+        dict_val = obj.get(key, None) if isinstance(obj, dict) else None
+        return getattr(obj, key, dict_val)
+    
+    @staticmethod
+    def msg_is_types(msg: AnyMessage, types: List[str] = THINKING_MESSAGE_TYPES) -> bool:  # REDACED_THINKING_MESSAGE_TYPES
+        """Check if the message type is in the list of types."""
+        msg_type = LLMNode.get_attr_or_key(msg, "type")
+        return msg_type in types
+
     def _filter_thinking_messages(self, messages: List[AnyMessage], keep: Literal[ThinkingTokensInPrompt.ALL, ThinkingTokensInPrompt.LATEST, ThinkingTokensInPrompt.NONE] = ThinkingTokensInPrompt.ALL) -> List[AnyMessage]:
         """Filter out thinking messages from the message list."""
-        def get_attr_or_key(obj: Any, key: str) -> Any:
-            dict_val = obj.get(key, None) if isinstance(obj, dict) else None
-            return getattr(obj, key, dict_val)
-        def msg_is_types(msg: AnyMessage, types: List[str] = THINKING_MESSAGE_TYPES) -> bool:  # REDACED_THINKING_MESSAGE_TYPES
-            msg_type = get_attr_or_key(msg, "type")
-            return msg_type in types
         def filter_out_messages_of_type(messages: List[AnyMessage], types: List[str] = THINKING_MESSAGE_TYPES, perform_filter: bool = True) -> List[AnyMessage]:
             filtered_messages = []
             last_filtered_message_idx = None
             for i, message in enumerate(messages):
-                content = get_attr_or_key(message, "content")
+                content = LLMNode.get_attr_or_key(message, "content")
                 content_is_dict = False
                 if not content:
                     filtered_messages.append(message)
@@ -1076,7 +1254,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 
                 filtered_content = []   
                 for sub_message in content:
-                    if not msg_is_types(sub_message, types):
+                    if not LLMNode.msg_is_types(sub_message, types):
                         filtered_content.append(sub_message)
                     else:
                         last_filtered_message_idx = i
@@ -1117,6 +1295,10 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             return filtered_messages_left + filtered_messages_latest + filtered_messages_right
         filtered_messages, _ = filter_out_messages_of_type(messages, filter_type, perform_filter=True)
         return filtered_messages
+
+    def _get_iteration_count(self, messages: List[AnyMessage]) -> int:
+        """Get the iteration count from the messages."""
+        return len([m for m in messages if LLMNode.msg_is_types(m, AI_MESSAGE_TYPES)])
 
     def _handle_streaming(self, model: Any, messages: List[AnyMessage]) -> Any:
         """Handle streaming response from the model."""

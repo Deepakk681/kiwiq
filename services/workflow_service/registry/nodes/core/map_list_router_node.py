@@ -151,7 +151,7 @@ class MapListRouterNode(DynamicRouterNode):
                 print(f"Warning: Could not convert input data of type {type(input_data)} to dict in MapListRouterNode. Proceeding with empty data.")
                 return {}
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> Command:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> Command:
         """
         Processes input data, iterates over specified collections, maps items based on edge configs,
         and generates a LangGraph Command to send items to target nodes.

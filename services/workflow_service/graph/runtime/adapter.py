@@ -737,77 +737,118 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
         input_data: Dict[str, Any],
         config: Dict[str, Any],
         output_node_id: str = None,
-        interrupt_handler: Optional[Callable[[Dict[str, Any]], Awaitable[Any]]] = None # Expects async handler
+        interrupt_handler: Optional[Callable[[Dict[str, Any]], Awaitable[Any]]] = None
     ) -> Dict[str, Any]:
         """
-        Asynchronously execute a LangGraph with input data, handling interrupts.
-
+        Asynchronously execute a LangGraph with input data.
+        
         Args:
-            graph (Any): The compiled LangGraph to execute.
+            graph (Any): The LangGraph to execute.
             input_data (Dict[str, Any]): Input data for the graph.
-            config (Dict[str, Any]): Runtime configuration for execution (includes thread_id, etc.).
+            config (Dict[str, Any]): Runtime configuration for execution.
             output_node_id (str, optional): The ID of the node whose output should be returned.
             interrupt_handler (Callable, optional): An async function to handle HITL prompts.
-                                                   Defaults to a simple async console input handler.
-
+            
         Returns:
-            Dict[str, Any]: Output data from the designated output node or the final state values.
+            Dict[str, Any]: Output data from the graph.
         """
-        # Rename input keys for central state compatibility
-        processed_input_data = {get_central_state_field_key(k): v for k, v in input_data.items()}
+        # TODO: FIXME: MUST TEST NESTED INPUT FIELDS AND DATA!
+        input_data = {get_central_state_field_key(k): v for k, v in input_data.items()}
+        
+        if interrupt_handler is None:
+            # Default async interrupt handler (simple console input)
+            async def default_async_interrupt_handler(interrupt_payload: Dict[str, Any]) -> Any:
+                # Use the synchronous handler wrapped in run_in_executor for non-blocking console input
+                loop = asyncio.get_running_loop()
+                return await loop.run_in_executor(None, self.get_value_from_human, interrupt_payload)
+            
+            interrupt_handler = default_async_interrupt_handler
+        
+        # Create a LangGraph config dict
+        lg_config = {
+            "configurable": config,  # config may have thread_id
+            # "metadata": {
+            #     "workflow_id": config.get("workflow_id", ""),
+            #     "run_id": config.get("run_id", ""),
+            #     "user_id": config.get("user_id"),
+            #     "configurable": config.get("configurable", {})
+            # }
+        }
+        
+        # Add callbacks if provided
+        # if "callbacks" in config:
+        #     lg_config["callbacks"] = config["callbacks"]
+        
+        # Execute the graph
+        # input_data can be None
+        has_interrupts = True
+        interrupt_data = None
 
-        # Default async interrupt handler (simple console input)
-        async def default_async_interrupt_handler(interrupt_payload: Dict[str, Any]) -> Any:
-             # Use the synchronous handler wrapped in run_in_executor for non-blocking console input
-             loop = asyncio.get_running_loop()
-             return await loop.run_in_executor(None, self.get_value_from_human, interrupt_payload)
+        print("\n\n\n\n#### INPUT DATA SENT TO GRAPH INVOKE", input_data, "\n\n\n\n")
 
-        handler = interrupt_handler or default_async_interrupt_handler
+        while has_interrupts:
+            # https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/#interrupt
+            if interrupt_data:
+                value_from_human = await interrupt_handler(interrupt_data)
+                result = await graph.ainvoke(Command(resume=value_from_human), config=lg_config)
+            else:
+                result = await graph.ainvoke(input_data, config=lg_config)
+            print("graph run finished!")
+            # print("\n\n\n\n#### GRAPH RUN PHASE FINISHED (Interrupted or Final Finished)! result", result, "\n\n\n\n")
+            last_state = await graph.aget_state(lg_config)
+            has_interrupts = False
+            # final_state.tasks[0].interrupts  # check for keys as set in interrupt pre-processor below!
+            interrupt_data = None
+            if last_state.tasks:
+                for task in last_state.tasks:
+                    if task.interrupts:
+                        has_interrupts = True
+                        interrupt_data = task.interrupts[0].value
+                        break
+        
+        # central states
+        # looped over node outputs and fields were replaced
+        # final output
+        
+        # result = graph.invoke(input_data, config=lg_config)
+        final_state = await graph.aget_state(lg_config)
+        # final_state.tasks[0].interrupts  # check for keys as set in interrupt pre-processor below!
 
-        # Create LangGraph config
-        lg_config = {"configurable": config} # Pass user config under 'configurable'
+        graph_output = None
+        if output_node_id:
+            graph_output = final_state.values.get(get_node_output_state_key(output_node_id), {})
+        
+        
+        # final_state.values.get(get_node_output_state_key(output_node_id), {})
+        central_state_keys = [k for k in final_state.values.keys() if k.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)]
+        central_state = {k: final_state.values[k] for k in central_state_keys}
 
-        print("\n\n\n\n#### ASYNC INPUT DATA SENT TO GRAPH INVOKE", processed_input_data, "\n\n\n\n")
+        # from langchain_core.load import dumpd, dumps, load, loads
 
-        # Handle execution and interrupts
-        final_result, final_state = await self._handle_interrupts_async(
-             graph,
-             processed_input_data, # Initial input
-             lg_config,
-             handler
-        )
+        # print("\n\n\n\n#### final_state", dumps(final_state, pretty=True), "\n\n\n\n")
 
-        # --- Process final state ---
-        from langchain_core.load import dumpd, dumps
+        # print("\n\n\n\n#### central_state", dumps(central_state, pretty=True), "\n\n\n\n")
 
-        print("\n\n\n\n#### ASYNC FINAL STATE:", dumps(final_state, pretty=True), "\n\n\n\n")
+        # print("\n\n\n\n#### graph_output", json.dumps(graph_output, indent=4), "\n\n\n\n")
 
-        # Extract central state and graph output
-        graph_output_data = None
-        if output_node_id and final_state:
-            output_key = get_node_output_state_key(output_node_id)
-            graph_output_data = final_state.values.get(output_key) # Extract specific node output
+        # node_id = "human_review"
+        # print(dumps(final_state.values.get(get_node_output_state_key(node_id), {}), pretty=True))
+        # Since this BaseModel / BaseSchema, it dumps well!
+        # print(final_state.values.get(get_node_output_state_key(node_id), {}).model_dump_json(indent=4))
 
-        central_state = {}
-        if final_state:
-             central_state_keys = [k for k in final_state.values.keys() if k.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)]
-             central_state = {k: final_state.values[k] for k in central_state_keys}
-
-        print("\n\n\n\n#### ASYNC CENTRAL STATE:", dumps(central_state, pretty=True), "\n\n\n\n")
-
-        print("\n\n\n\n#### ASYNC FINAL GRAPH OUTPUT:")
-        if isinstance(graph_output_data, BaseSchema):
-            print(graph_output_data.model_dump_json(indent=2))
-        elif graph_output_data is not None:
-            print(dumps(graph_output_data, pretty=True)) # Use dumps for richer LangChain object representation
-        else:
-            print("None")
-        print("\n\n\n\n")
-
-        # Return the specific node's output if requested, otherwise return the whole final result dict
-        # The 'final_result' from ainvoke usually contains the full final state dictionary.
-        # If output_node_id is specified, prioritize extracting that specific part.
-        return graph_output_data if output_node_id else final_result if final_result else {}
+        
+        # print(result)
+        # print(final_state)
+        print("\n\n\n\n#### graph_output")
+        # print(dumps(graph_output, pretty=True))
+        # if isinstance(graph_output, BaseSchema):
+        #     print(graph_output.model_dump_json(indent=4))
+        # else:
+        #     print(json.dumps(graph_output, indent=4))
+        # print("\n\n\n\n")
+        # import ipdb; ipdb.set_trace()
+        
+        return graph_output
 
 
     async def aexecute_graph_stream(

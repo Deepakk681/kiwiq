@@ -402,6 +402,8 @@ class LoadCustomerDataNode(BaseDynamicNode):
         if not runtime_config:
             self.logger.error("Missing runtime_config.")
             return self.__class__.output_schema_cls(__root__={}, output_metadata={})
+        
+        runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
         if not app_context or not ext_context:
@@ -810,6 +812,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
             # Instantiate output using class reference, even on failure
             return self.__class__.output_schema_cls(passthrough_data=passthrough_dict, paths_processed=[])
 
+        runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
 

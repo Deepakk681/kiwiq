@@ -206,6 +206,7 @@ class SchemaTemplateBase(BaseModel):
     description: Optional[str] = Field(None, description="Description of the schema template")
     schema_definition: Optional[Dict[str, Any]] = Field(None, description="The JSON schema definition")
     schema_type: SchemaType = Field(default=SchemaType.JSON_SCHEMA, description="Type of schema")
+    is_public: bool = Field(default=False, description="Whether the schema is public (system templates only)")
 
 class SchemaTemplateCreate(SchemaTemplateBase):
     """Schema for creating an organization-specific SchemaTemplate."""

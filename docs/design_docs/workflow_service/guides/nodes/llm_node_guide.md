@@ -48,9 +48,9 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 
         // --- Output Structure ---
         "output_schema": {
-          // To get plain text output, leave both below null or omit output_schema entirely
-          "schema_from_registry": null, // Example: { "schema_name": "MyOutputSchema", "schema_version": "1.0" }
-          "dynamic_schema_spec": null   // Example below
+          // To get plain text output, omit output_schema entirely, or set its sub-fields (`schema_template_name`, `dynamic_schema_spec`, `schema_definition`) to `null`.
+          // --- Methods to define the schema (Use ONLY ONE): ---
+          "dynamic_schema_spec": null,   // Example below
           /* Example dynamic_schema_spec:
           "dynamic_schema_spec": {
             "schema_name": "ExtractedInfo",
@@ -125,17 +125,19 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 5.  **`api_key_override`**: (Optional) Provide API keys directly, e.g., `{"openai": "sk-..."}`, overriding system settings.
 
 6.  **`output_schema`**: **Crucial for structured output** (getting JSON back instead of just text).
-    *   To get plain text, omit `output_schema` or set both sub-fields to `null`.
-    *   `schema_from_registry`: Use a predefined schema by its `schema_name` (and optionally `schema_version`) registered in the system.
-    *   `dynamic_schema_spec`: Define the output structure directly using `fields`. Specify `type` (`str`, `int`, `list`, `enum`, etc.), `required` status, `description`, and type specifics (`items_type` for lists, `enum_values` for enums). See `dynamic_nodes.py:ConstructDynamicSchema` for details.
-    *   **Note:** Structured output reliability varies by model. Anthropic uses forced tool calling, which might fail if `thinking` is enabled or the prompt isn't clear. OpenAI/Gemini generally handle JSON mode better. See `llm_node.py:LLMStructuredOutputSchema` docstring and tests.
+    *   To get plain text output, omit `output_schema` entirely, or set its sub-fields (`schema_template_name`, `dynamic_schema_spec`, `schema_definition`) to `null`.
+    *   **Methods to define the schema (Use ONLY ONE):**
+        *   **`dynamic_schema_spec` (Recommended for node-specific schemas):** Define the output structure directly within the node config using `fields`. Specify `type` (`str`, `int`, `list`, `enum`, etc.), `required` status, `description`, and type specifics (`items_type` for lists, `enum_values` for enums). See `dynamic_nodes.py:ConstructDynamicSchema` for details.
+        *   **`schema_template_name` (Recommended for reusable schemas):** Use a predefined schema registered in the system by its unique `schema_name`. You can optionally specify a `schema_template_version`.
+        *   **`schema_definition` (Advanced):** Provide the raw JSON schema definition directly. Use with caution, as validation might be less straightforward.
+    *   **Important Note:** Structured output reliability varies by model. Anthropic models currently use forced tool calling (which can conflict with reasoning modes), while OpenAI/Gemini generally handle JSON mode more directly. Check provider documentation and test thoroughly. See `llm_node.py:LLMStructuredOutputSchema` docstring and `test_basic_llm_workflow.py` for examples.
 
 7.  **`tool_calling_config` & `tools`**: **Optional & Model-Specific**
     *   Set `enable_tool_calling` to `true` to allow the LLM to request execution of other workflow nodes (tools). Requires model support (check `llm_node.py` metadata).
     *   If enabled, `tools` **must** be a list defining allowed tools. Each item needs:
         *   `tool_name`: Must exactly match the `node_name` of a registered node intended for tool use.
         *   `version`: (Optional) Specify a tool version.
-        *   `input_overwrites`: (Optional) A dictionary specifying tool input fields whose values should be set by the system/config, *not* by the LLM (e.g., hiding API keys or setting fixed parameters). Set value to `null` to indicate it's system-provided.
+        *   `input_overwrites`: (Optional) A dictionary specifying tool input fields whose values should be set by the system/config, *not* by the LLM (e.g., hiding API keys or setting fixed parameters). The LLM will not see or be asked to fill these fields. Set the value to `null` in the config to indicate it's system-provided.
     *   `tool_choice`: (Optional) Force the LLM to use a specific tool (`"tool_name"`), any tool (`"any"`), or let it decide (`"auto"`, default). Model-dependent.
     *   `parallel_tool_calls`: (Optional, Default: `true`) Allow the model to request multiple tool calls simultaneously. Model-dependent.
 
@@ -150,25 +152,28 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 
 Provide input via incoming `EdgeSchema` mappings:
 
--   **`messages_history`** (List[Message Object]): The recommended way for multi-turn conversations. Provide a list of past message objects (usually from a previous `LLMNode`'s `current_messages` output or manually constructed). Expected format (similar to LangChain): `[{ "type": "human", "content": "..." }, { "type": "ai", "content": "..." }, ...]` including `system` and `tool` types. Overrides `user_prompt` and `system_prompt`.
--   **`user_prompt`** (str): A simple text prompt. Used if `messages_history` is not provided.
--   **`system_prompt`** (str): A specific system message for this call. Overrides `default_system_prompt`. Ignored if `messages_history` is provided.
--   **`tool_outputs`** (List[Tool Output Object]): Required if the *previous* turn resulted in `tool_calls` from this LLM. Provide the results here as a list of objects: `[{ "tool_name": "...", "tool_id": "...", "content": "...result..." }, ...]`. Match `tool_id` from the request.
+-   **`messages_history`** (List[Message Object]): The recommended way for multi-turn conversations. Provide a list of past message objects (usually from a previous `LLMNode`'s `current_messages` output or manually constructed). Expected format (similar to LangChain Message types): `[{ "type": "human", "content": "..." }, { "type": "ai", "content": "..." }, ...]` including `system` and `tool` types. Overrides `user_prompt` and `system_prompt` if provided.
+-   **`user_prompt`** (str, Optional): A simple text prompt. Used if `messages_history` is not provided.
+-   **`system_prompt`** (str, Optional): A specific system message for this call. Overrides `default_system_prompt` in the config. Only used if `messages_history` is not provided.
+-   **`tool_outputs`** (List[Tool Output Object], Optional): Required if the *previous* turn resulted in `tool_calls` from this LLM. Provide the results here as a list of objects: `[{ "tool_name": "...", "tool_id": "...", "content": "...result...", "status": "success" }, ...]`. Match `tool_id` from the request.
+
+**Note:** At least one of `messages_history`, `user_prompt`, or `tool_outputs` must provide content for the LLM to process.
 
 ## Output (`LLMNodeOutputSchema`)
 
 The node produces data matching the `LLMNodeOutputSchema`:
 
--   **`current_messages`** (List[Message Object]): The updated message list *including* the latest AI response. Feed this into the next `LLMNode`'s `messages_history`.
--   **`content`** (str or List): The raw response content. Usually a string, but can be a list for some models/modes (e.g., containing text and thinking/tool elements).
+-   **`current_messages`** (List[Message Object]): The updated message list *including* the latest AI response (and potentially thinking/tool call messages). Feed this into the next `LLMNode`'s `messages_history` for conversational context.
+-   **`content`** (str or List): The primary textual content of the AI's response. Can be a simple string or sometimes a list containing text and other elements (like thinking steps or tool requests, especially with Anthropic).
 -   **`metadata`** (`LLMMetadata`): Information about the call:
     *   `model_name`: Model used.
-    *   `token_usage`: Dict with `prompt_tokens`, `completion_tokens`, `total_tokens`, and potentially `reasoning_tokens`, `cached_tokens`. See `llm_node.py:_parse_response` for details.
-    *   `finish_reason`: Why the model stopped (e.g., `stop`, `max_tokens`, `tool_calls`).
+    *   `token_usage`: Dict with `prompt_tokens`, `completion_tokens`, `total_tokens`, and potentially `reasoning_tokens`, `cached_tokens`. Structure might vary slightly by provider but is normalized. See `llm_node.py:_parse_response` for details.
+    *   `finish_reason`: Why the model stopped (e.g., `stop`, `max_tokens`, `tool_calls`). Normalized where possible.
     *   `latency`: Call duration (seconds).
-    *   `response_metadata`: Raw provider metadata.
--   **`structured_output`** (Dict[str, Any] | `null`): If `output_schema` was configured, this holds the parsed JSON object matching the schema. `null` otherwise or if parsing failed.
--   **`tool_calls`** (List[`ToolCall`] | `null`): If the LLM requested tool calls, this list contains objects with `tool_name`, `tool_input` (arguments dict), `tool_id`. `null` otherwise.
+    *   `response_metadata`: Raw, provider-specific metadata dictionary.
+    *   `iteration_count`: (Integer, default 0) Tracks the number of AI responses within the `current_messages` list. Useful for limiting loops or tracking conversation depth.
+-   **`structured_output`** (Dict[str, Any] | `null`): If `output_schema` was configured (and the model successfully produced compliant output), this holds the parsed JSON object matching the schema. `null` otherwise or if parsing failed.
+-   **`tool_calls`** (List[`ToolCall`] | `null`): If the LLM requested tool calls, this list contains objects with `tool_name`, `tool_input` (arguments dict), `tool_id`. `null` otherwise. **Note:** Internal calls used for structured output (e.g., by Anthropic) are filtered out and won't appear here.
 -   **`web_search_result`** (`WebSearchResult` | `null`): If web search was used, contains a list of `citations` (with `url`, `title`, etc.). `null` otherwise. See `llm_node.py:_parse_search_results`.
 
 ## Example (`GraphSchema`)
@@ -213,15 +218,16 @@ The node produces data matching the `LLMNodeOutputSchema`:
       "src_node_id": "extract_info",
       "dst_node_id": "save_output",
       "mappings": [
-        // Use '::' to access nested fields in structured_output --> NOTE: this nested field mapping is not supported for edges mapping for now, but will be later; For now don't use this to map nested fields `::`
+        // Use '::' delimiter to access nested fields within structured_output
         { "src_field": "structured_output::person_name", "dst_field": "contact_name" },
         { "src_field": "structured_output::company", "dst_field": "account_name" },
         { "src_field": "structured_output::meeting_summary", "dst_field": "notes" },
         // Map the entire metadata object
         { "src_field": "metadata", "dst_field": "llm_metadata" }
         // Note: Mapping directly to nested fields like "metadata::token_usage::total_tokens"
-        // in src_field might not be supported currently. You may need an intermediate
-        // node (e.g., a Transformer node) to extract specific nested values if needed.
+        // in src_field might not be supported currently by the EdgeMapping mechanism.
+        // You may need an intermediate node (e.g., a Transformer node) to extract
+        // specific nested values from the metadata object if needed.
       ]
     }
   ]
@@ -234,8 +240,8 @@ The node produces data matching the `LLMNodeOutputSchema`:
 -   Use `LLMNode` for AI tasks: writing, summarizing, Q&A, extraction, tool selection.
 -   **Pick the Right Model:** `model_spec` is key. Consider cost, speed, and features (reasoning, tools, web search, structured output support).
 -   **Control Creativity:** Use `temperature` (low=factual, high=creative).
--   **Get Specific Info:** Use `output_schema` (especially `dynamic_schema_spec`) to tell the AI exactly what fields you want back (e.g., `"email_subject"`, `"priority"`). Leave blank for plain text.
+-   **Get Specific Info:** Use `output_schema` (via `dynamic_schema_spec` or `schema_template_name`) to tell the AI *exactly* what fields you want back (e.g., `"email_subject"`, `"priority"`). Leave blank for plain text.
 -   **Let AI Use Functions:** Enable `tool_calling_config` and list allowed `tools` (by their workflow `node_name`) if the AI should be able to trigger other workflow steps. Use `input_overwrites` in the tool config to hide sensitive info from the AI.
 -   **Enable Web Search:** Use `web_search_options` for models that support it (like Perplexity) to get up-to-date answers.
 -   **Connect Inputs:** Provide `user_prompt` or `messages_history`. If tools ran before this node, connect their results to `tool_outputs`.
--   **Connect Outputs:** Use the results: `content` (text), `structured_output::your_field_name` (specific extracted data - using `::` here *is* supported for structured output), `tool_calls` (to trigger tool nodes), or the whole `metadata` object. To get specific values *from* metadata (like token count), you might need another node step after the LLM. Refer to `test_basic_llm_workflow.py` for many configuration patterns. 
+-   **Connect Outputs:** Use the results: `content` (text), `structured_output::your_field_name` (specific extracted data - using `::` here *is* supported for structured output), `tool_calls` (to trigger tool nodes), or the whole `metadata` object (which includes `iteration_count` for loop control). To get specific values *from* metadata (like token count), you might need another node step after the LLM. Refer to `test_basic_llm_workflow.py` for many configuration patterns.

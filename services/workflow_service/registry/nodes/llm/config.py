@@ -99,6 +99,7 @@ class ModelMetadata(BaseModel):
 
 REDACED_THINKING_MESSAGE_TYPES = ["redacted_thinking"]
 THINKING_MESSAGE_TYPES = ["thinking", "reasoning_content"] + REDACED_THINKING_MESSAGE_TYPES
+AI_MESSAGE_TYPES = ["ai", "assistant"]
 
 # Default metadata templates
 
@@ -238,6 +239,10 @@ class AnthropicModels(str, EnumWithAttr):
 # TODO:
 # integrate gemini 2.5 flash https://console.cloud.google.com/vertex-ai/publishers/google/model-garden/gemini-2.5-flash-preview-04-17?authuser=2&hl=en&project=soy-lore-443610-k3
 # implement thinking budget params https://github.com/langchain-ai/langchain-google/issues/872
+
+# TODO:
+# Langchain's integration with Google may be buggy, eg:
+# 2025-04-21 20:09:04,019 - langchain_google_genai.chat_models - WARNING - Unexpected argument 'maxOutputTokens' provided to ChatGoogleGenerativeAI. Did you mean: 'max_output_tokens'?
 
 GEMINI_METADATA = ModelMetadata(
     provider=LLMModelProvider.GEMINI,

@@ -92,18 +92,22 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
 
         # Runtime Configs
         self.runtime_config_regular = {
-            APPLICATION_CONTEXT_KEY: {
-                "user": self.user_regular,
-                "workflow_run_job": self.run_job_regular
-            },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            "configurable": {
+                APPLICATION_CONTEXT_KEY: {
+                    "user": self.user_regular,
+                    "workflow_run_job": self.run_job_regular
+                },
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            }
         }
         self.runtime_config_superuser = {
-            APPLICATION_CONTEXT_KEY: {
-                "user": self.user_superuser,
-                "workflow_run_job": self.run_job_superuser
-            },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            "configurable": {
+                APPLICATION_CONTEXT_KEY: {
+                    "user": self.user_superuser,
+                    "workflow_run_job": self.run_job_superuser
+                },
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            }
         }
 
         

@@ -26,7 +26,7 @@ from workflow_service.registry.nodes.core.flow_nodes import (  # flow_nodes_gemi
 
 
 # === Base Test Class ===
-class BaseNodeTest(unittest.TestCase):
+class BaseNodeTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.sample_data_user_orders = {
             "user": {"name": "Alice", "age": 35, "status": "active"},
@@ -44,13 +44,14 @@ class BaseNodeTest(unittest.TestCase):
 class TestFilterNodeUnittest(BaseNodeTest):
 
     # --- Object Filtering Tests ---
-    def test_object_filter_simple_pass(self):
+    async def test_object_filter_simple_pass(self):
         config = {"targets": [{"filter_target": None, "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}]}
         node = FilterNode(config=config, node_id="filter1", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy()
+        result = await node.process(input_data_dict)
         self.assertEqual(result.filtered_data, input_data_dict)
     
-    def test_object_filter_simple_allow_mode(self):
+    async def test_object_filter_simple_allow_mode(self):
         """
         Test filtering with ALLOW mode on a simple object without lists.
         This test demonstrates how to:
@@ -128,7 +129,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="allow_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Filtered objects with only specified fields
         expected_data = {
@@ -151,7 +152,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         self.assertNotIn("address", result.filtered_data["person"])
         self.assertNotIn("balance", result.filtered_data["account_info"])
     
-    def test_mixed_allow_deny_modes(self):
+    async def test_mixed_allow_deny_modes(self):
         """
         Test using both ALLOW and DENY modes in the same filter configuration.
         This demonstrates how to:
@@ -235,7 +236,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="mixed_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Complex filtered structure
         expected_data = {
@@ -274,7 +275,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         self.assertNotIn("manager", result.filtered_data["user_data"]["professional"])
         self.assertNotIn("font_size", result.filtered_data["app_settings"]["display"])
     
-    def test_object_filter_deny_mode_with_nested_objects(self):
+    async def test_object_filter_deny_mode_with_nested_objects(self):
         """
         Test filtering with DENY mode on nested objects without lists.
         This test demonstrates how to:
@@ -336,7 +337,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="nested_deny_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Objects with sensitive fields removed
         expected_data = {
@@ -370,7 +371,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
     
     
     
-    def test_edge_case_empty_objects_after_filtering(self):
+    async def test_edge_case_empty_objects_after_filtering(self):
         """
         Test edge case where filtering results in empty objects.
         This demonstrates how the filter node handles:
@@ -419,7 +420,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="empty_objects_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Structure with empty section_b object
         expected_data = {
@@ -445,7 +446,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         self.assertIn("section_b", result.filtered_data["main"])
         self.assertEqual(result.filtered_data["main"]["section_b"], {})
     
-    def test_conditional_field_removal_based_on_other_fields(self):
+    async def test_conditional_field_removal_based_on_other_fields(self):
         """
         Test removing fields conditionally based on values in other fields.
         This demonstrates how to:
@@ -510,7 +511,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="conditional_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Only public records have content and details
         expected_data = {
@@ -545,7 +546,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         self.assertNotIn("content", result.filtered_data["records"][2])  # Restricted record
         self.assertNotIn("content", result.filtered_data["single_record"])  # Private single record
 
-    def test_object_filter_with_deny_mode(self):
+    async def test_object_filter_with_deny_mode(self):
         """
         Test filtering with DENY mode to explicitly remove fields from objects.
         This test demonstrates how to:
@@ -581,7 +582,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="deny_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Two users (Bob removed), both missing email field
         expected_data = {
@@ -603,7 +604,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         for user in result.filtered_data["users"]:
             self.assertNotIn("email", user)
     
-    def test_complex_deny_filtering_with_multiple_conditions(self):
+    async def test_complex_deny_filtering_with_multiple_conditions(self):
         """
         Test more complex DENY filtering with multiple condition groups.
         This demonstrates how to use multiple conditions to determine which fields
@@ -651,7 +652,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="complex_deny_filter", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Records with sensitive fields removed, metadata removed
         expected_data = {
@@ -674,7 +675,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Verify metadata was removed
         self.assertNotIn("metadata", result.filtered_data)
-    def test_filter_with_nonexistent_target_field(self):
+    async def test_filter_with_nonexistent_target_field(self):
         """
         Test filtering when the target field doesn't exist in the data.
         The filter should be skipped gracefully without errors.
@@ -698,12 +699,12 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="nonexistent_target", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Data should remain unchanged since the target doesn't exist
         self.assertEqual(result.filtered_data, test_data)
     
-    def test_filter_with_nonexistent_condition_field(self):
+    async def test_filter_with_nonexistent_condition_field(self):
         """
         Test filtering when the condition field doesn't exist in the data.
         Conditions on non-existent fields should fail for most operators.
@@ -727,13 +728,13 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="nonexistent_condition", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: metadata should be removed since condition fails
         expected_data = {"user": {"name": "Alice"}}
         self.assertEqual(result.filtered_data, expected_data)
     
-    def test_filter_with_mixed_existent_nonexistent_conditions(self):
+    async def test_filter_with_mixed_existent_nonexistent_conditions(self):
         """
         Test filtering with multiple condition groups where some reference 
         non-existent fields and others reference existing fields.
@@ -762,12 +763,12 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="mixed_conditions", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: metadata should be kept since one condition group passes
         self.assertEqual(result.filtered_data, test_data)
     
-    def test_filter_with_all_nonexistent_condition_fields(self):
+    async def test_filter_with_all_nonexistent_condition_fields(self):
         """
         Test filtering when all condition fields in all groups don't exist.
         All conditions should fail and the target should be filtered accordingly.
@@ -794,13 +795,13 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="all_nonexistent", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: metadata should be removed since all condition groups fail
         expected_data = {"user": {"name": "Alice"}}
         self.assertEqual(result.filtered_data, expected_data)
     
-    def test_filter_with_is_empty_on_nonexistent_field(self):
+    async def test_filter_with_is_empty_on_nonexistent_field(self):
         """
         Test filtering with is_empty operator on non-existent fields.
         The is_empty operator should return True for non-existent fields.
@@ -824,11 +825,11 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="is_empty_nonexistent", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: metadata should be kept since is_empty returns True for non-existent fields
         self.assertEqual(result.filtered_data, test_data)
-    def test_filter_with_is_not_empty_on_nonexistent_field(self):
+    async def test_filter_with_is_not_empty_on_nonexistent_field(self):
         """
         Test filtering with is_not_empty operator on non-existent fields.
         The is_not_empty operator should return False for non-existent fields.
@@ -852,13 +853,13 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="is_not_empty_nonexistent", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: metadata should be removed since is_not_empty returns False for non-existent fields
         expected_data = {"user": {"name": "Alice"}}
         self.assertEqual(result.filtered_data, expected_data)
     
-    def test_filter_entire_object_with_complex_conditions(self):
+    async def test_filter_entire_object_with_complex_conditions(self):
         """
         Test filtering the entire object with complex conditions using filter_target=None.
         This test demonstrates how to:
@@ -906,7 +907,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="entire_object_complex", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: All conditions pass, so the entire object should be kept
         self.assertEqual(result.filtered_data, test_data)
@@ -915,12 +916,12 @@ class TestFilterNodeUnittest(BaseNodeTest):
         modified_data = copy.deepcopy(test_data)
         modified_data["user"]["subscription"]["status"] = "inactive"
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         
         # Expected: Conditions fail, so filtered_data should be None
         self.assertIsNone(result2.filtered_data)
     
-    def test_filter_entire_object_with_nested_list_conditions(self):
+    async def test_filter_entire_object_with_nested_list_conditions(self):
         """
         Test filtering the entire object with conditions on nested lists using filter_target=None.
         This test demonstrates how to:
@@ -966,7 +967,7 @@ class TestFilterNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = FilterNode(config=config, node_id="entire_object_nested_lists", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected: Conditions pass (there are Senior employees), so the entire object should be kept
         self.assertEqual(result.filtered_data, test_data)
@@ -978,78 +979,78 @@ class TestFilterNodeUnittest(BaseNodeTest):
             for emp in dept["employees"]:
                 emp["level"] = "Mid"
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         
         # Expected: Conditions fail (no Senior employees), so filtered_data should be None
         self.assertIsNone(result2.filtered_data)
-    def test_object_filter_simple_fail(self):
+    async def test_object_filter_simple_fail(self):
         config = {"targets": [{"filter_target": None, "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}]}
         node = FilterNode(config=config, node_id="filter2", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertIsNone(result.filtered_data)
 
-    def test_object_filter_multi_cond_group_pass(self):
+    async def test_object_filter_multi_cond_group_pass(self):
         config = {"targets": [{"filter_target": None, "condition_groups": [ {"conditions": [{"field": "user.name", "operator": "equals", "value": "NonExistent"}]}, {"conditions": [{"field": "metadata.source", "operator": "equals", "value": "prod"}]}], "group_logical_operator": "or"}]}
         node = FilterNode(config=config, node_id="filter3", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertIsNotNone(result.filtered_data)
 
-    def test_object_filter_multi_cond_group_fail(self):
+    async def test_object_filter_multi_cond_group_fail(self):
         config = {"targets": [{"filter_target": None, "condition_groups": [ {"conditions": [{"field": "user.name", "operator": "equals", "value": "NonExistent"}]}, {"conditions": [{"field": "metadata.source", "operator": "equals", "value": "prod"}]}], "group_logical_operator": "and"}]}
         node = FilterNode(config=config, node_id="filter4", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertIsNone(result.filtered_data)
 
-    def test_object_filter_missing_field(self):
+    async def test_object_filter_missing_field(self):
         config_pass = {"targets": [{"filter_target": None, "condition_groups": [{"conditions": [ {"field": "user.non_existent_field", "operator": "is_empty", "value": None}]}]}]}
         config_fail = {"targets": [{"filter_target": None, "condition_groups": [{"conditions": [ {"field": "user.non_existent_field", "operator": "equals", "value": "some_value"}]}]}]}
         node_pass = FilterNode(config=config_pass, node_id="filter5", prefect_mode=False)
         node_fail = FilterNode(config=config_fail, node_id="filter6", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy()
-        result_pass = node_pass.process(input_data_dict); self.assertIsNotNone(result_pass.filtered_data)
-        result_fail = node_fail.process(input_data_dict); self.assertIsNone(result_fail.filtered_data)
+        result_pass = await node_pass.process(input_data_dict); self.assertIsNotNone(result_pass.filtered_data)
+        result_fail = await node_fail.process(input_data_dict); self.assertIsNone(result_fail.filtered_data)
 
     # --- Field Filtering Tests ---
-    def test_field_filter_remove_simple(self):
+    async def test_field_filter_remove_simple(self):
         config = {"targets": [{"filter_target": "metadata", "condition_groups": [{"conditions": [{"field": "metadata.source", "operator": "equals", "value": "test"}]}]}]}
         node = FilterNode(config=config, node_id="filter7", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         expected_data = input_data_dict.copy(); del expected_data["metadata"]
         self.assertEqual(result.filtered_data, expected_data)
 
-    def test_field_filter_keep_simple(self):
+    async def test_field_filter_keep_simple(self):
         config = {"targets": [{"filter_target": "metadata", "condition_groups": [{"conditions": [{"field": "metadata.source", "operator": "equals", "value": "prod"}]}]}]}
         node = FilterNode(config=config, node_id="filter8", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.filtered_data, input_data_dict)
 
-    def test_field_filter_remove_nested(self):
+    async def test_field_filter_remove_nested(self):
         config = {"targets": [{"filter_target": "user.status", "condition_groups": [{"conditions": [{"field": "user.status", "operator": "equals", "value": "inactive"}]}]}]}
         node = FilterNode(config=config, node_id="filter9", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         expected_data = copy.deepcopy(input_data_dict); del expected_data["user"]["status"]
         self.assertEqual(result.filtered_data, expected_data)
 
-    def test_field_filter_multiple_targets(self):
+    async def test_field_filter_multiple_targets(self):
         config = {"targets": [
                 {"filter_target": "user.age", "condition_groups": [{"conditions": [{"field": "user.age", "operator": "greater_than", "value": 30}]}]},
                 {"filter_target": "metadata", "condition_groups": [{"conditions": [{"field": "metadata.source", "operator": "equals", "value": "prod"}]}]},
                 {"filter_target": "global_flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}
             ]}
         node = FilterNode(config=config, node_id="filter10", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         expected_data = input_data_dict.copy(); del expected_data["global_flag"]
         self.assertEqual(result.filtered_data, expected_data)
 
     # --- List Item Filtering Tests ---
-    def test_list_item_filter_relative_cond(self):
+    async def test_list_item_filter_relative_cond(self):
         # Config: Keep if status != 'pending'. Field path *must* be absolute now.
         config = {"targets": [{"filter_target": "orders", "condition_groups": [{"conditions": [
                     # Check status of the order being iterated
                     {"field": "orders.status", "operator": "not_equals", "value": "pending"}
                  ]}]}]}
         node = FilterNode(config=config, node_id="filter11", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         expected_data = copy.deepcopy(input_data_dict)
         expected_data["orders"] = [
             {"id": 1, "status": "completed", "value": 150.0, "items": ["apple", "banana"]},
@@ -1057,18 +1058,18 @@ class TestFilterNodeUnittest(BaseNodeTest):
         ]
         self.assertEqual(result.filtered_data, expected_data)
 
-    def test_list_item_filter_absolute_cond(self):
+    async def test_list_item_filter_absolute_cond(self):
          # Config: Keep if global_flag == True
         config = {"targets": [{"filter_target": "orders", "condition_groups": [{"conditions": [
                    {"field": "global_flag", "operator": "equals", "value": True}
                 ]}]}]}
         node = FilterNode(config=config, node_id="filter12", prefect_mode=False)
-        input_data_dict_true = self.sample_data_user_orders.copy(); result_true = node.process(input_data_dict_true)
+        input_data_dict_true = self.sample_data_user_orders.copy(); result_true = await node.process(input_data_dict_true)
         self.assertEqual(result_true.filtered_data["orders"], input_data_dict_true["orders"])
         input_data_dict_false = self.sample_data_user_orders.copy(); input_data_dict_false["global_flag"] = False
-        result_false = node.process(input_data_dict_false); self.assertEqual(result_false.filtered_data["orders"], [])
+        result_false = await node.process(input_data_dict_false); self.assertEqual(result_false.filtered_data["orders"], [])
 
-    def test_list_item_filter_mixed_cond(self):
+    async def test_list_item_filter_mixed_cond(self):
         # Config: Keep if orders.status != 'pending' AND global_flag == True
         config = {"targets": [{"filter_target": "orders", "condition_groups": [{"conditions": [
                     {"field": "orders.status", "operator": "not_equals", "value": "pending"}, # Absolute path to item field
@@ -1076,23 +1077,23 @@ class TestFilterNodeUnittest(BaseNodeTest):
                 ], "logical_operator": "and"}]}]}
         node = FilterNode(config=config, node_id="filter13", prefect_mode=False)
         # Data 1: flag=True
-        input_data_dict_1 = self.sample_data_user_orders.copy(); result_1 = node.process(input_data_dict_1)
+        input_data_dict_1 = self.sample_data_user_orders.copy(); result_1 = await node.process(input_data_dict_1)
         expected_orders_1 = [{"id": 1, "status": "completed", "value": 150.0, "items": ["apple", "banana"]}, {"id": 3, "status": "shipped", "value": 210.0, "items": ["apple", "grape"]}]
         self.assertEqual(result_1.filtered_data["orders"], expected_orders_1)
         # Data 2: flag=False
         input_data_dict_2 = self.sample_data_user_orders.copy(); input_data_dict_2["global_flag"] = False
-        result_2 = node.process(input_data_dict_2); self.assertEqual(result_2.filtered_data["orders"], [])
+        result_2 = await node.process(input_data_dict_2); self.assertEqual(result_2.filtered_data["orders"], [])
 
-    def test_list_item_filter_empty_list(self):
+    async def test_list_item_filter_empty_list(self):
         config = {"targets": [{"filter_target": "orders", "condition_groups": [{"conditions": [
                     {"field": "orders.status", "operator": "equals", "value": "completed"}
                  ]}]}]}
         node = FilterNode(config=config, node_id="filter14", prefect_mode=False)
         input_data_dict = self.sample_data_user_orders.copy(); input_data_dict["orders"] = []
-        result = node.process(input_data_dict); self.assertEqual(result.filtered_data["orders"], [])
+        result = await node.process(input_data_dict); self.assertEqual(result.filtered_data["orders"], [])
 
     # --- Nested List Condition Evaluation ---
-    def test_nested_list_cond_path_single_list_or(self):
+    async def test_nested_list_cond_path_single_list_or(self):
          # Config: Keep item if item's 'tags' list CONTAINS 'urgent'
          # Field path must be absolute now for list item filtering logic
         data_dict = {"items": [{"id": "A", "tags": ["urgent", "internal"]}, {"id": "B", "tags": ["public", "low"]}]}
@@ -1100,13 +1101,13 @@ class TestFilterNodeUnittest(BaseNodeTest):
                     {"field": "items.tags", "operator": "contains", "value": "urgent"}
                  ]}]}]}
         node = FilterNode(config=config, node_id="filter15", prefect_mode=False)
-        result = node.process(data_dict)
+        result = await node.process(data_dict)
         self.assertEqual(len(result.filtered_data["items"]), 1)
         self.assertEqual(result.filtered_data["items"][0]["id"], "A")
 
     # TODO: FIXME
     # NOTE: you can't have both above behaviour and below at the same time where the list entire object is checked vs each object in list is checked one by one!
-    # def test_nested_list_cond_eval_path_single_list_or(self):
+    # async def test_nested_list_cond_eval_path_single_list_or(self):
     #     # Config: Keep item if ANY value in item's 'values' list > 15 (nested_list_op=OR)
     #     # Path: items.values (absolute)
     #     data_dict = {"items": [{"id": "A", "values": [10, 20, 5]}, {"id": "B", "values": [1, 2, 3]}, {"id": "C", "values": [30, 40]}]}
@@ -1114,12 +1115,12 @@ class TestFilterNodeUnittest(BaseNodeTest):
     #                 {"field": "items.values", "operator": "greater_than", "value": 15}
     #             ]}], "nested_list_logical_operator": "or"}]}
     #     node = FilterNode(config=config, node_id="filter16", prefect_mode=False)
-    #     result = node.process(data_dict)
+    #     result = await node.process(data_dict)
     #     self.assertEqual(len(result.filtered_data["items"]), 2)
     #     self.assertEqual(result.filtered_data["items"][0]["id"], "A")
     #     self.assertEqual(result.filtered_data["items"][1]["id"], "C")
 
-    # def test_nested_list_cond_eval_path_single_list_and(self):
+    # async def test_nested_list_cond_eval_path_single_list_and(self):
     #      # Config: Keep item if ALL values in item's 'values' list > 8 (nested_list_op=AND)
     #      # Path: items.values (absolute)
     #     data_dict = {"items": [{"id": "A", "values": [10, 20, 5]}, {"id": "B", "values": [1, 2, 3]}, {"id": "C", "values": [30, 40]}]}
@@ -1127,11 +1128,11 @@ class TestFilterNodeUnittest(BaseNodeTest):
     #                 {"field": "items.values", "operator": "greater_than", "value": 8}
     #             ]}], "nested_list_logical_operator": "and"}]}
     #     node = FilterNode(config=config, node_id="filter17", prefect_mode=False)
-    #     result = node.process(data_dict)
+    #     result = await node.process(data_dict)
     #     self.assertEqual(len(result.filtered_data["items"]), 1)
     #     self.assertEqual(result.filtered_data["items"][0]["id"], "C")
 
-    # def test_nested_list_cond_eval_path_multi_list_or_or(self):
+    # async def test_nested_list_cond_eval_path_multi_list_or_or(self):
     #      # Config: Keep group if OR(users(OR(scores))) > 15 (nested_list_op=OR)
     #      # Path: groups.users.scores (absolute)
     #     data_dict = {"groups": [{"id": "G1", "users": [{"name": "A", "scores": [1, 5]}, {"name": "B", "scores": [10, 12]}]},
@@ -1141,11 +1142,11 @@ class TestFilterNodeUnittest(BaseNodeTest):
     #                 {"field": "groups.users.scores", "operator": "greater_than", "value": 15}
     #             ]}], "nested_list_logical_operator": "or"}]}
     #     node = FilterNode(config=config, node_id="filter18", prefect_mode=False)
-    #     result = node.process(data_dict)
+    #     result = await node.process(data_dict)
     #     self.assertEqual(len(result.filtered_data["groups"]), 1)
     #     self.assertEqual(result.filtered_data["groups"][0]["id"], "G3")
 
-    # def test_nested_list_cond_eval_path_multi_list_and_applied_recursively(self):
+    # async def test_nested_list_cond_eval_path_multi_list_and_applied_recursively(self):
     #      # Config: Keep group if AND(users(AND(scores))) > 15 (nested_list_op=AND)
     #      # Path: groups.users.scores (absolute)
     #     data_dict = {"groups": [{"id": "G1", "users": [{"name": "A", "scores": [20, 30]}, {"name": "B", "scores": [16, 18]}]},
@@ -1155,53 +1156,53 @@ class TestFilterNodeUnittest(BaseNodeTest):
     #                 {"field": "groups.users.scores", "operator": "greater_than", "value": 15}
     #             ]}], "nested_list_logical_operator": "and"}]}
     #     node = FilterNode(config=config, node_id="filter19", prefect_mode=False)
-    #     result = node.process(data_dict)
+    #     result = await node.process(data_dict)
     #     self.assertEqual(len(result.filtered_data["groups"]), 1)
     #     self.assertEqual(result.filtered_data["groups"][0]["id"], "G1")
 
     # --- Edge Cases & Complex Scenarios ---
-    def test_filter_mixed_targets(self):
+    async def test_filter_mixed_targets(self):
         config = {"targets": [
                 {"filter_target": None, "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]},
                 {"filter_target": "user.status", "condition_groups": [{"conditions": [{"field": "user.age", "operator": "greater_than_or_equals", "value": 40}]}]},
                 {"filter_target": "orders", "condition_groups": [{"conditions": [{"field": "orders.value", "operator": "greater_than", "value": 100}]}]} # Absolute path
             ]}
         node = FilterNode(config=config, node_id="filter20", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         expected_data = copy.deepcopy(input_data_dict); del expected_data["user"]["status"]
         expected_data["orders"] = [{"id": 1, "status": "completed", "value": 150.0, "items": ["apple", "banana"]}, {"id": 3, "status": "shipped", "value": 210.0, "items": ["apple", "grape"]}]
         self.assertEqual(result.filtered_data, expected_data)
 
-    def test_filter_target_non_list_for_list_filter(self):
+    async def test_filter_target_non_list_for_list_filter(self):
          # Config: Target user.name (non-list), condition fails -> remove field
          config = {"targets": [{"filter_target": "user.name", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Bob"}]}]}]}
          node = FilterNode(config=config, node_id="filter21", prefect_mode=False)
-         input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+         input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
          expected_data = copy.deepcopy(input_data_dict); del expected_data["user"]["name"]
          self.assertEqual(result.filtered_data, expected_data)
 
-    def test_filter_target_removal_interplay(self):
+    async def test_filter_target_removal_interplay(self):
         input_data_dict = self.sample_data_user_orders.copy()
         # Case 1: user kept, status removed
         config1 = {"targets": [ {"filter_target": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Alice"}]}]}, {"filter_target": "user.status", "condition_groups": [{"conditions": [{"field": "user.age", "operator": "greater_than_or_equals", "value": 40}]}]}]}
         node1 = FilterNode(config=config1, node_id="filter22a", prefect_mode=False)
-        result1 = node1.process(input_data_dict)
+        result1 = await node1.process(input_data_dict)
         expected1 = copy.deepcopy(input_data_dict); del expected1["user"]["status"]
         self.assertEqual(result1.filtered_data, expected1)
         # Case 2: user removed
         config2 = {"targets": [ {"filter_target": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "not_equals", "value": "Alice"}]}]}, {"filter_target": "user.status", "condition_groups": [{"conditions": [{"field": "user.age", "operator": "greater_than_or_equals", "value": 40}]}]}]}
         node2 = FilterNode(config=config2, node_id="filter22b", prefect_mode=False)
-        result2 = node2.process(self.sample_data_user_orders.copy()) # Fresh copy
+        result2 = await node2.process(self.sample_data_user_orders.copy()) # Fresh copy
         expected2 = copy.deepcopy(self.sample_data_user_orders); del expected2["user"]
         self.assertEqual(result2.filtered_data, expected2)
 
-    def test_config_validation_multiple_none_targets(self):
+    async def test_config_validation_multiple_none_targets(self):
         cond_group = {"conditions": [{"field":"f","operator":"equals","value":1}]}
         config_dict = {"targets": [{"filter_target": None, "condition_groups": [cond_group]}, {"filter_target": None, "condition_groups": [cond_group]}]}
         with self.assertRaisesRegex(ValueError, "Only one FilterConfigSchema can have filter_target=None"):
             FilterTargets(**config_dict)
 
-    def test_config_validation_duplicate_path_targets(self):
+    async def test_config_validation_duplicate_path_targets(self):
         cond_group = {"conditions": [{"field":"f","operator":"equals","value":1}]}
         config_dict = {"targets": [{"filter_target": "user.name", "condition_groups": [cond_group]}, {"filter_target": "user.name", "condition_groups": [cond_group]}]}
         with self.assertRaisesRegex(ValueError, "Duplicate filter_target path found: 'user.name'"):
@@ -1212,56 +1213,56 @@ class TestFilterNodeUnittest(BaseNodeTest):
 class TestIfElseNodeUnittest(BaseNodeTest):
 
     # --- Basic Tests ---
-    def test_ifelse_single_tag_pass(self):
+    async def test_ifelse_single_tag_pass(self):
         config = {"tagged_conditions": [{"tag": "check1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}]}
         node = IfElseConditionNode(config=config, node_id="ifelse1", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"check1": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH); self.assertEqual(result.data, input_data_dict)
 
-    def test_ifelse_single_tag_fail(self):
+    async def test_ifelse_single_tag_fail(self):
         config = {"tagged_conditions": [{"tag": "check1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}]}
         node = IfElseConditionNode(config=config, node_id="ifelse2", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"check1": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
     # --- Multi-Tag Logic ---
-    def test_ifelse_multi_tag_and_pass(self):
+    async def test_ifelse_multi_tag_and_pass(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Alice"}]}]}], "branch_logic_operator": "and"}
         node = IfElseConditionNode(config=config, node_id="ifelse3", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": True, "user": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
 
-    def test_ifelse_multi_tag_and_fail(self):
+    async def test_ifelse_multi_tag_and_fail(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Bob"}]}]}], "branch_logic_operator": "and"}
         node = IfElseConditionNode(config=config, node_id="ifelse4", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": True, "user": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
-    def test_ifelse_multi_tag_or_pass(self):
+    async def test_ifelse_multi_tag_or_pass(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Alice"}]}]}], "branch_logic_operator": "or"}
         node = IfElseConditionNode(config=config, node_id="ifelse5", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": False, "user": True}); self.assertTrue(result.condition_result); self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
 
-    def test_ifelse_multi_tag_or_fail(self):
+    async def test_ifelse_multi_tag_or_fail(self):
         config = {"tagged_conditions": [ {"tag": "flag", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": False}]}]}, {"tag": "user", "condition_groups": [{"conditions": [{"field": "user.name", "operator": "equals", "value": "Bob"}]}]}], "branch_logic_operator": "or"}
         node = IfElseConditionNode(config=config, node_id="ifelse6", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.tag_results, {"flag": False, "user": False}); self.assertFalse(result.condition_result); self.assertEqual(result.branch, BranchPath.FALSE_BRANCH)
 
     # --- Nested List Evaluation ---
-    def test_ifelse_nested_list_cond_eval(self):
+    async def test_ifelse_nested_list_cond_eval(self):
         # Config: Tag=True if OR(orders value) > 200
         config = {"tagged_conditions": [{"tag": "order_check", "condition_groups": [{"conditions": [{"field": "orders.value", "operator": "greater_than", "value": 200}]}], "nested_list_logical_operator": "or"}], "branch_logic_operator": "and"}
         node = IfElseConditionNode(config=config, node_id="ifelse7", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         # Should be True because order id=3 has value 210
         self.assertEqual(result.tag_results, {"order_check": True})
         self.assertTrue(result.condition_result)
         self.assertEqual(result.branch, BranchPath.TRUE_BRANCH)
 
     # --- Validation and Passthrough ---
-    def test_config_validation_duplicate_tags(self):
+    async def test_config_validation_duplicate_tags(self):
         # Import Pydantic's specific validation error
         from pydantic import ValidationError
 
@@ -1273,15 +1274,15 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         # Check if the error message contains the expected text
         self.assertIn("Duplicate tag found: 'check1'", str(cm.exception))
 
-    def test_ifelse_data_passthrough(self):
+    async def test_ifelse_data_passthrough(self):
         config = {"tagged_conditions": [{"tag": "t1", "condition_groups": [{"conditions": [{"field": "global_flag", "operator": "equals", "value": True}]}]}]}
         node = IfElseConditionNode(config=config, node_id="ifelse8", prefect_mode=False)
-        input_data_dict = self.sample_data_user_orders.copy(); result = node.process(input_data_dict)
+        input_data_dict = self.sample_data_user_orders.copy(); result = await node.process(input_data_dict)
         self.assertEqual(result.data, input_data_dict) # Compare dict directly
     
 
     # --- Complex Nested Structure Tests ---
-    def test_ifelse_complex_nested_dict(self):
+    async def test_ifelse_complex_nested_dict(self):
         """
         Test IfElseNode with complex nested dictionary structures.
         This test demonstrates how to:
@@ -1372,7 +1373,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="complex_nested", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # All conditions should pass
         expected_tags = {
@@ -1391,7 +1392,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         modified_data["customer"]["subscription"]["status"] = "suspended"
         modified_data["analytics"]["visits"] = 25
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "premium_user": False,  # Status is no longer active
             "engaged_user": False,  # Visits below threshold
@@ -1402,7 +1403,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertFalse(result2.condition_result)
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
 
-    def test_ifelse_nested_lists_complex(self):
+    async def test_ifelse_nested_lists_complex(self):
         """
         Test IfElseNode with complex nested list structures.
         This test demonstrates how to:
@@ -1507,7 +1508,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="nested_lists_complex", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # All conditions should pass
         expected_tags = {
@@ -1529,7 +1530,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
                 for project in team["projects"]:
                     project["priority"] = "medium"
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "has_critical_projects": False,  # No more critical projects
             "senior_heavy": True,            # Still have senior engineers
@@ -1540,7 +1541,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
 
-    def test_ifelse_mixed_nested_structures(self):
+    async def test_ifelse_mixed_nested_structures(self):
         """
         Test IfElseNode with a mix of nested dictionaries and lists with complex conditions.
         This test demonstrates how to:
@@ -1644,7 +1645,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="mixed_nested", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # All conditions should pass
         expected_tags = {
@@ -1666,7 +1667,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         for transaction in modified_data["transactions"]:
             transaction["amount"] = 500.00
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "enterprise_customer": False,
             "high_value_transactions": False,
@@ -1682,7 +1683,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         # Remove api_call activity
         modified_data2["activity_log"] = [log for log in modified_data2["activity_log"] if log["type"] != "api_call"]
         
-        result3 = node.process(modified_data2)
+        result3 = await node.process(modified_data2)
         expected_tags3 = {
             "enterprise_customer": False,
             "high_value_transactions": False,
@@ -1692,7 +1693,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertEqual(result3.tag_results, expected_tags3)
         self.assertFalse(result3.condition_result)
         self.assertEqual(result3.branch, BranchPath.FALSE_BRANCH)
-    def test_ifelse_with_all_nonexistent_and_some_existing_fields(self):
+    async def test_ifelse_with_all_nonexistent_and_some_existing_fields(self):
         """
         Test IfElseNode with conditions referencing fields that don't exist.
         This demonstrates how to:
@@ -1753,7 +1754,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="nonexistent_fields", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results:
         # - admin_check: False (non-existent field evaluates to false in AND with true)
@@ -1789,7 +1790,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         }
         
         node2 = IfElseConditionNode(config=config_all_nonexistent, node_id="all_nonexistent", prefect_mode=False)
-        result2 = node2.process(test_data)
+        result2 = await node2.process(test_data)
         
         self.assertEqual(result2.tag_results, {"missing_fields": False})
         self.assertFalse(result2.condition_result)
@@ -1815,7 +1816,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         }
         
         node2 = IfElseConditionNode(config=config_some_nonexistent, node_id="some_nonexistent", prefect_mode=False)
-        result2 = node2.process(test_data)
+        result2 = await node2.process(test_data)
         
         self.assertEqual(result2.tag_results, {"some_missing_fields": True})
         self.assertTrue(result2.condition_result)
@@ -1840,13 +1841,13 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         }
         
         node2 = IfElseConditionNode(config=config_some_nonexistent, node_id="some_nonexistent", prefect_mode=False)
-        result2 = node2.process(test_data)
+        result2 = await node2.process(test_data)
         
         self.assertEqual(result2.tag_results, {"some_nonexistent": False})
         self.assertFalse(result2.condition_result)
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
     
-    def test_ifelse_complex_operators_on_lists(self):
+    async def test_ifelse_complex_operators_on_lists(self):
         """
         Test IfElseNode with complex operators on nested lists.
         This demonstrates how to:
@@ -1929,7 +1930,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="complex_list_operators", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results:
         # - has_expensive_electronics: True (P1 matches)
@@ -1957,7 +1958,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
             if location["size"] == "large":
                 location["size"] = "medium"
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "has_expensive_electronics": True,  # Still true
             "all_products_in_stock": False,     # Now false (one product has 0 stock)
@@ -1969,7 +1970,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
     
-    def test_ifelse_mixed_logical_operators(self):
+    async def test_ifelse_mixed_logical_operators(self):
         """
         Test IfElseNode with mixed logical operators in different condition groups.
         This demonstrates how to:
@@ -2071,7 +2072,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="mixed_operators", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results:
         # - high_value_business_order: True (matches both condition groups)
@@ -2094,7 +2095,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         modified_data["order"]["items"] = 3
         modified_data["flags"]["priority"] = False
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "high_value_business_order": True,  # Still true because of express shipping
             "special_handling": False,          # Now false (not international, items <= 5, total <= 2000)
@@ -2104,7 +2105,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertEqual(result2.tag_results, expected_tags2)
         self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
-    def test_ifelse_with_contains_operator(self):
+    async def test_ifelse_with_contains_operator(self):
         """
         Test IfElseNode with the CONTAINS operator.
         This demonstrates how to:
@@ -2167,7 +2168,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="contains_operator", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results - all conditions should pass
         expected_tags = {
@@ -2186,7 +2187,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         modified_data["product"]["name"] = "Standard Smartphone"
         modified_data["customer"]["preferences"] = "light mode, notifications disabled"
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "premium_product": False,  # Name no longer contains "Premium"
             "customer_interested_in_smartphones": True,  # This still passes
@@ -2197,7 +2198,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertFalse(result2.condition_result)  # AND logic means one false makes all false
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
 
-    def test_ifelse_with_not_contains_operator(self):
+    async def test_ifelse_with_not_contains_operator(self):
         """
         Test IfElseNode with the NOT_CONTAINS operator.
         This demonstrates how to:
@@ -2251,7 +2252,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="not_contains_operator", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results
         expected_tags = {
@@ -2268,7 +2269,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         modified_data = copy.deepcopy(test_data)
         modified_data["user"]["roles"].append("admin")
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "public_document": False,  # Still false
             "admin_user": False        # Now false because user has admin role
@@ -2278,7 +2279,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         self.assertFalse(result2.condition_result)
         self.assertEqual(result2.branch, BranchPath.FALSE_BRANCH)
 
-    def test_ifelse_with_starts_with_ends_with_operators(self):
+    async def test_ifelse_with_starts_with_ends_with_operators(self):
         """
         Test IfElseNode with the STARTS_WITH and ENDS_WITH operators.
         This demonstrates how to:
@@ -2345,7 +2346,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
         
         # Create and process the node
         node = IfElseConditionNode(config=config, node_id="string_prefix_suffix", prefect_mode=False)
-        result = node.process(test_data)
+        result = await node.process(test_data)
         
         # Expected results
         expected_tags = {
@@ -2366,7 +2367,7 @@ class TestIfElseNodeUnittest(BaseNodeTest):
             {"name": "invoice_12345.docx", "path": "/documents/finance/", "size": 512}
         ]
         
-        result2 = node.process(modified_data)
+        result2 = await node.process(modified_data)
         expected_tags2 = {
             "has_report": False,  # No file starts with "report_"
             "has_pdf": False,     # No file ends with ".pdf"

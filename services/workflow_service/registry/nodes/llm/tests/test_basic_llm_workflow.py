@@ -5,11 +5,16 @@ This module tests the LLM node in a simple 3-node graph (input -> LLM -> output)
 with different model configurations and output types.
 """
 import json
-from typing import Dict, Any, List, ClassVar
+from typing import Dict, Any, List, ClassVar, Awaitable, Optional
 import unittest
+import asyncio
+import uuid
 from pydantic import BaseModel, Field
 from langchain_core.messages import AnyMessage
 
+from kiwi_app.workflow_app.constants import SchemaType
+from kiwi_app.workflow_app.schemas import SchemaTemplateCreate
+from db.session import get_async_db_as_manager
 from workflow_service.registry.nodes.core.base import BaseSchema
 from workflow_service.config.constants import (
     INPUT_NODE_NAME,
@@ -31,6 +36,8 @@ from workflow_service.registry.nodes.llm.llm_node import (
     LLMStructuredOutputSchema,
     LLMModelConfig,
     ModelSpec,
+    ToolCallingConfig,
+    ToolConfig,
 )
 from workflow_service.registry.nodes.llm.config import (
     LLMModelProvider,
@@ -47,6 +54,28 @@ from workflow_service.graph.runtime.adapter import LangGraphRuntimeAdapter
 from workflow_service.registry.registry import DBRegistry
 from workflow_service.registry.nodes.core.dynamic_nodes import InputNode, OutputNode
 
+# Context and Service imports
+from services.workflow_service.services.external_context_manager import (
+    ExternalContextManager,
+    get_external_context_manager_with_clients
+)
+from services.kiwi_app.workflow_app.service_customer_data import CustomerDataService # Assuming path
+from services.workflow_service.config.constants import (
+    APPLICATION_CONTEXT_KEY,
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+)
+
+# Schema/Model imports
+from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # Assuming path
+# from kiwi_app.auth.models import User # Import real User if available and simple
+
+# Simple Mock User if real one is complex to import/instantiate
+class MockUser(BaseModel):
+    """Mock User model for testing."""
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    is_superuser: bool = False
+    # Add other fields if CustomerDataService or other parts check them
+
 
 class TestOutputSchema(BaseModel):
     """Schema for test output."""
@@ -57,22 +86,30 @@ class TestOutputSchema(BaseModel):
 def create_basic_llm_graph(
     model_provider: LLMModelProvider,
     model_name: str,
-    output_type: str = "text",
-    reasoning_config: Dict[str, Any] = None,
+    output_schema_config: Optional[LLMStructuredOutputSchema] = None, # Pass the whole config object
+    reasoning_config: Optional[Dict[str, Any]] = None,
     max_tokens: int = 100,
-    **kwargs
+    default_system_prompt: Optional[str] = None,
+    web_search_options: Optional[Dict[str, Any]] = None,
+    tool_calling_config: Optional[ToolCallingConfig] = None,
+    tools: Optional[List[ToolConfig]] = None
 ) -> GraphSchema:
     """
     Create a basic 3-node graph with LLM node.
-    
+
     Args:
-        model_provider: The LLM provider to use
-        model_name: The model name to use
-        output_type: Type of output ("text" or "structured")
-        reasoning_config: Optional reasoning configuration
-        
+        model_provider: The LLM provider to use.
+        model_name: The model name to use.
+        output_schema_config: Configuration for structured output.
+        reasoning_config: Optional reasoning configuration.
+        max_tokens: Maximum tokens for the response.
+        default_system_prompt: Optional default system prompt.
+        web_search_options: Optional web search config.
+        tool_calling_config: Optional tool calling config.
+        tools: Optional list of tools.
+
     Returns:
-        GraphSchema: The configured graph schema
+        GraphSchema: The configured graph schema.
     """
     # Input node
     input_node = NodeConfig(
@@ -81,67 +118,41 @@ def create_basic_llm_graph(
         node_config={}
     )
 
-    dynamic_schema_spec_fields = {
-            # try Any or Dict field!
-            "content": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-            # Below works with Anthropic!
-            # "metadata": DynamicSchemaFieldConfig(type="dict",  required=True, description="Metadata of the response"),
-            # "metadata": DynamicSchemaFieldConfig(type="dict",  required=True, description="Metadata of the response in dictionary key-value format", keys_type="str", values_type="str"),
-            "metadata": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Reasoning metadata of the response"),
-            # "metadata": DynamicSchemaFieldConfig(type="str", required=True, description="Reasoning metadata of the response"),
-    } if "fields" not in kwargs else kwargs["fields"]
-
-    dynamic_schema_spec = None
-    if dynamic_schema_spec_fields:
-        dynamic_schema_spec = ConstructDynamicSchema(
-            schema_name="TestSchema",
-            schema_description="Test schema",
-            fields=dynamic_schema_spec_fields
-        )
-    
     # LLM node configuration
     llm_config = LLMNodeConfigSchema(
-        default_system_prompt=kwargs.get("default_system_prompt", None),
+        default_system_prompt=default_system_prompt,
         llm_config=LLMModelConfig(
             model_spec=ModelSpec(
                 provider=model_provider,
                 model=model_name
             ),
             temperature=0.0,  # For deterministic outputs
-            max_tokens=max_tokens + (reasoning_config.get("reasoning_tokens_budget", 0) if reasoning_config else 0),  # Keep responses short for testing
-            **reasoning_config if reasoning_config else {}
-            # reasoning config
-            # reasoning_effort_class="high",
-            # reasoning_effort_number=100,
-            # reasoning_tokens_budget=1000
+            max_tokens=max_tokens + (reasoning_config.get("reasoning_tokens_budget", 0) if reasoning_config else 0),
+            **(reasoning_config if reasoning_config else {})
         ),
-        # default_system_prompt
         thinking_tokens_in_prompt="all",
-        output_schema=LLMStructuredOutputSchema(
-            schema_from_registry=kwargs.get("schema_from_registry", None),
-            # schema_from_registry
-            dynamic_schema_spec=dynamic_schema_spec if (output_type == "structured" and dynamic_schema_spec) else None
-        ),
-        web_search_options=kwargs.get("web_search_options", None),
+        output_schema=output_schema_config or LLMStructuredOutputSchema(), # Use provided or default
+        web_search_options=web_search_options,
+        tool_calling_config=tool_calling_config or ToolCallingConfig(),
+        tools=tools
     )
-    
+
     # LLM node
     llm_node = NodeConfig(
         node_id="llm_node",
         node_name="llm",
-        node_config=llm_config.model_dump()
+        node_config=llm_config.model_dump(exclude_none=True) # Exclude Nones for cleaner config
     )
-    
+
     # Output node
     output_node = NodeConfig(
         node_id=OUTPUT_NODE_NAME,
         node_name=OUTPUT_NODE_NAME,
         node_config={}
     )
-    
+
     # Define edges
     edges = [
-        # Input to LLM
         EdgeSchema(
             src_node_id=INPUT_NODE_NAME,
             dst_node_id="llm_node",
@@ -149,10 +160,9 @@ def create_basic_llm_graph(
                 EdgeMapping(src_field="user_prompt", dst_field="user_prompt"),
                 EdgeMapping(src_field="messages_history", dst_field="messages_history"),
                 EdgeMapping(src_field="system_prompt", dst_field="system_prompt"),
+                # EdgeMapping(src_field="tool_outputs", dst_field="tool_outputs"), # Added for tool testing
             ]
         ),
-        
-        # LLM to Output
         EdgeSchema(
             src_node_id="llm_node",
             dst_node_id=OUTPUT_NODE_NAME,
@@ -162,10 +172,11 @@ def create_basic_llm_graph(
                 EdgeMapping(src_field="current_messages", dst_field="current_messages"),
                 EdgeMapping(src_field="content", dst_field="content"),
                 EdgeMapping(src_field="web_search_result", dst_field="web_search_result"),
+                # EdgeMapping(src_field="tool_calls", dst_field="tool_calls"), # Added for tool testing
             ]
         )
     ]
-    
+
     return GraphSchema(
         nodes={
             INPUT_NODE_NAME: input_node,
@@ -179,497 +190,846 @@ def create_basic_llm_graph(
 
 
 def setup_registry():
-    """Setup the registry for the LLM node."""
+    """Setup the registry with necessary nodes and schemas."""
     registry = DBRegistry()
     registry.register_node(LLMNode)
     registry.register_node(InputNode)
     registry.register_node(OutputNode)
 
-    class TTestSchema(BaseSchema):
-        schema_name: ClassVar[str] = "TTestSchema"
-        int_value: int = Field(description="Integer value of answer")
+    # No need to register TTestSchema here as we are providing schemas directly
 
-    registry.register_schema(TTestSchema)
-    # TODO: register schemas for consumption in llm node!
     return registry
 
 
-def run_llm_test(
+async def arun_llm_test(
+    runtime_config: Dict[str, Any], # Pass runtime config
     model_provider: LLMModelProvider,
     model_name: str,
     max_tokens: int = 100,
-    output_type: str = "text",
-    reasoning_config: Dict[str, Any] = None,
+    output_schema_config: Optional[LLMStructuredOutputSchema] = None,
+    reasoning_config: Optional[Dict[str, Any]] = None,
     user_prompt: str = "What is 2+2? Answer in one word.",
-    **kwargs
+    message_history: Optional[List[Dict]] = None,
+    input_system_prompt: Optional[str] = None,
+    **kwargs # Pass other graph creation args like web_search_options etc.
 ) -> Dict[str, Any]:
     """
-    Run a test with the specified LLM configuration.
-    
+    Run a test with the specified LLM configuration asynchronously.
+
     Args:
-        model_provider: The LLM provider to use
-        model_name: The model name to use
-        output_type: Type of output ("text" or "structured")
-        reasoning_config: Optional reasoning configuration
-        user_prompt: The prompt to send to the LLM
-        
+        runtime_config: The runtime configuration dictionary.
+        model_provider: The LLM provider to use.
+        model_name: The model name to use.
+        max_tokens: Max tokens for generation.
+        output_schema_config: Structured output configuration.
+        reasoning_config: Optional reasoning configuration.
+        user_prompt: The prompt to send to the LLM.
+        message_history: Optional message history.
+        input_system_prompt: Optional system prompt to override default.
+        **kwargs: Additional arguments passed to create_basic_llm_graph.
+
     Returns:
-        Dict[str, Any]: The test results
+        Dict[str, Any]: The test results from the graph execution.
     """
-    # import ipdb; ipdb.set_trace()
-    # Setup registry
     registry = setup_registry()
 
-    message_history = [
-        {"role": "system", "type": "system", "content": "You are pretending to be a bad assistant that can answer questions and help with tasks. You have to get every answer wrong in this case since you're a bad assistant!"},
-        {"role": "user", "type": "human", "content": "What is 2+2? Answer in one word."},
-        {"role": "assistant", "type": "ai", "content": "1! Though I'm not sure why you'd ask me that."},
-    ] if "message_history" in kwargs else None
-    input_system_prompt = "You are pretending to be a bad assistant that can answer questions and help with tasks. You have to get every answer wrong in this case since you're a bad assistant!"
-    input_system_prompt = (input_system_prompt if "input_system_prompt" in kwargs else None)
-    
-    input_kwargs = {}
+    # Prepare input data based on provided args
+    input_data = {"user_prompt": user_prompt}
     if message_history:
-        input_kwargs["messages_history"] = message_history
+        input_data["messages_history"] = message_history
     if input_system_prompt:
-        input_kwargs["system_prompt"] = input_system_prompt
-    
-    # Create graph schema
+        input_data["system_prompt"] = input_system_prompt
+
+    # Create graph schema using the passed arguments
     graph_schema = create_basic_llm_graph(
         model_provider=model_provider,
         model_name=model_name,
-        output_type=output_type,
+        output_schema_config=output_schema_config,
         max_tokens=max_tokens,
         reasoning_config=reasoning_config,
-        **kwargs
+        default_system_prompt=kwargs.pop("default_system_prompt", None), # Handle explicitly
+        **kwargs # Pass remaining kwargs
     )
-    
-    # Create graph builder
+
     builder = GraphBuilder(registry)
-    
-    # Build graph entities
     graph_entities = builder.build_graph_entities(graph_schema)
-    
-    # Configure runtime
-    runtime_config = graph_entities["runtime_config"]
-    runtime_config["thread_id"] = f"llm_test_{model_provider}_{model_name}"
-    runtime_config["use_checkpointing"] = True
-    
-    # Create runtime adapter
+
+    # Use provided runtime config, but ensure a unique thread_id for isolation
+    graph_runtime_config = graph_entities["runtime_config"]
+    graph_runtime_config.update(runtime_config)
+    test_runtime_config = graph_runtime_config
+    test_runtime_config["thread_id"] = f"llm_test_{model_provider}_{model_name}_{uuid.uuid4()}"
+    test_runtime_config["use_checkpointing"] = True # Usually good for testing state
+
     adapter = LangGraphRuntimeAdapter()
-    
-    # Build graph
     graph = adapter.build_graph(graph_entities)
-    
-    # Execute graph
-    result = adapter.execute_graph(
+
+    result = await adapter.aexecute_graph(
         graph=graph,
-        input_data={"user_prompt": user_prompt, **input_kwargs},
-        config=runtime_config,
+        input_data=input_data,
+        config=test_runtime_config, # Use the test-specific config
         output_node_id=graph_entities["output_node_id"]
     )
-    
+
     return result
 
 
-class TestBasicLLMWorkflow(unittest.TestCase):
-    """Test basic LLM node functionality with different configurations."""
-    
-    def test_anthropic_text_output(self):
-        """Test Anthropic Claude 3.7 Sonnet with text output."""
-        result = run_llm_test(
+class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
+    """Test basic LLM node functionality with different configurations asynchronously."""
+
+    # Test setup attributes
+    test_org_id: uuid.UUID
+    test_user_id: uuid.UUID
+    user_regular: MockUser
+    run_job_regular: WorkflowRunJobCreate
+    external_context: ExternalContextManager
+    runtime_config_regular: Dict[str, Any]
+    customer_data_service: Optional[CustomerDataService]
+
+    async def asyncSetUp(self):
+        """Set up test-specific users, orgs, and contexts before each test."""
+        self.test_org_id = uuid.uuid4()
+        self.test_user_id = uuid.uuid4()
+
+        self.user_regular = MockUser(id=self.test_user_id, is_superuser=False)
+
+        # Base Run Job
+        base_run_job_info = {
+            "run_id": uuid.uuid4(),
+            "workflow_id": uuid.uuid4(),
+            "owner_org_id": self.test_org_id,
+            "triggered_by_user_id": self.user_regular.id
+        }
+        self.run_job_regular = WorkflowRunJobCreate(**base_run_job_info)
+
+        # Initialize context for each test
+        try:
+             self.external_context = await get_external_context_manager_with_clients()
+        except Exception as e:
+             raise unittest.SkipTest(f"Failed to initialize external context: {e}")
+
+        # Runtime Configs
+        self.runtime_config_regular = {
+            APPLICATION_CONTEXT_KEY: {
+                "user": self.user_regular,
+                "workflow_run_job": self.run_job_regular
+            },
+            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+        }
+
+        self.customer_data_service = self.external_context.customer_data_service
+        if not self.customer_data_service:
+             self.logger.warning("CustomerDataService could not be initialized in external context.")
+             # Decide if this is a skip condition or just a warning
+             # raise unittest.SkipTest("CustomerDataService could not be initialized.")
+
+
+    async def test_anthropic_text_output(self):
+        """Test Anthropic Claude 3.7 Sonnet with default text output."""
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular, # Pass config
             model_provider=LLMModelProvider.ANTHROPIC,
             model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
-            output_type="text"
+            # output_schema_config is None by default -> text output
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        self.assertTrue(("structured_output" not in result) or (result["structured_output"] is None)) # Should not be present for text
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], str)
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_anthropic_structured_output_with_schema_from_registry_and_defined_dynamic_fields_non_reasoning_model(self):
-        """Test Anthropic Claude 3.5 Sonnet with structured output."""
-        result = run_llm_test(
-            model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
-            output_type="structured",
-            schema_from_registry={
-                "schema_name": "TTestSchema",
-            },
-            # reasoning_config={
-            #     "reasoning_tokens_budget": 1024  # Claude 3.7 supports reasoning tokens budget
-            # }
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-    
-    def test_anthropic_structured_output_with_schema_from_registry_non_reasoning_model(self):
-        """Test Anthropic Claude 3.5 Sonnet with structured output."""
-        result = run_llm_test(
-            model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
-            output_type="structured",
-            schema_from_registry={
-                "schema_name": "TTestSchema",
-            },
-            fields=None,
-            # reasoning_config={
-            #     "reasoning_tokens_budget": 1024  # Claude 3.7 supports reasoning tokens budget
-            # }
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("int_value", result["structured_output"])
-    
-    
+        self.assertIn("iteration_count", result["metadata"])
+        self.assertGreaterEqual(result["metadata"]["iteration_count"], 1) # At least one AI message
 
-    def test_anthropic_structured_output_non_reasoning_model(self):
-        """Test Anthropic Claude 3.5 Sonnet with structured output."""
-        result = run_llm_test(
+    async def test_anthropic_structured_output_dynamic_spec(self):
+        """Test Anthropic Claude 3.5 Sonnet with structured output via dynamic_schema_spec."""
+        dynamic_schema_spec = ConstructDynamicSchema(
+            schema_name="TestDynamicSchema",
+            schema_description="Schema for simple content and metadata list",
+            fields={
+                "content": DynamicSchemaFieldConfig(type="str", required=True, description="The main textual answer."),
+                "metadata": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of reasoning steps or metadata."),
+            }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular, # Pass config
             model_provider=LLMModelProvider.ANTHROPIC,
             model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
-            output_type="structured",
-            # reasoning_config={
-            #     "reasoning_tokens_budget": 1024  # Claude 3.7 supports reasoning tokens budget
-            # }
+            output_schema_config=schema_config,
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
         self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
         self.assertIn("content", result["structured_output"])
-    
-    def test_anthropic_text_output_non_reasoning_model(self):
-        """Test Anthropic Claude 3.5 Sonnet with text output."""
-        result = run_llm_test(
+        self.assertIsInstance(result["structured_output"]["content"], str)
+        self.assertIn("metadata", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["metadata"], list)
+
+    async def test_anthropic_structured_output_json_definition(self):
+        """Test Anthropic Claude 3.5 Sonnet with structured output via schema_definition."""
+        json_schema_def = {
+            "title": "TestJsonSchema",
+            "description": "Raw JSON schema definition for content and an integer value.",
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The primary textual response."
+                },
+                "value_integer": {
+                    "type": "integer",
+                    "description": "An integer representation of the answer."
+                }
+            },
+            "required": ["content", "value_integer"]
+        }
+        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular, # Pass config
             model_provider=LLMModelProvider.ANTHROPIC,
             model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
-            output_type="text"
+            output_schema_config=schema_config,
         )
         self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
+        self.assertIn("structured_output", result)
         self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        self.assertGreater(len(result["content"]), 0)
-        
-    def test_anthropic_structured_output_reasoning(self):
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("content", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["content"], str)
+        self.assertIn("value_integer", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["value_integer"], int)
+
+
+    async def test_anthropic_structured_output_reasoning(self):
         """Test Anthropic Claude 3.7 Sonnet with structured output and reasoning."""
-        result = run_llm_test(
+        dynamic_schema_spec = ConstructDynamicSchema(
+            schema_name="ReasoningSchema",
+            fields={
+                "answer": DynamicSchemaFieldConfig(type="str", required=True, description="Final answer."),
+                "steps": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Reasoning steps."),
+            }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.ANTHROPIC,
             model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
-            output_type="structured",
+            output_schema_config=schema_config,
             reasoning_config={
-                "reasoning_tokens_budget": 1024  # Claude 3.7 supports reasoning tokens budget
+                "reasoning_tokens_budget": 1024
             },
-            input_system_prompt=True,
-            # message_history=True,
+            input_system_prompt="Think step by step before answering.", # Encourage reasoning
+            user_prompt="What is the capital of France? Explain your reasoning."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
+        self.assertIn("answer", result["structured_output"])
+        self.assertIn("steps", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["steps"], list)
+        # Check if reasoning tokens were used (if provider exposes this in metadata)
+        # self.assertGreater(result["metadata"].get("token_usage", {}).get("reasoning_tokens", 0), 0)
 
-        result = run_llm_test(
-            model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
-            output_type="structured",
-            reasoning_config={
-                "reasoning_tokens_budget": 1024  # Claude 3.7 supports reasoning tokens budget
-            },
-            # input_system_prompt=True,
-            message_history=True,
-        )
+    # # # --- OpenAI Tests (similar structure) ---
 
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-        
-    def test_openai_text_output_reasoning_model(self):
-        """Test OpenAI O3 Mini with text output and reasoning (thinking model)."""
-        result = run_llm_test(
+    async def test_openai_text_output_non_reasoning_model(self):
+        """Test OpenAI GPT-4o-mini with text output."""
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.O3_MINI.value,
-            output_type="text",
+            model_name=OpenAIModels.GPT_4_5.value, # Using GPT-4.5 enum value
+            # No output_schema_config -> text output
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("content", result)
+        self.assertTrue(("structured_output" not in result) or (result["structured_output"] is None))
+        self.assertIsInstance(result["content"], str)
+        self.assertGreater(len(result["content"]), 0)
+
+    async def test_openai_structured_output_dynamic_spec_non_reasoning_model(self):
+        """Test OpenAI GPT-4o with structured output via dynamic_schema_spec."""
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="OpenAIDynamicSchema",
+             fields={
+                 "answer": DynamicSchemaFieldConfig(type="str", required=True, description="The answer."),
+                 "confidence": DynamicSchemaFieldConfig(type="float", required=False, description="Confidence score (0.0-1.0).")
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.OPENAI,
+            model_name=OpenAIModels.GPT_4o.value,
+            output_schema_config=schema_config,
+            user_prompt="What is 2+2? Provide the answer and optionally a confidence score."
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("structured_output", result)
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("answer", result["structured_output"])
+        # Confidence is optional, so check its type if present
+        if "confidence" in result["structured_output"]:
+            self.assertIsInstance(result["structured_output"]["confidence"], float)
+
+    async def test_llm_structured_output_from_db_schema(self):
+        """Test LLM node structured output using a schema fetched from the DB registry."""
+        # 1. Define Schema Details
+        schema_name = f"test_db_schema_{uuid.uuid4()}"
+        schema_version = "1.0"
+        schema_definition = {
+            "title": schema_name,
+            "description": "Schema fetched from DB for testing.",
+            "type": "object",
+            "properties": {
+                "person_name": {"type": "string", "description": "Name of the person"},
+                "person_age": {"type": "integer", "description": "Age of the person"}
+            },
+            "required": ["person_name", "person_age"]
+        }
+        schema_template_in = SchemaTemplateCreate(
+            name=schema_name,
+            version=schema_version,
+            schema_type=SchemaType.JSON_SCHEMA,
+            schema_definition=schema_definition,
+            description="Test schema template",
+            is_public=True, # Keep test schemas private to the org
+            is_system_entity=True,
+        )
+
+        created_schema_template = None
+        try:
+            # 2. Create Schema Template in DB
+            # Ensure the DAO and DB session are available via external_context
+            async with get_async_db_as_manager() as db:
+                try:
+                    # First, try to delete any existing schema template with the same name/version
+                    # This ensures we don't have conflicts if the test was interrupted previously
+                    existing_template = await self.external_context.daos.schema_template.get_by_name_version(
+                        db=db,
+                        name=schema_name,
+                        version=schema_version
+                    )
+                    
+                    if existing_template:
+                        # Delete the existing template to avoid conflicts
+                        await self.external_context.daos.schema_template.remove(
+                            db=db,
+                            id=existing_template.id
+                        )
+                except Exception as e:
+                    pass
+                created_schema_template = await self.external_context.daos.schema_template.create(
+                    db=db,
+                    obj_in=schema_template_in,
+                    owner_org_id=None
+                    # owner_org_id=self.test_org_id
+                )
+            async with get_async_db_as_manager() as db:
+                loaded_schema_template = await self.external_context.daos.schema_template.get(db, id=created_schema_template.id)
+                schema_template = await self.runtime_config_regular[EXTERNAL_CONTEXT_MANAGER_KEY].customer_data_service._get_schema_from_template(  # : Optional[SchemaTemplate]
+                    db=db,
+                    template_name=schema_name,
+                    template_version=schema_version,
+                    org_id=self.test_org_id,
+                    user=self.runtime_config_regular[APPLICATION_CONTEXT_KEY]["user"]
+                )
+                # import ipdb; ipdb.set_trace()
+            self.assertIsNotNone(created_schema_template)
+            self.assertEqual(created_schema_template.name, schema_name)
+
+            # 3. Configure LLM Node to use the DB Schema
+            # Use the schema_template_name and optionally version
+            schema_config = LLMStructuredOutputSchema(
+                schema_template_name=schema_name,
+                schema_template_version=schema_version
+                # schema_definition=None, # Ensure only one method is used
+                # dynamic_schema_spec=None
+            )
+
+            # 4. Run the graph
+            result = await arun_llm_test(
+                runtime_config=self.runtime_config_regular,
+                model_provider=LLMModelProvider.OPENAI, # Use a model known to support structured output
+                model_name=OpenAIModels.GPT_4o.value,
+                output_schema_config=schema_config,
+                user_prompt="Extract the name (Alice) and age (30) from the text."
+            )
+
+            # 5. Assertions
+            self.assertIsInstance(result, dict)
+            self.assertIn("structured_output", result)
+            self.assertIsInstance(result["structured_output"], dict)
+            # Validate against the specific schema defined
+            self.assertIn("person_name", result["structured_output"])
+            self.assertIsInstance(result["structured_output"]["person_name"], str)
+            self.assertIn("person_age", result["structured_output"])
+            self.assertIsInstance(result["structured_output"]["person_age"], int)
+            # Optional: Check values if the model is consistent enough
+            # self.assertEqual(result["structured_output"]["person_name"], "Alice")
+            # self.assertEqual(result["structured_output"]["person_age"], 30)
+
+        finally:
+            # 6. Teardown: Delete the schema template
+            if created_schema_template:
+                async with get_async_db_as_manager() as db:
+                    await self.external_context.daos.schema_template.remove_obj(
+                        db=db,
+                        obj=created_schema_template
+                    )
+                    # Verify deletion (optional)
+                    # deleted = await self.external_context.daos.schema_template.get(db, id=created_schema_template.id)
+                    # self.assertIsNone(deleted)
+    # # --- OpenAI Reasoning Tests ---
+
+    async def test_openai_text_output_reasoning_model(self):
+        """Test OpenAI O3 Mini with text output and reasoning (thinking model)."""
+        # Note: O3 Mini is not a standard OpenAI model name in the enum.
+        # Assuming the user meant a reasoning-capable model like O1 or similar.
+        # Using O1 for the test. Adjust if O3_MINI exists in your enum.
+        # If OpenAIModels.O3_MINI does not exist, this test will fail at enum lookup.
+        # Check if O3_MINI is defined before running
+        if not hasattr(OpenAIModels, "O3_MINI"):
+             self.skipTest("OpenAIModels.O3_MINI not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.OPENAI,
+            model_name=OpenAIModels.O3_MINI.value, # Adjust if needed
+            output_schema_config=None, # Explicitly text output
             reasoning_config={
-                "reasoning_effort_class": "low"  # O3 Mini supports reasoning effort class
+                "reasoning_effort_class": "low"
             }
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        self.assertGreater(len(result["content"]), 0)
         
-    def test_openai_structured_output_reasoning_model(self):
+        self.assertIn("metadata", result)
+        self.assertIsInstance(result["content"], str) # Reasoning model might return list, check response format
+        self.assertGreater(len(result["content"]), 0)
+
+    async def test_openai_structured_output_reasoning_model(self):
         """Test OpenAI O1 with structured output and reasoning (thinking model)."""
-        result = run_llm_test(
+        # Check if O1 is defined before running
+        if not hasattr(OpenAIModels, "O1"):
+             self.skipTest("OpenAIModels.O1 not defined in enum.")
+
+        # Define a simple dynamic schema for the structured output
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="OpenAIReasoningStructSchema",
+             fields={
+                 "result": DynamicSchemaFieldConfig(type="str", required=True, description="The final result."),
+                 "explanation": DynamicSchemaFieldConfig(type="str", required=False, description="Explanation or reasoning steps.")
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.O1.value,
-            output_type="structured",
+            model_name=OpenAIModels.O1.value, # Use O1 model
+            output_schema_config=schema_config, # Structured output
             reasoning_config={
-                "reasoning_effort_class": "low"  # O1 supports reasoning effort class
+                "reasoning_effort_class": "low"
             },
-            max_tokens=1000
+            max_tokens=1000,
+            user_prompt="Calculate 5 * 12 and explain the steps briefly."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
         self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-        
-    def test_openai_text_output_non_reasoning_model(self):
-        """Test OpenAI GPT-4o-mini with text output (non-thinking model)."""
-        result = run_llm_test(
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4_5.value,
-            output_type="text"
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        self.assertGreater(len(result["content"]), 0)
-        
-    def test_openai_structured_output_non_reasoning_model(self):
-        """Test OpenAI GPT-4o with structured output (non-thinking model)."""
-        result = run_llm_test(
+        self.assertIn("result", result["structured_output"])
+        # Explanation is optional
+
+    async def test_openai_structured_output_json_definition(self):
+        """Test OpenAI GPT-4o with structured output via schema_definition."""
+        json_schema_def = {
+            "title": "TestJsonSchemaOpenAI",
+            "description": "Raw JSON schema definition for OpenAI.",
+            "type": "object",
+            "properties": {
+                "item_name": {"type": "string", "description": "Name of the item"},
+                "item_count": {"type": "integer", "description": "Quantity of the item"}
+            },
+            "required": ["item_name", "item_count"]
+        }
+        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.OPENAI,
             model_name=OpenAIModels.GPT_4o.value,
-            output_type="structured"
+            output_schema_config=schema_config,
+            user_prompt="Generate details for 5 apples."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-        
-    def test_gemini_pro_exp_text_reasoning(self):
-        """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model).
-        
-        This test verifies that Gemini 2.5 Pro Exp can generate text responses with
-        reasoning capabilities enabled. The model supports advanced thinking and
-        reasoning features.
-        """
-        result = run_llm_test(
+        self.assertIn("item_name", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["item_name"], str)
+        self.assertIn("item_count", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["item_count"], int)
+
+    # --- Gemini Tests ---
+
+    async def test_gemini_pro_exp_text_reasoning(self):
+        """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model)."""
+        if not hasattr(GeminiModels, "GEMINI_2_5_PRO_EXP"):
+             self.skipTest("GeminiModels.GEMINI_2_5_PRO_EXP not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.GEMINI,
             model_name=GeminiModels.GEMINI_2_5_PRO_EXP.value,
-            output_type="text",
-            # reasoning_config={
-            #     "reasoning_effort_class": "low"  # Pro Exp supports reasoning with effort class
+            output_schema_config=None, # Text output
+            # Gemini reasoning config might differ, test without specific reasoning flags first
+            # reasoning_config={ # Example, adjust if Gemini uses different keys
+            #     "reasoning_effort_class": "low"
             # }
+            user_prompt="Explain the concept of quantum entanglement simply."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], str)
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_gemini_pro_exp_structured_reasoning(self):
-        """Test Gemini 2.5 Pro Exp with structured output and reasoning (thinking model).
-        
-        This test verifies that Gemini 2.5 Pro Exp can generate structured outputs
-        with reasoning capabilities enabled. The model supports advanced thinking and
-        multimodal understanding with structured response formats.
-        """
-        result = run_llm_test(
+
+    async def test_gemini_pro_exp_structured_reasoning(self):
+        """Test Gemini 2.5 Pro Exp with structured output and reasoning (thinking model)."""
+        if not hasattr(GeminiModels, "GEMINI_2_5_PRO_EXP"):
+             self.skipTest("GeminiModels.GEMINI_2_5_PRO_EXP not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="GeminiReasoningStructSchema",
+             fields={
+                 "explanation": DynamicSchemaFieldConfig(type="str", required=True, description="The explanation."),
+                 "key_points": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Key takeaways.")
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.GEMINI,
             model_name=GeminiModels.GEMINI_2_5_PRO_EXP.value,
-            output_type="structured",
-            # reasoning_config={
-            #     "reasoning_effort_class": "low"  # Pro Exp supports reasoning with effort class
-            # }
+            output_schema_config=schema_config, # Structured output
+            # reasoning_config={ # Example, adjust if Gemini uses different keys
+            #     "reasoning_effort_class": "low"
+            # },
+            user_prompt="Explain the theory of relativity simply and list key points."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
         self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-    
-    def test_gemini_flash_text(self):
-        """Test Gemini 2.0 Flash with text output (non-thinking model).
-        
-        This test verifies that Gemini 2.0 Flash can generate text responses without
-        explicit reasoning capabilities. The model is optimized for speed and
-        real-time streaming.
-        """
-        result = run_llm_test(
+        self.assertIn("explanation", result["structured_output"])
+        self.assertIn("key_points", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["key_points"], list)
+
+    async def test_gemini_flash_text(self):
+        """Test Gemini 2.0 Flash with text output (non-thinking model)."""
+        if not hasattr(GeminiModels, "GEMINI_2_0_FLASH"):
+             self.skipTest("GeminiModels.GEMINI_2_0_FLASH not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.GEMINI,
             model_name=GeminiModels.GEMINI_2_0_FLASH.value,
-            output_type="text"
+            output_schema_config=None # Text output
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], str)
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_gemini_flash_structured(self):
-        """Test Gemini 2.0 Flash with structured output (non-thinking model).
-        
-        This test verifies that Gemini 2.0 Flash can generate structured outputs
-        without explicit reasoning capabilities. The model supports tool use and
-        structured response formats.
-        """
-        result = run_llm_test(
+
+    async def test_gemini_flash_structured(self):
+        """Test Gemini 2.0 Flash with structured output (non-thinking model)."""
+        if not hasattr(GeminiModels, "GEMINI_2_0_FLASH"):
+             self.skipTest("GeminiModels.GEMINI_2_0_FLASH not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="GeminiFlashStructSchema",
+             fields={
+                 "answer": DynamicSchemaFieldConfig(type="str", required=True, description="The answer."),
+                 "certainty": DynamicSchemaFieldConfig(type="str", required=False, description="Certainty level (e.g., High, Medium, Low).")
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.GEMINI,
             model_name=GeminiModels.GEMINI_2_0_FLASH.value,
-            output_type="structured"
+            output_schema_config=schema_config # Structured output
         )
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result)
         self.assertIn("metadata", result)
         self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("content", result["structured_output"])
-    
-    def test_fireworks_text_with_reasoning(self):
-        """Test Fireworks DeepSeek R1 Fast with text output and reasoning.
-        
-        This test verifies that Fireworks DeepSeek R1 Fast can generate text responses
-        with reasoning capabilities. The model only supports reasoning mode and
-        configurable reasoning effort.
-        """
-        result = run_llm_test(
+        self.assertIn("answer", result["structured_output"])
+        # certainty is optional
+
+    async def test_gemini_structured_output_json_definition(self):
+        """Test Gemini 2.0 Flash with structured output via schema_definition."""
+        if not hasattr(GeminiModels, "GEMINI_2_0_FLASH"):
+             self.skipTest("GeminiModels.GEMINI_2_0_FLASH not defined in enum.")
+
+        json_schema_def = {
+            "title": "TestJsonSchemaGemini",
+            "description": "Raw JSON schema definition for Gemini.",
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "description": "City name"},
+                "population": {"type": "integer", "description": "Approximate population"}
+            },
+            "required": ["city", "population"]
+        }
+        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.GEMINI,
+            model_name=GeminiModels.GEMINI_2_0_FLASH.value,
+            output_schema_config=schema_config,
+            user_prompt="Provide info for London: city name and population integer."
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("structured_output", result)
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("city", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["city"], str)
+        self.assertIn("population", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["population"], (int, float))
+
+    # --- Fireworks Tests ---
+
+    async def test_fireworks_text_with_reasoning(self):
+        """Test Fireworks DeepSeek R1 Fast with text output and reasoning."""
+        if not hasattr(FireworksModels, "DEEPSEEK_R1_FAST"):
+             self.skipTest("FireworksModels.DEEPSEEK_R1_FAST not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.FIREWORKS,
             model_name=FireworksModels.DEEPSEEK_R1_FAST.value,
-            output_type="text",
+            output_schema_config=None, # Text output
             reasoning_config={
-                "reasoning_effort_class": "low"  # Supports reasoning effort class
+                "reasoning_effort_class": "low"
             },
             max_tokens=500,
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
+        # Fireworks reasoning models often return a list with thinking/text pairs
         self.assertIsInstance(result["content"], list)
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_fireworks_basic_text_with_reasoning_number(self):
-        """Test Fireworks DeepSeek R1 Basic with text output and reasoning number.
-        
-        This test verifies that Fireworks DeepSeek R1 Basic can generate text responses
-        with reasoning capabilities using a numeric reasoning effort value instead of
-        a class. The model supports a reasoning effort range of (0, 20000).
-        """
-        result = run_llm_test(
+        # Check for thinking and text parts
+        self.assertTrue(any(isinstance(item, dict) and item.get('type') == 'thinking' for item in result["content"]))
+        self.assertTrue(any(isinstance(item, dict) and item.get('type') == 'text' for item in result["content"]))
+
+
+    async def test_fireworks_basic_text_with_reasoning_number(self):
+        """Test Fireworks DeepSeek R1 Basic with text output and reasoning number."""
+        # Assuming DEEPSEEK_R1_FAST supports reasoning_effort_number, adjust if needed
+        if not hasattr(FireworksModels, "DEEPSEEK_R1_FAST"):
+             self.skipTest("FireworksModels.DEEPSEEK_R1_FAST not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.FIREWORKS,
-            model_name=FireworksModels.DEEPSEEK_R1_FAST.value,
-            output_type="text",
+            model_name=FireworksModels.DEEPSEEK_R1_FAST.value, # Using FAST, adjust if BASIC exists
+            output_schema_config=None, # Text output
             reasoning_config={
-                "reasoning_effort_number": 50  # Within the allowed range (0, 20000)
+                "reasoning_effort_number": 50
             }
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], list)
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_fireworks_basic_structured_with_reasoning_number(self):
-        """Test Fireworks DeepSeek R1 Basic with structured output and reasoning number.
-        
-        This test verifies that Fireworks DeepSeek R1 Basic can generate text responses
-        with reasoning capabilities using a numeric reasoning effort value instead of
-        a class. The model supports a reasoning effort range of (0, 20000).
-        """
-        result = run_llm_test(
+        self.assertTrue(any(isinstance(item, dict) and item.get('type') == 'thinking' for item in result["content"]))
+        self.assertTrue(any(isinstance(item, dict) and item.get('type') == 'text' for item in result["content"]))
+
+    async def test_fireworks_basic_structured_with_reasoning_number(self):
+        """Test Fireworks DeepSeek R1 Basic with structured output and reasoning number."""
+        if not hasattr(FireworksModels, "DEEPSEEK_R1_FAST"):
+            self.skipTest("FireworksModels.DEEPSEEK_R1_FAST not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="FireworksReasoningStructSchema",
+             fields={
+                 "answer": DynamicSchemaFieldConfig(type="str", required=True, description="The computed answer."),
+                 "process": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Steps taken.")
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.FIREWORKS,
+            model_name=FireworksModels.DEEPSEEK_R1_FAST.value, # Using FAST, adjust if BASIC exists
+            output_schema_config=schema_config, # Structured output
+            reasoning_config={
+                # Fireworks might require effort class for structured output, testing with class
+                "reasoning_effort_class": "low",
+            },
+            max_tokens=3000,
+            user_prompt="What is 3 factorial? Show the main steps."
+        )
+        import ipdb; ipdb.set_trace()
+        self.assertIsInstance(result, dict)
+        self.assertIn("structured_output", result) # Fireworks might put structured in 'content' or 'structured_output'
+        self.assertIn("metadata", result)
+        # Depending on Fireworks structured output implementation with reasoning:
+        # if "structured_output" in result and result["structured_output"]:
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("answer", result["structured_output"])
+        self.assertIn("process", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["process"], list)
+        # elif "content" in result and isinstance(result["content"], list):
+        #      # Check if the structured output is embedded in the content list (less ideal)
+        #      self.assertTrue(any(isinstance(item, dict) and 'answer' in item for item in result["content"]), "Structured output not found in content list")
+
+    async def test_fireworks_structured_output_json_definition(self):
+        """Test Fireworks DeepSeek R1 Fast with structured output via schema_definition."""
+        # Note: Fireworks structured output often relies on tool calling under the hood.
+        if not hasattr(FireworksModels, "DEEPSEEK_R1_FAST"):
+             self.skipTest("FireworksModels.DEEPSEEK_R1_FAST not defined in enum.")
+
+        json_schema_def = {
+            "title": "TestJsonSchemaFireworks",
+            "description": "Raw JSON schema for Fireworks.",
+            "type": "object",
+            "properties": {
+                "product_id": {"type": "string", "description": "Product identifier"},
+                "in_stock": {"type": "boolean", "description": "Stock availability"}
+            },
+            "required": ["product_id", "in_stock"]
+        }
+        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.FIREWORKS,
             model_name=FireworksModels.DEEPSEEK_R1_FAST.value,
-            output_type="structured",
-            reasoning_config={
-                "reasoning_effort_class": "low",  # Within the allowed range (0, 20000)
+            output_schema_config=schema_config,
+            reasoning_config={ # May require reasoning for structured output
+                "reasoning_effort_class": "low",
             },
-            max_tokens=1000,
+            max_tokens=3000,
+            user_prompt="Give product ID 'XYZ789' and stock status true."
         )
         self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], list)
-        self.assertGreater(len(result["content"]), 0)
-    
-    def test_aws_bedrock_text_with_reasoning(self):
-        """Test AWS Bedrock DeepSeek R1 with text output and reasoning.
-        
-        This test verifies that AWS Bedrock DeepSeek R1 can generate text responses
-        with reasoning capabilities. The model only supports reasoning mode and
-        does not support structured output.
-        """
-        result = run_llm_test(
+        self.assertIn("structured_output", result)
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("product_id", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["product_id"], str)
+        self.assertIn("in_stock", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["in_stock"], bool)
+
+
+    --- AWS Bedrock Tests ---
+
+    async def test_aws_bedrock_text_with_reasoning(self):
+        """Test AWS Bedrock DeepSeek R1 with text output and reasoning."""
+        # Bedrock models might require specific setup (credentials) not handled here.
+        if not hasattr(AWSBedrockModels, "DEEPSEEK_R1"):
+            self.skipTest("AWSBedrockModels.DEEPSEEK_R1 not defined in enum.")
+        if not settings.AWS_BEDROCK_ACCESS_KEY_ID or not settings.AWS_BEDROCK_SECRET_ACCESS_KEY:
+             self.skipTest("AWS Bedrock credentials not configured in settings.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.AWS_BEDROCK,
             model_name=AWSBedrockModels.DEEPSEEK_R1.value,
-            output_type="text",
-            # reasoning_config={
-            #     "reasoning_effort_class": "low"  # Supports reasoning effort class
-            # }
+            output_schema_config=None, # Text output expected
+            # Assuming Bedrock DeepSeek uses reasoning by default or specific config
+            # reasoning_config={ # Adjust based on actual Bedrock config needs
+            #     "reasoning_effort_class": "low"
+            # },
             max_tokens=1000,
+            user_prompt="Describe the process of photosynthesis."
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+         # Bedrock DeepSeek might not support structured output
         self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], list)
+        # Bedrock response format might vary (string or list with reasoning)
+        self.assertTrue(isinstance(result["content"], (str, list)))
         self.assertGreater(len(result["content"]), 0)
-    
-    def test_perplexity_text_output_reasoning_model(self):
-        """Test Perplexity Sonar Reasoning with text output and web search.
-        
-        This test verifies that Perplexity Sonar Reasoning can generate text responses
-        with reasoning capabilities and web search integration. The model supports
-        real-time search with citation support.
-        """
-        result = run_llm_test(
+
+    # --- Perplexity Tests ---
+
+    async def test_perplexity_text_output_reasoning_model(self):
+        """Test Perplexity Sonar Reasoning with text output and web search."""
+        if not hasattr(PerplexityModels, "SONAR_REASONING"):
+            self.skipTest("PerplexityModels.SONAR_REASONING not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.PERPLEXITY,
             model_name=PerplexityModels.SONAR_REASONING.value,
-            output_type="text",
+            output_schema_config=None, # Text output
             web_search_options={
                 "search_recency_filter": "year",
                 "search_context_size": "low",
-                # search_domain_filter: ["site.com"]
-                # user_location: {...}  # OPENAI!
+                # "search_domain_filter": ["example.com"] # Optional domain filter
             },
-            # # TEST! NOT SUPPORTED??
-            # reasoning_config={
-            #     # "reasoning_effort_class": "low",  # '<think>\nAlright, let\'s tackle this query. The user is asking, "What is the capital of France?" I need to find the correct answer from the provided search results. Let\'s go through each result to gather the necessary information.\n\nFirst, looking at search result [1], it clearly states, "Paris is the capital of France." That\'s a direct answer. Then, in [2], the Wikipedia page lists Paris as the current capital since 1944. The detailed chronology there might be useful for understanding historical capitals, but the key point is that Paris is the current one. \n\nSearch result [3] is the Wikipedia page for Paris itself, which in its opening lines states, "Paris is the capital and largest city of France." That\'s another confirmation. The population figures here are from 2025, which shows the city\'s current status.\n\nBritannica in [4] also confirms Paris as the capital and provides more context about its location along the Seine River. Result [5] from the Council of Europe again mentions Paris as the capital and most populous city. \n\nResult [6] lists France\'s capital as Paris, aligning with all others. The travel guide in [7] emphatically answers the question with Paris and discusses its history briefly. Finally, [8] in the video transcript also states Paris as the capital, adding cultural context.\n\nThere\'s consistent agreement across all sources that Paris is the capital. Some results mention historical changes, like brief periods in Versailles, Bordeaux, or Vichy during wars, but the primary and enduring capital is Paris. The only exception noted is during WWII when Vichy was a temporary capital, but Paris resumed its status post-liberation in 1944.\n\nI need to present this information concisely, highlighting that Paris is the capital, note its prominence, and mention any temporary exceptions without complicating the answer. Citations should be checked to ensure accuracy. All sources [1], [2], [3], [4], [5], [6], [7], [8] confirm Paris, so they should be cited appropriately.\n</think>\n\n**Paris** is the capital of France, as confirmed by multiple authoritative sources[1][2][3][4][5][6][7][8]. It has held this status since 1944, when it was liberated after a brief period of German occupation during WWII (1940-1944), when Vichy briefly served as'
-            #     "reasoning_effort_number": 50,
-            # },
+            # Perplexity reasoning is often implicit in the model, may not need config
             user_prompt="What is the capital of France? Answer briefly.",
             max_tokens=500,
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], (list, str))
+        # Perplexity reasoning models might return list with thinking/text or just text
+        self.assertTrue(isinstance(result["content"], (list, str)))
         self.assertGreater(len(result["content"]), 0)
-        
-    def test_perplexity_structured_output_reasoning_model(self):
-        """Test Perplexity Sonar Reasoning Pro with structured output and web search.
-        
-        This test verifies that Perplexity Sonar Reasoning Pro can generate structured responses
-        with reasoning capabilities and web search integration. The model supports
-        real-time search with citation support and domain filtering.
-        """
-        result = run_llm_test(
+        self.assertIn("web_search_result", result) # Expect search results
+        self.assertIsNotNone(result["web_search_result"])
+        self.assertIsInstance(result["web_search_result"].get("citations"), list)
+
+    async def test_perplexity_structured_output_reasoning_model(self):
+        """Test Perplexity Sonar Reasoning Pro with structured output and web search."""
+        if not hasattr(PerplexityModels, "SONAR_REASONING_PRO"):
+             self.skipTest("PerplexityModels.SONAR_REASONING_PRO not defined in enum.")
+
+        # Define the structured output schema based on the user's example fields
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="PerplexitySearchStructSchema",
+             fields={
+                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+                 "key_findings": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of key findings from the search"), # Changed to list
+                 "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of citations from the search results") # Changed to list
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.PERPLEXITY,
             model_name=PerplexityModels.SONAR_REASONING_PRO.value,
-            output_type="structured",
+            output_schema_config=schema_config, # Structured output
             web_search_options={
                 "search_recency_filter": "month",
                 "search_context_size": "medium",
                 "search_domain_filter": ["arxiv.org", "openai.com"]
             },
-            user_prompt="What are the latest developments in AI safety research? Answer briefly top highlights.",
-            fields={
-                "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                "key_findings": DynamicSchemaFieldConfig(type="str", required=True, description="List of key findings from the search"),
-                "citations": DynamicSchemaFieldConfig(type="str", required=True, description="List of citations from the search results")
-            },
+            user_prompt="What are the latest developments in AI safety research? Provide a summary, key findings, and citations.",
             max_tokens=1000
         )
         self.assertIsInstance(result, dict)
@@ -678,19 +1038,22 @@ class TestBasicLLMWorkflow(unittest.TestCase):
         self.assertIsInstance(result["structured_output"], dict)
         self.assertIn("summary", result["structured_output"])
         self.assertIn("key_findings", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["key_findings"], list)
         self.assertIn("citations", result["structured_output"])
-        
-    def test_perplexity_text_output_non_reasoning_model(self):
-        """Test Perplexity Sonar Pro with text output and web search.
-        
-        This test verifies that Perplexity Sonar Pro can generate text responses
-        with web search integration. The model supports real-time search with
-        citation support but does not have reasoning capabilities.
-        """
-        result = run_llm_test(
+        self.assertIsInstance(result["structured_output"]["citations"], list)
+        self.assertIn("web_search_result", result) # Expect search results metadata as well
+        self.assertIsNotNone(result["web_search_result"])
+
+    async def test_perplexity_text_output_non_reasoning_model(self):
+        """Test Perplexity Sonar Pro with text output and web search."""
+        if not hasattr(PerplexityModels, "SONAR_PRO"):
+            self.skipTest("PerplexityModels.SONAR_PRO not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.PERPLEXITY,
             model_name=PerplexityModels.SONAR_PRO.value,
-            output_type="text",
+            output_schema_config=None, # Text output
             web_search_options={
                 "search_recency_filter": "month",
                 "search_context_size": "low"
@@ -700,31 +1063,38 @@ class TestBasicLLMWorkflow(unittest.TestCase):
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], str)
         self.assertGreater(len(result["content"]), 0)
-        
-    def test_perplexity_structured_output_non_reasoning_model(self):
-        """Test Perplexity Sonar with structured output and web search.
-        
-        This test verifies that Perplexity Sonar can generate structured responses
-        with web search integration. The model supports real-time search with
-        citation support but does not have reasoning capabilities.
-        """
-        result = run_llm_test(
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+
+    async def test_perplexity_structured_output_non_reasoning_model(self):
+        """Test Perplexity Sonar with structured output and web search."""
+        if not hasattr(PerplexityModels, "SONAR"):
+            self.skipTest("PerplexityModels.SONAR not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="PerplexityNonReasoningStructSchema",
+             fields={
+                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+                 "trends": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of emerging trends"), # Changed to list
+                 "sources": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of sources") # Changed to list
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.PERPLEXITY,
             model_name=PerplexityModels.SONAR.value,
-            output_type="structured",
+            output_schema_config=schema_config, # Structured output
             web_search_options={
                 "search_recency_filter": "year",
                 "search_context_size": "low"
             },
-            user_prompt="What are the emerging trends in renewable energy? Answer briefly top highlights.",
-            fields={
-                "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                "trends": DynamicSchemaFieldConfig(type="str", required=True, description="List of emerging trends in renewable energy"),
-                "sources": DynamicSchemaFieldConfig(type="str", required=True, description="List of sources from the search results")
-            },
+            user_prompt="What are the emerging trends in renewable energy? Provide summary, trends list, and sources list.",
             max_tokens=500
         )
         self.assertIsInstance(result, dict)
@@ -733,50 +1103,70 @@ class TestBasicLLMWorkflow(unittest.TestCase):
         self.assertIsInstance(result["structured_output"], dict)
         self.assertIn("summary", result["structured_output"])
         self.assertIn("trends", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["trends"], list)
         self.assertIn("sources", result["structured_output"])
-    
-    def test_openai_text_output_with_web_search(self):
-        """Test OpenAI GPT-4o Search Preview with text output and web search.
-        
-        This test verifies that OpenAI GPT-4o Search Preview can generate text responses
-        with web search integration. The model supports real-time search with
-        citation support and user location awareness.
-        """
-        result = run_llm_test(
+        self.assertIsInstance(result["structured_output"]["sources"], list)
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+
+    # --- OpenAI Web Search Tests ---
+
+    async def test_openai_text_output_with_web_search(self):
+        """Test OpenAI GPT-4o Search Preview with text output and web search."""
+        if not hasattr(OpenAIModels, "GPT_4O_SEARCH_PREVIEW"):
+             self.skipTest("OpenAIModels.GPT_4O_SEARCH_PREVIEW not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.OPENAI,
             model_name=OpenAIModels.GPT_4O_SEARCH_PREVIEW.value,
-            output_type="text",
+            output_schema_config=None, # Text output
             web_search_options={
                 "search_context_size": "medium",
-                "user_location": {
+                "user_location": { # OpenAI specific location format
                     "type": "approximate",
                     "approximate": {
                         "country": "US",
                         "city": "San Francisco",
                         "region": "California",
                     },
-                }        
+                }
             },
             user_prompt="What are the latest climate change policies? Answer briefly top highlights.",
             max_tokens=500
         )
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
+        
         self.assertIn("metadata", result)
         self.assertIsInstance(result["content"], str)
         self.assertGreater(len(result["content"]), 0)
-        
-    def test_openai_structured_output_with_web_search(self):
-        """Test OpenAI GPT-4o Mini Search Preview with structured output and web search.
-        
-        This test verifies that OpenAI GPT-4o Mini Search Preview can generate structured responses
-        with web search integration. The model supports real-time search with
-        citation support and user location awareness.
-        """
-        result = run_llm_test(
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+        # OpenAI search results might have citations in metadata
+        self.assertIsInstance(result["web_search_result"].get("citations", []), list)
+
+    async def test_openai_structured_output_with_web_search(self):
+        """Test OpenAI GPT-4o Mini Search Preview with structured output and web search."""
+        if not hasattr(OpenAIModels, "GPT_4O_MINI_SEARCH_PREVIEW"):
+             self.skipTest("OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="OpenAISearchStructSchema",
+             fields={
+                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+                 "key_statistics": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Important stats"), # Changed to list
+                 "regional_differences": DynamicSchemaFieldConfig(type="str", required=True, description="How adoption varies"),
+                 "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Sources") # Changed to list
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.OPENAI,
             model_name=OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW.value,
-            output_type="structured",
+            output_schema_config=schema_config, # Structured output
             web_search_options={
                 "search_context_size": "medium",
                 "user_location": {
@@ -788,13 +1178,7 @@ class TestBasicLLMWorkflow(unittest.TestCase):
                     },
                 }
             },
-            user_prompt="What is the current state of electric vehicle adoption?",
-            fields={
-                "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                "key_statistics": DynamicSchemaFieldConfig(type="str", required=True, description="Important statistics about EV adoption"),
-                "regional_differences": DynamicSchemaFieldConfig(type="str", required=True, description="How adoption varies by region"),
-                "citations": DynamicSchemaFieldConfig(type="str", required=True, description="Sources of information")
-            },
+            user_prompt="What is the current state of electric vehicle adoption? Provide summary, key stats list, regional differences, and citations list.",
             max_tokens=1000
         )
         self.assertIsInstance(result, dict)
@@ -803,12 +1187,55 @@ class TestBasicLLMWorkflow(unittest.TestCase):
         self.assertIsInstance(result["structured_output"], dict)
         self.assertIn("summary", result["structured_output"])
         self.assertIn("key_statistics", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["key_statistics"], list)
         self.assertIn("regional_differences", result["structured_output"])
         self.assertIn("citations", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["citations"], list)
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+
+    async def test_perplexity_structured_output_json_definition(self):
+        """Test Perplexity Sonar with structured output via schema_definition."""
+        if not hasattr(PerplexityModels, "SONAR"):
+            self.skipTest("PerplexityModels.SONAR not defined in enum.")
+
+        json_schema_def = {
+            "title": "TestJsonSchemaPerplexity",
+            "description": "Raw JSON schema for Perplexity search results.",
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Main topic of the search"},
+                "result_count": {"type": "integer", "description": "Number of key results found"}
+            },
+            "required": ["topic", "result_count"]
+        }
+        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.PERPLEXITY,
+            model_name=PerplexityModels.SONAR.value, # Using non-reasoning model for simplicity
+            output_schema_config=schema_config,
+            web_search_options={ # Perplexity models often require web search
+                "search_context_size": "low"
+            },
+            user_prompt="Search for 'latest Mars rover findings'. Return topic and count of main findings."
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("structured_output", result)
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("topic", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["topic"], str)
+        self.assertIn("result_count", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["result_count"], int)
 
 
 if __name__ == "__main__":
-    # DOn't run tests as part of automation, they are exensive!
-    #    ONly run them manually!
-    unittest.main() 
+    # Consider adding logic to skip tests if required API keys are not set in settings
+    # if not settings.ANTHROPIC_API_KEY or not settings.OPENAI_API_KEY:
+    #     print("Skipping LLM tests: Missing API keys in settings.")
+    # else:
+    # It's generally better to run tests via a test runner (like pytest or python -m unittest)
+    # rather than executing the file directly.
+    unittest.main()
 

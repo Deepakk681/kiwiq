@@ -866,7 +866,7 @@ class FilterNode(BaseDynamicNode):
             return copy.deepcopy(input_data)
         return input_data.model_dump(mode='json')
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> FilterOutputSchema:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> FilterOutputSchema:
         """
         Processes input data by applying filter conditions according to the configuration.
         
@@ -1097,7 +1097,7 @@ class IfElseConditionNode(BaseDynamicNode):
          if isinstance(input_data, dict): return copy.deepcopy(input_data)
          return input_data.model_dump(mode='json')  #  if hasattr(input_data, "model_dump") else dict(input_data)
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> IfElseOutputSchema:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> IfElseOutputSchema:
         """
         Evaluates conditions against input data and determines the branch path.
         

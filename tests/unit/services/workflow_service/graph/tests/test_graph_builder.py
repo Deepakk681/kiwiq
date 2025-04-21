@@ -58,7 +58,7 @@ class TestNode(BaseDynamicNode):  # [SimpleInputSchema, SimpleOutputSchema, Simp
     # instance
     config: SimpleConfigSchema
     
-    def process(self, input_data: SimpleInputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> SimpleOutputSchema:
+    async def process(self, input_data: SimpleInputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> SimpleOutputSchema:
         """Process input data and return output."""
         multiplier = self.config.multiplier if self.config else config.get("multiplier", 1)
         input_fields = input_data.model_dump()
@@ -76,7 +76,7 @@ class AnotherTestNode(BaseDynamicNode):  # [SimpleOutputSchema, SimpleOutputSche
     output_schema_cls: ClassVar[Type[SimpleOutputSchema]] = SimpleOutputSchema
     config_schema_cls: ClassVar[Type[None]] = None
     
-    def process(self, input_data: SimpleOutputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> SimpleOutputSchema:
+    async def process(self, input_data: SimpleOutputSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> SimpleOutputSchema:
         """Process input data and return output."""
         return self.output_schema_cls(result=input_data.result + "_processed")
 
@@ -94,7 +94,7 @@ def setup_registry() -> DBRegistry:
     return registry
 
 
-class TestGraphBuilder(unittest.TestCase):
+class TestGraphBuilder(unittest.IsolatedAsyncioTestCase):
     """Tests for the GraphBuilder class."""
     
     def setUp(self):
@@ -401,7 +401,7 @@ class TestGraphBuilder(unittest.TestCase):
         # # Input "test" * multiplier 2 = "testtest", then processed = "testtest_processed"
         # self.assertEqual(result["result"], "testtest_processed")
 
-    def test_dynamic_schema_handling(self):
+    async def test_dynamic_schema_handling(self):
         """Test handling of dynamic schemas in graph building."""
         # Create a graph schema with dynamic node configurations
         dynamic_graph_schema = GraphSchema(
@@ -489,6 +489,8 @@ class TestGraphBuilder(unittest.TestCase):
         
         test_node = node_instances["test1"]
         self.assertIsInstance(test_node, TestNode)
+        # NOTE: This test passes, even though value is not defined in the dynamic input schema, because it's defined in the base schema!
+        # The dynamic input schema fields gets ADDED to the base input schema fields!
         self.assertIsInstance(test_node.input_schema_cls(**{"dynamic_value": "test", "value": "test"}), DynamicSchema)
         self.assertIn("dynamic_value", test_node.input_schema_cls.model_fields)
         
@@ -512,7 +514,7 @@ class TestGraphBuilder(unittest.TestCase):
         adapter = LangGraphRuntimeAdapter()
         graph = adapter.build_graph(graph_entities)
 
-        result = adapter.execute_graph(graph, input_data=input_data, config=runtime_config, output_node_id=graph_entities["output_node_id"])
+        result = await adapter.aexecute_graph(graph, input_data=input_data, config=runtime_config, output_node_id=graph_entities["output_node_id"])
         
         # Verify the result matches the expected output
         self.assertIn("dynamic_value", result)

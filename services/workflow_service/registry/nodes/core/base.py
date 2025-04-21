@@ -140,7 +140,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 raise ValueError(f"Invalid non-editable fields in {self.__class__.node_id} --> {self.__class__.node_name} node config: `{error_field}`!")
     
     @abstractmethod
-    def process(self, input_data: InputSchemaT, config: Dict[str, Any], *args: Any, **kwargs: Any) -> OutputSchemaT:
+    async def process(self, input_data: InputSchemaT, config: Dict[str, Any], *args: Any, **kwargs: Any) -> OutputSchemaT:
         """
         Process input data and produce output data.
         
@@ -307,7 +307,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     
     # FIXME: DEBUG: Prefect test!
     # @task
-    def run(self, state: StateT, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def run(self, state: StateT, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         LangGraph-compatible execution method.
         
@@ -388,9 +388,9 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
 
             # Process the input data
             if self.prefect_mode:
-                output_data = task(name=f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", cache_policy=NO_CACHE)(self.process)(input_data, config, *args, **kwargs)
+                output_data = await task(name=f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", cache_policy=NO_CACHE)(self.process)(input_data, config, *args, **kwargs)
             else:
-                output_data = self.process(input_data, config, *args, **kwargs)
+                output_data = await self.process(input_data, config, *args, **kwargs)
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
             
             # Convert output to dict and return as state update

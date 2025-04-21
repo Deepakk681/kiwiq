@@ -9,7 +9,7 @@ from datetime import datetime
 import json
 import logging
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Annotated
+from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Annotated, Awaitable
 import unittest
 from pydantic import BaseModel, Field, model_validator
 
@@ -123,7 +123,7 @@ class AIGeneratorNode(BaseNode[MessagesWithUserPromptSchema, MessagesSchema, Non
 
     config: None = None
     
-    def process(self, input_data: MessagesWithUserPromptSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> MessagesSchema:
+    async def process(self, input_data: MessagesWithUserPromptSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> MessagesSchema:
         """
         Generate AI content, potentially based on previous feedback.
         
@@ -205,7 +205,7 @@ class HumanReviewNode(HITLNode):
     # # instance config
     # config: None = None
     
-    # def process(self, input_data: Dict[str, Any], config: Dict[str, Any], *args: Any, **kwargs: Any) -> UserInputSchema:
+    # async def process(self, input_data: Dict[str, Any], config: Dict[str, Any], *args: Any, **kwargs: Any) -> UserInputSchema:
     #     """
     #     Process AI content through human review.
         
@@ -282,7 +282,7 @@ class ApprovalRouterNode(DynamicRouterNode):
     # instance config
     config: ApprovalRouterConfigSchema
     
-    def process(self, input_data: BaseSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def process(self, input_data: BaseSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         Decide routing based on human approval status.
         
@@ -338,7 +338,7 @@ class FinalProcessorNode(BaseDynamicNode):
     # instance config
     config: None = None
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> FinalOutputSchema:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> FinalOutputSchema:
         """
         Process the final approved content for output.
         
@@ -611,7 +611,7 @@ def setup_registry() -> DBRegistry:
 
 
 # Define human review interrupt handler
-def human_review_handler(interrupt_data: Dict[str, Any]) -> Dict[str, Any]:
+async def human_review_handler(interrupt_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle human review interrupts.
     
@@ -699,18 +699,18 @@ def build_graph_entities(thread_id) -> Dict[str, Any]:
     return graph_entities, runtime_config
 
 
-def run_ai_loop_test(use_db_checkpointer=False, thread_id=None) -> Dict[str, Any]:
+async def run_ai_loop_test(use_db_checkpointer=False, thread_id=None) -> Dict[str, Any]:
     """
     Build and run the AI-Human feedback loop graph.
     
     Returns:
         Dict[str, Any]: The output of the graph execution
     """
-    def build_and_execute_langgraph(adapter: LangGraphRuntimeAdapter, graph_entities, execute_graph_kwargs):
+    async def build_and_execute_langgraph(adapter: LangGraphRuntimeAdapter, graph_entities, execute_graph_kwargs):
         graph = adapter.build_graph(graph_entities)
         execute_graph_kwargs["graph"] = graph
         
-        result = adapter.execute_graph(  # execute_graph  execute_graph_stream
+        result = await adapter.aexecute_graph(  # execute_graph  execute_graph_stream
             **execute_graph_kwargs
         )
         return graph, result
@@ -741,9 +741,9 @@ def run_ai_loop_test(use_db_checkpointer=False, thread_id=None) -> Dict[str, Any
             checkpointer = PostgresSaver(pool)
             runtime_config["checkpointer"] = checkpointer
             
-            graph, result = build_and_execute_langgraph(adapter, graph_entities, execute_graph_kwargs)
+            graph, result = await build_and_execute_langgraph(adapter, graph_entities, execute_graph_kwargs)
     else:
-        graph, result = build_and_execute_langgraph(adapter, graph_entities, execute_graph_kwargs)
+        graph, result = await build_and_execute_langgraph(adapter, graph_entities, execute_graph_kwargs)
 
     
     # Build graph
@@ -761,14 +761,14 @@ def run_ai_loop_test(use_db_checkpointer=False, thread_id=None) -> Dict[str, Any
     return graph_entities, graph, lg_config, result
 
 
-def run_ai_loop_test_with_db_checkpointer(thread_id="test_DB_ID") -> Dict[str, Any]:
+async def run_ai_loop_test_with_db_checkpointer(thread_id="test_DB_ID") -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
     graph_entities, runtime_config = build_graph_entities(thread_id)
-    graph_entities, graph, lg_config, result = run_ai_loop_test(use_db_checkpointer=True, thread_id=thread_id)
+    graph_entities, graph, lg_config, result = await run_ai_loop_test(use_db_checkpointer=True, thread_id=thread_id)
     return graph_entities, graph, lg_config, result
 
 
-def get_graph_state_from_db(thread_id="test_DB_ID") -> Dict[str, Any]:
+async def get_graph_state_from_db(thread_id="test_DB_ID") -> Dict[str, Any]:
     adapter = LangGraphRuntimeAdapter()
     graph_entities, runtime_config = build_graph_entities(thread_id)
 
@@ -780,20 +780,20 @@ def get_graph_state_from_db(thread_id="test_DB_ID") -> Dict[str, Any]:
         lg_config = {
             "configurable": runtime_config,
         }
-        final_state = graph.get_state(lg_config)
+        final_state = await graph.aget_state(lg_config)
         print(f"Final state: {dumps(final_state, pretty=True)}")
     return final_state
 
 
-class TestAILoopWorkflow(unittest.TestCase):
-    def test_ai_loop_workflow(self):
+class TestAILoopWorkflow(unittest.IsolatedAsyncioTestCase):
+    async def test_ai_loop_workflow(self):
         """
         Test the AI-Human feedback loop workflow execution.
         
         This test verifies that the workflow correctly implements the AI-Human feedback loop pattern,
         with appropriate routing based on human approval/rejection.
         """
-        graph_entities, graph, config, result = run_ai_loop_test()
+        graph_entities, graph, config, result = await run_ai_loop_test()
         
         # Check that result has the expected structure
         self.assertIsInstance(result, FinalOutputSchema, "Result should be a FinalOutputSchema instance")
@@ -819,21 +819,21 @@ class TestAILoopWorkflow(unittest.TestCase):
         self.assertTrue(len(ai_messages) >= 1, "Should have at least one AI message")
         self.assertTrue(len(human_messages) >= 1, "Should have at least one human message")
 
-    def test_ai_loop_node_outputs(self):
+    async def test_ai_loop_node_outputs(self):
         """
         Test the individual node outputs in the AI-Human feedback loop.
         
         This test verifies that each node in the workflow produces the expected outputs
         and that the final state of the workflow is correct.
         """
-        graph_entities, graph, config, result = run_ai_loop_test()
+        graph_entities, graph, config, result = await run_ai_loop_test()
         
         # Get the LangGraph adapter instance
         adapter = LangGraphRuntimeAdapter()
         lg_config = config
         
         # Get the final state of the graph
-        final_state = graph.get_state(lg_config)
+        final_state = await graph.aget_state(lg_config)
         
         # Check AI generator node output
         ai_generator_output = final_state.values.get(get_node_output_state_key("ai_generator"), {})
@@ -859,14 +859,14 @@ class TestAILoopWorkflow(unittest.TestCase):
         self.assertTrue(hasattr(final_output, 'approved_content'), "Final output should have approved_content")
         self.assertTrue(len(final_output.approved_content) > 0, "Final output should contain content")
         
-    def test_ai_loop_message_content(self):
+    async def test_ai_loop_message_content(self):
         """
         Test the content and structure of messages in the AI-Human feedback loop.
         
         This test verifies that the messages passed between nodes in the workflow
         have the expected content and structure.
         """
-        graph_entities, graph, config, result = run_ai_loop_test()
+        graph_entities, graph, config, result = await run_ai_loop_test()
         
         # Check message content in result
         self.assertTrue(hasattr(result, 'messages'), "Result should have messages field")
@@ -896,21 +896,21 @@ class TestAILoopWorkflow(unittest.TestCase):
                 if 'timestamp' in msg.metadata:
                     self.assertIsInstance(msg.metadata['timestamp'], str, "Timestamp should be a string")
     
-    def test_ai_loop_central_state_structure(self):
+    async def test_ai_loop_central_state_structure(self):
         """
         Test the structure and content of the central state in the AI-Human feedback loop.
         
         This test verifies that the central state of the workflow has the expected structure
         and that it correctly tracks the state of the workflow across multiple iterations.
         """
-        graph_entities, graph, config, result = run_ai_loop_test()
+        graph_entities, graph, config, result = await run_ai_loop_test()
         
         # Get the LangGraph adapter instance
         adapter = LangGraphRuntimeAdapter()
         lg_config = config
         
         # Get the final state of the graph
-        final_state = graph.get_state(lg_config)
+        final_state = await graph.aget_state(lg_config)
         
         # Get central state keys (fields starting with GRAPH_STATE_SPECIAL_NODE_NAME)
         central_state_keys = [k for k in final_state.values.keys() if k.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)]

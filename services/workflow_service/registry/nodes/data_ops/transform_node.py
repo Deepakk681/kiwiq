@@ -171,7 +171,7 @@ class TransformerNode(BaseDynamicNode):
                  return {}
 
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> TransformerOutputSchema:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> TransformerOutputSchema:
         """
         Processes input data by applying source-to-destination mappings.
 
@@ -399,7 +399,7 @@ class DataJoinNode(BaseDynamicNode):
                 print(f"Warning: Item found in list for key path '{join_key}' is not a dictionary: {type(item)}. Skipping item for lookup.")
         return lookup
 
-    def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> MapperOutputSchema:
+    async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> MapperOutputSchema:
         """
         Processes input data by performing sequential join operations as configured.
 

@@ -77,7 +77,7 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
 -   **`node_id` (String, Required):** A unique identifier *you assign* to this specific instance of the node within this workflow (e.g., `fetch_order_details`, `generate_summary_llm`, `wait_for_manager_approval`). This ID is used in edges to refer to this node. It must match the key in the `nodes` dictionary. **Cannot start with `$`**.
 -   **`node_name` (String, Required):** Specifies the *type* of node, determining its function and behavior. This must match a registered node type in the system (e.g., `llm`, `filter_data`, `transform_data`, `hitl_node__default`, `router_node`). Refer to the individual node guides or the `nodes_interplay_guide.md` for a list of available types.
 -   **`node_config` (Object, Optional):** A dictionary containing configuration parameters specific to the `node_name`. The structure and required fields within `node_config` vary significantly between node types. **Consult the specific node's guide for details.** Examples:
-    *   An `llm` node needs `llm_config` (model, temperature, etc.).
+    *   An `llm` node needs `llm_config` (model, temperature, max_tokens), `output_schema` (for structured output), `tool_calling_config` & `tools` (for tool use), `web_search_options`, etc.
     *   A `filter_data` node needs `targets` defining filter conditions.
     *   A `transform_data` node needs `mappings` defining data restructuring.
     *   A `load_customer_data` node needs `load_paths` specifying which documents to fetch.
@@ -179,35 +179,35 @@ Use dot notation (`.`) in `src_field` and `dst_field` to access data within nest
 }
 ```
 
-**c) Central Workflow State (`__GRAPH_STATE__`)**
+**c) Central Workflow State (`"$graph_state"`)**
 
-Workflows often need a shared "memory" or central state accessible by multiple nodes. This is represented by a special node ID (e.g., `__GRAPH_STATE__` or the value of `GRAPH_STATE_SPECIAL_NODE_NAME`).
+Workflows often need a shared **memory** or **scratchpad** accessible by multiple nodes throughout the execution. This allows data to persist across steps that aren't directly connected or to manage state during loops (like tracking `iteration_count` from an `LLMNode`'s metadata). This shared memory is accessed using the special node ID `"$graph_state"`.
 
--   **Writing to Central State:** An edge *from* a regular node *to* `__GRAPH_STATE__` saves data.
+-   **Writing to Central State:** An edge *from* a regular node *to* `"$graph_state"` saves data into the shared memory.
     ```json
     {
       "src_node_id": "calculate_score", // Produces { "final_score": 95 }
-      "dst_node_id": "__GRAPH_STATE__",
+      "dst_node_id": "$graph_state", // Target the shared memory
       "mappings": [
-        { "src_field": "final_score", "dst_field": "lead_score" } // Store as "lead_score" in state
+        { "src_field": "final_score", "dst_field": "lead_score" } // Store as "lead_score" in the shared memory
       ]
     }
     ```
--   **Reading from Central State:** An edge *from* `__GRAPH_STATE__` *to* a regular node retrieves data.
+-   **Reading from Central State:** An edge *from* `"$graph_state"` *to* a regular node retrieves data from the shared memory.
     ```json
     {
-      "src_node_id": "__GRAPH_STATE__",
-      "dst_node_id": "send_notification", // Needs the lead_score calculated earlier
+      "src_node_id": "$graph_state", // Read from the shared memory
+      "dst_node_id": "send_notification", // Node that needs the stored data
       "mappings": [
-        { "src_field": "lead_score", "dst_field": "score_to_include" }
+        { "src_field": "lead_score", "dst_field": "score_to_include" } // Get "lead_score" from memory, provide as "score_to_include" to the node
       ]
     }
     ```
--   **Reducers (Advanced):** The `metadata` section of the `GraphSchema` can define "reducers" for central state fields, specifying how new data should be combined with existing data (e.g., appending to a list like message history). See `test_AI_loop.py` metadata example and LangGraph documentation for details.
+-   **Reducers (Advanced):** When multiple nodes write to the *same key* in the central state (e.g., adding items to a history list), you might need to define how that data is combined. This is done using "reducers" configured in the `GraphSchema.metadata`. Common reducers include `replace` (last write wins - the default), `add_messages` (for chat history), and `append_list`. See `test_AI_loop.py` or LangGraph documentation for details. If not specified, the default behavior usually replaces the old value.
 
 ## 6. Working with Dynamic Schemas
 
-Some nodes don't have fixed input/output structures but adapt based on connections.
+Some nodes don't have fixed input/output structures but adapt based on connections or configuration.
 
 -   **`InputNode`:** Its *output* is defined by the `src_field`s on its outgoing edges. These become the workflow's initial required inputs.
     ```json
@@ -221,8 +221,9 @@ Some nodes don't have fixed input/output structures but adapt based on connectio
     { "src_node_id": "some_node", "dst_node_id": "output_node", "mappings": [ { "src_field": "result", "dst_field": "final_answer" } ] }
     // This means the workflow will output a field named "final_answer".
     ```
--   **`HITLNode`:** Often, the data *shown* to the human is defined by incoming edge mappings (`dst_field`), and the data the human *provides* is defined by outgoing edge mappings (`src_field`). The `HITLNode`'s guide provides more details.
--   **Other Dynamically Configured Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `Load/StoreCustomerDataNode`, `DataJoinNode`, `PromptConstructorNode`, and `TransformerNode` determine their required inputs based on the field paths specified within their respective `node_config` sections. Ensure the data containing these paths is available to them, either through direct edge mappings or the central state.
+-   **`HITLNode`:** Its input (data shown) and output (data provided) schemas are often defined by incoming/outgoing edge mappings.
+-   **`LLMNode` with `output_schema`:** While the base `LLMNode` has static I/O fields (`user_prompt`, `content`, `metadata`, etc.), configuring `output_schema` in its `node_config` causes it to produce an additional `structured_output` field whose *content* structure matches your definition. You map *from* this structured data using `structured_output::field_name`. NOTE: currently mapping is only possible with first level fields in edges, so this type of notation can go in some node's configs to access subfields, but not directly via edges as of now!
+-   **Other Config-Driven Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `Load/StoreCustomerDataNode`, `DataJoinNode`, `PromptConstructorNode`, and `TransformerNode` determine required inputs based on field paths (`field`, `input_path`, `source_path`, etc.) in their `node_config`. Ensure data for these paths is available via edges or central state.
 
 ## 7. Advanced Pattern: Conditional Logic
 
@@ -299,7 +300,7 @@ Ticket Body:
       "node_id": "determine_topic_llm", "node_name": "llm",
       "node_config": {
         "llm_config": { "model_spec": { "provider": "openai", "model": "gpt-3.5-turbo" }, "temperature": 0.1 },
-        "output_schema": { // Expect structured output
+        "output_schema": { // Expect structured output matching this spec
           "dynamic_schema_spec": {
             "schema_name": "TopicResult",
             "fields": { "topic": { "type": "enum", "enum_values": ["Billing", "Technical", "Account", "General Inquiry"], "required": true } }
@@ -332,10 +333,14 @@ Ticket Body:
     { "src_node_id": "build_prompt", "dst_node_id": "determine_topic_llm", "mappings": [ { "src_field": "llm_user_prompt", "dst_field": "user_prompt" } ] },
     // LLM -> Router (Pass the structured output containing the topic)
     { "src_node_id": "determine_topic_llm", "dst_node_id": "routing_decision", "mappings": [ { "src_field": "structured_output", "dst_field": "structured_output" } ] },
-    // LLM -> Store Nodes (Pass original ticket data) - Example using central state or direct pass-through needed
-    { "src_node_id": "input_node", "dst_node_id": "__GRAPH_STATE__", "mappings": [ { "src_field": "ticket_id", "dst_field": "current_ticket_id" }, { "src_field": "ticket_body", "dst_field": "current_ticket_body" } ] },
-    { "src_node_id": "__GRAPH_STATE__", "dst_node_id": "billing_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
-    // ... similar edges from __GRAPH_STATE__ to tech_queue, account_queue, general_queue ...
+    // Store original ticket data in Central State for later use by storage nodes
+    { "src_node_id": "input_node", "dst_node_id": "$graph_state", "mappings": [ { "src_field": "ticket_id", "dst_field": "current_ticket_id" }, { "src_field": "ticket_body", "dst_field": "current_ticket_body" } ] },
+    // Read ticket data from Central State for the billing queue node
+    { "src_node_id": "$graph_state", "dst_node_id": "billing_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
+    // ... similar edges from "$graph_state" to tech_queue, account_queue, general_queue ...
+    { "src_node_id": "$graph_state", "dst_node_id": "tech_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
+    { "src_node_id": "$graph_state", "dst_node_id": "account_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
+    { "src_node_id": "$graph_state", "dst_node_id": "general_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
     // Router -> Queue Nodes (Control flow only)
     { "src_node_id": "routing_decision", "dst_node_id": "billing_queue" },
     { "src_node_id": "routing_decision", "dst_node_id": "tech_queue" },
@@ -454,12 +459,13 @@ Ticket Body:
 -   **Plan First:** Sketch your workflow logic before writing the JSON. Identify steps, decisions, and data needs.
 -   **Use Meaningful IDs:** Choose descriptive `node_id`s (e.g., `extract_invoice_data`, `route_by_amount`), IDs also help to identify and differentiate the same node type used multiple times in a workflow.
 -   **Consult Node Guides:** Each node has unique `node_config` requirements and specific input/output fields. Refer to the guides constantly.
--   **Validate Mappings:** Ensure `src_field` exists in the source node's output and `dst_field` matches the destination node's expected input or is handled dynamically. Check dot notation carefully.
+-   **Validate Mappings:** Ensure `src_field` exists in the source node's output and `dst_field` matches the destination node's expected input or is handled dynamically. Check dot notation or `::` notation carefully since some nodes expect one vs ther other, its not consistent for now!
 -   **Start Simple:** Build and test core paths first, then add complexity like branching, looping, or parallel processing.
 -   **Handle Errors:** Consider how your workflow should behave if a node fails (e.g., LLM errors, data not found). LangGraph offers error handling mechanisms.
--   **Central State vs. Direct Mapping:** Use central state (`__GRAPH_STATE__`) when data needs to be accessed by multiple, non-sequential nodes or preserved across loops. Use direct edge mappings for clear, sequential data flow.
+-   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) when data needs to be accessed by multiple, non-sequential nodes or preserved across loops. Use direct edge mappings for clear, sequential data flow.
 -   **Test Thoroughly:** Execute your workflow with various inputs, including edge cases, to ensure it behaves as expected. Use logging and inspect intermediate states.
 -   **Keep it Readable:** Add comments to your JSON (if supported by your editor/parser) or maintain separate documentation explaining complex logic.
+-   **Check Model Capabilities:** When using the `LLMNode`, verify the chosen model supports desired features like structured output, tool calling, or web search before configuring them.
 
 ## 12. Conclusion
 

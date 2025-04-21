@@ -57,7 +57,7 @@ class PromptConstructorNode(BaseDynamicNode):
     # instance params
     config: PromptTemplateConfig
     
-    def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    async def process(self, input_data: DynamicSchema, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """
         Process input data and construct prompts based on templates.
         
