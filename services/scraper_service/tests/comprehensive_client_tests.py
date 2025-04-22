@@ -6,15 +6,13 @@ Tests include both basic functionality tests and real API interaction tests with
 """
 
 import asyncio
-import json
-import sys
-import os
-from typing import Dict, Any, List, Optional, Union
-import time
+import math
 
 from scraper_service.client.core_api_client import RapidAPIClient 
+from scraper_service.client.post_manager import LinkedinPostFetcher
 from scraper_service.settings import rapid_api_settings
-from scraper_service.client.schemas import ProfileRequest, CompanyRequest, ProfileResponse, CompanyResponse , ProfilePost , ProfilePostsRequest , CompanyPostsRequest, LikeItem , GetProfileCommentResponse
+from scraper_service.client.schemas import ProfileRequest, CompanyRequest, ProfileResponse, CompanyResponse , ProfilePost ,PostsRequest, LikeItem , GetProfileCommentResponse, PostsRequest
+from scraper_service.credit_calculator import calculate_credits
 from global_config.logger import get_logger
 logger = get_logger(__name__)
 
@@ -63,18 +61,18 @@ async def test_core_client():
             print(f"Response keys: {list(response.keys())[:10]}")
       
 
-    # print("\nTesting get profile comments data...")
-    # request = ProfileRequest(username=TEST_PROFILE_USERNAME)
-    # raw_response = await client.get_profile_post_comments(request)
-    # response = GetProfileCommentResponse(**raw_response)
-    # print("Profile comments data")
-    # print(response, "response")
-    # print(response.highlightedComments, "highlightedComments")
-    # print(response.highlightedCommentsActivityCounts, "highlightedCommentsActivityCounts")
-    # print(response.text, "text")
-    # print(response.totalReactionCount, "totalReactionCount")
-    # print(response.likeCount, "likeCount")
-    # print(response.appreciationCount, "appreciationCount")
+    print("\nTesting get profile comments data...")
+    request = ProfileRequest(username=TEST_PROFILE_USERNAME)
+    raw_response = await client.get_profile_post_comments(request)
+    response = GetProfileCommentResponse(**raw_response)
+    print("Profile comments data")
+    print(response, "response")
+    print(response.highlightedComments, "highlightedComments")
+    print(response.highlightedCommentsActivityCounts, "highlightedCommentsActivityCounts")
+    print(response.text, "text")
+    print(response.totalReactionCount, "totalReactionCount")
+    print(response.likeCount, "likeCount")
+    print(response.appreciationCount, "appreciationCount")
     
         
     print("\nTesting get company data...")
@@ -99,219 +97,158 @@ async def test_core_client():
 
 async def test_posts_client():
     """Test posts-related functionality."""
-    # print("\n--- Testing Posts Client for A User profile Functionality ---")
+    print("\n--- Testing Posts Client for A User profile Functionality ---")
 
     # Initialize post fetcher client
-    # post_fetcher = LinkedinPostFetcher(api_key=API_KEY, base_url=API_HOST)
+    post_fetcher = LinkedinPostFetcher(api_key=API_KEY, base_url=API_HOST)
 
     # === 1. Test get_profile_posts ===
-    # request_profile = ProfilePostsRequest(
-    #     username=TEST_POST_PROFILE_USERNAME,
-    #     post_comments="yes",
-    #     post_reactions="yes",
-    # )
+    request_profile = PostsRequest(
+        username=TEST_POST_PROFILE_USERNAME,
+        post_comments="yes",
+        post_reactions="yes",
+    )
 
-    # print("\nTesting get_profile_posts method...")
-    # try:
-    #     posts_response = await post_fetcher.get_profile_posts(request_profile)
+    print("\nTesting get_profile_posts method...")
+    try:
+        posts_response = await post_fetcher.get_profile_posts(request_profile)
 
-    #     if isinstance(posts_response, list) and posts_response:
-    #         print(f"✓ Retrieved {len(posts_response)} profile posts")
-    #         first_post: ProfilePost = posts_response[0]
+        if isinstance(posts_response, list) and posts_response:
+            print(f"✓ Retrieved {len(posts_response)} profile posts")
+            first_post: ProfilePost = posts_response[0]
 
-    #         print("First profile post details:")
-    #         print(f"Text: {first_post.text[:100]}..." if first_post.text else "No text found")
-    #         print(f"Reactions: {first_post.totalreactions}")
-    #         print(f"Comments: {first_post.totalcomments}")
-    #         print(f"Comments: {first_post.comments}")
-    #         print(f"Reactions: {first_post.reactions}")
-    #         print(f"Post URL: {first_post.postUrl}")
-    #     else:
-    #         print("✗ No profile posts returned or empty list")
-    # except Exception as e:
-    #     print(f"✗ Error while fetching profile posts: {str(e)}")
+            print("First profile post details:")
+            print(f"Text: {first_post.text[:100]}..." if first_post.text else "No text found")
+            print(f"Reactions: {first_post.totalreactions}")
+            print(f"Comments: {first_post.totalcomments}")
+            print(f"Comments: {first_post.comments}")
+            print(f"Reactions: {first_post.reactions}")
+            print(f"Post URL: {first_post.postUrl}")
+        else:
+            print("✗ No profile posts returned or empty list")
+    except Exception as e:
+        print(f"✗ Error while fetching profile posts: {str(e)}")
 
     # === 2. Test get_company_posts ===
 
-    # print("\n--- Testing Posts Client for A Company Page Functionality ---")
-    # request_company = CompanyPostsRequest(
-    #     username=TEST_POST_COMPANY_USERNAME,
-    #     post_comments="yes",
-    #     post_reactions="yes",
-    # )
+    print("\n--- Testing Posts Client for A Company Page Functionality ---")
+    request_company = PostsRequest(
+        username=TEST_POST_COMPANY_USERNAME,
+        post_comments="yes",
+        post_reactions="yes",
+    )
 
-    # print("\nTesting get_company_posts method...")
-    # try:
-    #     company_posts = await post_fetcher.get_company_posts(request_company)
+    print("\nTesting get_company_posts method...")
+    try:
+        company_posts = await post_fetcher.get_company_posts(request_company)
 
-    #     if isinstance(company_posts, list) and company_posts:
-    #         print(f"✓ Retrieved {len(company_posts)} company posts")
-    #         first_company_post = company_posts[0]
+        if isinstance(company_posts, list) and company_posts:
+            print(f"✓ Retrieved {len(company_posts)} company posts")
+            first_company_post = company_posts[0]
 
-    #         print("First company post details:")
-    #         print(f"Text: {first_company_post.text[:100]}..." if first_company_post.text else "No text found")
-    #         print(f"Reactions: {first_company_post.totalReactionCount}")
-    #         print(f"Comments: {first_company_post.commentsCount}")
-    #         print(f"Comments: {first_company_post.comments}")
-    #         print(f"Reactions: {first_company_post.reactions}")
-    #         print(f"Post URL: {first_company_post.postUrl}")
-    #     else:
-    #         print("✗ No company posts returned or empty list")
-    # except Exception as e:
-    #     print(f"✗ Error while fetching company posts: {str(e)}")
+            print("First company post details:")
+            print(f"Text: {first_company_post.text[:100]}..." if first_company_post.text else "No text found")
+            print(f"Reactions: {first_company_post.totalReactionCount}")
+            print(f"Comments: {first_company_post.commentsCount}")
+            print(f"Comments: {first_company_post.comments}")
+            print(f"Reactions: {first_company_post.reactions}")
+            print(f"Post URL: {first_company_post.postUrl}")
+        else:
+            print("✗ No company posts returned or empty list")
+    except Exception as e:
+        print(f"✗ Error while fetching company posts: {str(e)}")
+
+
     # === 3. Test get_user_post_likes ===
-    # post_fetcher = LinkedinPostFetcher(api_key=API_KEY, base_url=API_HOST)
-    # likes_request  = ProfilePostsRequest(
-    #     username=TEST_POST_PROFILE_USERNAME,
-    #     post_comments="no",
-    #     post_reactions="no",
-    # )
-    # likes_response = await post_fetcher.get_user_likes_with_details(likes_request)
+    post_fetcher = LinkedinPostFetcher(api_key=API_KEY, base_url=API_HOST)
+    likes_request  = PostsRequest(
+        username=TEST_POST_PROFILE_USERNAME,
+        post_comments="no",
+        post_reactions="no",
+    )
+    likes_response = await post_fetcher.get_user_likes_with_details(likes_request)
 
-    # if isinstance(likes_response, list):
-    #     print(f"✓ Retrieved {len(likes_response)} likes")
-    #     if likes_response:
-    #         first_like: LikeItem = likes_response[0]
-    #         print(f"First Like Post URL: {first_like.postUrl}")
-    #         print(f"First Like Owner: {first_like.owner.firstName} {first_like.owner.lastName}")
-    #     else:
-    #         print("✗ No likes returned.")
-    # else:
-    #     print("✗ Response is not a list.")
+    if isinstance(likes_response, list):
+        print(f"✓ Retrieved {len(likes_response)} likes")
+        if likes_response:
+            first_like: LikeItem = likes_response[0]
+            print(f"First Like Post URL: {first_like.postUrl}")
+            print(f"First Like Owner: {first_like.owner.firstName} {first_like.owner.lastName}")
+        else:
+            print("✗ No likes returned.")
+    else:
+        print("✗ Response is not a list.")
     
     
 
 
-# async def test_activity_client(client: RapidAPIClient, post_urn: str):
-#     """Test activity-related functionality (comments and reactions)."""
-#     print("\n--- Testing Activity Client Functionality ---")
+async def test_credit_calculator():
+    """Test credit calculator functionality."""
+    print("\n--- Testing Credit Calculator Functionality ---")
     
-#     # Create an activity fetcher
-#     activity_fetcher = LinkedInActivityFetcher(api_key=API_KEY, base_url=API_HOST)
+    # Get batch sizes from settings
+    POST_BATCH = rapid_api_settings.BATCH_SIZE
+    REACTION_BATCH = rapid_api_settings.DEFAULT_REACTION_LIMIT
     
-#     # Test comments functionality
-#     print("\nTesting comments functionality...")
+    # Define test cases
+    test_cases = [
+        {
+            "name": "No posts, no comments, no reactions",
+            "request": PostsRequest(username="testuser", post_limit=0, post_comments="no", post_reactions="no"),
+            "expected_min": 0,
+            "expected_max": 0
+        },
+        {
+            "name": "10 posts, no comments/reactions",
+            "request": PostsRequest(username="testuser", post_limit=10, post_comments="no", post_reactions="no"),
+            "expected_min": math.ceil(10 / POST_BATCH) * 1,
+            "expected_max": math.ceil(10 / POST_BATCH) * 1
+        },
+        {
+            "name": "10 posts with comments",
+            "request": PostsRequest(username="testuser", post_limit=10, post_comments="yes", post_reactions="no"),
+            "expected_min": (math.ceil(10 / POST_BATCH) * 1) + (10 * 1),
+            "expected_max": (math.ceil(10 / POST_BATCH) * 1) + (10 * 1)
+        },
+        {
+            "name": "10 posts with reactions (30 per post)",
+            "request": PostsRequest(username="testuser", post_limit=10, post_comments="no", post_reactions="yes", reaction_limit=30),
+            "expected_min": (math.ceil(10 / POST_BATCH) * 1) + (10 * 1),
+            "expected_max": (math.ceil(10 / POST_BATCH) * 1) + (10 * 1)
+        },
+        {
+            "name": "10 posts with reactions (100 per post)",
+            "request": PostsRequest(username="testuser", post_limit=10, post_comments="no", post_reactions="yes", reaction_limit=100),
+            "expected_min": (math.ceil(10 / POST_BATCH) * 1) + (10 * (1 + math.ceil((100-REACTION_BATCH)/REACTION_BATCH))),
+            "expected_max": (math.ceil(10 / POST_BATCH) * 1) + (10 * (1 + math.ceil((100-REACTION_BATCH)/REACTION_BATCH)))
+        },
+        {
+            "name": "10 posts with comments and reactions",
+            "request": PostsRequest(username="testuser", post_limit=10, post_comments="yes", post_reactions="yes", reaction_limit=30),
+            "expected_min": (math.ceil(10 / POST_BATCH) * 1) + (10 * (1 + 1)),
+            "expected_max": (math.ceil(10 / POST_BATCH) * 1) + (10 * (1 + 1))
+        }
+    ]
     
-#     # Try to get comments using different endpoints
-#     comments_response = await try_endpoints(
-#         client,
-#         COMMENTS_ENDPOINTS,
-#         {"urn": post_urn, "url": TEST_POST_URL}
-#     )
+    passed_count = 0
+    failed_count = 0
     
-#     if isinstance(comments_response, dict) and "error" not in comments_response:
-#         # Extract comments data
-#         comments = []
-#         if "data" in comments_response and "comments" in comments_response["data"]:
-#             comments = comments_response["data"]["comments"]
-#         elif "comments" in comments_response:
-#             comments = comments_response["comments"]
-            
-#         print(f"Retrieved {len(comments)} comments")
+    for test_case in test_cases:
+        print(f"\nTesting: {test_case['name']}")
+        min_credits, max_credits = calculate_credits(test_case['request'])
         
-#         if len(comments) > 0:
-#             first_comment = comments[0]
-#             print("First comment details:")
-#             if "text" in first_comment:
-#                 print(f"Text: {first_comment.get('text')[:100]}...")
-#             if "actor" in first_comment and "name" in first_comment["actor"]:
-#                 print(f"Author: {first_comment['actor'].get('name')}")
-#     else:
-#         print(f"Could not retrieve comments: {comments_response}")
-    
-#     # Test reactions functionality
-#     print("\nTesting reactions functionality...")
-    
-#     # Try to get reactions using different endpoints
-#     reactions_response = await try_endpoints(
-#         client,
-#         REACTIONS_ENDPOINTS,
-#         {"urn": post_urn, "url": TEST_POST_URL}
-#     )
-    
-#     if isinstance(reactions_response, dict) and "error" not in reactions_response:
-#         # Extract reactions data
-#         reactions = []
-#         if "data" in reactions_response and "items" in reactions_response["data"]:
-#             reactions = reactions_response["data"]["items"]
-#         elif "reactions" in reactions_response:
-#             reactions = reactions_response["reactions"]
-            
-#         print(f"Retrieved {len(reactions)} reactions")
+        print(f"Expected: min={test_case['expected_min']}, max={test_case['expected_max']}")
+        print(f"Actual: min={min_credits}, max={max_credits}")
         
-#         if len(reactions) > 0:
-#             first_reaction = reactions[0]
-#             print("First reaction details:")
-#             if "fullName" in first_reaction:
-#                 print(f"Author: {first_reaction.get('fullName')}")
-#             if "reactionType" in first_reaction:
-#                 print(f"Type: {first_reaction.get('reactionType')}")
-#     else:
-#         print(f"Could not retrieve reactions: {reactions_response}")
-
-
-# async def test_post_fetcher():
-#     """Test LinkedinPostFetcher class."""
-#     print("\n--- Testing LinkedinPostFetcher ---")
+        if min_credits == test_case['expected_min'] and max_credits == test_case['expected_max']:
+            print("✓ PASSED")
+            passed_count += 1
+        else:
+            print("✗ FAILED")
+            failed_count += 1
     
-#     post_fetcher = LinkedinPostFetcher(api_key=API_KEY, base_url=API_HOST)
-    
-#     # Test get_profile_posts method
-#     print("\nTesting get_profile_posts method...")
-#     # posts = await post_fetcher.get_profile_posts(TEST_PROFILE_USERNAME, 2)
-#     posts = await post_fetcher.get_reactions(TEST_POST_URL, 1)
-#     print(posts, "posts")
-    
-#     if isinstance(posts, list):
-#         print(f"Retrieved {len(posts)} posts")
-#         if len(posts) > 0:
-#             for i, post in enumerate(posts[:2]):
-#                 print(f"Post {i+1}:")
-#                 print(f"Content: {post.content[:100]}..." if hasattr(post, "content") else "No content")
-#     else:
-#         print("Could not retrieve posts")
-    
-#     # Test get_post_by_url method
-#     print("\nTesting get_post_by_url method...")
-#     post = await post_fetcher.get_post_by_url(TEST_POST_URL)
-    
-#     if post and not hasattr(post, "error"):
-#         print("Post details:")
-#         print(f"Content: {post.content[:100]}..." if hasattr(post, "content") else "No content")
-#         print(f"Stats: {post.stats}" if hasattr(post, "stats") else "No stats")
-#     else:
-#         print("Could not retrieve post by URL")
-
-
-# async def test_company_post_fetcher():
-#     """Test CompanyPostFetcher class."""
-#     print("\n--- Testing CompanyPostFetcher ---")
-    
-#     company_post_fetcher = CompanyPostFetcher(api_key=API_KEY, base_url=API_HOST)
-    
-#     # Test get_company_posts method
-#     print("\nTesting get_company_posts method...")
-#     posts = await company_post_fetcher.get_company_posts(TEST_COMPANY_USERNAME, 2)
-    
-#     if isinstance(posts, list):
-#         print(f"Retrieved {len(posts)} company posts")
-#         if len(posts) > 0:
-#             for i, post in enumerate(posts[:2]):
-#                 print(f"Company Post {i+1}:")
-#                 print(f"Content: {post.content[:100]}..." if hasattr(post, "content") else "No content")
-#     else:
-#         print("Could not retrieve company posts")
-    
-#     # Test get_company_profile method
-#     print("\nTesting get_company_profile method...")
-#     company = await company_post_fetcher.get_company_profile(TEST_COMPANY_USERNAME)
-    
-#     if company and not hasattr(company, "error"):
-#         print("Company details:")
-#         print(f"Name: {company.name}" if hasattr(company, "name") else "No name")
-#         print(f"Industry: {company.industry}" if hasattr(company, "industry") else "No industry")
-#     else:
-#         print("Could not retrieve company profile")
+    print(f"\nCredit calculator tests summary: {passed_count} passed, {failed_count} failed")
+    return passed_count, failed_count
 
 # Uncomment the test and part you want to run
 async def main():
@@ -321,12 +258,15 @@ async def main():
     print(f"API Host: {API_HOST}")
     
     # Test core client , has profile , company and post data
-    # client = await test_core_client()
+    client = await test_core_client()
     
+  
     
     # # Test posts client has profile posts with comments and reactions , company posts with comments and reactions , user likes with details
-    # post_urn = await test_posts_client()
-    
+    post_urn = await test_posts_client()
+
+      # Test credit calculator
+    await test_credit_calculator()
     
     print("\n=== Comprehensive Tests Completed ===")
 

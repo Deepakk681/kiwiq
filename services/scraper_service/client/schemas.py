@@ -314,19 +314,10 @@ class Reaction(BaseModel):
     type: str
     count: int
 
-class ProfilePostsRequest(BaseModel):
+class PostsRequest(BaseModel):
     username: str
     post_reactions: str = "no"  # "yes"/"no"
     post_comments: str = "no"   # "yes"/"no"
-    post_limit: Optional[int] = None
-    comment_limit: Optional[int] = None
-    reaction_limit: Optional[int] = None
-    media_flag: str = "no"
-
-class CompanyPostsRequest(BaseModel):
-    username: str
-    post_reactions: str = "no"
-    post_comments: str = "no"
     post_limit: Optional[int] = None
     comment_limit: Optional[int] = None
     reaction_limit: Optional[int] = None
@@ -619,3 +610,23 @@ class GetProfileCommentResponse(BaseModel):
 
     image: Optional[List[CommentImage]] = []
     company: Optional[CommentAuthorCompany] = None
+
+# === 7. Activity & Credit Estimation Request ===
+
+class ActivityRequest(BaseModel):
+    """
+    Configuration schema for a scraping job, used for credit estimation.
+    """
+    type: str  # "company" or "person"
+    username: str 
+    profile_info: str = "no" # "yes" or "no"
+    post_scrap: str = "no"   # "yes" or "no"
+    activity_comments: str = "no" # "yes" or "no" - Scrape posts user commented on?
+    activity_reactions: str = "no" # "yes" or "no" - Scrape posts user reacted to?
+
+    # Limits applicable when post_scrap, activity_comments, or activity_reactions is "yes"
+    post_limit: Optional[int] = 10 # Default limit if scraping posts/activity
+    post_comments: str = "no" # "yes" or "no" - Fetch comments for scraped posts?
+    comment_limit: Optional[int] = 10 
+    post_reactions: str = "no" # "yes" or "no" - Fetch reactions for scraped posts?
+    reaction_limit: Optional[int] = 10

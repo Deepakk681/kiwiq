@@ -11,7 +11,7 @@ from scraper_service.client.core_api_client import RapidAPIClient
 from scraper_service.settings import rapid_api_settings
 from scraper_service.client.utils.url_helper import extract_urn_from_url
 from global_config.logger import get_logger
-from scraper_service.client.schemas import PostReactionsRequest , ProfilePostCommentsRequest, PostComment, ProfilePostsRequest, ProfilePost, PostReaction , PostDetailsRequest , PostDetailsResponse, CompanyPostsRequest, CompanyPostCommentsRequest, CompanyPostResponse , CompanyPost , CompanyPostAuthor , CompanyPostArticle , CompanyPostComment , CompanyPostAuthor, LikeItem , LikeActivity , LikeOwner
+from scraper_service.client.schemas import PostReactionsRequest , ProfilePostCommentsRequest, PostComment, PostsRequest, ProfilePost, PostReaction , PostDetailsRequest , PostDetailsResponse, CompanyPostCommentsRequest, CompanyPostResponse , CompanyPost , CompanyPostAuthor , CompanyPostArticle , CompanyPostComment , CompanyPostAuthor, LikeItem , LikeActivity , LikeOwner
 from scraper_service.client.utils.url_helper import extract_urn_from_url
 # Configure logging
 logger = get_logger(__name__)
@@ -37,12 +37,12 @@ class LinkedinPostFetcher:
         self.rapidapi_host = base_url or rapid_api_settings.RAPID_API_BASE_URL
         self.api_client = RapidAPIClient(self.rapidapi_key, self.rapidapi_host)
 
-    async def get_company_posts(self, request: CompanyPostsRequest) -> List[CompanyPostResponse]:
+    async def get_company_posts(self, request: PostsRequest) -> List[CompanyPostResponse]:
         """
         Fetch posts for a LinkedIn company page.
         
         Args:
-            request (CompanyPostsRequest): Request object containing:
+            request (PostsRequest): Request object containing:
                 - username (str): LinkedIn company username
                 - post_limit (Optional[int]): Maximum number of posts to fetch
                 - post_comments (str): "yes" or "no" to include comments
@@ -57,7 +57,7 @@ class LinkedinPostFetcher:
             ValueError: If username is not provided.
             
         Example:
-            >>> request = CompanyPostsRequest(username="microsoft", post_limit=5, post_comments="yes", post_reactions="yes")
+            >>> request = PostsRequest(username="microsoft", post_limit=5, post_comments="yes", post_reactions="yes")
             >>> posts = await fetcher.get_company_posts(request)
             >>> print(f"Retrieved {len(posts)} posts")
         """
@@ -275,13 +275,13 @@ class LinkedinPostFetcher:
 
     async def get_profile_posts(
         self,
-        request: ProfilePostsRequest
+        request: PostsRequest
     ) -> List[ProfilePost]:
         """
         Fetch posts for a LinkedIn user profile.
         
         Args:
-            request (ProfilePostsRequest): Request object containing:
+            request (PostsRequest): Request object containing:
                 - username (str): LinkedIn profile username
                 - post_limit (Optional[int]): Maximum number of posts to fetch
                 - post_comments (str): "yes" or "no" to include comments
@@ -296,7 +296,7 @@ class LinkedinPostFetcher:
             ValueError: If username is not provided or response format is unexpected
             
         Example:
-            >>> request = ProfilePostsRequest(username="john-doe", post_limit=5, post_comments="yes", post_reactions="yes")
+            >>> request = PostsRequest(username="john-doe", post_limit=5, post_comments="yes", post_reactions="yes")
             >>> posts = await fetcher.get_profile_posts(request)
             >>> print(f"Retrieved {len(posts)} posts")
         """
@@ -486,13 +486,13 @@ class LinkedinPostFetcher:
         
     async def get_user_likes_with_details(
         self, 
-        request: ProfilePostsRequest
+        request: PostsRequest
     ) -> List[LikeItem]:
         """
         Fetch posts that a LinkedIn user has liked, with detailed information.
         
         Args:
-            request (ProfilePostsRequest): Request object containing:
+            request (PostsRequest): Request object containing:
                 - username (str): LinkedIn profile username
                 - post_limit (Optional[int]): Maximum number of liked posts to fetch
                 - post_comments (str): "yes" or "no" to include comments for each liked post
@@ -504,7 +504,7 @@ class LinkedinPostFetcher:
             List[LikeItem]: List of liked posts with detailed information
             
         Example:
-            >>> request = ProfilePostsRequest(username="john-doe", post_limit=5, post_comments="yes", post_reactions="yes")
+            >>> request = PostsRequest(username="john-doe", post_limit=5, post_comments="yes", post_reactions="yes")
             >>> likes = await fetcher.get_user_likes_with_details(request)
             >>> print(f"Retrieved {len(likes)} liked posts")
         """

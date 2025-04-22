@@ -19,6 +19,7 @@ from scraper_service.client.schemas import (
     ProfileRequest,
     CompanyRequest,
     CompanyResponse,
+    GetProfileCommentResponse,
 
  
 )
@@ -243,24 +244,24 @@ class RapidAPIClient(Generic[T]):
         return await self.make_get_request(endpoint, ProfileResponse)
 
         
-    # async def get_profile_post_comments(self, request: ProfileRequest) -> List[GetProfileCommentResponse]:
-    #     """
-    #     Fetch LinkedIn profile comments for a user.
+    async def get_profile_post_comments(self, request: ProfileRequest) -> List[GetProfileCommentResponse]:
+        """
+        Fetch LinkedIn profile comments for a user.
 
-    #     Args:
-    #         request (ProfileRequest): Request with LinkedIn username
+        Args:
+            request (ProfileRequest): Request with LinkedIn username
 
-    #     Returns:
-    #         List[GetProfileCommentResponse]: List of parsed comment models
-    #     """
-    #     endpoint = f"/get-profile-comments?username={request.username}"
-    #     raw_response = await self.make_get_request(endpoint, GetProfileCommentResponse)
+        Returns:
+            List[GetProfileCommentResponse]: List of parsed comment models
+        """
+        endpoint = f"/get-profile-comments?username={request.username}"
+        raw_response = await self.make_get_request(endpoint, GetProfileCommentResponse)
 
-    #     # Ensure response is list
-    #     if not isinstance(raw_response, list):
-    #         raise ValueError(f"Expected list from API, got: {type(raw_response)} - {raw_response}")
+        # Ensure response is list
+        if not isinstance(raw_response, list):
+            raise ValueError(f"Expected list from API, got: {type(raw_response)} - {raw_response}")
 
-    #     return TypeAdapter(List[GetProfileCommentResponse]).validate_python(raw_response)
+        return TypeAdapter(List[GetProfileCommentResponse]).validate_python(raw_response)
     
     async def get_company_data(self, request: CompanyRequest) -> CompanyResponse:
         """

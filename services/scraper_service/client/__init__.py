@@ -5,8 +5,8 @@ This package provides clients for fetching LinkedIn data using the RapidAPI
 LinkedIn scraper endpoint.
 """
 
-from scraper.rapid_api.client.core_api_client import RapidAPIClient
-from scraper.rapid_api.client.schemas import (
+from scraper_service.client.core_api_client import RapidAPIClient
+from scraper_service.client.schemas import (
     # Profile models
     ProfileRequest,
     ProfileResponse,
@@ -16,7 +16,7 @@ from scraper.rapid_api.client.schemas import (
     CompanyResponse,
 
     #Post models
-     ProfilePostCommentsRequest, PostComment, ProfilePostsRequest, ProfilePost, PostReaction , PostDetailsRequest , PostDetailsResponse, CompanyPostsRequest, CompanyPostCommentsRequest, CompanyPostResponse , CompanyPost , CompanyPostAuthor , CompanyPostArticle , CompanyPostComment , CompanyPostAuthor, LikeItem , LikeActivity , LikeOwner,
+     ProfilePostCommentsRequest, PostComment, PostsRequest, ProfilePost, PostReaction , PostDetailsRequest , PostDetailsResponse, CompanyPostCommentsRequest, CompanyPostResponse , CompanyPost , CompanyPostAuthor , CompanyPostArticle , CompanyPostComment , CompanyPostAuthor, LikeItem , LikeActivity , LikeOwner,
     
     #Like models
     LikeActivity,
@@ -40,12 +40,11 @@ __all__ = [
     'ProfilePostReactionsRequest',
     'ProfilePostCommentsRequest',
     'PostComment',
-    'ProfilePostsRequest',
+    'PostsRequest',
     'ProfilePost',
     'PostReaction',
     'PostDetailsRequest',
     'PostDetailsResponse',
-    'CompanyPostsRequest',
     'CompanyPostCommentsRequest',
     'CompanyPostResponse',
     'CompanyPost',
