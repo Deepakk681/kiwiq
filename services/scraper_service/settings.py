@@ -23,19 +23,10 @@ class RapidAPISettings(GlobalSettings):
     # API Settings
     RAPID_API_KEY: Optional[str] = os.getenv("RAPID_API_KEY")
     RAPID_API_HOST: str = os.getenv("RAPID_API_HOST", "linkedin-profiles-and-company-data.p.rapidapi.com")
-    
-    # Test Settings
-    TEST_PROFILE_USERNAME: str = os.getenv("TEST_PROFILE_USERNAME", "")
-    TEST_PROFILE_URL: str = os.getenv("TEST_PROFILE_URL", "")
-    TEST_POST_PROFILE_USERNAME: str = os.getenv("TEST_POST_PROFILE_USERNAME", "")
-    TEST_POST_COMPANY_USERNAME: str = os.getenv("TEST_POST_COMPANY_USERNAME", "")
-    TEST_COMPANY_USERNAME: str = os.getenv("TEST_COMPANY_USERNAME", "")
-    TEST_COMPANY_URL: str = os.getenv("TEST_COMPANY_URL", "")
-
-    
+        
     # Retry configuration
-    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
-    RETRY_DELAY: int = int(os.getenv("RETRY_DELAY", "5"))  # seconds
+    MAX_RETRIES: int = int(os.getenv("SCRAPER_SERVICE_MAX_RETRIES", "3"))
+    RETRY_DELAY: int = int(os.getenv("SCRAPER_SERVICE_RETRY_DELAY", "5"))  # seconds
     
     # Request Settings
     DEFAULT_POST_LIMIT: int = int(os.getenv("DEFAULT_POST_LIMIT", "50"))  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
@@ -44,10 +35,10 @@ class RapidAPISettings(GlobalSettings):
 
 
     # Rate Limiting Settings
-    DEFAULT_DELAY_SECONDS: int = int(os.getenv("DEFAULT_DELAY_SECONDS", "1"))
-    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "50"))
-    RATE_LIMIT_REQUESTS: int = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))  # Number of requests per time window
-    RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD", "60"))    # Time window in seconds
+    DEFAULT_DELAY_SECONDS: int = int(os.getenv("SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS", "1"))
+    BATCH_SIZE: int = int(os.getenv("SCRAPER_SERVICE_BATCH_SIZE", "50"))
+    RATE_LIMIT_REQUESTS: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_REQUESTS", "10"))  # Number of requests per time window
+    RATE_LIMIT_PERIOD: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_PERIOD", "60"))    # Time window in seconds
     
     # Default Headers
     @property

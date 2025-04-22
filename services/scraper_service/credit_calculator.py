@@ -14,8 +14,6 @@ from scraper_service.client.utils.enums import JobType
 from global_config.logger import get_logger
 logger = get_logger(__name__)
 
-POSTS_BATCH_SIZE = rapid_api_settings.BATCH_SIZE 
-REACTORS_BATCH_SIZE = rapid_api_settings.DEFAULT_REACTION_LIMIT 
 
 #  Union of possible request schemas
 RequestSchemaUnion = Union[
@@ -28,18 +26,18 @@ RequestSchemaUnion = Union[
 ]
 
 # --- Helper function for reaction cost calculation ---
-def _calculate_reaction_credits(limit: Any) -> Tuple[int, int]:
+def _calculate_reaction_credits(limit: Any , settings=rapid_api_settings) -> Tuple[int, int]:
     """Calculates min/max credits for fetching reactions based on limit."""
-    reaction_limit = limit or rapid_api_settings.DEFAULT_REACTION_LIMIT
+    reaction_limit = limit or settings.DEFAULT_REACTION_LIMIT
     if reaction_limit <= 0:
         return 0, 0
     
-    batches = math.ceil(reaction_limit / REACTORS_BATCH_SIZE)
+    batches = math.ceil(reaction_limit / settings.DEFAULT_REACTION_LIMIT)
     cost = batches * 1 # Assuming 1 credit per batch of reactions
     return cost, cost
 
 # --- Main Calculation Function ---
-def calculate_credits(job_type: JobType, request_data: RequestSchemaUnion) -> Tuple[int, int]:
+def calculate_credits(job_type: JobType, request_data: RequestSchemaUnion, settings=rapid_api_settings) -> Tuple[int, int]:
     """
     Calculates the estimated minimum and maximum credits required for a scraping job.
 
@@ -75,10 +73,10 @@ def calculate_credits(job_type: JobType, request_data: RequestSchemaUnion) -> Tu
         # Check if post_limit is explicitly set to 0 first, as 0 is falsy
         if req.post_limit == 0:
             return 0, 0
-        post_limit = req.post_limit if req.post_limit is not None else rapid_api_settings.DEFAULT_POST_LIMIT
+        post_limit = req.post_limit if req.post_limit is not None else settings.DEFAULT_POST_LIMIT
         
         # Base cost for fetching the posts/likes list (paginated)
-        post_batches = math.ceil(post_limit / POSTS_BATCH_SIZE)
+        post_batches = math.ceil(post_limit / settings.BATCH_SIZE)
         base_post_cost = post_batches * 1 # 1 credit per batch of posts/likes
         min_credits += base_post_cost
         max_credits += base_post_cost
@@ -116,8 +114,8 @@ def calculate_credits(job_type: JobType, request_data: RequestSchemaUnion) -> Tu
             raise TypeError(f"Expected PostReactionsRequest for {job_type.value}, got {type(request_data)}")
         req: PostReactionsRequest = request_data
         # Fetching reactions for a single post depends on the reaction_limit passed to the *method*
-        reaction_limit_for_calc = rapid_api_settings.DEFAULT_REACTION_LIMIT 
-        min_cost, max_cost = _calculate_reaction_credits(reaction_limit_for_calc)
+        reaction_limit_for_calc = settings.DEFAULT_REACTION_LIMIT 
+        min_cost, max_cost = _calculate_reaction_credits(reaction_limit_for_calc, settings)
         min_credits = min_cost
         max_credits = max_cost
 

@@ -20,13 +20,13 @@ logger = get_logger(__name__)
 API_KEY = rapid_api_settings.RAPID_API_KEY
 API_HOST = rapid_api_settings.RAPID_API_HOST
 
-# Test data from settings
-TEST_PROFILE_USERNAME = rapid_api_settings.TEST_PROFILE_USERNAME
-TEST_PROFILE_URL = rapid_api_settings.TEST_PROFILE_URL
-TEST_POST_PROFILE_USERNAME = rapid_api_settings.TEST_POST_PROFILE_USERNAME
-TEST_POST_COMPANY_USERNAME = rapid_api_settings.TEST_POST_COMPANY_USERNAME
-TEST_COMPANY_USERNAME = rapid_api_settings.TEST_COMPANY_USERNAME
-TEST_COMPANY_URL = rapid_api_settings.TEST_COMPANY_URL
+# Test data 
+TEST_PROFILE_USERNAME = ''
+TEST_PROFILE_URL = ''
+TEST_POST_PROFILE_USERNAME = ''
+TEST_POST_COMPANY_USERNAME = ''
+TEST_COMPANY_USERNAME = ''
+TEST_COMPANY_URL = ''
 
 
 # Retry configuration from settings
