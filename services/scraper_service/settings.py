@@ -25,29 +25,29 @@ class RapidAPISettings(GlobalSettings):
     RAPID_API_HOST: str = os.getenv("RAPID_API_HOST", "linkedin-profiles-and-company-data.p.rapidapi.com")
     
     # Test Settings
-    TEST_PROFILE_USERNAME: str = os.getenv("TEST_PROFILE_USERNAME")
-    TEST_PROFILE_URL: str = os.getenv("TEST_PROFILE_URL")
-    TEST_POST_PROFILE_USERNAME: str = os.getenv("TEST_POST_PROFILE_USERNAME")
-    TEST_POST_COMPANY_USERNAME: str = os.getenv("TEST_POST_COMPANY_USERNAME")
-    TEST_COMPANY_USERNAME: str = os.getenv("TEST_COMPANY_USERNAME")
-    TEST_COMPANY_URL: str = os.getenv("TEST_COMPANY_URL")
+    TEST_PROFILE_USERNAME: str = os.getenv("TEST_PROFILE_USERNAME", "")
+    TEST_PROFILE_URL: str = os.getenv("TEST_PROFILE_URL", "")
+    TEST_POST_PROFILE_USERNAME: str = os.getenv("TEST_POST_PROFILE_USERNAME", "")
+    TEST_POST_COMPANY_USERNAME: str = os.getenv("TEST_POST_COMPANY_USERNAME", "")
+    TEST_COMPANY_USERNAME: str = os.getenv("TEST_COMPANY_USERNAME", "")
+    TEST_COMPANY_URL: str = os.getenv("TEST_COMPANY_URL", "")
 
     
     # Retry configuration
-    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES"))
-    RETRY_DELAY: int = int(os.getenv("RETRY_DELAY"))  # seconds
+    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
+    RETRY_DELAY: int = int(os.getenv("RETRY_DELAY", "5"))  # seconds
     
     # Request Settings
-    DEFAULT_POST_LIMIT: int = int(os.getenv("DEFAULT_POST_LIMIT", 50))  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
-    DEFAULT_COMMENT_LIMIT: int = int(os.getenv("DEFAULT_COMMENT_LIMIT", 50)) #this will not matter actually , as comments are fetched per post
-    DEFAULT_REACTION_LIMIT: int = int(os.getenv("DEFAULT_REACTION_LIMIT", 30)) #this limit is a little varied , was trying was getting different amount in every batch
+    DEFAULT_POST_LIMIT: int = int(os.getenv("DEFAULT_POST_LIMIT", "50"))  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
+    DEFAULT_COMMENT_LIMIT: int = int(os.getenv("DEFAULT_COMMENT_LIMIT", "50")) #this will not matter actually , as comments are fetched per post
+    DEFAULT_REACTION_LIMIT: int = int(os.getenv("DEFAULT_REACTION_LIMIT", "30")) #this limit is a little varied , was trying was getting different amount in every batch
 
 
     # Rate Limiting Settings
-    DEFAULT_DELAY_SECONDS: int = int(os.getenv("DEFAULT_DELAY_SECONDS"))
-    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE"))
-    RATE_LIMIT_REQUESTS: int = int(os.getenv("RATE_LIMIT_REQUESTS"))  # Number of requests per time window
-    RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD"))    # Time window in seconds
+    DEFAULT_DELAY_SECONDS: int = int(os.getenv("DEFAULT_DELAY_SECONDS", "1"))
+    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", "50"))
+    RATE_LIMIT_REQUESTS: int = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))  # Number of requests per time window
+    RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD", "60"))    # Time window in seconds
     
     # Default Headers
     @property
