@@ -847,9 +847,9 @@ class FilterNode(BaseDynamicNode):
     node_name: ClassVar[str] = "filter_data"
     node_version: ClassVar[str] = "0.1.0"  # Version bump for index fix
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
-    output_schema_cls: Type[FilterOutputSchema] = FilterOutputSchema
-    config_schema_cls: Type[FilterTargets] = FilterTargets
+    input_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
+    output_schema_cls: ClassVar[Type[FilterOutputSchema]] = FilterOutputSchema
+    config_schema_cls: ClassVar[Type[FilterTargets]] = FilterTargets
     config: FilterTargets
 
     def _prepare_input_data(self, input_data: Union[DynamicSchema, Dict[str, Any]]) -> Dict[str, Any]:
@@ -1079,9 +1079,9 @@ class IfElseConditionNode(BaseDynamicNode):
     node_name: ClassVar[str] = "if_else_condition"
     node_version: ClassVar[str] = "0.1.0" # Version bump for consistency
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
-    output_schema_cls: Type[IfElseOutputSchema] = IfElseOutputSchema
-    config_schema_cls: Type[IfElseConfigSchema] = IfElseConfigSchema
+    input_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
+    output_schema_cls: ClassVar[Type[IfElseOutputSchema]] = IfElseOutputSchema
+    config_schema_cls: ClassVar[Type[IfElseConfigSchema]] = IfElseConfigSchema
     config: IfElseConfigSchema
 
     def _prepare_input_data(self, input_data: Union[DynamicSchema, Dict[str, Any]]) -> Dict[str, Any]:
@@ -1166,6 +1166,8 @@ class IfElseConditionNode(BaseDynamicNode):
 
 # --- Example Usage Block (Optional) ---
 if __name__ == '__main__':
+    # print(f"\n\nIfElseConditionNode.output_schema_cls.IS_DYNAMIC_SCHEMA: {IfElseConditionNode.output_schema_cls.__name__} --> {IfElseConditionNode.output_schema_cls.IS_DYNAMIC_SCHEMA}\n\n")
+    # raise ValueError("Stop here!")
      # Example demonstrating FilterMode.DENY
     deny_node = FilterNode(
         node_id="deny_example",

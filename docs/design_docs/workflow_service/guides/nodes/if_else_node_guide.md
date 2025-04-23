@@ -182,6 +182,40 @@ See the configuration example above for how `check_lead_qualification` (IfElse) 
 }
 ```
 
+## Operators
+class FilterOperator(str, Enum):
+    """
+    Operators for filter conditions that define how field values are compared.
+    
+    Attributes:
+        EQUALS: Field value equals the condition value
+        EQUALS_ANY_OF: Field value equals any value in a list of condition values
+        NOT_EQUALS: Field value does not equal the condition value
+        GREATER_THAN: Field value is greater than the condition value
+        LESS_THAN: Field value is less than the condition value
+        GREATER_THAN_OR_EQUALS: Field value is greater than or equal to the condition value
+        LESS_THAN_OR_EQUALS: Field value is less than or equal to the condition value
+        CONTAINS: Field value contains the condition value (for strings, lists, etc.)
+        NOT_CONTAINS: Field value does not contain the condition value
+        STARTS_WITH: Field value (string) starts with the condition value
+        ENDS_WITH: Field value (string) ends with the condition value
+        IS_EMPTY: Field value is None, empty string, empty list, or empty dict
+        IS_NOT_EMPTY: Field value is not empty
+    """
+    EQUALS = "equals"
+    EQUALS_ANY_OF = "equals_any_of"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUALS = "greater_than_or_equals"
+    LESS_THAN_OR_EQUALS = "less_than_or_equals"
+    CONTAINS = "contains"
+    NOT_CONTAINS = "not_contains"
+    STARTS_WITH = "starts_with"
+    ENDS_WITH = "ends_with"
+    IS_EMPTY = "is_empty"
+    IS_NOT_EMPTY = "is_not_empty"
+
 ## Notes for Non-Coders
 
 -   Use this node when your workflow needs to make a decision: "If X is true, go path A, otherwise go path B".

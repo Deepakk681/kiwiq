@@ -1,59 +1,90 @@
 # Usage Guide: PromptConstructorNode
 
-This guide explains how to use the `PromptConstructorNode` to dynamically build text prompts for other nodes (like the `LLMNode`) using templates and variables.
+This guide explains how to use the `PromptConstructorNode` to dynamically build text prompts for other nodes (like the `LLMNode`) using templates and variables. This node can use templates defined directly in its configuration or load them from the central Prompt Template database.
 
-## Purpose
+## 1. Purpose
 
-The `PromptConstructorNode` takes predefined text templates containing placeholders (like `{variable_name}`) and fills those placeholders with actual values provided as input data. This allows you to create complex and context-specific prompts without hardcoding them directly into your workflow graph.
+The `PromptConstructorNode` takes text templates containing placeholders (like `{variable_name}`) and fills those placeholders with actual values. These values can come from input data (mapped via edges or looked up via configured paths), defined defaults within the node, or defaults from loaded templates. This allows you to create complex and context-specific prompts without hardcoding them directly into your workflow graph.
 
-Think of it as a mail merge tool for your workflow prompts.
+Think of it as a powerful mail merge tool for your workflow prompts.
 
 Common use cases:
--   Creating personalized prompts using user data.
--   Building complex instructions for LLMs by combining static text with dynamic information.
--   Generating system prompts based on workflow state.
--   Standardizing prompt structures across different parts of a workflow.
+-   Creating personalized prompts using user data found anywhere in the input structure.
+-   Building complex instructions for LLMs by combining static text with dynamic information loaded from the database or specific input paths.
+-   Generating system prompts based on workflow state or loaded configurations.
+-   Standardizing prompt structures across different parts of a workflow by loading shared templates.
 
-## Configuration (`NodeConfig`)
+## 2. Configuration (`NodeConfig`)
 
-The main configuration happens within the `node_config` field, specifically using the `PromptTemplateConfig` schema.
+The main configuration happens within the `node_config` field, specifically using the `PromptConstructorConfig` schema.
 
 ```json
 {
   "nodes": {
-    "build_my_prompt": {
-      "node_id": "build_my_prompt",
+    "build_my_prompts": {
+      "node_id": "build_my_prompts",
       "node_name": "prompt_constructor", // ** Must be "prompt_constructor" **
       "node_config": {
+        // --- Define one or more templates ---
         "prompt_templates": {
-          // --- Define one or more templates --- 
-          "user_query_tpl": { // Key used internally for organization
-            "id": "final_user_prompt", // ** This becomes the output field name **
-            "name": "User Query Enhancer", // Optional descriptive name
-            "template": "User Query: {user_input}\nContext: {context_summary}\nFormat: {output_format}",
+          // --- Example 1: Static Definition with Custom Sourcing ---
+          "static_greeting": { // Key used internally for organization
+            "id": "greeting_prompt", // ** This becomes the output field name **
+            "template": "Hello {user_name} from {location}, welcome to {service}!",
             "variables": {
-              // List all variables expected by this template
-              "user_input": null, // null: MUST be provided by input edge
-              "context_summary": null,
-              "output_format": "Provide a concise answer." // Default value
+              // List variables expected by this template
+              "user_name": null, // MUST be provided by input (P3, P4, or P5/P6 if default exists)
+              "service": "Our Awesome Platform", // P5: Default value if not sourced otherwise
+              "location": null // MUST be provided by input (P1-P4)
+            },
+            "construct_options": { // P1: Highest priority source for 'location' in THIS template
+              "location": "user_profile.address.city" // Path within node's input data
             }
+            // template_load_config: null (Not used for static)
           },
-          "system_message_tpl": {
-            "id": "system_prompt_for_llm", // ** Another output field name **
-            "template": "You are an expert in {domain}. Respond in a {tone} tone. Context: {context_summary}", // Reuses context_summary
+          // --- Example 2: Dynamic Loading from DB ---
+          "dynamic_summary": {
+            "id": "summary_prompt_for_llm", // ** Another output field name **
+            "template_load_config": { // Specify how to load the template
+              "path_config": {
+                "static_name": "customer_interaction_summary_v3"
+              }
+            },
+            // Static variables can supplement/override loaded defaults
             "variables": {
-              "domain": "General Knowledge", // Default value
-              "tone": "helpful", // Default value
-              "context_summary": null // Also needs context_summary
+              "tone": "professional", // P5: Override potential loaded default (P6) for 'tone'
+              "max_length": 500,    // P5: Provide a variable not defined in the loaded template
+              "customer_history": null // Must be provided by input (P1-P4)
+            }
+            // template: null (Not used for dynamic loading)
+          },
+          // --- Example 3: Dynamic Loading using Input Data ---
+          "dynamic_email_body": {
+            "id": "final_email_body",
+            "template_load_config": {
+              "path_config": {
+                "input_name_field_path": "input.email_details.template_name",
+                "input_version_field_path": "input.email_details.version_spec"
+              }
+            },
+            "variables": {
+              "recipient_name": null // Must be provided via input (P1-P4)
+              // Other variables will come from the loaded template (P6) or input (P1-P4)
             }
           }
           // ... more templates
+        },
+        // --- NEW: Global Fallback Sourcing ---
+        "global_construct_options": { // P2: Fallback source for variables across ALL templates
+           "customer_history": "session_data.customer.full_history", // Path within node's input data
+           "recipient_name": "input.default_recipient" // Path, lower priority than template-specific P1
+           // Variables not listed here rely on P3, P4, P5, or P6
         }
       },
-      // Input/Output schemas are DYNAMIC. They are not typically defined here
-      // but are inferred from the `variables` in `node_config` and edge mappings.
-      "dynamic_input_schema": null,
-      "dynamic_output_schema": null
+      // Input/Output schemas are DYNAMIC. They MUST be defined in the graph schema
+      // to declare expected inputs and outputs.
+      "dynamic_input_schema": { /* See Section 3 & 5 */ },
+      "dynamic_output_schema": { /* See Section 4 & 5 */ }
     }
     // ... other nodes
   }
@@ -61,123 +92,175 @@ The main configuration happens within the `node_config` field, specifically usin
 }
 ```
 
-### `node_config.prompt_templates` Details:
+### `node_config` Details:
 
--   This is a dictionary where you define each prompt template.
--   The *key* of each entry (e.g., `"user_query_tpl"`) is just for organization within the config.
--   Inside each template definition:
-    *   **`id`** (str, required): **Very important!** This ID determines the name of the output field where the constructed prompt string will be placed. Choose a meaningful ID (e.g., `final_user_prompt`, `summary_request_prompt`).
-    *   `name` (str, optional): A human-readable name for the template.
-    *   `template` (str, required): The template string itself. Use curly braces `{}` to denote placeholders for variables (e.g., `{user_name}`, `{document_text}`).
-    *   `variables` (Dict[str, Optional[str]], required): A dictionary listing *all* the variable names used as placeholders in the `template` string.
-        *   The *key* is the variable name (e.g., `"user_input"`).
-        *   The *value* is either:
-            *   `null`: This variable **must** be provided as input to the node via an edge mapping (either globally or template-specific). Execution will fail if it's not provided.
-            *   A string/number/boolean: This is the **default value** to use if the variable is *not* provided as input. Default values should be primitive types.
+1.  **`prompt_templates`** (Dict[str, `PromptTemplateDefinition`], required): Defines each prompt construction task.
+    *   The *key* (e.g., `"static_greeting"`) is for organization.
+    *   Inside each `PromptTemplateDefinition`:
+        *   **`id`** (str, required): Determines the output field name for the constructed prompt (e.g., `greeting_prompt`).
+        *   **Template Source (Choose ONE):**
+            *   `template` (str): Define the template string directly.
+            *   `template_load_config` (`PromptTemplateLoadEntryConfig`): Configure dynamic loading from the DB (see `PromptTemplateLoaderNode` guide for details on `path_config`).
+        *   **`variables`** (Dict[str, Optional[Any]], required): Lists variables *associated* with this template. Defines defaults (Priority 5/6) and required inputs.
+            *   `null`: Variable *must* be provided via input (Priorities 1-4).
+            *   Value (e.g., string, number): Default value (Priority 5), potentially overriding a loaded template's default (Priority 6).
+        *   **`construct_options`** (Optional[Dict[str, str]]): **Priority 1**. Template-specific mapping from a `{variable_name}` to a dot-notation path within the node's input data (e.g., `"user_name": "user_context.name"`). Overrides all other sources for this variable *in this template only*.
+2.  **`global_construct_options`** (Optional[Dict[str, str]]): **Priority 2**. Global mapping from `{variable_name}` to a dot-notation path within the node's input data. Used as a fallback if `template_specific_construct_options` (P1) is not defined for a variable.
 
-## Input (Dynamic Schema)
+## 3. Input (Dynamic Schema)
 
-The `PromptConstructorNode` has a dynamic input schema determined by the `variables` defined across all configured `prompt_templates`.
+The `PromptConstructorNode` requires specific fields in its input data to function correctly. These fields must be declared in the node's `dynamic_input_schema` within the `GraphSchema` and provided via incoming `EdgeSchema` mappings.
 
-Input data is provided via incoming `EdgeSchema` mappings. The node resolves the value for each placeholder (`{variable}`) in each template according to this priority:
+**Required Inputs:**
 
-1.  **Template-Specific Input Mapping (Highest Priority):**
-    *   If an incoming edge has a `dst_field` matching the pattern `TEMPLATE_ID::VARIABLE_NAME` (e.g., `final_user_prompt::output_format`), the value from that edge's `src_field` is used *only* for the `{output_format}` variable within the template whose `id` is `final_user_prompt`.
-    *   This uses the `OBJECT_PATH_REFERENCE_DELIMITER` (`::`).
+1.  **Fields for `construct_options`:** Any top-level keys that are the start of a path used in `construct_options` or `global_construct_options` (e.g., if you have path `"user_profile.address.city"`, the input schema needs a field named `"user_profile"` of type `any` or `object`).
+2.  **Fields for Dynamic Template Loading:** Any fields referenced by `input_name_field_path` or `input_version_field_path` if using `template_load_config`.
+3.  **Fields for Direct Input Mappings (P3/P4):** Any fields mapped directly via edges with `dst_field` matching `TEMPLATE_ID::VARIABLE_NAME` (P3) or `variable_name` (P4).
 
-2.  **Global Input Mapping:**
-    *   If an incoming edge has a `dst_field` that exactly matches a variable name (e.g., `context_summary`), the value from that edge's `src_field` is used for the `{context_summary}` variable in *all* templates that contain it, *unless* it was already set by a template-specific mapping (priority 1).
+**Variable Resolution Priority:**
 
-3.  **Default Value:**
-    *   If a variable is not provided by either a template-specific or global input mapping, the node checks the template's `variables` definition in the `node_config`.
-    *   If a default value (a string, number, or boolean) is defined there, that value is used.
+The node resolves the final value for each placeholder (`{variable}`) in each template according to this strict priority order:
 
-4.  **Required Input (Error):**
-    *   If a variable has `null` defined as its value in the template's `variables` section, and it was *not* provided by either a template-specific or global input mapping, the workflow execution will fail because a required input is missing.
+1.  **Template-Specific `construct_options` (Highest Priority):**
+    *   Checks the `construct_options` defined within the specific `PromptTemplateDefinition` (keyed by `id`).
+    *   If the `variable_name` exists as a key, it attempts to retrieve the value from the node's input data using the specified dot-notation path. If found, this value is used.
 
-## Output (Dynamic Schema)
+2.  **Global `construct_options`:**
+    *   If not found via P1, checks the `global_construct_options` defined at the top level of `node_config`.
+    *   If the `variable_name` exists as a key, it attempts to retrieve the value from the input data using the specified dot-notation path. If found, this value is used.
 
-The `PromptConstructorNode` produces a dynamic output schema.
+3.  **Template-Specific Input Mapping:**
+    *   If not found via P1 or P2, checks if the node's input data contains a key matching `TEMPLATE_ID::VARIABLE_NAME` (e.g., `greeting_prompt::user_name`).
+    *   If the key exists and its value is not `None`, that value is used *only* for this template. (Requires an incoming edge mapping to this `dst_field`).
 
--   For each prompt template defined in the `node_config`, an output field is created.
--   The **name** of the output field is taken directly from the **`id`** specified for that template in the configuration (e.g., `final_user_prompt`, `system_prompt_for_llm`).
--   The **value** of the output field is the fully constructed prompt string after all placeholders within that template have been filled according to the input priority rules.
+4.  **Global Input Mapping:**
+    *   If not found via P1, P2, or P3, checks if the node's input data contains a key exactly matching the `variable_name` (e.g., `user_name`).
+    *   If the key exists and its value is not `None`, that value is used for the variable in *any* template requiring it (unless already set by P1, P2, or P3). (Requires an incoming edge mapping to this `dst_field`).
 
-## Example (`GraphSchema`)
+5.  **Static Default / Override (in `node_config`)**:
+    *   If not found via P1-P4, checks the `variables` dictionary defined *within the specific `PromptTemplateDefinition`* in the `node_config`.
+    *   If the `variable_name` exists and its value is *not* `null`, that value is used.
 
-Let's connect the `PromptConstructorNode` defined above, providing inputs from different sources.
+6.  **Loaded Default (from DB Template):**
+    *   If the template was loaded dynamically (`template_load_config`) and not found via P1-P5, checks the `input_variables` dictionary loaded from the database template.
+    *   If a default value exists there, it's used.
+
+7.  **Required Input (Error):**
+    *   If a variable placeholder exists in the final template string, and its value hasn't been determined by steps 1-6, the node will fail during output validation if that output field (`id`) is marked as required in the `dynamic_output_schema`. The error will be reported in `prompt_template_errors`.
+
+## 4. Output (Dynamic Schema - `PromptConstructorOutput`)
+
+The `PromptConstructorNode` produces a dynamic output object. Its structure **must** be defined in the node's `dynamic_output_schema` within the `GraphSchema`. This schema dictates which fields the node will attempt to include in its final, validated output.
+
+-   **Constructed Prompts:** For each `PromptTemplateDefinition` defined in `node_config.prompt_templates`, the `dynamic_output_schema` should include a field definition matching the template's **`id`**.
+    *   The **name** of the output field matches the `id` (e.g., `greeting_prompt`, `summary_prompt_for_llm`).
+    *   The **value** will be the fully constructed prompt string *if* construction was successful.
+    *   Mark the field as `required: true` in the schema if the workflow depends on this prompt being successfully generated. If construction fails for a required field, the node execution will fail with a `ValidationError`. If marked `required: false`, the field will simply be absent from the output model if construction fails.
+-   **`prompt_template_errors`** (Optional[List[Dict]]): To receive errors, you **must** define a field named `prompt_template_errors` (typically `type: "list", required: false`) in the `dynamic_output_schema`.
+    *   If defined and errors occur during template loading or construction, this field will contain a list of dictionaries detailing those errors (including `template_id` and `error`).
+    *   If defined and no errors occur, this field will contain an empty list (`[]`).
+    *   If this field is *not* defined in the `dynamic_output_schema`, any internal errors will still be logged, but they will not be included in the node's output object passed to downstream nodes.
+
+## 5. Example (`GraphSchema`)
 
 ```json
 {
   "nodes": {
-    "gather_data": { /* ... node that outputs user_query, context_doc ... */ },
-    "build_my_prompt": {
-      "node_id": "build_my_prompt",
-      "node_name": "prompt_constructor",
-      "node_config": { /* ... From config example above ... */ }
+    "get_context": {
+      /* ... node outputting complex context object ... */
+      // Example Output: { "user_profile": { "name": "Alice", "address": { "city": "Wonderland" } }, "session_data": { ... }, "specific_template": "customer_followup" }
     },
-    "call_llm": {
-      "node_id": "call_llm",
-      "node_name": "llm",
-      "node_config": { /* ... LLM config ... */ }
-    }
+    "build_email_prompts": {
+      "node_id": "build_email_prompts",
+      "node_name": "prompt_constructor",
+      "node_config": {
+        "prompt_templates": {
+          "header": {
+            "id": "email_subject", // Output field name
+            "template": "Regarding your inquiry - {user_name}",
+            "variables": { "user_name": null }, // Required from input
+            "construct_options": { "user_name": "user_profile.name" } // P1 Source
+          },
+          "body": {
+            "id": "email_body", // Output field name
+            "template": "Hi {user_name}, Thanks for contacting us from {city}.",
+            "variables": { "user_name": null, "city": "Unknown" }, // city has P5 default
+            "construct_options": { "user_name": "user_profile.name" }, // P1 for user_name
+            // city will use P2 (global option)
+          }
+        },
+        "global_construct_options": { // P2 Sources
+          "city": "user_profile.address.city"
+        }
+      },
+      // Define expected inputs for lookups
+      "dynamic_input_schema": {
+        "fields": {
+          "user_profile": { "type": "any", "required": true, "description": "Needed for construct options" }
+        }
+      },
+      // Define expected outputs (MUST be defined)
+      "dynamic_output_schema": {
+        "fields": {
+          "email_subject": { "type": "str", "required": true }, // This prompt MUST succeed
+          "email_body": { "type": "str", "required": true }, // This prompt MUST succeed
+          "prompt_template_errors": { "type": "list", "required": false } // Include errors if they occur
+        }
+      }
+    },
+    "send_email": { /* ... uses email_subject, email_body ... */ },
+    "log_errors": { /* ... uses prompt_template_errors ... */ }
   },
   "edges": [
-    // --- Edges providing variables TO the PromptConstructorNode ---
+    // Provide the structured input needed by construct_options
     {
-      "src_node_id": "gather_data",
-      "dst_node_id": "build_my_prompt",
+      "src_node_id": "get_context",
+      "dst_node_id": "build_email_prompts",
       "mappings": [
-        // Global mapping: sets {user_input} in template "final_user_prompt"
-        { "src_field": "user_query", "dst_field": "user_input" }, 
-        // Global mapping: sets {context_summary} in BOTH templates
-        { "src_field": "context_doc", "dst_field": "context_summary" } 
+        // Map the container object needed for path lookups
+        { "src_field": "user_profile", "dst_field": "user_profile" }
+        // No need to map individual variables if solely using construct_options
       ]
     },
-    // Edge providing a template-specific override for "system_prompt_for_llm"
+    // Use constructed prompts
     {
-      "src_node_id": "__INPUT__", // Example: getting tone from workflow start
-      "dst_node_id": "build_my_prompt",
+      "src_node_id": "build_email_prompts",
+      "dst_node_id": "send_email",
       "mappings": [
-         // Specifically set {tone} only for the system prompt template
-        { "src_field": "desired_tone", "dst_field": "system_prompt_for_llm::tone" }
+        { "src_field": "email_subject", "dst_field": "subject" },
+        { "src_field": "email_body", "dst_field": "body" }
       ]
     },
-    // --- Edges using the constructed prompts FROM the PromptConstructorNode ---
+    // Handle errors (only works if errors field defined in output schema)
     {
-      "src_node_id": "build_my_prompt",
-      "dst_node_id": "call_llm",
-      "mappings": [
-        // Use the output named after the template ID
-        { "src_field": "final_user_prompt", "dst_field": "user_prompt" }, 
-        { "src_field": "system_prompt_for_llm", "dst_field": "system_prompt" }
-      ]
+      "src_node_id": "build_email_prompts",
+      "dst_node_id": "log_errors",
+      "mappings": [ { "src_field": "prompt_template_errors", "dst_field": "errors" } ]
     }
   ],
-  "input_node_id": "__INPUT__",
-  "output_node_id": "__OUTPUT__"
+  // ... input/output nodes ...
 }
 ```
 
-**How variables are filled in this example:**
+## 6. Notes for Non-Coders
 
--   `final_user_prompt` template:
-    *   `{user_input}`: Gets value from `gather_data` node's `user_query` field (Global Mapping).
-    *   `{context_summary}`: Gets value from `gather_data` node's `context_doc` field (Global Mapping).
-    *   `{output_format}`: Gets value `"Provide a concise answer."` (Default Value).
--   `system_prompt_for_llm` template:
-    *   `{domain}`: Gets value `"General Knowledge"` (Default Value).
-    *   `{tone}`: Gets value from `__INPUT__` node's `desired_tone` field (Template-Specific Mapping - overrides default).
-    *   `{context_summary}`: Gets value from `gather_data` node's `context_doc` field (Global Mapping).
-
-## Notes for Non-Coders
-
--   Use `PromptConstructorNode` to create reusable prompt text by filling in blanks.
--   **Define Templates:** In `node_config.prompt_templates`, write your base text (`template`) with placeholders like `{variable}`.
--   **List Variables & Defaults:** For each template, list all `{variable}` names in `variables`. Give a default value if it's often the same, or use `null` if the value *must* come from another node.
--   **Name Your Outputs:** The `id` you give each template (e.g., `final_user_prompt`) becomes the name of the output field containing the finished prompt string.
--   **Connect Inputs:** Feed data using edges.
-    *   To set a variable in *all* templates that use it, map to the variable name directly (e.g., `dst_field: "context_summary"`).
-    *   To set a variable *only* for a specific template, map to `TEMPLATE_ID::VARIABLE_NAME` (e.g., `dst_field: "system_prompt_for_llm::tone"`).
-    *   Template-specific inputs override global inputs, which override defaults.
--   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and send them to the next node (like an `LLMNode`). 
+-   Use `PromptConstructorNode` to create reusable prompt text by filling in blanks `{like_this}`.
+-   **Define Tasks:** In `node_config.prompt_templates`, set up each prompt you want to build. Give each a unique `id` (e.g., `"final_greeting"`). This `id` becomes the name of the output field containing the finished prompt.
+-   **Choose Source:**
+    *   **Static:** Write the text directly in `template`.
+    *   **Dynamic Load:** Use `template_load_config` to grab a template from the central library.
+-   **List Variables:** In `variables` for each task (`id`):
+    *   List all `{variable}` names needed.
+    *   Use `null` if the value *must* come from input.
+    *   Provide a default value (like `"professional"`) if needed.
+-   **Tell it *Where* to Find Input Values (Highest Priority):**
+    *   `construct_options`: Inside a specific task (`id`), map a `{variable}` to a specific location in the input data (e.g., tell it `{user_name}` is found at `user_profile.name`). This wins over everything else for *that task*.
+    *   `global_construct_options`: Map variables to input locations as a fallback for *all* tasks if they don't have a specific `construct_options` for that variable.
+-   **Alternatively, Provide Input Values *Directly* (Lower Priority):**
+    *   Use edges to map values *directly* to the node.
+    *   Map to `TEMPLATE_ID::VARIABLE_NAME` (e.g., `final_greeting::user_name`) to set it just for that template (Priority 3).
+    *   Map to `VARIABLE_NAME` (e.g., `user_name`) to set it for all templates (Priority 4).
+    *   **Important:** These direct mappings are *lower* priority than `construct_options`.
+-   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the default value from `variables` (P5), then the default from a loaded template (P6).
+-   **Connect Inputs:** Use edges to feed the *data structures* needed for `construct_options` lookups (e.g., map the whole `user_profile` object) and any direct inputs (P3/P4). Define the expected inputs in `dynamic_input_schema`.
+-   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`. 

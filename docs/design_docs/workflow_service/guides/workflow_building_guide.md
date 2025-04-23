@@ -1,6 +1,6 @@
 # End-to-End Guide: Building Workflows
 
-This guide provides a comprehensive walkthrough on how to design, configure, and build automated workflows using the `GraphSchema`. It covers the fundamental concepts, configuration details, data flow management, and provides practical examples.
+This guide provides a comprehensive walkthrough on how to design, configure, and build automated workflows using the `GraphSchema`. It covers the fundamental concepts, configuration details, data flow management, runtime context, and provides practical examples.
 
 ## 1. Introduction: What is a Workflow?
 
@@ -54,17 +54,18 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
         {
           "filename_config": {
             "static_namespace": "user_profiles",
-            "input_docname_field": "user_id" // Get docname from input data
+            "input_docname_field": "user_id" // Get docname from input data field (e.g., mapped from input_node)
           },
           "output_field_name": "profile_document"
         }
       ]
+      // Note: User/Org context needed by this node comes from runtime_config (See Section 6)
     },
     // --- Optional Advanced Settings ---
-    "private_input_mode": false, // Default: Read from shared state (See Section 8)
-    "private_output_mode": false, // Default: Write to shared state (See Section 8)
-    "dynamic_input_schema": null, // Usually inferred, see Section 6
-    "dynamic_output_schema": null, // Usually inferred, see Section 6
+    "private_input_mode": false, // Default: Read from shared state (See Section 9)
+    "private_output_mode": false, // Default: Write to shared state (See Section 9)
+    "dynamic_input_schema": null, // Usually inferred, see Section 7
+    "dynamic_output_schema": null, // Usually inferred, see Section 7
     "enable_node_fan_in": false // Default: Node runs once per trigger (See advanced docs)
   },
   "summarize_profile": { /* ... another node definition ... */ }
@@ -75,14 +76,17 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
 **Key Fields for Each Node:**
 
 -   **`node_id` (String, Required):** A unique identifier *you assign* to this specific instance of the node within this workflow (e.g., `fetch_order_details`, `generate_summary_llm`, `wait_for_manager_approval`). This ID is used in edges to refer to this node. It must match the key in the `nodes` dictionary. **Cannot start with `$`**.
--   **`node_name` (String, Required):** Specifies the *type* of node, determining its function and behavior. This must match a registered node type in the system (e.g., `llm`, `filter_data`, `transform_data`, `hitl_node__default`, `router_node`). Refer to the individual node guides or the `nodes_interplay_guide.md` for a list of available types.
+-   **`node_name` (String, Required):** Specifies the *type* of node, determining its function and behavior. This must match a registered node type in the system (e.g., `llm`, `filter_data`, `transform_data`, `hitl_node__default`, `router_node`, `prompt_constructor`, `load_customer_data`, `store_customer_data`). Refer to the individual node guides or the `nodes_interplay_guide.md` for a list of available types.
 -   **`node_config` (Object, Optional):** A dictionary containing configuration parameters specific to the `node_name`. The structure and required fields within `node_config` vary significantly between node types. **Consult the specific node's guide for details.** Examples:
     *   An `llm` node needs `llm_config` (model, temperature, max_tokens), `output_schema` (for structured output), `tool_calling_config` & `tools` (for tool use), `web_search_options`, etc.
     *   A `filter_data` node needs `targets` defining filter conditions.
     *   A `transform_data` node needs `mappings` defining data restructuring.
-    *   A `load_customer_data` node needs `load_paths` specifying which documents to fetch.
--   **`private_input_mode` / `private_output_mode` (Boolean, Optional):** Advanced settings primarily used with `map_list_router_node` for parallel processing. See Section 8.
--   **`dynamic_input_schema` / `dynamic_output_schema` (Object, Optional):** Advanced settings for explicitly defining expected data structures, often used by dynamic nodes like `InputNode`, `OutputNode`, `HITLNode`. Usually, these are inferred from edge mappings. See Section 6.
+    *   A `load_customer_data` node needs `load_paths` specifying which documents to fetch. It implicitly uses the **runtime context** (see Section 6) to determine the user and organization for access control.
+    *   A `store_customer_data` node needs `store_configs` defining data sources and target locations. It also uses the **runtime context** for access control.
+    *   A `prompt_constructor` node needs `prompt_templates` (defining static `template` or dynamic `template_load_config`, `variables` for defaults/requirements, and optionally `construct_options` for path-based variable sourcing) and optionally `global_construct_options` for fallback path sourcing.
+    *   *Deprecated:* `load_prompt_templates` node (use `prompt_constructor` with `template_load_config` instead).
+-   **`private_input_mode` / `private_output_mode` (Boolean, Optional):** Advanced settings primarily used with `map_list_router_node` for parallel processing. See Section 9.
+-   **`dynamic_input_schema` / `dynamic_output_schema` (Object, Optional):** Advanced settings for explicitly defining expected data structures, often used by dynamic nodes like `InputNode`, `OutputNode`, `HITLNode`, `PromptConstructorNode`. Defining these is highly recommended for dynamic nodes. See Section 7.
 
 ## 4. Connecting Nodes with Edges: Defining the Flow
 
@@ -108,6 +112,11 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
       {
         "src_field": "user_settings", // The entire 'user_settings' object from Node A
         "dst_field": "settings_for_B" // Will arrive as 'settings_for_B' in Node B
+      },
+      // --- Mapping to a template-specific variable (for PromptConstructorNode) ---
+      {
+         "src_field": "specific_tone_setting",
+         "dst_field": "my_prompt_id::tone" // Sets 'tone' variable only for template with id 'my_prompt_id'
       }
     ]
   },
@@ -127,15 +136,15 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
 -   **`mappings` (List[`EdgeMapping`], Optional):** This list defines *which* data fields flow from the source to the destination and what they should be called.
     *   Each object in the `mappings` list requires:
         *   **`src_field` (String):** The name of the field in the output of the `src_node_id`. Use dot notation (`.`) to access nested data (e.g., `customer.address.zip_code`).
-        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`.
+        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`. Can use dot notation. Can also use `TEMPLATE_ID::VARIABLE_NAME` format for template-specific inputs (e.g., for `PromptConstructorNode`).
 
 **Why are Mappings Important?**
 
-Nodes are often developed independently and have specific expectations for their input data names. Mappings act as adapters, ensuring the output data from one node matches the input requirements of the next.
+Nodes are often developed independently and have specific expectations for their input data names. Mappings act as adapters, ensuring the output data from one node matches the input requirements of the next. They are also essential for providing the necessary data structures when a node uses internal path lookups (like `construct_options`).
 
 **What if `mappings` is empty?**
 
-An edge without mappings primarily defines execution order: `dst_node_id` will run after `src_node_id`. The `dst_node_id` might not need direct data from the `src_node_id` (perhaps it reads from the central state, see Section 5), or it might process the entire state passed along implicitly. However, relying on implicit data flow is less clear than using explicit mappings.
+An edge without mappings primarily defines execution order: `dst_node_id` will run after `src_node_id`. The `dst_node_id` might not need direct data from the `src_node_id` (perhaps it reads from the central state or uses mechanisms like `construct_options`), or it might process the entire state passed along implicitly. However, relying on implicit data flow is less clear than using explicit mappings.
 
 ## 5. Handling Data Flow
 
@@ -203,9 +212,93 @@ Workflows often need a shared **memory** or **scratchpad** accessible by multipl
       ]
     }
     ```
+-   **Important Note on Execution Flow:** Edges originating *from* `"$graph_state"` are solely for **data retrieval**. They **do not** trigger the execution of the destination node (`dst_node_id`). The destination node must still receive an incoming connection from another regular node (or be the `input_node_id`) to be executed as part of the workflow's sequence. Think of reading from `"$graph_state"` as looking up information when the node runs, not as a signal to run.
 -   **Reducers (Advanced):** When multiple nodes write to the *same key* in the central state (e.g., adding items to a history list), you might need to define how that data is combined. This is done using "reducers" configured in the `GraphSchema.metadata`. Common reducers include `replace` (last write wins - the default), `add_messages` (for chat history), and `append_list`. See `test_AI_loop.py` or LangGraph documentation for details. If not specified, the default behavior usually replaces the old value.
 
-## 6. Working with Dynamic Schemas
+## 6. Accessing Runtime Context
+
+Beyond the data explicitly passed via edges or stored in the central state (`$graph_state`), nodes often need access to information about the *current execution environment* and *shared services*. This is provided through the **runtime configuration** (`runtime_config`).
+
+**What is `runtime_config`?**
+
+When a workflow is executed (e.g., via the `workflow_execution_flow` in `worker.py`), the system prepares a special `runtime_config` dictionary. This dictionary is automatically passed to the `process` method of every node when it runs. It contains crucial context that nodes can use without requiring explicit mappings in the `GraphSchema`.
+
+**Key Context Items:**
+
+-   **`APPLICATION_CONTEXT_KEY` (`"application_context"`):** This key holds a dictionary containing information specific to the current workflow run.
+    *   **`workflow_run_job` (`WorkflowRunJobCreate`):** Contains details like the current `run_id`, `workflow_id`, `owner_org_id`, `triggered_by_user_id`, the initial `inputs` provided to the workflow, and `thread_id`.
+    *   **`user` (`User` model):** The fully loaded user object corresponding to `triggered_by_user_id`. This allows nodes to perform actions based on user roles, permissions, or preferences.
+
+-   **`EXTERNAL_CONTEXT_MANAGER_KEY` (`"external_context_manager"`):** This key holds an instance of the `ExternalContextManager`. This manager provides managed access to shared external resources and services.
+    *   **Database Connections:** Access to the asynchronous database pool (`db`).
+    *   **Service Clients:** Ready-to-use clients for interacting with other services, such as `customer_data_service` (for MongoDB interactions), `rabbit` (for message queue publishing), etc.
+    *   **Registries:** Access to registries like `db_registry` (for schema templates, etc.).
+
+**How Nodes Use Runtime Context:**
+
+Nodes needing this information (like `load_customer_data` or `store_customer_data`) retrieve it directly from the `runtime_config` passed to their `process` method.
+
+```python
+# Simplified example inside a node's process method
+# from workflow_service.config.constants import APPLICATION_CONTEXT_KEY, EXTERNAL_CONTEXT_MANAGER_KEY
+# from kiwi_app.auth.models import User
+# from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
+
+async def process(self, input_data, runtime_config, *args, **kwargs):
+    if not runtime_config:
+        self.logger.error("Missing runtime_config.")
+        return # Handle error
+
+    # Retrieve the specific context dictionaries
+    app_context = runtime_config.get("configurable", {}).get(APPLICATION_CONTEXT_KEY)
+    ext_context = runtime_config.get("configurable", {}).get(EXTERNAL_CONTEXT_MANAGER_KEY)
+
+    if not app_context or not ext_context:
+        self.logger.error("Missing required keys in runtime_config.")
+        return # Handle error
+
+    # Access information from Application Context
+    user: Optional[User] = app_context.get("user")
+    run_job: Optional[WorkflowRunJobCreate] = app_context.get("workflow_run_job")
+
+    if not user or not run_job:
+        self.logger.error("Missing user or run_job in application context.")
+        return # Handle error
+
+    org_id = run_job.owner_org_id
+    user_id = user.id
+    self.logger.info(f"Node running for Org: {org_id}, User: {user_id}")
+
+    # Access services from External Context Manager
+    customer_data_service = ext_context.customer_data_service
+    # rabbit_client = ext_context.rabbit
+
+    # Example: Use the service with implicit org/user context
+    # (The service uses the provided 'user' object for permission checks)
+    try:
+        # No need to pass org_id/user_id explicitly to the node config!
+        # The service method receives the 'user' object for context.
+        document = await customer_data_service.get_unversioned_document(
+            org_id=org_id, # org_id is required by the service method signature
+            namespace="some_namespace",
+            docname="some_doc",
+            is_shared=False, # Example flag
+            user=user # Pass the user object for authorization checks
+        )
+        # ... process document ...
+    except Exception as e:
+        self.logger.error(f"Failed to load document: {e}")
+
+    # ... rest of node logic ...
+```
+
+**Benefits of Runtime Context:**
+
+-   **Simpler Graph Schemas:** You don't need to clutter your `GraphSchema` by explicitly passing `user_id`, `org_id`, or service connection details through edges.
+-   **Security:** Nodes automatically operate within the correct organizational and user context, simplifying permission enforcement.
+-   **Maintainability:** Centralizes access to external services, making it easier to manage connections and configurations.
+
+## 7. Working with Dynamic Schemas
 
 Some nodes don't have fixed input/output structures but adapt based on connections or configuration.
 
@@ -222,10 +315,12 @@ Some nodes don't have fixed input/output structures but adapt based on connectio
     // This means the workflow will output a field named "final_answer".
     ```
 -   **`HITLNode`:** Its input (data shown) and output (data provided) schemas are often defined by incoming/outgoing edge mappings.
--   **`LLMNode` with `output_schema`:** While the base `LLMNode` has static I/O fields (`user_prompt`, `content`, `metadata`, etc.), configuring `output_schema` in its `node_config` causes it to produce an additional `structured_output` field whose *content* structure matches your definition. You map *from* this structured data using `structured_output::field_name`. NOTE: currently mapping is only possible with first level fields in edges, so this type of notation can go in some node's configs to access subfields, but not directly via edges as of now!
--   **Other Config-Driven Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `Load/StoreCustomerDataNode`, `DataJoinNode`, `PromptConstructorNode`, and `TransformerNode` determine required inputs based on field paths (`field`, `input_path`, `source_path`, etc.) in their `node_config`. Ensure data for these paths is available via edges or central state.
+-   **`LLMNode` with `output_schema`:** While the base `LLMNode` has static I/O fields (`user_prompt`, `content`, `metadata`, etc.), configuring `output_schema` in its `node_config` causes it to produce an additional `structured_output` field whose *content* structure matches your definition. You may map in the future *from* this structured data using `structured_output::field_name`. NOTE: currently mapping is only possible with first level fields in edges, so this type of notation can go in some node's configs to access subfields, but not directly via edges as of now!
+-   **`PromptConstructorNode`:** Its input schema is dynamic, derived from several sources: fields needed for `construct_options` path lookups (e.g., if a path is `user.profile.name`, it needs the `user` field mapped), fields needed for dynamic template loading (`input_name_field_path`, `input_version_field_path`), fields mapped directly via edges (globally like `variable_name` or template-specific like `template_id::variable_name`), and variables marked `null` in its config. Its output dictionary *always* contains fields matching the `id` of each successfully constructed template, plus a `prompt_template_errors` list (empty if no errors). The structure of the final *validated output object* passed downstream is determined by the `dynamic_output_schema` defined for the node in the `GraphSchema`. This schema should list the expected template `id` fields and can optionally include `prompt_template_errors`. **It is highly recommended to explicitly define `dynamic_input_schema` and `dynamic_output_schema` for this node in the `GraphSchema` for clarity and validation.**
+-   *Deprecated:* `PromptTemplateLoaderNode` (Functionality merged into `prompt_constructor`).
+-   **Other Config-Driven Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `Load/StoreCustomerDataNode`, `DataJoinNode`, and `TransformerNode` determine required inputs based on field paths (`field`, `input_path`, `source_path`, etc.) in their `node_config`. Ensure data for these paths is available via edges or central state. Many of these nodes (especially `Load/StoreCustomerDataNode`) also rely on the **runtime context** (see Section 6) for permissions and service access.
 
-## 7. Advanced Pattern: Conditional Logic
+## 8. Advanced Pattern: Conditional Logic
 
 Workflows often need to make decisions. This is typically done using an `IfElseConditionNode` combined with a `RouterNode`.
 
@@ -249,7 +344,7 @@ Workflows often need to make decisions. This is typically done using an `IfElseC
     ```
 5.  **Connect Router Outputs:** Define edges from the `RouterNode` to both potential downstream nodes (`node_for_true_path` and `node_for_false_path`). The execution engine will only follow the path chosen by the router based on the `decision_result`.
 
-## 8. Advanced Pattern: Processing Lists in Parallel (`MapListRouterNode`)
+## 9. Advanced Pattern: Processing Lists in Parallel (`MapListRouterNode`)
 
 To process each item in a list independently (and potentially in parallel), use the `MapListRouterNode`.
 
@@ -267,13 +362,13 @@ To process each item in a list independently (and potentially in parallel), use 
     *   **Solution:**
         *   Set **`private_input_mode: true`** on the **destination nodes** (the ones listed in the mapper's `destinations`). This tells them to get their input directly from the mapper's `Send` command, not the shared state.
         *   If a parallel branch continues further (NodeA -> NodeB, both running per-item), NodeA needs **`private_output_mode: true`** (to send its output directly) and NodeB needs **`private_input_mode: true`** (to receive it directly).
-4.  **Convergence:** Branches running in private mode don't automatically write back to the main central state. Results often need to be collected later using specific state reducers or dedicated aggregator nodes.
+4.  **Convergence / Aggregation:** By default, branches running in private mode don't automatically write their final results back to the *main* shared central state when they finish (they operate in isolated sub-states). However, you *can* explicitly write data back to the central state (`"$graph_state"`) from nodes within these parallel branches. To combine results from multiple parallel runs (e.g., collecting all generated items into a single list), you **must** configure appropriate **reducers** in the `GraphSchema.metadata`. For instance, using an `append_list` reducer on a specific key in `"$graph_state"` allows each parallel branch to add its result to that list, effectively aggregating the output in the central state. Without such reducers, concurrent writes to the same key would likely overwrite each other (default `replace` behavior).
 
 *(See the `MapListRouterNode` guide for a detailed example.)*
 
-## 9. Example Workflow: Customer Support Ticket Routing
+## 10. Example Workflow: Customer Support Ticket Routing
 
-**Goal:** Receive a support ticket, determine its topic using an LLM, and route it to the correct department.
+**Goal:** Receive a support ticket, determine its topic using an LLM, and route it to the correct department, storing the ticket data using runtime context.
 
 ```json
 {
@@ -281,20 +376,26 @@ To process each item in a list independently (and potentially in parallel), use 
     "input_node": { // Receives: { "ticket_id": "...", "ticket_body": "..." }
       "node_id": "input_node", "node_name": "input_node", "node_config": {}
     },
-    "build_prompt": {
-      "node_id": "build_prompt", "node_name": "prompt_constructor",
+    "build_prompt": { // Uses PromptConstructor for loading AND construction
+      "node_id": "build_prompt",
+      "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
-          "topic_tpl": {
-            "id": "llm_user_prompt", // Output field name
-            "template": "Analyze the following support ticket and determine the primary topic. Choose ONLY ONE from: Billing, Technical, Account, General Inquiry.
-
-Ticket Body:
-{body}",
-            "variables": { "body": null }
-          }
-        }
-      }
+           "classifier_task": { // Key for organization
+             "id": "llm_user_prompt", // Output field name
+             "template_load_config": { // Load the template from DB
+               "path_config": {
+                 "static_name": "support_topic_classifier",
+                 "static_version": "1.0"
+               }
+             },
+             "variables": { "body": null } // Mark 'body' as required input
+           }
+         }
+      },
+      // Explicit schemas recommended
+      "dynamic_input_schema": { "fields": { "body": { "type": "str", "required": true } } },
+      "dynamic_output_schema": { "fields": { "llm_user_prompt": { "type": "str", "required": true }, "prompt_template_errors": { "type": "list", "required": false } } }
     },
     "determine_topic_llm": {
       "node_id": "determine_topic_llm", "node_name": "llm",
@@ -314,69 +415,114 @@ Ticket Body:
         "choices": ["billing_queue", "tech_queue", "account_queue", "general_queue"],
         "allow_multiple": false,
         "choices_with_conditions": [
-          { "choice_id": "billing_queue", "input_path": "structured_output::topic", "target_value": "Billing" },
-          { "choice_id": "tech_queue", "input_path": "structured_output::topic", "target_value": "Technical" },
-          { "choice_id": "account_queue", "input_path": "structured_output::topic", "target_value": "Account" },
-          { "choice_id": "general_queue", "input_path": "structured_output::topic", "target_value": "General Inquiry" }
+          // NOTE: Using structured_output::topic notation requires adapter/node support
+          { "choice_id": "billing_queue", "input_path": "topic_from_llm.topic", "target_value": "Billing" },
+          { "choice_id": "tech_queue", "input_path": "topic_from_llm.topic", "target_value": "Technical" },
+          { "choice_id": "account_queue", "input_path": "topic_from_llm.topic", "target_value": "Account" },
+          { "choice_id": "general_queue", "input_path": "topic_from_llm.topic", "target_value": "General Inquiry" }
         ]
       }
     },
-    "billing_queue": { "node_id": "billing_queue", "node_name": "store_customer_data", "node_config": { /* store ticket in billing namespace */ } },
-    "tech_queue": { "node_id": "tech_queue", "node_name": "store_customer_data", "node_config": { /* store ticket in tech namespace */ } },
-    "account_queue": { "node_id": "account_queue", "node_name": "store_customer_data", "node_config": { /* store ticket in account namespace */ } },
-    "general_queue": { "node_id": "general_queue", "node_name": "store_customer_data", "node_config": { /* store ticket in general namespace */ } }
+    // Store nodes configuration - these use runtime context for org/user and service access
+    "billing_queue": {
+      "node_id": "billing_queue", "node_name": "store_customer_data",
+      "node_config": {
+        "store_configs": [{
+          "input_field_path": "original_ticket", // Get data from central state
+          "target_path": { "filename_config": { "static_namespace": "tickets_billing", "input_docname_field": "original_ticket.id" } }
+          // versioning/schema defaults are likely sufficient (upsert unversioned)
+        }]
+      }
+    },
+    "tech_queue": {
+      "node_id": "tech_queue", "node_name": "store_customer_data",
+      "node_config": {
+        "store_configs": [{
+          "input_field_path": "original_ticket",
+          "target_path": { "filename_config": { "static_namespace": "tickets_tech", "input_docname_field": "original_ticket.id" } }
+        }]
+      }
+    },
+    "account_queue": {
+      "node_id": "account_queue", "node_name": "store_customer_data",
+      "node_config": {
+        "store_configs": [{
+          "input_field_path": "original_ticket",
+          "target_path": { "filename_config": { "static_namespace": "tickets_account", "input_docname_field": "original_ticket.id" } }
+        }]
+      }
+    },
+    "general_queue": {
+      "node_id": "general_queue", "node_name": "store_customer_data",
+      "node_config": {
+        "store_configs": [{
+          "input_field_path": "original_ticket",
+          "target_path": { "filename_config": { "static_namespace": "tickets_general", "input_docname_field": "original_ticket.id" } }
+        }]
+      }
+    }
   },
   "edges": [
-    // Input -> Build Prompt
+    // Input -> Build Prompt (Provide the required 'body' variable)
     { "src_node_id": "input_node", "dst_node_id": "build_prompt", "mappings": [ { "src_field": "ticket_body", "dst_field": "body" } ] },
-    // Build Prompt -> LLM
+    // Build Prompt -> LLM (Use the 'id' from the config as src_field)
     { "src_node_id": "build_prompt", "dst_node_id": "determine_topic_llm", "mappings": [ { "src_field": "llm_user_prompt", "dst_field": "user_prompt" } ] },
-    // LLM -> Router (Pass the structured output containing the topic)
-    { "src_node_id": "determine_topic_llm", "dst_node_id": "routing_decision", "mappings": [ { "src_field": "structured_output", "dst_field": "structured_output" } ] },
-    // Store original ticket data in Central State for later use by storage nodes
-    { "src_node_id": "input_node", "dst_node_id": "$graph_state", "mappings": [ { "src_field": "ticket_id", "dst_field": "current_ticket_id" }, { "src_field": "ticket_body", "dst_field": "current_ticket_body" } ] },
-    // Read ticket data from Central State for the billing queue node
-    { "src_node_id": "$graph_state", "dst_node_id": "billing_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
-    // ... similar edges from "$graph_state" to tech_queue, account_queue, general_queue ...
-    { "src_node_id": "$graph_state", "dst_node_id": "tech_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
-    { "src_node_id": "$graph_state", "dst_node_id": "account_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
-    { "src_node_id": "$graph_state", "dst_node_id": "general_queue", "mappings": [ { "src_field": "current_ticket_id", "dst_field": "ticket_id" }, { "src_field": "current_ticket_body", "dst_field": "ticket_data" } ] },
-    // Router -> Queue Nodes (Control flow only)
+    // LLM -> Router (Map the structured output to a field the router expects)
+    { "src_node_id": "determine_topic_llm", "dst_node_id": "routing_decision", "mappings": [ { "src_field": "structured_output", "dst_field": "topic_from_llm" } ] },
+
+    // State management: Store original ticket data in central state for later retrieval by store nodes
+    { "src_node_id": "input_node", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "ticket_id", "dst_field": "original_ticket.id" },
+        { "src_field": "ticket_body", "dst_field": "original_ticket.body" }
+        // Add other relevant ticket fields if needed by store nodes
+      ]
+    },
+    // State management: Read original ticket data from central state for store nodes
+    // Note: These edges ONLY provide data, they DON'T trigger the store nodes. The router does.
+    { "src_node_id": "$graph_state", "dst_node_id": "billing_queue", "mappings": [ { "src_field": "original_ticket", "dst_field": "original_ticket" } ] },
+    { "src_node_id": "$graph_state", "dst_node_id": "tech_queue", "mappings": [ { "src_field": "original_ticket", "dst_field": "original_ticket" } ] },
+    { "src_node_id": "$graph_state", "dst_node_id": "account_queue", "mappings": [ { "src_field": "original_ticket", "dst_field": "original_ticket" } ] },
+    { "src_node_id": "$graph_state", "dst_node_id": "general_queue", "mappings": [ { "src_field": "original_ticket", "dst_field": "original_ticket" } ] },
+
+    // Router -> Queue Nodes (Control flow only, data comes from $graph_state edges above)
     { "src_node_id": "routing_decision", "dst_node_id": "billing_queue" },
     { "src_node_id": "routing_decision", "dst_node_id": "tech_queue" },
     { "src_node_id": "routing_decision", "dst_node_id": "account_queue" },
     { "src_node_id": "routing_decision", "dst_node_id": "general_queue" }
   ],
   "input_node_id": "input_node",
-  // Output node determined by which store node runs last
-  "output_node_id": "general_queue" // Example, depends on actual implementation (could use a dedicated OutputNode collecting status)
+  "output_node_id": "general_queue" // Example end point - could also be a dedicated output node collecting results
 }
 ```
 
-## 10. Example Workflow: Data Enrichment and Summarization
+## 11. Example Workflow: Data Enrichment and Summarization
 
-**Goal:** Load user data, load related company data, join them, filter out inactive users, and generate a summary using an LLM.
+**Goal:** Load user data based on IDs from input, load related company data, join them, filter out inactive users, and generate a summary using an LLM. Runtime context is used by `load_customer_data`.
 
 ```json
 {
   "nodes": {
-    "input_node": { // Receives: { "user_ids": ["u1", "u2", ...] }
+    "input_node": { // Receives: { "user_ids": ["u1", "u2", ...], "filter_status": "active" }
       "node_id": "input_node", "node_name": "input_node", "node_config": {}
     },
-    "load_users": { // Load user data for each ID
+    "load_users": { // Load user data for each ID (requires MapListRouter or custom logic)
       "node_id": "load_users", "node_name": "load_customer_data",
       "node_config": {
         "load_paths": [
           {
-            "filename_config": { "static_namespace": "users", "input_docname_field": "user_id" }, // Need to iterate or use MapListRouter first
-            "output_field_name": "user_profile" // This config needs refinement for list processing
+            // Assumes input is {"user_id": "uX"} for each item after mapping/routing
+            "filename_config": { "static_namespace": "users", "input_docname_field": "user_id" },
+            "output_field_name": "user_profile"
           }
         ]
       },
-      // NOTE: This node needs modification or a MapListRouter before it to handle a list of IDs.
-      // For simplicity, assume it outputs a list: { "user_profiles": [ { "id": "u1", ... }, ... ] }
+      // NOTE: This example simplifies list processing. A MapListRouter node would typically precede
+      // this node to iterate over 'user_ids' from the input_node, mapping each ID to the
+      // 'user_id' field expected by filename_config. This node would then run once per user ID.
+      // Output shown below assumes aggregation after parallel runs.
+      // Assumed aggregated output: { "user_profiles": [ { "id": "u1", ... }, ... ] }
     },
-    "load_companies": { // Load company data
+    "load_companies": { // Load company data (uses runtime context)
       "node_id": "load_companies", "node_name": "load_customer_data",
       "node_config": {
         "load_paths": [ { "filename_config": { "static_namespace": "companies", "static_docname": "all_company_data" }, "output_field_name": "company_list" } ]
@@ -392,81 +538,104 @@ Ticket Body:
             "primary_join_key": "company_id", // Field in user profile
             "secondary_join_key": "id", // Field in company data
             "output_nesting_field": "company_info", // Add company data here
-            "join_type": "one_to_one"
+            "join_type": "one_to_one" // Or appropriate type
           }
-        ]
+        ],
+        "output_field_name": "joined_user_list" // Name of the output list field
       }
     },
-    "filter_inactive": {
-      "node_id": "filter_inactive", "node_name": "filter_data",
+    "filter_by_status": { // Filter using status provided in initial workflow input
+      "node_id": "filter_by_status", "node_name": "filter_data",
       "node_config": {
         "targets": [
           {
-            "filter_target": "mapped_data.user_profiles", // Filter items in the list produced by join_data
-            "filter_mode": "allow", // Keep only active users
-            "condition_groups": [ { "conditions": [ { "field": "status", "operator": "equals", "value": "active" } ] } ]
+            "filter_target": "joined_user_list", // Input list field name (after mapping)
+            "filter_mode": "allow", // Keep matching items
+            "condition_groups": [ { "conditions": [ { "field": "status", "operator": "equals", "input_value_path": "status_to_filter" } ] } ] // Compare user status to input value
           }
-        ]
+        ],
+         "output_field_name": "filtered_users" // Name of the output field containing the filtered list
+      }
+    },
+    "transform_to_json": { // Node to convert filtered list to JSON string for LLM
+      "node_id": "transform_to_json", "node_name": "transform_data", // Assuming a node that can stringify
+      "node_config": {
+        "mappings": [
+          { "source_path": "filtered_users", "destination_path": "user_data_json", "action": "stringify" }
+         ]
       }
     },
     "build_summary_prompt": {
-      "node_id": "build_summary_prompt", "node_name": "prompt_constructor",
+      "node_id": "build_summary_prompt",
+      "node_name": "prompt_constructor",
       "node_config": {
-        "prompt_templates": {
-          "summary_tpl": {
-            "id": "summary_prompt",
-            "template": "Summarize the key information for the following active users:
-{user_data_json}",
-            "variables": { "user_data_json": null }
-          }
-        }
-      }
+         "prompt_templates": {
+           "summary_task": {
+             "id": "summary_prompt", // Output field name
+             "template_load_config": { /* ... Config to load template from DB ... */ },
+             "variables": { "user_data_json": null } // Mark as required input
+           }
+         }
+      },
+      "dynamic_input_schema": { "fields": { "user_data_json": { "type": "str", "required": true } } },
+      "dynamic_output_schema": { "fields": { "summary_prompt": { "type": "str", "required": true }, "prompt_template_errors": { "type": "list", "required": false } } }
     },
     "generate_summary": {
       "node_id": "generate_summary", "node_name": "llm",
       "node_config": { "llm_config": { "model_spec": { "provider": "openai", "model": "gpt-4-turbo" } } }
     },
-    "output_node": { // Outputs: { "summary": "..." }
+    "output_node": {
       "node_id": "output_node", "node_name": "output_node", "node_config": {}
     }
   },
   "edges": [
-    // Assume InputNode provides user_ids list... need MapListRouter or modified Load node
-    // For simplicity, let's assume load_users/load_companies provide the needed lists directly
-    { "src_node_id": "load_users", "dst_node_id": "join_data", "mappings": [ { "src_field": "user_profiles", "dst_field": "user_profiles" } ] },
+    // Input to Load/Filter nodes
+    // Note: For list processing, 'input_node' -> MapListRouter -> 'load_users' would be needed.
+    // Edges below assume 'load_users' magically handles the list or aggregation occurs.
+    { "src_node_id": "input_node", "dst_node_id": "load_users", "mappings": [ { "src_field": "user_ids", "dst_field": "user_ids_list" } ] }, // Simplified
+    { "src_node_id": "input_node", "dst_node_id": "filter_by_status", "mappings": [ { "src_field": "filter_status", "dst_field": "status_to_filter" } ] },
+
+    // Data loading and joining
+    { "src_node_id": "load_users", "dst_node_id": "join_data", "mappings": [ { "src_field": "user_profiles", "dst_field": "user_profiles" } ] }, // List of loaded profiles
     { "src_node_id": "load_companies", "dst_node_id": "join_data", "mappings": [ { "src_field": "company_list", "dst_field": "company_list" } ] },
-    // Joiner -> Filter
-    { "src_node_id": "join_data", "dst_node_id": "filter_inactive", "mappings": [ { "src_field": "mapped_data", "dst_field": "mapped_data" } ] },
-    // Filter -> Prompt Builder (Need to stringify JSON)
-    // Requires a transform step here to convert filtered_data.mapped_data.user_profiles list to JSON string
-    // { "src_node_id": "filter_inactive", "dst_node_id": "build_summary_prompt", "mappings": [ { "src_field": "filtered_data", "dst_field": "user_data_json" } ] }, // Simplification
-     // Assuming a transform step exists: transform_to_json
-    { "src_node_id": "filter_inactive", "dst_node_id": "transform_to_json", "mappings": [ { "src_field": "filtered_data", "dst_field": "input_data" } ] },
-    { "src_node_id": "transform_to_json", "dst_node_id": "build_summary_prompt", "mappings": [ { "src_field": "json_string", "dst_field": "user_data_json" } ] },
+
+    // Joiner -> Filter (Pass the joined list)
+    { "src_node_id": "join_data", "dst_node_id": "filter_by_status", "mappings": [ { "src_field": "joined_user_list", "dst_field": "joined_user_list" } ] },
+
+    // Filter -> Transform (Pass the filtered list)
+    { "src_node_id": "filter_by_status", "dst_node_id": "transform_to_json", "mappings": [ { "src_field": "filtered_users", "dst_field": "filtered_users" } ] },
+
+    // Transform -> Build Prompt (Provide JSON string)
+    { "src_node_id": "transform_to_json", "dst_node_id": "build_summary_prompt", "mappings": [ { "src_field": "user_data_json", "dst_field": "user_data_json" } ] },
+
     // Prompt Builder -> LLM
     { "src_node_id": "build_summary_prompt", "dst_node_id": "generate_summary", "mappings": [ { "src_field": "summary_prompt", "dst_field": "user_prompt" } ] },
+
     // LLM -> Output
-    { "src_node_id": "generate_summary", "dst_node_id": "output_node", "mappings": [ { "src_field": "content", "dst_field": "summary" } ] }
+    { "src_node_id": "generate_summary", "dst_node_id": "output_node", "mappings": [ { "src_field": "content", "dst_field": "final_summary" } ] }
   ],
   "input_node_id": "input_node",
   "output_node_id": "output_node"
 }
 ```
-*(Note: The list processing in Example 2 requires careful handling, potentially using `MapListRouterNode` before `LoadCustomerDataNode` or modifying `LoadCustomerDataNode` to handle list inputs directly. The example simplifies this for clarity.)*
+*(Note: Example 2 still simplifies list processing. A `MapListRouterNode` would typically be used before `load_users` to handle the list of `user_ids`.)*
 
-## 11. Tips and Best Practices
+## 12. Tips and Best Practices
 
--   **Plan First:** Sketch your workflow logic before writing the JSON. Identify steps, decisions, and data needs.
--   **Use Meaningful IDs:** Choose descriptive `node_id`s (e.g., `extract_invoice_data`, `route_by_amount`), IDs also help to identify and differentiate the same node type used multiple times in a workflow.
--   **Consult Node Guides:** Each node has unique `node_config` requirements and specific input/output fields. Refer to the guides constantly.
--   **Validate Mappings:** Ensure `src_field` exists in the source node's output and `dst_field` matches the destination node's expected input or is handled dynamically. Check dot notation or `::` notation carefully since some nodes expect one vs ther other, its not consistent for now!
--   **Start Simple:** Build and test core paths first, then add complexity like branching, looping, or parallel processing.
--   **Handle Errors:** Consider how your workflow should behave if a node fails (e.g., LLM errors, data not found). LangGraph offers error handling mechanisms.
--   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) when data needs to be accessed by multiple, non-sequential nodes or preserved across loops. Use direct edge mappings for clear, sequential data flow.
--   **Test Thoroughly:** Execute your workflow with various inputs, including edge cases, to ensure it behaves as expected. Use logging and inspect intermediate states.
--   **Keep it Readable:** Add comments to your JSON (if supported by your editor/parser) or maintain separate documentation explaining complex logic.
--   **Check Model Capabilities:** When using the `LLMNode`, verify the chosen model supports desired features like structured output, tool calling, or web search before configuring them.
+-   **Plan First:** Sketch your workflow logic before writing the JSON.
+-   **Use Meaningful IDs:** Choose descriptive `node_id`s.
+-   **Consult Node Guides:** Each node has unique `node_config` requirements.
+-   **Validate Mappings:** Ensure `src_field` exists and `dst_field` matches expectations. For nodes using path lookups (like `construct_options`), ensure the *container object* holding the start of the path is mapped correctly.
+-   **Leverage Runtime Context:** Avoid passing user/org IDs via mappings; rely on the runtime context (Section 6) for nodes that need it (e.g., `load/store_customer_data`).
+-   **Start Simple:** Build and test core paths first.
+-   **Handle Errors:** Consider error paths and logging.
+-   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) for shared/persistent data, direct mappings for sequential flow.
+-   **Test Thoroughly:** Use various inputs and edge cases.
+-   **Keep it Readable:** Use comments or separate documentation.
+-   **Check Model Capabilities:** Verify LLM features before configuring them.
+-   **Explicit Schemas:** Define `dynamic_input_schema` and `dynamic_output_schema` for nodes like `PromptConstructorNode`, `InputNode`, `OutputNode`, `HITLNode` for better validation and clarity. Note that for `PromptConstructorNode`, `prompt_template_errors` is always present in the internal output dictionary, but defining it in the schema makes it robustly accessible downstream via the validated output object.
 
-## 12. Conclusion
+## 13. Conclusion
 
-Building workflows involves defining nodes (tasks) and edges (connections/data flow) within a `GraphSchema`. By understanding the configuration options for each node type, mastering edge mappings, and leveraging patterns for conditional logic and list processing, you can create sophisticated automations. Always refer to the specific node documentation and start with simpler flows before building complex ones.
+Building workflows involves defining nodes (tasks) and edges (connections/data flow) within a `GraphSchema`. By understanding node configurations (especially the versatile `PromptConstructorNode`), mastering edge mappings, leveraging the runtime context for implicit information like user/org context and service access, and utilizing patterns for logic and data handling, you can create sophisticated automations. Always refer to the specific node documentation and start with simpler flows.
+

@@ -8,7 +8,7 @@ from collections import defaultdict
 from copy import copy
 import json
 from typing import Any, Dict, List, Optional, Set, Type, Tuple, cast, Union
-from pydantic import ValidationError 
+from pydantic import ValidationError
 from pydantic.fields import FieldInfo
 from typing import Annotated, get_origin
 from typing_extensions import TypedDict
@@ -21,7 +21,7 @@ from workflow_service.registry.schemas.reducers import ReducerRegistry, ReducerT
 from workflow_service.graph.graph import EdgeSchema, GraphSchema
 from workflow_service.registry.nodes.core.base import BaseNode
 from workflow_service.registry.nodes.core.dynamic_nodes import BaseDynamicNode
-from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME, CONFIG_REDUCER_KEY, NODE_EXECUTION_ORDER_KEY
+from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME, CONFIG_REDUCER_KEY, NODE_EXECUTION_ORDER_KEY, INPUT_NODE_NAME, OUTPUT_NODE_NAME
 from workflow_service.utils.utils import get_central_state_field_key, get_node_output_state_key, is_central_state_special_node, is_dynamic_schema_node
 from workflow_service.registry.registry import DBRegistry
 
@@ -393,14 +393,21 @@ class GraphBuilder:
                 continue
             
             for mapping in edge.mappings:
-                if not get_field_info_from_fields_dict(edge.src_node_id, mapping.src_field, output_fields):
-                    recuperated_field_info = try_recuperate_missing_field_info(edge.src_node_id, mapping.src_field, edge.dst_node_id, mapping.dst_field, output_fields, input_fields)
-                    if not recuperated_field_info:
-                        raise ValidationError(f"Field `{mapping.src_field}` for node `{edge.src_node_id}` is not found in output fields and couldn't be recuperated from `{edge.dst_node_id}`'s `{mapping.dst_field}`!")
-                if not get_field_info_from_fields_dict(edge.dst_node_id, mapping.dst_field, input_fields):
-                    recuperated_field_info = try_recuperate_missing_field_info(edge.dst_node_id, mapping.dst_field, edge.src_node_id, mapping.src_field, input_fields, output_fields)
-                    if not recuperated_field_info:
-                        raise ValidationError(f"Field `{mapping.dst_field}` for node `{edge.dst_node_id}` is not found in input fields and couldn't be recuperated from `{edge.src_node_id}`'s `{mapping.src_field}`!")
+                if not is_central_state_special_node(src_node_id):
+                    src_node_cls = self.registry.get_node(src_node_config.node_name, src_node_config.node_version)
+                    if self.registry.is_dynamic_node(src_node_config.node_name) and is_dynamic_schema_node(src_node_cls.output_schema_cls) and (not get_field_info_from_fields_dict(edge.src_node_id, mapping.src_field, output_fields)):
+                        print(f"\n\nRecuperating field `{mapping.src_field}` for node `{edge.src_node_id}` -- > `{src_node_config.node_name}` from `{edge.dst_node_id}`'s `{mapping.dst_field}`! ; \nis_dynamic_schema_node(src_node_cls.output_schema_cls): {is_dynamic_schema_node(src_node_cls.output_schema_cls)}\n\n")
+                        recuperated_field_info = try_recuperate_missing_field_info(edge.src_node_id, mapping.src_field, edge.dst_node_id, mapping.dst_field, output_fields, input_fields)
+                        if not recuperated_field_info:
+                            raise ValueError(f"Field `{mapping.src_field}` for node `{edge.src_node_id}` is not found in output fields and couldn't be recuperated from `{edge.dst_node_id}`'s `{mapping.dst_field}`!")
+                
+                if not is_central_state_special_node(dst_node_id):
+                    dst_node_cls = self.registry.get_node(dst_node_config.node_name, dst_node_config.node_version)
+                    if self.registry.is_dynamic_node(dst_node_config.node_name) and is_dynamic_schema_node(dst_node_cls.input_schema_cls) and (not get_field_info_from_fields_dict(edge.dst_node_id, mapping.dst_field, input_fields)):
+                        print(f"\n\nRecuperating field `{mapping.dst_field}` for node `{edge.dst_node_id}` -- > `{dst_node_config.node_name}` from `{edge.src_node_id}`'s `{mapping.src_field}`! ; \nis_dynamic_schema_node(dst_node_cls.input_schema_cls): {is_dynamic_schema_node(dst_node_cls.input_schema_cls)}\n\n")
+                        recuperated_field_info = try_recuperate_missing_field_info(edge.dst_node_id, mapping.dst_field, edge.src_node_id, mapping.src_field, input_fields, output_fields)
+                        if not recuperated_field_info:
+                            raise ValueError(f"Field `{mapping.dst_field}` for node `{edge.dst_node_id}` is not found in input fields and couldn't be recuperated from `{edge.src_node_id}`'s `{mapping.src_field}`!")
         
         # Step 5: Construct dynamic nodes with gathered schema information
         for node_id, schemas in explicit_dynamic_schemas.items():
@@ -441,6 +448,13 @@ class GraphBuilder:
                 #     kwargs['config_fields'] = explicit_schema_fields[node_id].get('config_fields', {})
             
             # Skip if we couldn't determine required schemas
+
+            # Propagate input fields to output fields and vice versa for input and output nodes
+            # This copies input / output schema to each other
+            # We wanna be careful with this behaviour and don't want it in every other node!
+            if node_name in [INPUT_NODE_NAME, OUTPUT_NODE_NAME]:
+                kwargs["propagate_input_fields_to_output_fields"] = True
+                kwargs["propagate_output_fields_to_input_fields"] = True
 
             # print(kwargs)
             if not kwargs:

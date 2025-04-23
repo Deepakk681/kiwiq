@@ -131,10 +131,11 @@ class RouterNode(DynamicRouterNode):
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
 
     # Input schema is dynamic
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
+    # Ineriting input / output dynamic schemas!
+    # input_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
     # Output schema is also dynamic, effectively passing through input + routing info
-    output_schema_cls: Type[DynamicSchema] = DynamicSchema
-    config_schema_cls: Type[RouterConfigSchema] = RouterConfigSchema
+    # output_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
+    config_schema_cls: ClassVar[Type[RouterConfigSchema]] = RouterConfigSchema
 
     # Instance config, validated against config_schema_cls
     config: RouterConfigSchema

@@ -55,19 +55,30 @@ from workflow_service.registry.registry import DBRegistry
 from workflow_service.registry.nodes.core.dynamic_nodes import InputNode, OutputNode
 
 # Context and Service imports
-from services.workflow_service.services.external_context_manager import (
+from workflow_service.services.external_context_manager import (
     ExternalContextManager,
     get_external_context_manager_with_clients
 )
-from services.kiwi_app.workflow_app.service_customer_data import CustomerDataService # Assuming path
-from services.workflow_service.config.constants import (
+from kiwi_app.workflow_app.service_customer_data import CustomerDataService # Assuming path
+from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
 )
 
 # Schema/Model imports
-from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # Assuming path
+from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # Assuming path
 # from kiwi_app.auth.models import User # Import real User if available and simple
+
+# x = ConstructDynamicSchema(
+#         schema_name="OpenAIDynamicSchema",
+#         fields={
+#             "answer": DynamicSchemaFieldConfig(type="str", required=True, description="The answer."),
+#             "confidence": DynamicSchemaFieldConfig(type="float", required=False, description="Confidence score (0.0-1.0).")
+#         }
+# )
+# print(json.dumps(x.build_schema().model_json_schema(), indent=2))
+# raise Exception("Stop here")
+
 
 # Simple Mock User if real one is complex to import/instantiate
 class MockUser(BaseModel):
@@ -460,7 +471,10 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
                  "confidence": DynamicSchemaFieldConfig(type="float", required=False, description="Confidence score (0.0-1.0).")
              }
         )
-        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+        schema_config = LLMStructuredOutputSchema(
+            # dynamic_schema_spec=dynamic_schema_spec
+            schema_definition={'properties': {'answer': {'description': 'The answer.', 'title': 'Answer', 'type': 'string'}, 'confidence': {'anyOf': [{'type': 'number'}, {'type': 'null'}], 'default': None, 'description': 'Confidence score (0.0-1.0).', 'title': 'Confidence'}}, 'required': ['answer'], 'title': 'OpenAIDynamicSchema', 'type': 'object'}
+        )
 
         result = await arun_llm_test(
             runtime_config=self.runtime_config_regular,
@@ -476,6 +490,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         # Confidence is optional, so check its type if present
         if "confidence" in result["structured_output"]:
             self.assertIsInstance(result["structured_output"]["confidence"], float)
+        # import ipdb; ipdb.set_trace()
 
     async def test_llm_structured_output_from_db_schema(self):
         """Test LLM node structured output using a schema fetched from the DB registry."""
@@ -585,7 +600,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
                     # Verify deletion (optional)
                     # deleted = await self.external_context.daos.schema_template.get(db, id=created_schema_template.id)
                     # self.assertIsNone(deleted)
-    # # --- OpenAI Reasoning Tests ---
+    # --- OpenAI Reasoning Tests ---
 
     async def test_openai_text_output_reasoning_model(self):
         """Test OpenAI O3 Mini with text output and reasoning (thinking model)."""
@@ -606,6 +621,8 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
                 "reasoning_effort_class": "low"
             }
         )
+        print(result)
+        print(result["content"])
         self.assertIsInstance(result, dict)
         self.assertIn("content", result)
         
@@ -889,7 +906,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
             max_tokens=3000,
             user_prompt="What is 3 factorial? Show the main steps."
         )
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         self.assertIsInstance(result, dict)
         self.assertIn("structured_output", result) # Fireworks might put structured in 'content' or 'structured_output'
         self.assertIn("metadata", result)
@@ -941,7 +958,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result["structured_output"]["in_stock"], bool)
 
 
-    --- AWS Bedrock Tests ---
+    # --- AWS Bedrock Tests ---
 
     async def test_aws_bedrock_text_with_reasoning(self):
         """Test AWS Bedrock DeepSeek R1 with text output and reasoning."""

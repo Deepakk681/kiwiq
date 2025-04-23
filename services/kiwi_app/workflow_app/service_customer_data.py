@@ -448,14 +448,19 @@ class CustomerDataService:
         
         # Update document
         try:
-            await self.versioned_mongo_client.update_document(
+            success = await self.versioned_mongo_client.update_document(
                 base_path=base_path,
                 data=data,
                 version=version,
                 is_complete=is_complete,
                 allowed_prefixes=allowed_prefixes,
             )
-            return True
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Document '{namespace}/{docname}' not found",
+                )
+            return success
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

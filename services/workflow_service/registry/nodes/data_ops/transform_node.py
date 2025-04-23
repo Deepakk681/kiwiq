@@ -139,9 +139,9 @@ class TransformerNode(BaseDynamicNode):
     node_name: ClassVar[str] = "transform_data"
     node_version: ClassVar[str] = "0.1.0"
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
-    output_schema_cls: Type[TransformerOutputSchema] = TransformerOutputSchema
-    config_schema_cls: Type[TransformerConfigSchema] = TransformerConfigSchema
+    # input_schema_cls: Type[DynamicSchema] = DynamicSchema
+    output_schema_cls: ClassVar[Type[TransformerOutputSchema]] = TransformerOutputSchema
+    config_schema_cls: ClassVar[Type[TransformerConfigSchema]] = TransformerConfigSchema
     config: TransformerConfigSchema
 
     def _prepare_input_data(self, input_data: Union[DynamicSchema, Dict[str, Any]]) -> Dict[str, Any]:
@@ -332,9 +332,9 @@ class DataJoinNode(BaseDynamicNode):
     node_name: ClassVar[str] = "data_join_data"
     node_version: ClassVar[str] = "0.1.0"
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
-    output_schema_cls: Type[MapperOutputSchema] = MapperOutputSchema
-    config_schema_cls: Type[MapperConfigSchema] = MapperConfigSchema
+    # input_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
+    output_schema_cls: ClassVar[Type[MapperOutputSchema]] = MapperOutputSchema
+    config_schema_cls: ClassVar[Type[MapperConfigSchema]] = MapperConfigSchema
     config: MapperConfigSchema
 
     def _prepare_input_data(self, input_data: Union[DynamicSchema, Dict[str, Any]]) -> Dict[str, Any]:

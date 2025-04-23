@@ -10,9 +10,10 @@ The `StoreCustomerDataNode` allows your workflow to write data back to the centr
 -   Specify the target location (namespace and document name) using fixed names or dynamically based on the data being stored or other workflow data.
 -   Control how data is stored:
     -   **Initialize:** Create a new versioned document (fails if it already exists).
-    -   **Update:** Modify an existing document (versioned or unversioned).
+    -   **Update:** Modify an existing document (versioned or unversioned). Fails if the document or specific version doesn't exist.
     -   **Upsert:** Create a new unversioned document or update it if it exists.
     -   **Create Version:** Create a new named version branching off an existing version of a document.
+    -   **Upsert Versioned:** Update a specific version of a versioned document if it exists, otherwise initialize that version (or the document itself if it's entirely new).
 -   Associate a schema with the stored data for validation and structure.
 -   Store data as user-specific, shared across the organization, or as system-level data (with appropriate permissions).
 
@@ -115,6 +116,24 @@ You configure the `StoreCustomerDataNode` within the `node_config` field of its 
               }
             },
             "versioning": { "is_versioned": false, "operation": "upsert"} // Store each as unversioned
+          },
+          // --- Example 6: Upsert a specific version of a versioned document ---
+          {
+            "input_field_path": "latest_draft_content",
+            "target_path": {
+              "filename_config": {
+                "static_namespace": "project_drafts",
+                "input_docname_field": "project_id"
+              }
+            },
+            "versioning": {
+              "is_versioned": true,
+              "operation": "upsert_versioned", // Try update, then initialize if needed
+              "version": "latest_auto_save" // Target this specific version name
+              // If "latest_auto_save" exists, it will be updated.
+              // If it doesn't exist (but the doc does), it will be initialized.
+              // If the doc doesn't exist, the doc will be initialized with this version.
+            }
           }
         ]
       }
@@ -151,9 +170,13 @@ You configure the `StoreCustomerDataNode` within the `node_config` field of its 
             *   `"update"`: (Versioned or Unversioned) Modify an existing document/version. Fails if it doesn't exist. Uses `version` field for versioned docs (defaults to `default`/active version if `version` is null).
             *   `"upsert"`: (Unversioned only) Create if it doesn't exist, update if it does.
             *   `"create_version"`: (Versioned only) Create a new version based on another. Requires `version` (the name for the new version) and optionally `from_version` (defaults to the active version).
-        *   `version` (Optional str): Name of the version to initialize, update, or create.
+            *   `"upsert_versioned"`: (Versioned only) **Attempts to update first, then initializes if update fails.** Specifically:
+                1.  **Try Update:** Attempts to update the specified `version` (or the active version if `version` is null). If successful, the operation is complete.
+                2.  **Try Initialize (Fallback):** If the update fails (e.g., the document or the specific version doesn't exist), it attempts to initialize the document with the specified `version` (or `"default"` if `version` was null).
+                3.  **Fails:** If both the update and the subsequent initialize attempt fail, the operation fails overall. This is useful for ensuring a specific named version exists and has the latest data, creating it if necessary. Requires `is_versioned: true`.
+        *   `version` (Optional str): Name of the version to initialize, update, create, or upsert. For `update` and `upsert_versioned`, `null` means the active version. For `initialize`, `null` means the `"default"` version.
         *   `from_version` (Optional str): Used only with `create_version` to specify the source version.
-        *   `is_complete` (Optional bool): Used with `update` on versioned docs. Marks if this update represents a 'complete' state of the document (relevant for version history tracking).
+        *   `is_complete` (Optional bool): Used with `update` or `upsert_versioned` on versioned docs. Marks if this update represents a 'complete' state of the document (relevant for version history tracking).
     *   **`schema_options`** (Optional `SchemaOptions` object): Overrides global default. Associate a schema with the stored data:
         *   `schema_template_name`: Name of a pre-registered schema template.
         *   `schema_template_version`: Optional version of the template.
@@ -172,7 +195,7 @@ The `StoreCustomerDataNode` requires input data containing the document(s) to be
 The node primarily performs a write operation and then passes through the original input data.
 
 -   **`passthrough_data`** (Dict[str, Any]): A copy of the complete input data that was received by the node.
--   **`paths_processed`** (List[List[str]]): A list indicating which documents were successfully processed. Each inner list contains `[namespace, docname, operation_string]`. Example: `[["analysis_reports", "report_final", "upsert_unversioned"], ["user_settings", "user_123", "update_versioned_default"]]`.
+-   **`paths_processed`** (List[List[str]]): A list indicating which documents were successfully processed. Each inner list contains `[namespace, docname, operation_string]`. Example: `[["analysis_reports", "report_final", "upsert_unversioned"], ["user_settings", "user_123", "update_versioned_default"], ["project_drafts", "proj_abc", "upsert_versioned_updated_latest_auto_save"]]`. The operation string provides detail on what action occurred (e.g., `upsert_versioned_initialized_...`, `upsert_versioned_updated_...`).
 
 ## Example `GraphSchema` Snippet
 
@@ -186,7 +209,7 @@ The node primarily performs a write operation and then passes through the origin
       "node_config": {
         "global_versioning": {
           "is_versioned": true, // Default to versioned storage
-          "operation": "update" // Default to updating
+          "operation": "upsert_versioned" // Default to upserting versioned docs
         },
         "store_configs": [
           {
@@ -197,7 +220,9 @@ The node primarily performs a write operation and then passes through the origin
                 "input_docname_field": "report_metadata.report_id" // Docname from input
               }
             },
-            // Use global versioning: update the default version
+            "versioning": {
+              "version": "latest_analysis" // Use the global operation (upsert_versioned) for this version
+            }
           }
         ]
       }
@@ -243,8 +268,9 @@ The node primarily performs a write operation and then passes through the origin
     -   `versioning`: How to handle saving?
         -   `is_versioned: false, operation: "upsert"`: Simple save - create if new, overwrite if exists (good for status dashboards, latest configs).
         -   `is_versioned: true, operation: "initialize"`: Save the *first version* of something important (e.g., initial customer profile).
-        -   `is_versioned: true, operation: "update"`: Update the *current* version of something (e.g., update user preferences).
+        -   `is_versioned: true, operation: "update"`: Update the *current* version of something (e.g., update user preferences). Fails if the document/version doesn't exist.
         -   `is_versioned: true, operation: "create_version"`: Save as a *new version* (e.g., save `"v2_approved"` after edits to `"v1_draft"`).
+        -   `is_versioned: true, operation: "upsert_versioned"`: **Update or Create a specific version**. It first tries to update the version you specify. If that version (or the whole document) doesn't exist, it creates it. Useful for things like auto-saving drafts where you want to overwrite the latest auto-save but create it if it's the first time.
     -   `schema_options`: Optionally link the saved data to a predefined structure (schema) for consistency.
     -   `is_shared`: Set to `true` to save data accessible by everyone in the org.
 -   The node mostly passes through the data it received. You can use the `paths_processed` output to see a list of what was successfully saved. 

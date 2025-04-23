@@ -45,7 +45,7 @@ from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY
 )
-
+from global_utils.json_schema_to_pydantic import convert_json_schema_to_pydantic_in_memory
 from kiwi_app.workflow_app.constants import LaunchStatus
 from workflow_service.config.settings import settings
 from workflow_service.registry.registry import DBRegistry
@@ -275,6 +275,11 @@ class LLMStructuredOutputSchema(BaseSchema):
         description="Raw JSON schema definition for the output."
     )
 
+    convert_loaded_schema_to_pydantic: Optional[bool] = Field(
+        True,
+        description="Whether to convert the loaded schema to a Pydantic model before using in structured output. JSON Schemas have a lot of restrictions and format nuances across providers and sometimes passing pydantic models is better for structured generation."
+    )
+
     @model_validator(mode='before')
     def check_exclusive_options(cls, values):
         if not values:
@@ -322,17 +327,18 @@ class LLMStructuredOutputSchema(BaseSchema):
 
         Returns:
             The Pydantic model class, a JSON schema dictionary, or None if is_output_str() is True.
+            Output JSON Schema is converted to a Pydantic model if convert_loaded_schema_to_pydantic is True.
 
         Raises:
             ValueError: If the schema template is not found or configuration is invalid.
         """
         if self.is_output_str():
-            return None
+            response = None
 
         if self.dynamic_schema_spec:
             # Build Pydantic schema from dynamic spec
             schema_name = built_schema_name or f"{self.__class__.__name__}DynamicOutputSchema"
-            return self.dynamic_schema_spec.build_schema(schema_name=schema_name)
+            response = self.dynamic_schema_spec.build_schema(schema_name=schema_name)
         elif self.schema_template_name:
             # Load JSON schema from registry template
             async with get_async_db_as_manager() as db:
@@ -345,13 +351,18 @@ class LLMStructuredOutputSchema(BaseSchema):
                 )
             if not loaded_schema:
                 raise ValueError(f"Schema template '{self.schema_template_name}' (version: {self.schema_template_version or 'latest'}) not found or has no definition.")
-            return loaded_schema  # .schema_definition
+            response = loaded_schema  # .schema_definition
         elif self.schema_definition:
             # Use directly provided JSON schema
-            return self.schema_definition
+            response = self.schema_definition
         else:
             # Should not happen due to validator, but included for completeness
             raise ValueError("Invalid LLMStructuredOutputSchema configuration: No schema source specified.")
+
+        if self.convert_loaded_schema_to_pydantic and isinstance(response, dict):
+            response = convert_json_schema_to_pydantic_in_memory(response)
+
+        return response
 
 
 class ToolConfig(BaseSchema):
@@ -1370,16 +1381,16 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # Handle token usage normalization
         token_usage = {}
         if provider == LLMModelProvider.OPENAI:
-            token_usage = raw_metadata.get("token_usage", {})
+            token_usage = raw_metadata.get("token_usage", {}) or {}
             # Add OpenAI-specific token details if available
             token_usage.update({
-                "reasoning_tokens": raw_metadata.get("token_usage", {}).get("completion_tokens_details", {}).get("reasoning_tokens", 0),
-                "accepted_prediction_tokens": raw_metadata.get("token_usage", {}).get("completion_tokens_details", {}).get("accepted_prediction_tokens", 0),
-                "rejected_prediction_tokens": raw_metadata.get("token_usage", {}).get("completion_tokens_details", {}).get("rejected_prediction_tokens", 0),
-                "cached_tokens": raw_metadata.get("token_usage", {}).get("prompt_tokens_details", {}).get("cached_tokens", 0)
+                "reasoning_tokens": token_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
+                "accepted_prediction_tokens": token_usage.get("completion_tokens_details", {}).get("accepted_prediction_tokens", 0),
+                "rejected_prediction_tokens": token_usage.get("completion_tokens_details", {}).get("rejected_prediction_tokens", 0),
+                "cached_tokens": token_usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
             })
         elif provider == LLMModelProvider.ANTHROPIC:
-            usage = raw_metadata.get("usage", {})
+            usage = raw_metadata.get("usage", {}) or {}
             token_usage = {
                 "prompt_tokens": usage.get("input_tokens", 0),
                 "completion_tokens": usage.get("output_tokens", 0),
@@ -1389,7 +1400,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 "cached_tokens": usage.get("cache_read_input_tokens", 0)
             }
         elif provider == LLMModelProvider.GEMINI:
-            usage = raw_metadata.get("usage_metadata", {})
+            usage = raw_metadata.get("usage_metadata", {}) or {}
             token_usage = {
                 "prompt_tokens": usage.get("prompt_token_count", 0),
                 "completion_tokens": usage.get("candidates_token_count", 0),
@@ -1398,7 +1409,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 "reasoning_tokens": 0  # Gemini doesn't report reasoning tokens
             }
         elif provider == LLMModelProvider.AWS_BEDROCK:
-            usage = raw_metadata.get("usage", {})
+            usage = raw_metadata.get("usage", {}) or {}
             token_usage = {
                 "prompt_tokens": usage.get("input_tokens", 0),
                 "completion_tokens": usage.get("output_tokens", 0),
@@ -1407,7 +1418,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 "cached_tokens": 0
             }
         elif provider in [LLMModelProvider.FIREWORKS]:  # LLMModelProvider.MISTRALAI, 
-            token_usage = raw_metadata.get("token_usage", {})
+            token_usage = raw_metadata.get("token_usage", {}) or {}
             if "total_tokens" not in token_usage:
                 token_usage["total_tokens"] = token_usage.get("prompt_tokens", 0) + token_usage.get("completion_tokens", 0)
             token_usage.update({

@@ -130,10 +130,11 @@ class MapListRouterNode(DynamicRouterNode):
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
 
     # Input schema is dynamic
-    input_schema_cls: Type[DynamicSchema] = DynamicSchema
+    # Ineriting input / output dynamic schemas from base class!
+    # input_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
     # Output schema is dynamic (effectively passes through state + commands)
-    output_schema_cls: Type[DynamicSchema] = DynamicSchema
-    config_schema_cls: Type[MapperConfigSchema] = MapperConfigSchema
+    # output_schema_cls: ClassVar[Type[DynamicSchema]] = DynamicSchema
+    config_schema_cls: ClassVar[Type[MapperConfigSchema]] = MapperConfigSchema
 
     # Instance config
     config: MapperConfigSchema

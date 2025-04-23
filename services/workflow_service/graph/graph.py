@@ -5,7 +5,7 @@ This module contains the schema definitions for edges in the workflow system.
 Edges connect nodes in the workflow graph and define how data flows between them.
 """
 from typing import Any, Dict, List, Optional, Union, Self, Set
-from pydantic import Field, BaseModel, model_validator
+from pydantic import Field, BaseModel, model_validator, ConfigDict
 from workflow_service.config.constants import INPUT_NODE_NAME, OUTPUT_NODE_NAME
 from workflow_service.utils.utils import is_central_state_special_node
 from workflow_service.registry.nodes.core.dynamic_nodes import ConstructDynamicSchema
@@ -22,8 +22,10 @@ class EdgeMapping(BaseModel):
         src_field (str): Field name in the source node's output schema.
         dst_field (str): Field name in the target node's input schema.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     src_field: str = Field(..., description="Field name in the source node's output")
     dst_field: str = Field(..., description="Field name in the target node's input")
+    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
     override_type_validation: Optional[bool] = Field(False, description=" [DEPRECATED] Override type validation for the src and target field")
     # transform: Optional[str] = Field(None, description="Optional transformation to apply")
 
@@ -41,8 +43,10 @@ class EdgeSchema(BaseModel):
         dst_node_id (str): ID of the target node.
         mappings (Optional[List[EdgeMapping]]): Optional list of field mappings from source to target.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     src_node_id: str = Field(..., description="ID of the source node")
     dst_node_id: str = Field(..., description="ID of the target node")
+    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
     # NOTE: a single source field may map to multiple target fields!
     mappings: Optional[List[EdgeMapping]] = Field(default_factory=list, description="Field mappings from source to target")
 
@@ -60,6 +64,7 @@ class NodeConfig(BaseModel):
         node_version (str): Version of the node implementation.
         node_config (Dict[str, Any]): Configuration parameters specific to this node type.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     node_id: str = Field(..., description="Unique ID of the node")
     node_name: str = Field(..., description="Name of the node type. There may be multiple nodes with same name / type!")
     node_version: Optional[str] = Field(None, description="Version of the node implementation") 
@@ -109,7 +114,7 @@ class GraphSchema(BaseModel):
     """
     # TODO: test if langgraph allows nodes to not generate any output or have empty schemas, in case where
     #    there's no input / output data but still need these nodes for dependency edges to starter nodes!
-    
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     # workflow_id: str = Field(..., description="ID of the workflow")
     nodes: Dict[str, NodeConfig] = Field(..., description="Map of node IDs to node configurations")
     edges: Optional[List[EdgeSchema]] = Field(default_factory=list, description="List of edges connecting the nodes")
@@ -187,6 +192,15 @@ class GraphSchema(BaseModel):
         #     node_type = node_config["node_type"]
         #     if node_type != "input_node" and node_type != "output_node" and node_type not in self.registry:
         #         errors.append(f"Node type {node_type} for node {node_id} not found in registry")
+
+        for node_id, node_config in self.nodes.items():
+            if node_config.node_name == INPUT_NODE_NAME:
+                if node_config.dynamic_input_schema:
+                    errors.append(f"Input node {node_id} must not have dynamic input schema defined! Define output schema instead!")
+            elif node_config.node_name == OUTPUT_NODE_NAME:
+                if node_config.dynamic_output_schema:
+                    errors.append(f"Output node {node_id} must not have dynamic output schema defined! Define input schema instead!")
+                    
 
         unique_edges = set()
         for edge in self.edges:

@@ -112,7 +112,7 @@ class WorkflowRunCreate(BaseModel):
     thread_id: Optional[uuid.UUID] = Field(None, description="Optional existing thread ID to reuse")
     graph_schema: Optional[GraphSchema] = None
     resume_after_hitl: Optional[bool] = False
-    force_resume_experimental_option: Optional[bool] = Field(default=False, description="Experimental option to force resume after HITL even if not in WAITING_HITL state or without pending HITL jobs!")
+    force_resume_experimental_option: Optional[bool] = Field(default=False, description="Experimental option to force resume after HITL even if not in WAITING_HITL state or without pending HITL jobs! (Use with caution!)")
 
 class WorkflowRunJobCreate(WorkflowRunCreate):
     """Schema used specifically to trigger a new run."""
@@ -171,6 +171,7 @@ class PromptTemplateBase(BaseModel):
     description: Optional[str] = Field(None, description="Description of the prompt template")
     template_content: str = Field(..., description="The prompt template string (e.g., Jinja2 format)")
     input_variables: Optional[Dict[str, Any]] = Field(None, description="Dictionary of expected input variables and optional defaults")
+    is_public: bool = Field(default=False, description="Whether the template is public (system templates only)")
 
 class PromptTemplateCreate(PromptTemplateBase):
     """Schema for creating an organization-specific PromptTemplate."""

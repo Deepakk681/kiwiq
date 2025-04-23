@@ -54,8 +54,9 @@ Here are the core node types available for building workflows (refer to their in
     *   `load_customer_data`: Fetches existing data records from storage. ([Guide](nodes/load_customer_data_node_guide.md))
     *   `store_customer_data`: Saves workflow data back into storage. ([Guide](nodes/store_customer_data_node_guide.md))
 *   **LLM & Prompts:**
-    *   `prompt_constructor`: Builds text prompts using templates and variables. ([Guide](nodes/prompt_constructor_node_guide.md))
+    *   `prompt_constructor`: Builds text prompts using templates and variables. Can define templates statically (`template`) or load them dynamically from the database (`template_load_config`). Supports sourcing variables via input paths (`construct_options`) or direct mappings. ([Guide](nodes/prompt_constructor_node_guide.md))
     *   `llm`: Interacts with Large Language Models (like GPT, Claude, Gemini), supporting text/structured output, tool calling, and web search. ([Guide](nodes/llm_node_guide.md))
+    *   *Deprecated:* `load_prompt_templates` (Functionality merged into `prompt_constructor`).
 
 *(Refer to `services/workflow_service/services/db_node_register.py` for the authoritative list of registered nodes.)*
 
@@ -88,11 +89,11 @@ Edges define how nodes are connected and how data flows between them. They are d
 -   **`dst_node_id`**: The `node_id` of the node that will receive the data.
 -   **`mappings`**: This optional list is crucial for controlling data flow. Each item (`EdgeMapping`) specifies:
     *   **`src_field`**: The name of a field in the `src_node_id`'s output data. You can use dot notation (`.`) for nested fields (e.g., `user_profile.email`).
-    *   **`dst_field`**: The name that this data should have when it arrives as input for the `dst_node_id`. This is how you connect the output of one node to the expected input of another.
+    *   **`dst_field`**: The name that this data should have when it arrives as input for the `dst_node_id`. This is how you connect the output of one node to the expected input of another. This can also include the template-specific mapping syntax (`TEMPLATE_ID::VARIABLE_NAME`) for nodes like `PromptConstructorNode`.
 
 **What if `mappings` is empty or omitted?**
 
--   This often implies that the connection is primarily for control flow (ensuring one node runs after another) or that the destination node might read data from a central workflow state rather than directly from the source node's output. However, relying on specific data transfer usually requires explicit mappings.
+-   This often implies that the connection is primarily for control flow (ensuring one node runs after another) or that the destination node might read data from a central workflow state or use internal mechanisms (like `construct_options` in `PromptConstructorNode`) to find its data. However, relying on specific data transfer usually requires explicit mappings for clarity and robustness.
 
 **Special Case: The Central Workflow State (`"$graph_state"`)**
 
@@ -110,16 +111,17 @@ Edges define how nodes are connected and how data flows between them. They are d
 Every node expects data in a certain format (its **input schema**) and produces data in a certain format (its **output schema**).
 
 -   **Static Schemas:** Many nodes have fixed, predefined schemas. For example, the `llm` node always expects inputs like `user_prompt` or `messages_history` and produces known outputs like `content` and `metadata`. You need to use `EdgeMapping` to map data *to* these expected input names and *from* these known output names.
--   **Statically Defined Structured Output:** Some nodes, like `llm`, can be configured to produce *structured* output (JSON) instead of just text. You define the desired structure in the node's `node_config` (using `output_schema`), and the node attempts to format its response accordingly. You then map *from* the fields within this structured output (e.g., `structured_output::field_name`).
+-   **Statically Defined Structured Output:** Some nodes, like `llm`, can be configured to produce *structured* output (JSON) instead of just text. You define the desired structure in the node's `node_config` (using `output_schema`), and the node attempts to format its response accordingly. You then map *from* the fields within this structured output (e.g., `src_field: "structured_output"` - accessing nested fields within `structured_output` via edge mappings might have limitations, check node documentation).
 -   **Dynamic Schemas:** Some nodes are flexible and adapt their schemas based on how they are used:
     *   **`InputNode`**: Its *output* schema is defined by the `src_field` names in the `EdgeMapping`s of edges *originating from it*. These `src_field`s become the required inputs for the entire workflow.
     *   **`OutputNode`**: Its *input* schema is defined by the `dst_field` names in the `EdgeMapping`s of edges *pointing to it*. These `dst_field`s define the final output structure of the workflow.
     *   **`HITLNode`**: Similar to Input/Output, its input (data shown to human) and output (data provided by human) schemas are often defined by incoming and outgoing edge mappings, respectively.
     *   **`TransformerNode`**: Its output schema is explicitly constructed based *only* on the `destination_path` fields defined in its `node_config.mappings`. Its input schema is implicitly defined by the `source_path` fields it needs.
-    *   **`PromptConstructorNode`**: Its input schema is defined by the `variables` needing values (`null` in config). Its output schema has fields named after the template `id`s in its config.
+    *   **`PromptConstructorNode`**: Its input schema is dynamic, determined by variables marked `null` in config `variables`, fields needed for `template_load_config`, fields needed for `construct_options` path lookups, and fields mapped directly (globally or template-specific). Its output *dictionary* contains fields named after the template `id`s defined in its config for successfully constructed prompts, and *always* includes a `prompt_template_errors` list (which is empty if no errors occurred). The final *validated output object* passed downstream depends on the node's `dynamic_output_schema` definition in the `GraphSchema`, which should include the expected template `id` fields and can optionally include `prompt_template_errors` if downstream nodes need to access it robustly via the validated schema. Explicitly defining `dynamic_input_schema` and `dynamic_output_schema` is highly recommended.
+    *   *Deprecated:* `PromptTemplateLoaderNode` (Functionality merged into `prompt_constructor`).
     *   **Other Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `LoadCustomerDataNode`, `StoreCustomerDataNode`, `DataJoinNode` often adapt based on the field paths (`field`, `input_path`, `source_path`, etc.) mentioned in their `node_config`. They implicitly require these paths to exist in their input data.
 
-**Key Takeaway for Dynamic Nodes:** The `EdgeMapping`s you create connecting *to* or *from* dynamic nodes play a critical role in defining what data they expect or produce.
+**Key Takeaway for Dynamic Nodes:** The `EdgeMapping`s you create connecting *to* or *from* dynamic nodes, along with configurations like `construct_options` or `template_load_config`, play a critical role in defining what data they expect or produce. Explicitly defining `dynamic_input_schema` and `dynamic_output_schema` for such nodes is highly recommended.
 
 ## 5. Configuring the Workflow (`GraphSchema`)
 
@@ -158,7 +160,7 @@ The `GraphSchema` brings everything together:
 
 -   Ensure every `node_id` used in `edges`, `input_node_id`, or `output_node_id` exists as a key in the `nodes` dictionary.
 -   Make sure the `node_name` corresponds to a valid, registered node type.
--   Carefully define `EdgeMapping`s to ensure data flows correctly between nodes, matching source output fields to destination input fields.
+-   Carefully define `EdgeMapping`s to ensure data flows correctly between nodes, matching source output fields to destination input fields. Consider all input sources for complex nodes like `PromptConstructorNode` (direct mappings, `construct_options` paths).
 
 ## 6. Common Interaction Patterns
 
@@ -189,6 +191,15 @@ Here are examples of how nodes work together:
     *   If "yes", routes to `FinalProcessorNode`.
     *   If "no", routes back to `AIGeneratorNode` (passing `review_comments` potentially via the central state `"$graph_state"`).
 
+-   **Loading Prompts and Generating Content:**
+    `InputNode` -> `PromptConstructorNode` -> `LLMNode`
+    *   `InputNode` provides data needed for template variables and/or dynamic template loading/`construct_options` paths (as defined in `PromptConstructorNode`'s `dynamic_input_schema`).
+    *   `PromptConstructorNode` defines templates statically (`template`) *or* configures dynamic loading (`template_load_config`) and sources variables according to its priority rules (construct options, direct mappings, defaults). It outputs constructed prompts (named by template `id`) and a `prompt_template_errors` list.
+    *   Edge maps the constructed prompt output field(s) (e.g., `src_field: "final_user_prompt"`) to the `LLMNode` (e.g., `dst_field: "user_prompt"`).
+    *   Edge can optionally map the `prompt_template_errors` field to another node for error handling.
+    *   Edges provide necessary inputs to `PromptConstructorNode`.
+    *   `LLMNode` executes the prompt.
+
 -   **Fetching and Combining Data:**
     `InputNode` -> `LoadCustomerDataNode` -> `DataJoinNode` -> `OutputNode`
     *   `InputNode` provides an ID (e.g., `user_id`).
@@ -207,10 +218,11 @@ Here are examples of how nodes work together:
 
 -   **Plan Your Flow:** Sketch out the steps and decisions like a flowchart before configuring the `GraphSchema`.
 -   **Use Clear IDs:** Give your `node_id`s meaningful names (e.g., `summarize_meeting_notes`, `check_if_urgent`).
--   **Map Data Carefully:** Double-check `src_field` and `dst_field` in your `EdgeMapping`s. Ensure the source node actually produces that `src_field` and the destination node expects that `dst_field` (or relies on dynamic schema creation).
+-   **Map Data Carefully:** Double-check `src_field` and `dst_field` in your `EdgeMapping`s. Ensure the source node actually produces that `src_field`. Ensure the destination node receives all required inputs, considering direct mappings, central state, and internal mechanisms like `construct_options` (which require the *container* object holding the path to be mapped).
 -   **Consult Node Guides:** Each node type has specific configuration options and behaviors. Always refer to the relevant guide (linked above).
 -   **Start Simple, Iterate:** Build a basic version of your workflow first, test it, and then add complexity.
--   **Understand Dynamic Nodes:** Remember that for Input, Output, and HITL nodes, the edges connected to them often define their data requirements.
+-   **Use `PromptConstructorNode` for Prompts:** Prefer using the `PromptConstructorNode` for defining static prompts, loading/constructing dynamic prompts, and sourcing variables from various inputs.
+-   **Understand Dynamic Nodes:** Remember that for Input, Output, HITL, and PromptConstructor nodes, the connected edges and explicit schema definitions (`dynamic_input_schema`, `dynamic_output_schema`) are crucial for defining their data requirements and outputs.
 -   **Test with Examples:** Run your workflow with different kinds of input data to ensure it handles various scenarios correctly.
 
 By understanding how nodes, edges, mappings, and schemas work together within the `GraphSchema`, you can build powerful and flexible automated workflows. Remember to consult the individual node guides for specific configuration details.

@@ -4,7 +4,7 @@ This guide explains the `HITLNode`, which allows you to introduce points in your
 
 ## Purpose
 
-The `HITLNode` (Human-in-the-Loop) pauses the workflow execution and waits for input from a designated human user. It's essential for tasks requiring human judgment, approval, correction, or additional information that the automated parts of the workflow cannot provide.
+The `HITLNode` (Human-in-the-Loop) represents a point in the workflow execution graph where the process pauses to wait for input from a designated human user via an external system or UI. It's essential for tasks requiring human judgment, approval, correction, or additional information that the automated parts of the workflow cannot provide.
 
 Common use cases:
 -   Content review and approval (e.g., reviewing AI-generated text before publishing).
@@ -12,20 +12,31 @@ Common use cases:
 -   Decision making based on complex or ambiguous information.
 -   Gathering additional context or details from a user.
 
+The `HITLNode` itself, within the workflow graph definition, primarily serves to define the **data contract** for this interaction point.
+
 ## Configuration (`NodeConfig`)
 
-The `HITLNode` typically doesn't require specific configuration within its `node_config` field. Its behavior, including the data presented to the user and the data expected back, is defined by its connections (edges) and potentially by the frontend application interacting with the workflow system.
+Based on the core implementation (`dynamic_nodes.py`), the base `HITLNode` class **does not utilize the `node_config` field**. Any configuration placed here will likely be ignored by the node's processing logic.
 
 ```json
 {
   "nodes": {
     "human_review_step": {
       "node_id": "human_review_step", // Choose a descriptive ID
-      "node_name": "hitl_node__default", // Or a more specific registered HITL node name if available
-      "node_config": {},
-      // Input/Output schemas often determined by edges
-      "dynamic_input_schema": null,
-      "dynamic_output_schema": null
+      // Use 'hitl_' prefix. Suffix might map to external UI/task type.
+      "node_name": "hitl_node__default", 
+      // Base HITLNode ignores config. Specific implementations MIGHT use it,
+      // but that depends on their custom code. Assume empty for standard use.
+      "node_config": {}, 
+      // Define expected output explicitly for clarity (Optional but recommended)
+      "dynamic_output_schema": { 
+        "fields": {
+          "approval_status": { "type": "enum", "enum_values": ["approved", "rejected"], "required": true },
+          "feedback_text": { "type": "string", "required": false }
+        }
+      },
+      // Input schema is dynamically determined by incoming edges.
+      "dynamic_input_schema": null 
     }
     // ... other nodes
   }
@@ -34,14 +45,15 @@ The `HITLNode` typically doesn't require specific configuration within its `node
 ```
 
 -   `node_id`: A unique identifier for this specific HITL step in your workflow.
--   `node_name`: Must start with `hitl_` (e.g., `hitl_node__default`, `hitl_content_review`). The suffix might correspond to a specific UI or task type defined elsewhere.
--   `node_config`: Usually empty `{}`. Specific HITL implementations might define configuration options here, but the base `HITLNode` does not.
--   `dynamic_input_schema` / `dynamic_output_schema`: Like `InputNode` and `OutputNode`, the exact data fields are typically determined by the incoming and outgoing edges. Incoming edges define what data is *presented* to the human, and outgoing edges define what data the human is expected to *provide*.
+-   `node_name`: Must start with `hitl_` (e.g., `hitl_node__default`, `hitl_content_review`). The suffix might be used by the external system/UI to select the correct task interface.
+-   `node_config`: **Should generally be empty `{}`**. The base `HITLNode` implementation does not read from this field. Specific, custom-coded HITL node types (with different `node_name` values) *might* define their own configuration schemas, but this is not standard.
+-   `dynamic_input_schema`: The structure of the data the HITL node *receives* is determined dynamically by the fields mapped via incoming `EdgeSchema` definitions. This defines what data is *available* to be presented to the human reviewer by the external UI.
+-   `dynamic_output_schema`: Defines the structure of the data the HITL node is *expected to produce* after human interaction. This defines what the human (via the UI) must provide. It's recommended to explicitly define this using `dynamic_output_schema` for clarity, although it can also be implicitly defined by the fields expected by outgoing `EdgeSchema` mappings.
 
 ## Input & Output
 
--   **Input:** Receives data from upstream nodes via incoming `EdgeSchema` mappings. This data is typically packaged and presented to the human reviewer through a user interface.
--   **Output:** Produces data based on the human's input. The structure of this output data is defined by the outgoing `EdgeSchema` mappings. The workflow remains paused until the human submits their input, which then becomes the output of this node.
+-   **Input:** Receives data from upstream nodes via incoming `EdgeSchema` mappings. These mappings populate the node's dynamic input schema. The external system/UI handling the HITL task reads this input data to present it to the human.
+-   **Output:** Produces data based on the human's input provided via the external system/UI. The structure of this output data **must** match the `dynamic_output_schema` (if defined) or the fields expected by outgoing `EdgeSchema` mappings. The workflow remains paused until the external system signals completion and provides the output data conforming to the expected schema.
 
 ## Example (`GraphSchema`)
 
@@ -54,48 +66,60 @@ Imagine a workflow where an AI generates text, and then a human reviews and appr
       "node_id": "ai_generator",
       "node_name": "llm", // Assuming an LLM node generates content
       "node_config": { /* ... LLM config ... */ }
+      // Outputs: generated_text, source_prompt
     },
     "human_review": {
       "node_id": "human_review",
-      "node_name": "hitl_review", // Specific HITL task type
-      "node_config": {},
-      // Explicitly defining the output schema for clarity (optional)
+      "node_name": "hitl_review", // Specific HITL task type for UI
+      "node_config": {}, // Config is empty
+      // Explicitly defining the output schema
       "dynamic_output_schema": {
         "fields": {
           "approved": { "type": "enum", "enum_values": ["yes", "no"], "required": true },
-          "review_comments": { "type": "str", "required": false }
+          "review_comments": { "type": "string", "required": false }
         }
       }
+      // Input schema implicitly defined by incoming edge: { "text_to_review": str, "original_prompt": str }
     },
     "approval_router": { // Node to route based on human input
       "node_id": "approval_router",
-      "node_name": "approval_router",
-      "node_config": { /* ... Router config ... */ }
-    }
-    // ... other nodes
+      "node_name": "router_node", // Using standard router
+      "node_config": { 
+         "choices": ["process_approved", "request_revision"],
+         "allow_multiple": false,
+         "choices_with_conditions": [
+           { "choice_id": "process_approved", "input_path": "decision", "target_value": "yes" },
+           { "choice_id": "request_revision", "input_path": "decision", "target_value": "no" }
+         ]
+      }
+    },
+    "process_approved": { /* ... */ },
+    "request_revision": { /* ... */ }
   },
   "edges": [
-    // AI Generator output to HITL input
+    // AI Generator output TO HITL input (Defines HITL Input Schema)
     {
       "src_node_id": "ai_generator",
       "dst_node_id": "human_review",
       "mappings": [
-        // Data to show the reviewer
+        // Data fields provided TO the HITL node (for the UI to display)
         { "src_field": "generated_text", "dst_field": "text_to_review" },
         { "src_field": "source_prompt", "dst_field": "original_prompt" }
       ]
     },
-    // HITL output to Router input
+    // HITL output TO Router input (Reads from HITL Output Schema)
     {
       "src_node_id": "human_review",
       "dst_node_id": "approval_router",
       "mappings": [
-        // Data provided by the reviewer
-        { "src_field": "approved", "dst_field": "approved" }, // Pass the approval status
-        { "src_field": "review_comments", "dst_field": "comments" }
+        // Data fields provided BY the HITL node (after human input)
+        { "src_field": "approved", "dst_field": "decision" }, // Map 'approved' output to router's 'decision' input
+        { "src_field": "review_comments", "dst_field": "comments" } // Pass comments along
       ]
-    }
-    // ... other edges
+    },
+    // Router outgoing edges...
+    { "src_node_id": "approval_router", "dst_node_id": "process_approved" },
+    { "src_node_id": "approval_router", "dst_node_id": "request_revision" }
   ],
   "input_node_id": "__INPUT__",
   "output_node_id": "__OUTPUT__"
@@ -103,19 +127,20 @@ Imagine a workflow where an AI generates text, and then a human reviews and appr
 ```
 
 In this example:
-1.  The `ai_generator` sends `generated_text` and `source_prompt` to the `human_review` node.
-2.  The UI associated with `hitl_review` would display this information.
-3.  The user interface would expect the human to provide values for `approved` (either "yes" or "no") and optionally `review_comments`.
-4.  This data (`approved`, `review_comments`) becomes the output of the `human_review` node.
-5.  The `approval_router` receives this data to decide the next step.
+1.  The `ai_generator` sends `generated_text` and `source_prompt` to the `human_review` node. These define the *input schema* for `human_review`.
+2.  The external UI associated with `hitl_review` reads `text_to_review` and `original_prompt` and displays them.
+3.  The `dynamic_output_schema` requires the human (via the UI) to provide values for `approved` (either "yes" or "no") and optionally `review_comments`.
+4.  This data (`approved`, `review_comments`) becomes the output of the `human_review` node, conforming to its *output schema*.
+5.  The `approval_router` receives this output. Its edge mapping takes the `approved` field and maps it to its own input field named `decision`. The router then uses the value of `decision` ("yes" or "no") to route execution.
 
-*(See `test_AI_loop.py` for a runnable example of an AI-Human feedback loop using HITL).* 
+*(See `test_AI_loop.py` for a runnable example of an AI-Human feedback loop using HITL).*
 
 ### Notes for Non-Coders
 
--   Use the `HITLNode` whenever you need a human to look at something or provide information before the workflow continues.
--   Think about:
-    -   *What information does the human need to see?* (Define this with incoming edges/mappings).
-    -   *What information does the human need to provide?* (Define this with outgoing edges/mappings or `dynamic_output_schema`).
--   The `node_name` (like `hitl_review`) might correspond to a specific screen or task setup in the application used to manage workflows.
--   You typically don't need to put anything in the `node_config` for a standard HITL node. 
+-   Use the `HITLNode` in your graph definition whenever you need a human to look at something or provide information before the workflow continues.
+-   **Don't worry about `node_config` - leave it empty (`{}`).** The node doesn't use it.
+-   Focus on the **edges** connected to the `HITLNode`:
+    -   *Incoming edges*: Define what information the human needs *to see*. Map the necessary fields *from* previous nodes *to* the `HITLNode`.
+    -   *Outgoing edges*: Define what information the human needs *to provide*. Map the expected fields *from* the `HITLNode` *to* the next nodes.
+-   Optionally, use `dynamic_output_schema` inside the `HITLNode` definition to clearly list the fields the human must provide. This is good for documentation and validation.
+-   The `node_name` (like `hitl_review`) is important as it might tell the external application which specific screen or task interface to show the human.

@@ -100,7 +100,7 @@ NOTIFICATIONS_UNREAD_COUNT_URL = f"{NOTIFICATIONS_URL}unread-count"
 # HITL
 HITL_JOBS_URL = f"{API_BASE_URL}/hitl/"
 HITL_JOB_DETAIL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}"
-# HITL_JOB_RESPOND_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/respond" # If implemented
+# HITL_JOB_RESPOND_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/respond" # Respond is handled via submitting a run with resume_run_id
 HITL_JOB_CANCEL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/cancel"
 
 # Customer Data

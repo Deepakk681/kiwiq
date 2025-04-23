@@ -317,6 +317,7 @@ class ConstructDynamicSchema(BaseSchema):
                 )
         
         # Create and return the dynamic schema class
+        print(f"\n\nCreating dynamic schema class {schema_name or self.schema_name} with fields {field_definitions.keys()}\n\n")
         return create_model(
             schema_name or self.schema_name,
             __base__=DynamicSchema,
@@ -343,7 +344,9 @@ class BaseDynamicNode(BaseNode[DynamicSchema, DynamicSchema, DynamicSchema], ABC
         cls, 
         input_fields: Optional[Dict[str, Any]] = None,
         output_fields: Optional[Dict[str, Any]] = None,
-        config_fields: Optional[Dict[str, Any]] = None
+        config_fields: Optional[Dict[str, Any]] = None,
+        propagate_input_fields_to_output_fields: bool = False,
+        propagate_output_fields_to_input_fields: bool = False
     ) -> Type['BaseDynamicNode']:
         """
         Create a new BaseDynamicNode with dynamically created schemas.
@@ -372,10 +375,10 @@ class BaseDynamicNode(BaseNode[DynamicSchema, DynamicSchema, DynamicSchema], ABC
         field_kwargs = {}
 
         # Create dynamic output schema (same as input if not specified)
-        if output_fields is None and input_fields is not None:
+        if output_fields is None and input_fields is not None and propagate_input_fields_to_output_fields:
             output_fields = input_fields
             # node_kwargs['output_schema_cls'] = node_kwargs['input_schema_cls']
-        elif output_fields is not None and input_fields is None:
+        elif output_fields is not None and input_fields is None and propagate_output_fields_to_input_fields:
             input_fields = output_fields
             # node_kwargs['input_schema_cls'] = node_kwargs['output_schema_cls']
         

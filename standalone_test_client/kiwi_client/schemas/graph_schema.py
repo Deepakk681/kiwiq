@@ -5,7 +5,7 @@ This module contains the schema definitions for edges in the workflow system.
 Edges connect nodes in the workflow graph and define how data flows between them.
 """
 from typing import Any, Dict, List, Optional, Union, Self, Set
-from pydantic import Field, BaseModel, model_validator
+from pydantic import Field, BaseModel, model_validator, ConfigDict
 
 INPUT_NODE_NAME = "input_node"
 OUTPUT_NODE_NAME = "output_node"
@@ -25,6 +25,7 @@ def is_central_state_special_node(node_name_or_id: str) -> bool:
 from kiwi_client.schemas.dynamic_schema_constructor import ConstructDynamicSchema
 
 
+
 class EdgeMapping(BaseModel):
     """
     Schema for mapping data from source node output to target node input.
@@ -37,9 +38,11 @@ class EdgeMapping(BaseModel):
         src_field (str): Field name in the source node's output schema.
         dst_field (str): Field name in the target node's input schema.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     src_field: str = Field(..., description="Field name in the source node's output")
     dst_field: str = Field(..., description="Field name in the target node's input")
-    override_type_validation: Optional[bool] = Field(False, description=" Override type validation for the src and target field")
+    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
+    override_type_validation: Optional[bool] = Field(False, description=" [DEPRECATED] Override type validation for the src and target field")
     # transform: Optional[str] = Field(None, description="Optional transformation to apply")
 
 
@@ -56,8 +59,10 @@ class EdgeSchema(BaseModel):
         dst_node_id (str): ID of the target node.
         mappings (Optional[List[EdgeMapping]]): Optional list of field mappings from source to target.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     src_node_id: str = Field(..., description="ID of the source node")
     dst_node_id: str = Field(..., description="ID of the target node")
+    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
     # NOTE: a single source field may map to multiple target fields!
     mappings: Optional[List[EdgeMapping]] = Field(default_factory=list, description="Field mappings from source to target")
 
@@ -75,11 +80,16 @@ class NodeConfig(BaseModel):
         node_version (str): Version of the node implementation.
         node_config (Dict[str, Any]): Configuration parameters specific to this node type.
     """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     node_id: str = Field(..., description="Unique ID of the node")
     node_name: str = Field(..., description="Name of the node type. There may be multiple nodes with same name / type!")
     node_version: Optional[str] = Field(None, description="Version of the node implementation") 
     node_config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Node-specific configuration parameters")
+    private_input_mode: Optional[bool] = Field(False, description="Enable private input mode for the node which means the node will receive direct inputs instead of whole graph state, this is useful for map/reduce or branching patterns or maintaining private states.")
+    private_output_mode: Optional[bool] = Field(False, description="Enable private output mode for the node which means the node will send direct outputs to connected nodes, this is useful for map/reduce or branching patterns or maintaining private states. NOTE: the branches will converge to the next node where this is unset and they are collapsing to it, and that node will receive the full graph state. For reducing, you have to use the central state field with the correct reducer!")
     # TODO: implement support for JSON Schema which can be converted to Pydantic models using: https://github.com/koxudaxi/datamodel-code-generator
+    #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
+    #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     dynamic_input_schema: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic schema for the node input")
     dynamic_output_schema: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic schema for the node output")
@@ -120,13 +130,22 @@ class GraphSchema(BaseModel):
     """
     # TODO: test if langgraph allows nodes to not generate any output or have empty schemas, in case where
     #    there's no input / output data but still need these nodes for dependency edges to starter nodes!
-    
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     # workflow_id: str = Field(..., description="ID of the workflow")
     nodes: Dict[str, NodeConfig] = Field(..., description="Map of node IDs to node configurations")
     edges: Optional[List[EdgeSchema]] = Field(default_factory=list, description="List of edges connecting the nodes")
     input_node_id: str = Field(default=INPUT_NODE_NAME, description="ID of the input node")
     output_node_id: str = Field(default=OUTPUT_NODE_NAME, description="ID of the output node")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional metadata")
+    # check builder.py for paths of the below keys
+    # metadata={
+    #     # GRAPH_STATE_SPECIAL_NODE_NAME: {
+    #     #     CONFIG_REDUCER_KEY: {
+    #     #         # central state key : reducer name
+    #     #         "messages": "collect_values"  # Use collect_values reducer for collecting states not initialized as lists!
+    #     #     }
+    #     # },
+    # },
     # TODO: implement central graph state reducer config or default reducers for each field type??!
     # TODO: a special graph central state fake node -> schema just defines fields, edges to fields and reducers! This is a fake node
     #    set in dyanmic config and node outputs in central channel instead of node specific channel!
@@ -189,6 +208,15 @@ class GraphSchema(BaseModel):
         #     node_type = node_config["node_type"]
         #     if node_type != "input_node" and node_type != "output_node" and node_type not in self.registry:
         #         errors.append(f"Node type {node_type} for node {node_id} not found in registry")
+
+        for node_id, node_config in self.nodes.items():
+            if node_config.node_name == INPUT_NODE_NAME:
+                if node_config.dynamic_input_schema:
+                    errors.append(f"Input node {node_id} must not have dynamic input schema defined! Define output schema instead!")
+            elif node_config.node_name == OUTPUT_NODE_NAME:
+                if node_config.dynamic_output_schema:
+                    errors.append(f"Output node {node_id} must not have dynamic output schema defined! Define input schema instead!")
+                    
 
         unique_edges = set()
         for edge in self.edges:
