@@ -246,6 +246,7 @@ class Company(BaseModel):
     name: str
     url: str
     urn: str
+
 class CompanyPostAuthor(BaseModel):
     name: str
     url: str

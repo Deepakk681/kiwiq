@@ -76,7 +76,7 @@ def calculate_credits(job_type: JobType, request_data: RequestSchemaUnion, setti
         post_limit = req.post_limit if req.post_limit is not None else settings.DEFAULT_POST_LIMIT
         
         # Base cost for fetching the posts/likes list (paginated)
-        post_batches = math.ceil(post_limit / settings.BATCH_SIZE)
+        post_batches = math.ceil(post_limit / settings.SCRAPER_SERVICE_BATCH_SIZE)
         base_post_cost = post_batches * 1 # 1 credit per batch of posts/likes
         min_credits += base_post_cost
         max_credits += base_post_cost

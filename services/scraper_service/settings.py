@@ -10,7 +10,6 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from global_config.settings import Settings as GlobalSettings
 
-
 class RapidAPISettings(GlobalSettings):
     """
     Settings for the RapidAPI LinkedIn scraper client.
@@ -22,23 +21,23 @@ class RapidAPISettings(GlobalSettings):
     
     # API Settings
     RAPID_API_KEY: Optional[str] = os.getenv("RAPID_API_KEY")
-    RAPID_API_HOST: str = os.getenv("RAPID_API_HOST", "linkedin-profiles-and-company-data.p.rapidapi.com")
+    RAPID_API_HOST: str = os.getenv("RAPID_API_HOST", "linkedin-data-api.p.rapidapi.com")
         
     # Retry configuration
-    MAX_RETRIES: int = int(os.getenv("SCRAPER_SERVICE_MAX_RETRIES", "3"))
-    RETRY_DELAY: int = int(os.getenv("SCRAPER_SERVICE_RETRY_DELAY", "5"))  # seconds
+    SCRAPER_SERVICE_MAX_RETRIES: int = int(os.getenv("SCRAPER_SERVICE_MAX_RETRIES", 3))
+    SCRAPER_SERVICE_RETRY_DELAY: int = int(os.getenv("SCRAPER_SERVICE_RETRY_DELAY", 5))  # seconds
     
     # Request Settings
-    DEFAULT_POST_LIMIT: int = int(os.getenv("DEFAULT_POST_LIMIT", "50"))  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
-    DEFAULT_COMMENT_LIMIT: int = int(os.getenv("DEFAULT_COMMENT_LIMIT", "50")) #this will not matter actually , as comments are fetched per post
-    DEFAULT_REACTION_LIMIT: int = int(os.getenv("DEFAULT_REACTION_LIMIT", "30")) #this limit is a little varied , was trying was getting different amount in every batch
+    DEFAULT_POST_LIMIT: int = int(os.getenv("DEFAULT_POST_LIMIT", 50))  # Multiple of 50 always , because batch size is 50 so basically if this 1 or 50 , the credit consumed will be same that is why 50
+    DEFAULT_COMMENT_LIMIT: int = int(os.getenv("DEFAULT_COMMENT_LIMIT", 50)) #this will not matter actually , as comments are fetched per post
+    DEFAULT_REACTION_LIMIT: int = int(os.getenv("DEFAULT_REACTION_LIMIT", 49)) #this limit is a little varied , was trying was getting different amount in every batch
 
 
     # Rate Limiting Settings
-    DEFAULT_DELAY_SECONDS: int = int(os.getenv("SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS", "1"))
-    BATCH_SIZE: int = int(os.getenv("SCRAPER_SERVICE_BATCH_SIZE", "50"))
-    RATE_LIMIT_REQUESTS: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_REQUESTS", "10"))  # Number of requests per time window
-    RATE_LIMIT_PERIOD: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_PERIOD", "60"))    # Time window in seconds
+    SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS: int = int(os.getenv("SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS", 1))
+    SCRAPER_SERVICE_BATCH_SIZE: int = int(os.getenv("SCRAPER_SERVICE_BATCH_SIZE", 50))
+    SCRAPER_SERVICE_RATE_LIMIT_REQUESTS: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_REQUESTS", 10))  # Number of requests per time window
+    SCRAPER_SERVICE_RATE_LIMIT_PERIOD: int = int(os.getenv("SCRAPER_SERVICE_RATE_LIMIT_PERIOD", 60))    # Time window in seconds
     
     # Default Headers
     @property
@@ -53,14 +52,13 @@ class RapidAPISettings(GlobalSettings):
         return headers
     
     # Pagination Settings
-    DEFAULT_PAGE_SIZE: int = int(os.getenv("DEFAULT_PAGE_SIZE", 20))
-    MAX_PAGE_SIZE: int = int(os.getenv("MAX_PAGE_SIZE", 100))
-    MIN_PAGE_SIZE: int = int(os.getenv("MIN_PAGE_SIZE", 5))
-    
+    SCRAPING_SERVICE_DEFAULT_PAGE_SIZE: int = int(os.getenv("SCRAPING_SERVICE_DEFAULT_PAGE_SIZE", 20))
+    SCRAPING_SERVICE_MAX_PAGE_SIZE: int = int(os.getenv("SCRAPING_SERVICE_MAX_PAGE_SIZE", 100))
+    SCRAPING_SERVICE_MIN_PAGE_SIZE: int = int(os.getenv("SCRAPING_SERVICE_MIN_PAGE_SIZE", 5))
 
     
     # Request Timeout
-    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", 30))  # Request timeout in seconds
+    SCRAPING_SERVICE_REQUEST_TIMEOUT: int = int(os.getenv("SCRAPING_SERVICE_REQUEST_TIMEOUT", 30))  # Request timeout in seconds
     
     # Endpoint Configuration
     ENDPOINTS: Dict[str, str] = {

@@ -30,8 +30,8 @@ TEST_COMPANY_URL = ''
 
 
 # Retry configuration from settings
-MAX_RETRIES = rapid_api_settings.MAX_RETRIES
-RETRY_DELAY = rapid_api_settings.RETRY_DELAY
+MAX_RETRIES = rapid_api_settings.SCRAPER_SERVICE_MAX_RETRIES
+RETRY_DELAY = rapid_api_settings.SCRAPER_SERVICE_RETRY_DELAY
 
 
 
@@ -187,7 +187,7 @@ async def test_credit_calculator():
     print("\n--- Testing Credit Calculator Functionality ---")
 
     # Get batch sizes from settings for calculations
-    POST_BATCH = rapid_api_settings.BATCH_SIZE or 50
+    POST_BATCH = rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE or 50
     REACTION_BATCH = rapid_api_settings.DEFAULT_REACTION_LIMIT or 30
 
     # --- Helper for Reaction Cost ---

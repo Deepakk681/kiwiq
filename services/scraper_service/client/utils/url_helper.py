@@ -20,6 +20,16 @@ def extract_urn_from_url(url: str) -> Optional[str]:
         Optional[str]: Extracted URN or None if not found
     """
     # Pattern for post URNs
+    
+    # You can convert SHARE URL to POST URN and POST URN based URL in following format: https://www.linkedin.com/feed/update/urn:li:activity:7320277918322946057/
+    # https://www.linkedin.com/posts/boxaaron_context-is-king-for-ai-agents-its-clear-activity-7320105458659217409-IBJa?utm_source=share&utm_medium=member_desktop&rcm=ACoAABStr74BW783__3mqSySJf3rVo6KlJMCqHY
+    
+    # RAPID API URL Pattern: (returned with post or input from user)
+    # https://www.linkedin.com/feed/update/urn:li:activity:7320277918322946057/
+
+    # 
+    # https://www.linkedin.com/feed/update/urn:li:activity:7320105458659217409/
+
     post_urn_pattern = r"urn:li:activity:(\d+)"
     post_match = re.search(post_urn_pattern, url)
     if post_match:

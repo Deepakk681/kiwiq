@@ -101,7 +101,7 @@ class RapidAPIClient(Generic[T]):
                     safe_headers['x-rapidapi-key'] = safe_headers['x-rapidapi-key'][:8] + '...'
                 logger.info(f"Request headers: {safe_headers}")
                 
-                async with session.get(url, headers=self.headers, timeout=rapid_api_settings.REQUEST_TIMEOUT) as response:
+                async with session.get(url, headers=self.headers, timeout=rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT) as response:
                     logger.info(f"API response status: {response.status}")
                     
                     if response.status != 200:
@@ -131,8 +131,8 @@ class RapidAPIClient(Generic[T]):
             logger.error(f"HTTP client error: {str(client_error)}")
             return {"error": f"HTTP request failed: {str(client_error)}"}
         except asyncio.TimeoutError:
-            logger.error(f"Request timed out after {rapid_api_settings.REQUEST_TIMEOUT} seconds")
-            return {"error": f"Request timed out after {rapid_api_settings.REQUEST_TIMEOUT} seconds"}
+            logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds")
+            return {"error": f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds"}
         except Exception as e:
             logger.error(f"Unexpected error in make_get_request: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}
@@ -150,7 +150,7 @@ class RapidAPIClient(Generic[T]):
             Union[T, Dict[str, Any]]: Parsed model instance or raw JSON response.
         """
         # Apply delay before each request (use settings default if not specified)
-        await asyncio.sleep(delay_seconds or rapid_api_settings.DEFAULT_DELAY_SECONDS)
+        await asyncio.sleep(delay_seconds or rapid_api_settings.SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS)
         return await self.make_get_request(endpoint, response_model)
     
     async def make_post_request(self, endpoint: str, payload: Dict[str, Any], response_model: Type[T] = None) -> Union[T, Dict[str, Any]]:
@@ -186,7 +186,7 @@ class RapidAPIClient(Generic[T]):
                 logger.info(f"Request headers: {safe_headers}")
                 logger.info(f"Request payload: {payload}")
                 
-                async with session.post(url, headers=headers, json=payload, timeout=rapid_api_settings.REQUEST_TIMEOUT) as response:
+                async with session.post(url, headers=headers, json=payload, timeout=rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT) as response:
                     status = response.status
                     logger.info(f"API response status: {status}")
                     
@@ -219,8 +219,8 @@ class RapidAPIClient(Generic[T]):
             logger.error(f"HTTP client error: {str(client_error)}")
             return {"error": f"HTTP request failed: {str(client_error)}"}
         except asyncio.TimeoutError:
-            logger.error(f"Request timed out after {rapid_api_settings.REQUEST_TIMEOUT} seconds")
-            return {"error": f"Request timed out after {rapid_api_settings.REQUEST_TIMEOUT} seconds"}
+            logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds")
+            return {"error": f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds"}
         except Exception as e:
             logger.error(f"Unexpected error in make_post_request: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}

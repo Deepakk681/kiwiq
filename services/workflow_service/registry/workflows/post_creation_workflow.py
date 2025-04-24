@@ -1,8 +1,8 @@
 import json
 import asyncio
 
+
 user_dna_namespace = "user_profiles"
-user_dna_docname = "user_dna_doc" # Define docname constant
 draft_storage_namespace = "drafts"
 llm_provider = "openai"
 generation_model_name = "gpt-4.1"
@@ -251,7 +251,7 @@ workflow_graph_schema = {
             "choices_with_conditions": [
                 {
                     "choice_id": "interpret_feedback", # Continue loop
-                    "input_path": "if_else_condition_tag_results::iteration_limit_check", # Path WITHIN the node's input data
+                    "input_path": "if_else_condition_tag_results.iteration_limit_check", # Path WITHIN the node's input data
                     "target_value": True # Value output by check_iteration_limit
                 },
                 {
@@ -346,7 +346,7 @@ workflow_graph_schema = {
       "node_config": {
         "global_versioning": {
           "is_versioned": True,
-          "operation": "upsert_versioned", # Update existing document with new version
+          "operation": "upsert", # Update existing document with new version
           "version": "finalized_v1" # Name the finalized version
         },
         "store_configs": [

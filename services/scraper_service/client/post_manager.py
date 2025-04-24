@@ -5,6 +5,7 @@ This module provides a client for fetching LinkedIn posts, comments, and reactio
 using the RapidAPI LinkedIn scraper endpoint.
 """
 import asyncio
+import json
 from typing import Dict, List, Any, Optional
 
 from scraper_service.client.core_api_client import RapidAPIClient
@@ -37,6 +38,23 @@ class LinkedinPostFetcher:
         self.rapidapi_host = base_url or rapid_api_settings.RAPID_API_HOST
         self.api_client = RapidAPIClient(self.rapidapi_key, self.rapidapi_host)
 
+    async def fetch_share_url(self, post_url):
+        """Fetches shareUrl from LinkedIn post API if not available.
+        
+        NOTE: costs 1 credit per request!
+        """
+        
+        endpoint = f"/get-post?url={post_url}"
+        
+        response = await self.api_client.make_get_request(endpoint)
+
+        if not response.get("success", False):
+            logger.error(f"Error fetching company posts: {response.get('message')}")
+            return CompanyPostResponse(posts=[])
+
+        post_data = response.get("data", [])
+        return post_data.get("shareUrl", "none")
+
     async def get_company_posts(self, request: PostsRequest) -> List[CompanyPostResponse]:
         """
         Fetch posts for a LinkedIn company page.
@@ -60,6 +78,9 @@ class LinkedinPostFetcher:
             >>> request = PostsRequest(username="microsoft", post_limit=5, post_comments="yes", post_reactions="yes")
             >>> posts = await fetcher.get_company_posts(request)
             >>> print(f"Retrieved {len(posts)} posts")
+        
+            
+        NOTE: fetch_share_url costs 1 credit per request if used to fetch shareUrl for a company post!
         """
         if not request.username:
             raise ValueError("Username is required")
@@ -93,7 +114,7 @@ class LinkedinPostFetcher:
             if not pagination_token:
                 break
 
-            start += rapid_api_settings.BATCH_SIZE
+            start += rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE
 
         posts: List[CompanyPost] = []
 
@@ -102,6 +123,7 @@ class LinkedinPostFetcher:
                 continue
 
             post_url = raw_post.get("postUrl")
+            # https://github.com/KiwiQAI/scraping_service/blob/kunal/rapidapi_v2/src/scraper/rapid_api/rapid_manager/company_manager.py
             share_url = raw_post.get("shareUrl") or await self.fetch_share_url(post_url)
             urn =  extract_urn_from_url(post_url)
 
@@ -332,7 +354,7 @@ class LinkedinPostFetcher:
             if not pagination_token:
                 break
 
-            start += rapid_api_settings.BATCH_SIZE
+            start += rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE
 
         structured_posts: List[ProfilePost] = []
 
@@ -582,9 +604,14 @@ class LinkedinPostFetcher:
             if not pagination_token:
                 break
 
-            start += rapid_api_settings.BATCH_SIZE
+            start += rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE
 
         return all_likes[:post_limit]
 
 
+# async def main():
+#     fetcher = LinkedinPostFetcher()
+#     print(await fetcher.fetch_share_url("https://www.linkedin.com/feed/update/urn:li:activity:7320277918322946057/"))
 
+# if __name__ == "__main__":
+#     asyncio.run(main())
