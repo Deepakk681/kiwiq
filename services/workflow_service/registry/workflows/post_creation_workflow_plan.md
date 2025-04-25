@@ -49,31 +49,31 @@ This diagram illustrates the flow based on the `GraphSchema`. State reads/writes
 ### Simple Diagram
 ```mermaid
 flowchart TD
-  subgraph Workflow Graph
+  subgraph "Workflow Graph"
     direction TB
 
-    INPUT(["Input<br/>(user_id, initial_brief, linkedin_username)"]):::input
-    SCRAPE(["Scrape Profile"]):::scraping # New Node
+    INPUT(["Input<br>(user_id, initial_brief, linkedin_username)"]):::input
+    SCRAPE(["Scrape Profile"]):::scraping
     LOAD(["Load User DNA"]):::storage
     PROMPT(["Construct Initial Prompt"]):::processing
-    GENERATE(["Generate Post<br/>(Structured)"]):::processing
+    GENERATE(["Generate Post<br>(Structured)"]):::processing
     DRAFT(["Store Draft"]):::storage
     REVIEW(["Human Review"]):::human
     DECIDE(["Route on Approval"]):::decision
     FEEDBACK(["Interpret Feedback"]):::processing
     REWRITE(["Construct Rewrite Prompt"]):::processing
     FINAL(["Store Final Post"]):::storage
-    OUTPUT(["Output<br/>(final_post_id)"]):::output
+    OUTPUT(["Output<br>(final_post_id)"]):::output
 
-    INPUT  -- "linkedin_username"                --> SCRAPE # New Edge
+    INPUT  -- "linkedin_username"                --> SCRAPE
     INPUT  -- "user_id, initial_brief"           --> LOAD
-    SCRAPE -- "scraped_profile"                  --> PROMPT # New Edge
+    SCRAPE -- "scraped_profile"                  --> PROMPT
     LOAD   -- "user_dna"                         --> PROMPT
     INPUT  -- "initial_brief"                    --> PROMPT
     PROMPT -- "initial_prompt"                   --> GENERATE
 
     GENERATE -- "post, messages, metadata"       --> DRAFT
-    DRAFT    -->                                 REVIEW
+    DRAFT    --> REVIEW
     REVIEW   -- "approval_status, feedback_text" --> DECIDE
 
     DECIDE -- "needs_work" --> FEEDBACK
@@ -91,7 +91,8 @@ flowchart TD
   classDef human      fill:#FFD0E0,stroke:#CC0066,stroke-width:2px;
   classDef decision   fill:#EEEEEE,stroke:#999999,stroke-width:2px;
   classDef output     fill:#D0FFD0,stroke:#006600,stroke-width:2px;
-  classDef scraping   fill:#fcf8e3,stroke:#8a6d3b,stroke-width:2px; # New Style
+  classDef scraping   fill:#fcf8e3,stroke:#8a6d3b,stroke-width:2px;
+
 
 ```
 

@@ -3,7 +3,7 @@ import asyncio
 
 
 user_dna_namespace = "user_profiles"
-user_dna_docname = "user_dna_doc" # Define docname constant
+user_dna_docname = "user_dna_doc"  # Define docname constant
 draft_storage_namespace = "drafts"
 llm_provider = "openai"
 generation_model_name = "gpt-4.1"
@@ -71,16 +71,16 @@ workflow_graph_schema = {
             # Configuration to load user preferences/DNA document
             "filename_config": {
               "static_namespace": f"{user_dna_namespace}", # Placeholder e.g., "user_profiles"
-              "static_docname": "user_dna_doc" # Get user ID from workflow input
+              "static_docname": f"{user_dna_docname}" # Get user ID from workflow input
               # "input_docname_field": "user_id" # Use user_id from input_node for docname
             },
-            "output_field_name": "user_dna_doc" # Output field containing user data (e.g., {"style_preference": "professional"})
+            "output_field_name": f"{user_dna_docname}" # Output field containing user data (e.g., {"style_preference": "professional"})
           }
         ]
       },
       "dynamic_output_schema": {  # NOTE: this is demonstration of fields to / from dynamic schemas; they need to be defined atleast somewhere explicitly!
         "fields": {
-            "user_dna_doc": { "type": "dict", "required": True, "description": "User DNA document containing user preferences." },
+            f"{user_dna_docname}": { "type": "dict", "required": True, "description": "User DNA document containing user preferences." },
         }
       }
       # Loads user_dna_doc of current user -> its a versioned document!
@@ -424,12 +424,12 @@ workflow_graph_schema = {
 
     # Load User DNA -> State: Store loaded user data
     { "src_node_id": "load_user_dna", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "user_dna_doc", "dst_field": "user_dna_doc", "description": "Store the loaded user DNA document globally."}
+        { "src_field": f"{user_dna_docname}", "dst_field": f"{user_dna_docname}", "description": "Store the loaded user DNA document globally."}
       ]
     },
     # Load User DNA -> Construct Initial Prompt: Provide user data for prompt construction
     { "src_node_id": "load_user_dna", "dst_node_id": "construct_initial_prompt", "mappings": [
-        { "src_field": "user_dna_doc", "dst_field": "user_dna_doc", "description": "Pass user DNA for extracting style preference."}
+        { "src_field": f"{user_dna_docname}", "dst_field": f"{user_dna_docname}", "description": "Pass user DNA for extracting style preference."}
       ]
     },
     # State -> Construct Initial Prompt: Provide initial brief for prompt construction
@@ -595,7 +595,7 @@ workflow_graph_schema = {
 mock_final_graph_state = {
     "post_draft_name": "Q3 Campaign Launch Post",
     "initial_content_brief": "Announce the launch of our new Q3 campaign focused on AI-driven efficiency.",
-    "user_dna_doc": {
+    f"{user_dna_docname}": {
         "style_preference": "professional and slightly informal",
         "tone": "enthusiastic",
         "target_audience": "Marketing Managers",
