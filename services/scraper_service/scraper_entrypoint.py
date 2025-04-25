@@ -226,7 +226,7 @@ async def run_test(config_data: Dict[str, Any], test_name: str):
 # of different job configurations.
 if __name__ == "__main__":
 
-    PERSON_USERNAME = "williamhgates"
+    PERSON_USERNAME = "example-user"
     COMPANY_USERNAME = "microsoft"
     KEYWORD = "generative ai applications"
     HASHTAG = "genai"
@@ -317,13 +317,14 @@ if __name__ == "__main__":
 
     # Define the list of tests to run
     tests_to_run = [
-        (test_config_company_posts, "Company Posts"),
-        (test_config_person_posts, "Person Posts"),
-        (test_config_search_keyword, "Keyword Search"),
-        (test_config_activity_likes, "User Activity (Likes)"),
+        # (test_config_company_posts, "Company Posts"),
+        # (test_config_person_posts, "Person Posts"),
+        # (test_config_search_keyword, "Keyword Search"),
+        # (test_config_activity_likes, "User Activity (Likes)"),
         (test_config_profile_info, "User Profile Info"),
-        (test_config_company_info, "Company Profile Info"),
-        (test_config_search_hashtag, "Hashtag Search"),
+        # (test_config_company_info, "Company Profile Info"),
+        # (test_config_search_hashtag, "Hashtag Search"),
+        # (test_config_activity_comments, "User Activity (Comments)"),
     ]
 
     # Run all defined tests asynchronously

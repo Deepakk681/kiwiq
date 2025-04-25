@@ -21,35 +21,38 @@ from services.workflow_service.registry.nodes.db.customer_data import (
     StoreCustomerDataNode,
 )
 from workflow_service.registry.nodes.core.router_node import RouterNode
+from workflow_service.registry.nodes.scraping.linkedin_scraping import LinkedInScrapingNode
 
 async def register_node_templates(db_registry: DBRegistry):
-    async with get_async_db_as_manager() as db:
+    node_classes = [
         # Core Nodes
-        await db_registry.register_node_template(db, InputNode)
-        await db_registry.register_node_template(db, OutputNode)
-
+        InputNode,
+        OutputNode,
         # HITL
-        await db_registry.register_node_template(db, HITLNode)
-        
+        HITLNode,
         # Flow Nodes
-        await db_registry.register_node_template(db, FilterNode)
-        await db_registry.register_node_template(db, IfElseConditionNode)
-        
+        FilterNode,
+        IfElseConditionNode,
         # Routing
-        await db_registry.register_node_template(db, RouterNode)
-        await db_registry.register_node_template(db, MapListRouterNode)
-        
+        RouterNode,
+        MapListRouterNode,
         # Data Ops
-        await db_registry.register_node_template(db, TransformerNode)
-        await db_registry.register_node_template(db, DataJoinNode)
-        
+        TransformerNode,
+        DataJoinNode,
         # Customer / System Data
-        await db_registry.register_node_template(db, LoadCustomerDataNode)
-        await db_registry.register_node_template(db, StoreCustomerDataNode)
-        
+        LoadCustomerDataNode,
+        StoreCustomerDataNode,
         # LLM
-        await db_registry.register_node_template(db, LLMNode)
-        await db_registry.register_node_template(db, PromptConstructorNode)
+        LLMNode,
+        PromptConstructorNode,
+        # Scraping
+        LinkedInScrapingNode,
+    ]
+    # assert None of the classes have duplicate node_names i.e. node types!
+    assert len(set(node.node_name for node in node_classes)) == len(node_classes)
+    async with get_async_db_as_manager() as db:
+        for node in node_classes:
+            await db_registry.register_node_template(db, node)
         # print("metadata keys:: ", db_registry._metadata.keys())
 
 # if __name__ == "__main__":

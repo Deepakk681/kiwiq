@@ -252,6 +252,9 @@ class RapidAPIClient(Generic[T]):
         endpoint = f"{rapid_api_settings.RAPID_API_ENDPOINTS['profile']}"
         params = {"username": request['username']}
         response = await self.make_get_request(endpoint, params=params)
+        if "error" in response:
+            logger.error(f"Error fetching profile data for {request['username']}: {response['error']}")
+            return response
         if "data" in response:
             response = response["data"]
         # NOTE: this will propagate errors too in errors keys!
@@ -276,6 +279,9 @@ class RapidAPIClient(Generic[T]):
         endpoint = f"{rapid_api_settings.RAPID_API_ENDPOINTS['company_details']}"
         params = {"username": request['username']}
         response_data = await self.make_get_request(endpoint, params=params)
+        if "error" in response_data:
+            logger.error(f"Error fetching company data for {request['username']}: {response_data['error']}")
+            return response_data
         if "data" in response_data:
             response_data = response_data["data"]
 

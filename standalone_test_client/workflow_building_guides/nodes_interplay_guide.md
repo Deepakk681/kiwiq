@@ -56,7 +56,9 @@ Here are the core node types available for building workflows (refer to their in
 *   **LLM & Prompts:**
     *   `prompt_constructor`: Builds text prompts using templates and variables. Can define templates statically (`template`) or load them dynamically from the database (`template_load_config`). Supports sourcing variables via input paths (`construct_options`) or direct mappings. ([Guide](nodes/prompt_constructor_node_guide.md))
     *   `llm`: Interacts with Large Language Models (like GPT, Claude, Gemini), supporting text/structured output, tool calling, and web search. ([Guide](nodes/llm_node_guide.md))
-    *   *Deprecated:* `load_prompt_templates` (Functionality merged into `prompt_constructor`).
+*   **External Services:**
+    *   `linkedin_scraping`: Executes configured jobs (like profile fetch, post search) via an external LinkedIn scraping service. Consumes API credits. ([Guide](nodes/linkedin_scraping_node_guide.md))
+*   *Deprecated:* `load_prompt_templates` (Functionality merged into `prompt_constructor`).
 
 *(Refer to `services/workflow_service/services/db_node_register.py` for the authoritative list of registered nodes.)*
 
@@ -199,6 +201,13 @@ Here are examples of how nodes work together:
     *   Edge can optionally map the `prompt_template_errors` field to another node for error handling.
     *   Edges provide necessary inputs to `PromptConstructorNode`.
     *   `LLMNode` executes the prompt.
+
+-   **Fetching External Data (LinkedIn Example):**
+    `InputNode` -> `LinkedInScrapingNode` -> `OutputNode`
+    *   `InputNode` provides necessary inputs (e.g., `list_of_usernames`, `company_target`).
+    *   Edges map these inputs to the `LinkedInScrapingNode`.
+    *   `LinkedInScrapingNode` `node_config` defines `jobs` (e.g., scrape profiles for the list, get company posts). Jobs specify how to use inputs (e.g., `input_field_path`, `expand_list`) and where to place results (`output_field_name`).
+    *   Edge maps the results (e.g., `src_field: "scraping_results.user_profiles"`) to the `OutputNode` (e.g., `dst_field: "linkedin_profiles"`).
 
 -   **Fetching and Combining Data:**
     `InputNode` -> `LoadCustomerDataNode` -> `DataJoinNode` -> `OutputNode`

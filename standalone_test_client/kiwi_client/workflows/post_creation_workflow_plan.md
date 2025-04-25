@@ -1,28 +1,32 @@
-# Plan: AI-Human Post Creation Workflow (Revised)
+# Plan: AI-Human Post Creation Workflow (Revised with Scraping)
 
 ## 1. Introduction & Goal
 
-This document outlines the revised plan to build the "AI-Human Post Creation" workflow. The goal remains to produce a LinkedIn post through an iterative AI generation and human review process.
+This document outlines the revised plan to build the "AI-Human Post Creation" workflow. The goal remains to produce a LinkedIn post through an iterative AI generation and human review process, **now incorporating scraped LinkedIn profile data for personalization.**
 
 Key changes in this revision:
+*   **Added LinkedIn Profile Scraping:** A new node (`linkedin_scraping`) fetches user profile data at the start.
+*   **Input Update:** Workflow input now requires `linkedin_username`.
+*   **Enhanced Prompt Construction:** Initial prompt now uses scraped profile data.
 *   Streamlined node structure leveraging node configurations (e.g., `construct_options`).
-*   Explicit use of `$graph_state` for managing shared data like message history, user DNA, and current draft.
+*   Explicit use of `$graph_state` for managing shared data like message history, user DNA, scraped profile, and current draft.
 *   Parallel execution branches after initial content generation: one for storing the draft (`StoreCustomerDataNode`) and one for initiating human review (`HITLNode`).
 *   Refined iteration limit checking mechanism.
 *   Clearer definition of nodes, edges, and state management.
 
-The workflow starts with an initial brief, loads user preferences (`LoadCustomerDataNode`), constructs a prompt (`PromptConstructorNode`), generates the draft (`LLMNode`), and then *simultaneously* saves the draft (`store_draft`) and sends it for human review (`capture_approval`). The human review decision (`route_on_approval`) determines the next step. If feedback is provided (`needs_work`), it triggers the feedback loop: check iteration limits (`check_iteration_limit`, `route_on_limit_check`), interpret feedback (`interpret_feedback`), construct a rewrite prompt (`construct_rewrite_prompt`), and regenerate content (`generate_content`). This loop continues until the post is approved (`approved`) or the iteration limit is met, at which point the post is finalized (`finalize_post`).
+The workflow starts with an initial brief and LinkedIn username, scrapes the profile (`linkedin_scraping`), loads user preferences (`LoadCustomerDataNode`), constructs a personalized prompt (`PromptConstructorNode`), generates the draft (`LLMNode`), and then *simultaneously* saves the draft (`store_draft`) and sends it for human review (`capture_approval`). The human review decision (`route_on_approval`) determines the next step. If feedback is provided (`needs_work`), it triggers the feedback loop: check iteration limits (`check_iteration_limit`, `route_on_limit_check`), interpret feedback (`interpret_feedback`), construct a rewrite prompt (`construct_rewrite_prompt`), and regenerate content (`generate_content`). This loop continues until the post is approved (`approved`) or the iteration limit is met, at which point the post is finalized (`finalize_post`).
 
 ## 2. Mapping PRD Nodes to Available Workflow Nodes
 
-This mapping reflects the nodes used in the *revised* `GraphSchema`.
+This mapping reflects the nodes used in the *revised* `GraphSchema`, including the new scraping step.
 
 | PRD Node (#)                   | Conceptual Role                          | Revised Implementation Strategy                                                                                                                            | Notes                                                                                                                                                         |
 | :----------------------------- | :--------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **NEW**                        | **Fetch Profile Data**                   | **`linkedin_scraping` node (`scrape_linkedin_profile`)** using the input `linkedin_username`.                                                              | Fetches public profile info for personalization. Requires API setup/credentials.                                                                              |
 | 2.1 Read & Extract             | Read from state                          | Read from `"$graph_state"` via edge mappings (`src_node_id: "$graph_state"`).                                                                                | Handled by edge configuration.                                                                                                                              |
-| 2.2 Assemble Context           | Combine data                             | `PromptConstructorNode` uses `construct_options` to source variables directly from mapped inputs (e.g., `user_dna_doc`, `initial_content_brief`).         | Context assembly simplified within prompt nodes.                                                                                                            |
-| 2.3 Write State                | Write to state                           | Write to `"$graph_state"` via edge mappings (`dst_node_id: "$graph_state"`). `StoreCustomerDataNode` for persistent storage (`store_draft`, `finalize_post`). | State updates managed via edges.                                                                                                                            |
-| 2.4 Construct Prompt           | Build LLM prompt                         | `PromptConstructorNode` (`construct_initial_prompt`, `construct_rewrite_prompt`).                                                                          | Direct mapping.                                                                                                                                             |
+| 2.2 Assemble Context           | Combine data                             | `PromptConstructorNode` uses `construct_options` to source variables directly from mapped inputs (e.g., `user_dna_doc`, `initial_content_brief`, **`scraped_profile_data`**). | Context assembly simplified within prompt nodes.                                                                                                            |
+| 2.3 Write State                | Write to state                           | Write to `"$graph_state"` via edge mappings (`dst_node_id: "$graph_state"`). `StoreCustomerDataNode` for persistent storage (`store_draft`, `finalize_post`). | State updates managed via edges. **Scraped data also written to state.**                                                                                    |
+| 2.4 Construct Prompt           | Build LLM prompt                         | `PromptConstructorNode` (`construct_initial_prompt`, `construct_rewrite_prompt`).                                                                          | **Initial prompt now uses scraped profile data.**                                                                                                           |
 | 2.5 Generate Content           | AI Text Generation                       | `LLMNode` (`generate_content` with structured output schema).                                                                                              | Direct mapping. Handles initial generation and rewrites.                                                                                                    |
 | 2.6 Transform Content          | Modify text                              | Handled by **regenerating content** (`generate_content`) based on interpreted feedback.                                                                    | No separate transform node.                                                                                                                                 |
 | 2.7 Parse Edit Operations      | Structure raw edits                      | **External:** Handled by the UI/system providing input to `capture_approval` (`HITLNode`).                                                                   | Assumed provided to HITL node.                                                                                                                              |
@@ -36,7 +40,7 @@ This mapping reflects the nodes used in the *revised* `GraphSchema`.
 | 2.19 Preference & Pattern      | Learn user preferences                   | Potentially `LLMNode` + `StoreCustomerDataNode`, but **Out of Scope** for this core workflow.                                                              | Advanced feature.                                                                                                                                           |
 | 2.20 Log Change                | Audit logging                            | `StoreCustomerDataNode` can store versions (`store_draft`, `finalize_post`). Workflow execution logs provide basic audit trail.                            | Versioning provides history. Engine logs capture execution.                                                                                                 |
 
-**Conclusion:** The core loop uses `LLMNode` for generation/interpretation, `PromptConstructorNode` for prompts, `HITLNode` for feedback, `Load/StoreCustomerDataNode` for data persistence, and `RouterNode`/`IfElseConditionNode` for control flow. `$graph_state` is central. Parallel execution is introduced post-generation.
+**Conclusion:** The core loop uses `LLMNode` for generation/interpretation, `PromptConstructorNode` for prompts, `HITLNode` for feedback, `Load/StoreCustomerDataNode` for data persistence, and `RouterNode`/`IfElseConditionNode` for control flow. **A `linkedin_scraping` node is added for personalization.** `$graph_state` is central. Parallel execution is maintained post-generation.
 
 ## 3. Revised Workflow Mermaid Diagram
 
@@ -48,7 +52,8 @@ flowchart TD
   subgraph Workflow Graph
     direction TB
 
-    INPUT(["Input<br/>(user_id, initial_brief)"]):::input
+    INPUT(["Input<br/>(user_id, initial_brief, linkedin_username)"]):::input
+    SCRAPE(["Scrape Profile"]):::scraping # New Node
     LOAD(["Load User DNA"]):::storage
     PROMPT(["Construct Initial Prompt"]):::processing
     GENERATE(["Generate Post<br/>(Structured)"]):::processing
@@ -60,7 +65,9 @@ flowchart TD
     FINAL(["Store Final Post"]):::storage
     OUTPUT(["Output<br/>(final_post_id)"]):::output
 
+    INPUT  -- "linkedin_username"                --> SCRAPE # New Edge
     INPUT  -- "user_id, initial_brief"           --> LOAD
+    SCRAPE -- "scraped_profile"                  --> PROMPT # New Edge
     LOAD   -- "user_dna"                         --> PROMPT
     INPUT  -- "initial_brief"                    --> PROMPT
     PROMPT -- "initial_prompt"                   --> GENERATE
@@ -84,6 +91,7 @@ flowchart TD
   classDef human      fill:#FFD0E0,stroke:#CC0066,stroke-width:2px;
   classDef decision   fill:#EEEEEE,stroke:#999999,stroke-width:2px;
   classDef output     fill:#D0FFD0,stroke:#006600,stroke-width:2px;
+  classDef scraping   fill:#fcf8e3,stroke:#8a6d3b,stroke-width:2px; # New Style
 
 ```
 
@@ -96,120 +104,131 @@ flowchart TD
   "edgeLabelBackground": "#e8e8e8"
 }}}%%
 flowchart TD
-  subgraph "AI-Human Post Creation Workflow"
+  subgraph "AI-Human Post Creation Workflow with Scraping"
     direction TB
 
     %% --- Input and Initial Setup ---
-    INPUT(["Workflow Input<br/>(post_draft_name, initial_content_brief)"]):::input 
-      --> STATE_WRITE_INPUT["Write Inputs<br/>(post_draft_name, initial_content_brief)"]:::state_io 
+    INPUT(["Workflow Input<br/>(post_draft_name, initial_content_brief, linkedin_username)"]):::input
+      --> STATE_WRITE_INPUT["Write Inputs<br/>(post_draft_name, initial_content_brief, linkedin_username)"]:::state_io
       --> graph_state
+
+    INPUT -- "linkedin_username" --> SCRAPE_PROFILE["Scrape LinkedIn Profile<br/>(linkedin_scraping Node)"]:::scraping # New Node
+
+    SCRAPE_PROFILE -- "scraping_results" --> STATE_WRITE_SCRAPE["Write Scraped Data<br/>(scraped_linkedin_profile_results)"]:::state_io # New Edge & State IO
+      --> graph_state
+
     INPUT -- "Trigger" --> LOAD_USER_DNA["Load User DNA<br/>(LoadCustomerDataNode)<br/>(namespace: ${user_dna_namespace}<br/>doc: ${user_dna_docname})"]:::storage
 
-    LOAD_USER_DNA -- "user_dna_doc" --> STATE_WRITE_DNA["Write<br/>(user_dna_doc)"]:::state_io 
+    LOAD_USER_DNA -- "user_dna_doc" --> STATE_WRITE_DNA["Write<br/>(user_dna_doc)"]:::state_io
       --> graph_state
-    LOAD_USER_DNA -- "user_dna_doc" --> CONSTRUCT_INITIAL_PROMPT["Construct Initial Prompt<br/>(PromptConstructorNode)"]:::processing
-    graph_state -- "initial_content_brief" --> STATE_READ_BRIEF["Read<br/>(initial_content_brief)"]:::state_io 
+    LOAD_USER_DNA -- "user_dna_doc" --> CONSTRUCT_INITIAL_PROMPT["Construct Initial Prompt<br/>(PromptConstructorNode)<br/>(enable_node_fan_in=True)"]:::processing
+
+    SCRAPE_PROFILE -- "scraping_results" --> CONSTRUCT_INITIAL_PROMPT # New Edge
+
+    graph_state -- "initial_content_brief" --> STATE_READ_BRIEF["Read<br/>(initial_content_brief)"]:::state_io
       --> CONSTRUCT_INITIAL_PROMPT
 
     %% --- Generation Core ---
-    CONSTRUCT_INITIAL_PROMPT -- "initial_generation_prompt, system_prompt" 
+    CONSTRUCT_INITIAL_PROMPT -- "initial_generation_prompt, system_prompt"
       --> GENERATE_CONTENT["Generate Post (Structured)<br/>(LLMNode - ${generation_model_name})"]:::processing
-    graph_state -- "messages_history" --> STATE_READ_MSG_HIST_1["Read<br/>(messages_history)"]:::state_io 
+    graph_state -- "messages_history" --> STATE_READ_MSG_HIST_1["Read<br/>(messages_history)"]:::state_io
       --> GENERATE_CONTENT
 
     %% --- Parallel Branches Post-Generation ---
-    GENERATE_CONTENT -- "structured_output" 
+    GENERATE_CONTENT -- "structured_output"
       --> STORE_DRAFT["Store Initial Draft (Parallel 1)<br/>(StoreCustomerDataNode - Versioned 'draft_v1')<br/>(namespace: ${draft_storage_namespace})"]:::storage
-    graph_state -- "post_draft_name" --> STATE_READ_DRAFT_NAME_1["Read<br/>(post_draft_name)"]:::state_io 
+    graph_state -- "post_draft_name" --> STATE_READ_DRAFT_NAME_1["Read<br/>(post_draft_name)"]:::state_io
       --> STORE_DRAFT
 
-    GENERATE_CONTENT -- "structured_output (as draft_for_review)" 
+    GENERATE_CONTENT -- "structured_output (as draft_for_review)"
       --> CAPTURE_APPROVAL["Human Review (Parallel 2)<br/>(HITLNode)"]:::human
 
     %% --- State Update Post-Generation ---
-    GENERATE_CONTENT -- "current_messages, metadata, structured_output" 
-      --> STATE_WRITE_GEN_RESULTS["Write Gen Results<br/>(messages_history, generation_metadata, current_post_draft)"]:::state_io 
+    GENERATE_CONTENT -- "current_messages, metadata, structured_output"
+      --> STATE_WRITE_GEN_RESULTS["Write Gen Results<br/>(messages_history, generation_metadata, current_post_draft)"]:::state_io
       --> graph_state
 
     %% --- Human Feedback Handling ---
     STATE_WRITE_GEN_RESULTS --> CAPTURE_APPROVAL
 
-    CAPTURE_APPROVAL -- "approval_status, feedback_text" 
-      --> STATE_WRITE_FEEDBACK["Write Feedback<br/>(current_feedback_text)"]:::state_io 
+    CAPTURE_APPROVAL -- "approval_status, feedback_text"
+      --> STATE_WRITE_FEEDBACK["Write Feedback<br/>(current_feedback_text)"]:::state_io
       --> graph_state
-    CAPTURE_APPROVAL -- "approval_status" 
+    CAPTURE_APPROVAL -- "approval_status"
       --> ROUTE_ON_APPROVAL["Route on Approval<br/>(RouterNode)"]:::decision
 
     %% --- Feedback & Revision Loop ---
     subgraph "Feedback & Revision Loop (Max ${max_iterations} Iterations)"
       direction TB
 
-      ROUTE_ON_APPROVAL -- "'needs_work'" 
+      ROUTE_ON_APPROVAL -- "'needs_work'"
         --> CHECK_ITERATION_LIMIT["Check Iteration Limit<br/>< ${max_iterations}<br/>(IfElseConditionNode)"]:::decision
-      graph_state -- "generation_metadata" 
-        --> STATE_READ_METADATA["Read<br/>(generation_metadata)"]:::state_io 
+      graph_state -- "generation_metadata"
+        --> STATE_READ_METADATA["Read<br/>(generation_metadata)"]:::state_io
         --> CHECK_ITERATION_LIMIT
 
-      CHECK_ITERATION_LIMIT -- "branch, tag_results, condition_result" 
+      CHECK_ITERATION_LIMIT -- "branch, tag_results, condition_result"
         --> ROUTE_ON_LIMIT_CHECK["Route on Limit Check<br/>(RouterNode)"]:::decision
 
-      ROUTE_ON_LIMIT_CHECK -- "'true_branch' (Continue Loop)" 
+      ROUTE_ON_LIMIT_CHECK -- "'true_branch' (Continue Loop)"
         --> INTERPRET_FEEDBACK["Interpret Feedback (Structured)<br/>(LLMNode - ${feedback_analysis_model})"]:::processing
-      graph_state -- "feedback_messages_history" 
-        --> STATE_READ_MSG_HIST_2["Read<br/>(feedback_messages_history)"]:::state_io 
+      graph_state -- "feedback_messages_history"
+        --> STATE_READ_MSG_HIST_2["Read<br/>(feedback_messages_history)"]:::state_io
         --> INTERPRET_FEEDBACK
-      graph_state -- "current_feedback_text" 
-        --> STATE_READ_FEEDBACK_TEXT["Read<br/>(current_feedback_text)"]:::state_io 
+      graph_state -- "current_feedback_text"
+        --> STATE_READ_FEEDBACK_TEXT["Read<br/>(current_feedback_text)"]:::state_io
         --> INTERPRET_FEEDBACK
 
-      INTERPRET_FEEDBACK -- "structured_output (rewrite_interpretation)" 
+      INTERPRET_FEEDBACK -- "structured_output (rewrite_interpretation)"
         --> CONSTRUCT_REWRITE_PROMPT["Construct Rewrite Prompt<br/>(PromptConstructorNode)"]:::processing
-      INTERPRET_FEEDBACK -- "current_messages" 
-        --> STATE_WRITE_INTERPRET_MSG["Write Feedback Analysis Msgs<br/>(feedback_messages_history)"]:::state_io 
+      INTERPRET_FEEDBACK -- "current_messages"
+        --> STATE_WRITE_INTERPRET_MSG["Write Feedback Analysis Msgs<br/>(feedback_messages_history)"]:::state_io
         --> graph_state
 
       CONSTRUCT_REWRITE_PROMPT -- "rewrite_prompt" --> GENERATE_CONTENT
     end
 
     %% --- Finalization Path ---
-    ROUTE_ON_APPROVAL -- "'approved'" 
+    ROUTE_ON_APPROVAL -- "'approved'"
       --> FINALIZE_POST["Store Final Post<br/>(StoreCustomerDataNode - Versioned 'finalized_v1')"]:::storage
     ROUTE_ON_LIMIT_CHECK -- "'false_branch' (Limit Reached)" --> FINALIZE_POST
 
-    graph_state -- "current_post_draft" 
-      --> STATE_READ_FINAL_DRAFT["Read<br/>(current_post_draft)"]:::state_io 
+    graph_state -- "current_post_draft"
+      --> STATE_READ_FINAL_DRAFT["Read<br/>(current_post_draft)"]:::state_io
       --> FINALIZE_POST
-    graph_state -- "post_draft_name" 
-      --> STATE_READ_DRAFT_NAME_2["Read<br/>(post_draft_name)"]:::state_io 
+    graph_state -- "post_draft_name"
+      --> STATE_READ_DRAFT_NAME_2["Read<br/>(post_draft_name)"]:::state_io
       --> FINALIZE_POST
 
     %% --- Output ---
-    FINALIZE_POST -- "paths_processed" 
+    FINALIZE_POST -- "paths_processed"
       --> OUTPUT_FINAL_PATHS(["Workflow Output<br/>(final_post_paths)"]):::output
-    graph_state -- "current_post_draft" 
-      --> STATE_READ_FINAL_CONTENT["Read<br/>(current_post_draft)"]:::state_io 
+    graph_state -- "current_post_draft"
+      --> STATE_READ_FINAL_CONTENT["Read<br/>(final_post_content)"]:::state_io
       --> OUTPUT_FINAL_CONTENT(["Workflow Output<br/>(final_post_content)"]):::output
 
     %% --- Central State Representation ---
-	  subgraph "Central Graph State" as graph_state
-	    direction LR
-	    style graph_state fill:#e3f2fd,stroke:#1e88e5;
-	
-	    STATE_KEYS[" "]:::state_key
-	    style STATE_KEYS fill:none,stroke:none;
-	
-	    subgraph "State Keys Managed"
-	      direction TB
-	      S_DRAFT_NAME["post_draft_name"]:::state_key
-	      S_BRIEF["initial_content_brief"]:::state_key
-	      S_USER_DNA["user_dna_doc"]:::state_key
-	      S_MESSAGES["messages_history"]:::state_key
-	      S_FEEDBACK_MESSAGES["feedback_messages_history"]:::state_key
-	      S_METADATA["generation_metadata<br/>(incl. iter_count)"]:::state_key
-	      S_DRAFT_CONTENT["current_post_draft"]:::state_key
-	      S_FEEDBACK_TEXT["current_feedback_text"]:::state_key
-	    end
-	  end
+    subgraph "Central Graph State" as graph_state
+      direction LR
+      style graph_state fill:#e3f2fd,stroke:#1e88e5;
+
+      STATE_KEYS[" "]:::state_key
+      style STATE_KEYS fill:none,stroke:none;
+
+      subgraph "State Keys Managed"
+        direction TB
+        S_DRAFT_NAME["post_draft_name"]:::state_key
+        S_BRIEF["initial_content_brief"]:::state_key
+        S_USERNAME["linkedin_username"]:::state_key # New State Key
+        S_USER_DNA["user_dna_doc"]:::state_key
+        S_SCRAPED["scraped_linkedin_profile_results"]:::state_key # New State Key
+        S_MESSAGES["messages_history"]:::state_key
+        S_FEEDBACK_MESSAGES["feedback_messages_history"]:::state_key
+        S_METADATA["generation_metadata<br/>(incl. iter_count)"]:::state_key
+        S_DRAFT_CONTENT["current_post_draft"]:::state_key
+        S_FEEDBACK_TEXT["current_feedback_text"]:::state_key
+      end
+    end
 
   end
 
@@ -222,18 +241,17 @@ flowchart TD
   classDef output     fill:#D1C4E9,stroke:#512DA8,stroke-width:2px,color:#311B92;
   classDef state_io   fill:#f0f4c3,stroke:#afb42b,stroke-width:1px,color:#5d620a,stroke-dasharray:3 3;
   classDef state_key  fill:#fff,stroke:#fff,color:#555;
+  classDef scraping   fill:#fcf8e3,stroke:#8a6d3b,stroke-width:2px,color:#8a6d3b; # New Style
 
 
 ```
 
 ## 4. Detailed `GraphSchema` Plan (Nodes & Edges)
 
-This section outlines the nodes and edges for the core workflow based on the revised plan. Placeholders are marked with `${...}`.
+This section outlines the nodes and edges for the core workflow based on the revised plan, including the scraping node. Placeholders are marked with `${...}`.
 
 ```json
-// Paste the JSON schema from _test_content_workflow.py here
-// It should be the same as the previous version you provided.
-// Make sure placeholders like ${user_dna_namespace}, ${generation_model_name}, etc. are used.
+// Updated JSON schema copied from services/workflow_service/registry/workflows/post_creation_workflow.py
 {
   "nodes": {
     "input_node": {
@@ -251,8 +269,37 @@ This section outlines the nodes and edges for the core workflow based on the rev
             "type": "str",
             "required": true,
             "description": "Content brief for the post being generated."
+          },
+          "linkedin_username": {
+            "type": "str",
+            "required": true,
+            "description": "LinkedIn username for profile scraping."
           }
         }
+      }
+    },
+    "scrape_linkedin_profile": {
+      "node_id": "scrape_linkedin_profile",
+      "node_name": "linkedin_scraping",
+      "node_config": {
+        "test_mode": false,
+        "jobs": [
+          {
+            "output_field_name": "scraped_profile",
+            "job_type": {
+              "static_value": "profile_info"
+            },
+            "type": {
+              "static_value": "person"
+            },
+            "username": {
+              "input_field_path": "linkedin_username"
+            },
+            "profile_info": {
+              "static_value": "yes"
+            }
+          }
+        ]
       }
     },
     "load_user_dna": {
@@ -282,18 +329,21 @@ This section outlines the nodes and edges for the core workflow based on the rev
     "construct_initial_prompt": {
       "node_id": "construct_initial_prompt",
       "node_name": "prompt_constructor",
+      "enable_node_fan_in": true,
       "node_config": {
         "prompt_templates": {
           "initial_generation_prompt": {
             "id": "initial_generation_prompt",
-            "template": "Create a LinkedIn post based on the following:\nBrief: {brief}\nUser Style: {user_style}\n\n",
+            "template": "Create a LinkedIn post based on the following:\nBrief: {brief}\nUser Style: {user_style}\nUser LinkedIn Profile Info (Use this to personalize the post): {linkedin_profile}\n\n",
             "variables": {
               "brief": null,
-              "user_style": "default"
+              "user_style": "default",
+              "linkedin_profile": null
             },
             "construct_options": {
               "user_style": "user_dna_doc.style_preference",
-              "brief": "initial_content_brief"
+              "brief": "initial_content_brief",
+              "linkedin_profile": "scraped_profile_data.scraped_profile"
             }
           },
           "system_prompt": {
@@ -555,6 +605,11 @@ This section outlines the nodes and edges for the core workflow based on the rev
           "src_field": "initial_content_brief",
           "dst_field": "initial_content_brief",
           "description": "Store the initial brief globally."
+        },
+        {
+          "src_field": "linkedin_username",
+          "dst_field": "linkedin_username",
+          "description": "Pass the LinkedIn username for scraping."
         }
       ]
     },
@@ -593,6 +648,39 @@ This section outlines the nodes and edges for the core workflow based on the rev
           "src_field": "initial_content_brief",
           "dst_field": "initial_content_brief",
           "description": "Pass the initial brief for the prompt."
+        }
+      ]
+    },
+    {
+      "src_node_id": "input_node",
+      "dst_node_id": "scrape_linkedin_profile",
+      "mappings": [
+        {
+          "src_field": "linkedin_username",
+          "dst_field": "linkedin_username",
+          "description": "Pass the LinkedIn username for scraping."
+        }
+      ]
+    },
+    {
+      "src_node_id": "scrape_linkedin_profile",
+      "dst_node_id": "$graph_state",
+      "mappings": [
+        {
+          "src_field": "scraping_results",
+          "dst_field": "scraped_linkedin_profile_results",
+          "description": "Store the fetched LinkedIn profile data globally."
+        }
+      ]
+    },
+    {
+      "src_node_id": "scrape_linkedin_profile",
+      "dst_node_id": "construct_initial_prompt",
+      "mappings": [
+        {
+          "src_field": "scraping_results",
+          "dst_field": "scraped_profile_data",
+          "description": "Pass scraped profile data for prompt construction."
         }
       ]
     },
@@ -849,7 +937,7 @@ This section outlines the nodes and edges for the core workflow based on the rev
 **Configuration Placeholders (Set externally or via environment):**
 
 *   `${user_dna_namespace}`: Namespace for loading user DNA (e.g., `"user_profiles"`).
-*   `${user_dna_docname}`: Document name for user DNA (e.g., `"user_dna_doc"` or potentially dynamic like `"user_dna_${user_id}"`).
+*   `${user_dna_docname}`: Document name for user DNA (e.g., `"user_dna_doc"`).
 *   `${draft_storage_namespace}`: Namespace for storing drafts and final posts (e.g., `"post_content"`).
 *   `${llm_provider}`: The AI provider (e.g., `"openai"`, `"google_genai"`).
 *   `${generation_model_name}`: Model for post generation/rewrite (e.g., `"gpt-4-turbo"`). Must support structured output.
@@ -857,48 +945,72 @@ This section outlines the nodes and edges for the core workflow based on the rev
 *   `${temperature}`: LLM temperature setting (e.g., `0.5`).
 *   `${max_tokens}`: LLM max token setting (e.g., `1000`).
 *   `${max_iterations}`: Maximum feedback loops allowed (e.g., `3`).
+*   **LinkedIn Scraping Node Configuration:** API keys, rate limits, `test_mode` flag, etc., specific to the `linkedin_scraping` node implementation.
 
 **Workflow Inputs (Defined by `input_node` schema):**
 
 *   `post_draft_name`: (string) Base name for the document when saving drafts/final post (e.g., `"my_awesome_post_idea"`). Used by `store_draft` and `finalize_post`.
 *   `initial_content_brief`: (string) The user's initial request or topic.
+*   `linkedin_username`: (string) The LinkedIn username used by the `scrape_linkedin_profile` node.
 
 **Human Inputs (via `capture_approval` HITLNode):**
 
 *   `approval_status`: (enum: `"approved"`, `"needs_work"`) User's decision.
 *   `feedback_text`: (string, optional) User's textual feedback if `needs_work`.
 
-**Implicit Inputs (from `$graph_state`):**
+**Implicit Inputs (from Nodes or `$graph_state`):**
 
+*   `scraped_profile_data`: Output from `scrape_linkedin_profile` containing scraped data, passed to `construct_initial_prompt`.
 *   `messages_history`: List of messages for LLM context (`generate_content`).
 *   `feedback_messages_history`: List of messages for feedback analysis LLM context (`interpret_feedback`).
 *   `current_feedback_text`: User's feedback text (`interpret_feedback`).
 *   `generation_metadata`: Contains `iteration_count` for loop control (`check_iteration_limit`).
 *   `current_post_draft`: The latest generated post content (`finalize_post`, `output_node`).
 *   `user_dna_doc`: Loaded user preferences (`construct_initial_prompt`).
+*   `scraped_linkedin_profile_results`: The full results from the scraping node, stored globally in `$graph_state`.
 
 **Required Pre-computation / Configuration:**
 
 *   **User DNA Document:** The document specified by `${user_dna_namespace}`/`${user_dna_docname}` must exist and contain the expected structure (e.g., `{"style_preference": "professional"}`).
-*   **Prompt Templates:** The `template` strings within `construct_initial_prompt` and `construct_rewrite_prompt` need careful crafting.
+*   **LinkedIn Scraping Setup:** The `linkedin_scraping` node must be configured with necessary credentials and handle potential API errors or rate limits.
+*   **Prompt Templates:** The `template` strings within `construct_initial_prompt` and `construct_rewrite_prompt` need careful crafting, especially incorporating the new `linkedin_profile` variable.
 *   **Schema Consistency:** The `output_schema` defined in `generate_content` and `interpret_feedback` must be valid and align with the instructions in the corresponding prompts.
-*   **(Optional) State Reducers:** While not explicitly included in the final JSON, defining `state_reducers` in the graph's metadata (as shown commented out previously) is **highly recommended** for production to explicitly control how state keys like `messages_history` (append), `generation_metadata` (replace), etc., are updated, especially given potential complexities with parallel branches writing to state.
+*   **(Optional) State Reducers:** While not explicitly included in the final JSON, defining `state_reducers` in the graph's 
+metadata (as shown commented out previously) is **highly recommended** for production to explicitly control how state keys 
+like `messages_history` (append), `generation_metadata` (replace), etc., are updated, especially given potential complexities 
+with parallel branches writing to state.
 
 ## 6. Caveats & Watchouts
 
+*   **LinkedIn Scraping Node:**
+    *   **Reliability & Availability:** Depends on the external scraping service/API. Subject to downtime, changes in LinkedIn's structure, or API limits/costs.
+    *   **Data Quality:** Scraped data might be incomplete, outdated, or inconsistent. The prompt needs to handle potentially missing or messy data gracefully.
+    *   **Rate Limits/Cost:** Scraping APIs often have usage limits and costs. Implementations should handle rate-limiting errors and monitor costs.
+    *   **Privacy & Terms of Service:** Ensure compliance with LinkedIn's Terms of Service and relevant data privacy regulations (like GDPR, CCPA) regarding the use of scraped profile data. Avoid storing sensitive personal data unnecessarily.
+    *   **Error Handling:** Implement robust error handling for scraping failures (e.g., profile not found, API errors). Decide how the workflow should proceed if scraping fails (e.g., skip personalization, use defaults, halt workflow).
 *   **Structured Output Reliability:** LLMs (`generate_content`, `interpret_feedback`) must consistently produce valid JSON matching the defined schemas. Robust prompt engineering instructing JSON format is crucial. Consider adding explicit JSON validation steps after LLM nodes.
 *   **State Management:**
-    *   The workflow relies heavily on `$graph_state`. Ensure all necessary data is correctly written and read via edge mappings. Debugging state can be challenging.
-    *   **Distinct Message Histories:** Note the use of *two* potential message history keys (`messages_history` for generation, `feedback_messages_history` for interpretation). Ensure edges correctly map the appropriate history to each LLM node. Using separate keys avoids polluting the generation context with the interpretation LLM's internal reasoning if desired. Alternatively, a single history could be used if managed carefully (e.g., using distinct roles).
+    *   The workflow relies heavily on `$graph_state`. Ensure all necessary data (including scraped profile data) is correctly written and read via edge mappings. Debugging state can be challenging.
+    *   **Distinct Message Histories:** Note the use of *two* potential message history keys (`messages_history` for 
+    generation, `feedback_messages_history` for interpretation). Ensure edges correctly map the appropriate history to each 
+    LLM node. Using separate keys avoids polluting the generation context with the interpretation LLM's internal reasoning if 
+    desired. Alternatively, a single history could be used if managed carefully (e.g., using distinct roles).
     *   **Reducer Importance:** Explicitly define `state_reducers` (see Section 5) to prevent unexpected state merging behavior.
 *   **Parallel Execution:** The `store_draft` and `capture_approval` nodes run in parallel after `generate_content`.
-    *   Ensure the storage operation (`store_draft`) is robust and handles potential initialization conflicts if the workflow restarts unexpectedly. The `initialize` operation helps here.
-    *   The graph engine manages the parallel execution; ensure subsequent nodes correctly depend on the necessary outputs (e.g., `route_on_approval` depends on `capture_approval`).
-*   **Iteration Count Tracking:** Relies on the `generate_content` LLM node populating `metadata.iteration_count` correctly, storing it in `$graph_state.generation_metadata`, and `check_iteration_limit` accessing it via the specified field path (`generation_metadata.iteration_count`). Verify this path matches the actual LLM node output structure.
-*   **Prompt Engineering:** Critical for instructing LLMs on generation, structured output adherence, and feedback interpretation. `PromptConstructorNode` relies on correct variable sourcing via `construct_options` and edge mappings.
-*   **Context in Rewrites:** The `construct_rewrite_prompt` relies on the `generate_content` LLM having access to the *previous* conversation turns (including the original post and user style) via the `messages_history` provided from `$graph_state`. Ensure this history is correctly maintained and passed.
-*   **Error Handling:** Implement robust error handling for LLM failures, schema validation errors, state access issues, and HITL timeouts/errors.
-*   **Cost/Latency:** Multiple LLM calls increase cost and latency. Use appropriate models (e.g., potentially faster/cheaper `feedback_analysis_model`).
-*   **Versioning:** `StoreCustomerDataNode` uses versioning (`draft_v1`, `finalized_v1`). Understand how this interacts with the `initialize` and `upsert_versioned` operations. Ensure the `post_draft_name` provides a stable base document name.
+    *   Ensure the storage operation (`store_draft`) is robust and handles potential initialization conflicts if the workflow 
+    restarts unexpectedly. The `initialize` operation helps here.
+    *   The graph engine manages the parallel execution; ensure subsequent nodes correctly depend on the necessary outputs (e.
+    g., `route_on_approval` depends on `capture_approval`).
+*   **Iteration Count Tracking:** Relies on the `generate_content` LLM node populating `metadata.iteration_count` correctly, 
+storing it in `$graph_state.generation_metadata`, and `check_iteration_limit` accessing it via the specified field path 
+(`generation_metadata.iteration_count`). Verify this path matches the actual LLM node output structure.
+*   **Prompt Engineering:** Critical for instructing LLMs on generation, structured output adherence, feedback interpretation, **and now, effectively using the scraped profile data for personalization without hallucinating or misrepresenting information.**  `PromptConstructorNode` relies on correct variable sourcing via `construct_options` and edge mappings.
+*   **Context in Rewrites:** The `construct_rewrite_prompt` relies on the `generate_content` LLM having access to the 
+*previous* conversation turns (including the original post and user style) via the `messages_history` provided from 
+`$graph_state`. Ensure this history is correctly maintained and passed.
+*   **Error Handling:** Implement robust error handling for LLM failures, schema validation errors, state access issues, HITL timeouts/errors, **and scraping failures.**
+*   **Cost/Latency:** Multiple LLM calls and scraping API calls increase cost and latency. Use appropriate models (e.g., potentially faster/cheaper `feedback_analysis_model`) and be frugal with scraping jobs and credit consumption by using optional scraping batch sizes.
+*   **Versioning:** `StoreCustomerDataNode` uses versioning (`draft_v1`, `finalized_v1`). Understand how this interacts with 
+the `initialize` and `upsert_versioned` operations. Ensure the `post_draft_name` provides a stable base document name
 
-This revised plan provides a more detailed and robust structure, leveraging specific node features and explicit state management via edges. Careful implementation of prompts, state handling, and error checking remains crucial.
+This revised plan incorporates the LinkedIn scraping step, providing a more detailed structure for building a personalized post creation workflow. Careful implementation of scraping, prompts, state handling, and error checking is essential.
