@@ -14,23 +14,15 @@ from pydantic import TypeAdapter
 
 from scraper_service.client.utils.url_helper import extract_urn_from_url, encode_urn
 from scraper_service.settings import rapid_api_settings
-from scraper_service.client.schemas.activity_schema import GetProfileCommentResponse
-from scraper_service.client.schemas.profile_schema import (
+from scraper_service.client.schemas import (
     ProfileResponse,
     ProfileRequest,
     CompanyRequest,
-    CompanyResponse
-)
-from scraper_service.client.schemas.posts_schema import (
-    
-    ProfilePostCommentsRequest
-)
+    CompanyData,
+    GetProfileCommentResponse,
 
-from scraper_service.client.schemas.activity_schema import (
-    GetProfileCommentResponse
+ 
 )
-
-
 from pydantic import BaseModel
 
 
@@ -39,8 +31,6 @@ logger = get_logger(__name__)
 
 # Generic type for Pydantic models
 T = TypeVar('T', bound=BaseModel)
-
-
 
  #This module covers the core api client for the rapid api
  #First api is for validating the api key , basically to check if the api key is valid or not
@@ -75,7 +65,7 @@ class RapidAPIClient(Generic[T]):
         # Verify API key is set
         if not self.api_key:
             logger.warning("RapidAPI key is not set. API requests will fail.")
-
+    
     def _get_url(self, endpoint: str) -> str:
         return f"https://{self.base_url}{endpoint}"
     
@@ -173,7 +163,7 @@ class RapidAPIClient(Generic[T]):
             logger.error(f"Unexpected error in make_get_request for {url}: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}
 
-    async def make_get_request_with_delay(self, endpoint: str, delay_seconds: int = None) -> Union[T, Dict[str, Any]]:
+    async def make_get_request_with_delay(self, endpoint: str, response_model: Type[T] = None, delay_seconds: int = None) -> Union[T, Dict[str, Any]]:
         """
         Make a GET request to the API with rate limiting delay.
         
@@ -233,51 +223,58 @@ class RapidAPIClient(Generic[T]):
             logger.error(f"Unexpected error in make_post_request for {url}: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}
     
-    async def get_profile_data(self, request: Dict[str, Any]) -> ProfileResponse:
+    async def get_profile_data(self, request: ProfileRequest) -> ProfileResponse:
         """
         Get LinkedIn profile data.
         
         Args:
-            request (Dict[str, Any]): Request object containing the LinkedIn username.
+            request (ProfileRequest): Request object containing the LinkedIn username.
             
         Returns:
             ProfileResponse: Profile data response object.
             
         Example:
-            >>> request = ProfileRequest(username="john-doe") # TODO: FIXME: this is not correct!
+            >>> request = ProfileRequest(username="john-doe")
             >>> profile = await client.get_profile_data(request)
             >>> print(profile.firstName, profile.lastName)
         """
-       
-        endpoint = f"{rapid_api_settings.RAPID_API_ENDPOINTS['profile']}"
-        params = {"username": request['username']}
-        response = await self.make_get_request(endpoint, params=params)
-        if "data" in response:
-            response = response["data"]
-        # NOTE: this will propagate errors too in errors keys!
-        return ProfileResponse.model_construct(**response)
+        endpoint = f"{rapid_api_settings.ENDPOINTS['profile']}?username={request.username}"
+        return await self.make_get_request(endpoint, ProfileResponse)
+
+    async def get_profile_post_comments(self, request: ProfileRequest) -> List[GetProfileCommentResponse]:
+        """
+        Fetch LinkedIn profile comments for a user.
+
+        Args:
+            request (ProfileRequest): Request with LinkedIn username
+
+        Returns:
+            List[GetProfileCommentResponse]: List of parsed comment models
+        """
+        endpoint = f"{rapid_api_settings.ENDPOINTS['profile_comments_made']}?username={request.username}"
+        raw_response = await self.make_get_request(endpoint, GetProfileCommentResponse)
+
+        # Ensure response is list
+        if not isinstance(raw_response, list):
+            raise ValueError(f"Expected list from API, got: {type(raw_response)} - {raw_response}")
+
+        return TypeAdapter(List[GetProfileCommentResponse]).validate_python(raw_response)
     
-    
-    async def get_company_data(self, request: Dict[str, Any]) -> CompanyResponse:
+    async def get_company_data(self, request: CompanyRequest) -> CompanyData:
         """
         Get LinkedIn company data.
         
         Args:
-            request (Dict[str, Any]): Request object containing the LinkedIn company username.
+            request (CompanyRequest): Request object containing the LinkedIn company username.
             
         Returns:
             CompanyResponse: Company data response object.
             
         Example:
-            >>> request = CompanyRequest(username="microsoft") # TODO: FIXME: this is not correct!
+            >>> request = CompanyRequest(username="microsoft")
             >>> company = await client.get_company_data(request)
             >>> print(company.data.name, company.data.followerCount)
         """
-        endpoint = f"{rapid_api_settings.RAPID_API_ENDPOINTS['company_details']}"
-        params = {"username": request['username']}
-        response_data = await self.make_get_request(endpoint, params=params)
-        if "data" in response_data:
-            response_data = response_data["data"]
+        endpoint = f"{rapid_api_settings.ENDPOINTS['company_details']}?username={request.username}"
+        return await self.make_get_request(endpoint, CompanyData)
 
-        # NOTE: this will propagate errors too in errors keys!
-        return CompanyResponse.model_construct(**response_data)

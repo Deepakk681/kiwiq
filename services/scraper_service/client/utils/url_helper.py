@@ -9,7 +9,9 @@ import re
 from typing import Optional, Dict, Any
 from urllib.parse import quote, urlparse, parse_qs
 
-def extract_urn_from_url(url: str) -> Optional[str]:
+
+
+async def extract_urn_from_url(url: str) -> Optional[str]:
     """
     Extract the URN from a LinkedIn URL.
     
@@ -19,6 +21,17 @@ def extract_urn_from_url(url: str) -> Optional[str]:
     Returns:
         Optional[str]: Extracted URN or None if not found
     """
+    
+    activity_url_pattern = r"ugcPost-(\d+)-"
+    activity_match = re.search(activity_url_pattern, url)
+    if activity_match:
+        return activity_match.group(1)
+    
+    activity_pattern = r"activity-(\d+)-"
+    activity_match = re.search(activity_pattern, url)
+    if activity_match:
+        return activity_match.group(1)
+    
     # Pattern for post URNs
     
     # You can convert SHARE URL to POST URN and POST URN based URL in following format: https://www.linkedin.com/feed/update/urn:li:activity:7320277918322946057/
@@ -109,6 +122,8 @@ def extract_post_id_from_url(url: str) -> Optional[str]:
         
     Returns:
         Optional[str]: Extracted post ID or None if not found
+    
+    TODO: FIXME: the first pattern is probably incorrect for share URLs!
     """
     # Pattern for post URLs with activity IDs
     post_pattern = r"linkedin\.com/posts/[^/]+/[^/]+-(\d+)"
