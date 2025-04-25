@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt # For encoding/decoding tokens (requires python-jose)
 from datetime import datetime, timedelta
 
+from pydantic import ValidationError as PydanticValidationError
+
 # --- Core Dependencies ---
 from db.session import get_async_session, get_async_db_dependency
 from global_utils import datetime_now_utc
@@ -673,6 +675,7 @@ async def validate_graph(
             node_version = node_config.node_version or "latest"
             
             # Get node template with config schema
+            node = None
             try:
                 node = db_registry.get_node(node_name=node_name, version=None if node_version == "latest" else node_version)
                 node_version = node.node_version
@@ -699,13 +702,18 @@ async def validate_graph(
             # Validate the node's configuration against its schema
             try:
                 jsonschema.validate(instance=node_config.node_config, schema=config_schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
-                workflow_logger.info(f"Node {node_id} ({node_name}) configuration validated successfully")
+                workflow_logger.info(f"Node {node_id} ({node_name}) JSON SCHEMA configuration validated successfully")
+                node.config_schema_cls.model_validate(node_config.node_config)
             except ValidationError as e:
                 node_configs_valid = False
                 error_path = "/".join(str(part) for part in e.path)
                 error_msg = f"{error_path}: {e.message}" if error_path else e.message
                 all_errors[node_id].append(error_msg)
                 workflow_logger.warning(f"Node {node_id} ({node_name}) config validation failed: {error_msg}")
+            except PydanticValidationError as e:
+                node_configs_valid = False
+                all_errors[node_id].append(e.errors())
+                workflow_logger.error(f"Error validating node {node_id} ({node_name}): \n{str(e)}", exc_info=True)
             except Exception as e:
                 node_configs_valid = False
                 all_errors[node_id].append(f"Error validating node: {str(e)}")
