@@ -66,7 +66,7 @@ notification_router.include_router(websocket_router, tags=["WebSocket Stream & N
 
 # -- Node Templates --
 @template_router.get(
-    "/nodes/",
+    "/nodes",
     response_model=List[schemas.NodeTemplateRead],
     summary="List Node Templates",
     # dependencies=[Depends(wf_deps.RequireTemplateRead)] # Requires TEMPLATE_READ on active org
@@ -165,7 +165,7 @@ async def get_node_template(
 
 # -- Prompt Templates --
 @template_router.post(
-    "/prompts/",
+    "/prompts",
     response_model=schemas.PromptTemplateRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create Prompt Template",
@@ -203,7 +203,7 @@ async def create_prompt_template(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the prompt template")
 
 @template_router.get(
-    "/prompts/",
+    "/prompts",
     response_model=List[schemas.PromptTemplateRead],
     summary="List Prompt Templates. System templates are accessible to all users and can configure if requested or not. Pagination applies separately to org and system templates.",
     dependencies=[Depends(wf_deps.RequireTemplateReadActiveOrg)] # Requires TEMPLATE_READ on active org
@@ -356,7 +356,7 @@ async def delete_prompt_template(
 
 # -- Schema Templates (Mirrors Prompt Templates) --
 @template_router.post(
-    "/schemas/",
+    "/schemas",
     response_model=schemas.SchemaTemplateRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create Schema Template",
@@ -392,7 +392,7 @@ async def create_schema_template(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the schema template")
 
 @template_router.get(
-    "/schemas/",
+    "/schemas",
     response_model=List[schemas.SchemaTemplateRead],
     summary="List Schema Templates",
     # dependencies=[Depends(wf_deps.RequireTemplateReadActiveOrg)]
@@ -615,7 +615,7 @@ async def search_schema_templates(
 # === Workflow Endpoints ===
 
 @workflow_router.post(
-    "/validate/",
+    "/validate",
     response_model=schemas.WorkflowGraphValidationResult,
     summary="Validate a workflow graph configuration for structural integrity and node configuration validity",
 )
@@ -706,7 +706,7 @@ async def validate_graph(
                 node.config_schema_cls.model_validate(node_config.node_config)
             except ValidationError as e:
                 node_configs_valid = False
-                error_path = "/".join(str(part) for part in e.path)
+                error_path = "".join(str(part) for part in e.path)
                 error_msg = f"{error_path}: {e.message}" if error_path else e.message
                 all_errors[node_id].append(error_msg)
                 workflow_logger.warning(f"Node {node_id} ({node_name}) config validation failed: {error_msg}")
@@ -737,7 +737,7 @@ async def validate_graph(
     )
 
 @workflow_router.post(
-    "/",
+    "",
     response_model=schemas.WorkflowRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create Workflow. active_org_id is optional for superuser to create workflows without org context (potentially for testing purposes or global workflows which can be used across all orgs).",
@@ -774,7 +774,7 @@ async def create_workflow(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while creating the workflow")
 
 @workflow_router.get(
-    "/",
+    "",
     response_model=List[schemas.WorkflowRead],
     summary="List Workflows for the active org. Superusers can list workflows for any org by providing the `owner_org_id` query parameter or using the active org context from header (the former overrides the latter).",
     # dependencies=[Depends(wf_deps.RequireWorkflowRead)] # Requires workflow:read on active org
@@ -999,7 +999,7 @@ async def delete_workflow(
 # === Workflow Run Endpoints ===
 
 @run_router.post(
-    "/",
+    "",
     response_model=schemas.WorkflowRunRead,
     status_code=status.HTTP_202_ACCEPTED, # Indicate async processing started
     summary="Submit Workflow Run. If resuming after HITL, provide the `run_id` of the run to resume and the `inputs` to resume with. If not resuming, provide `workflow_id` to run an existing saved workflow or `graph_schema` to define and run an ad-hoc workflow.",
@@ -1043,7 +1043,7 @@ async def submit_workflow_run(
 
 
 @run_router.get(
-    "/",
+    "",
     response_model=List[schemas.WorkflowRunRead],
     summary="List Workflow Runs",
     # dependencies=[Depends(wf_deps.RequireRunReadActiveOrg)] # Check read perm on active org
@@ -1242,7 +1242,7 @@ async def get_run_stream(
 # === User Notification Endpoints ===
 
 @notification_router.get(
-    "/",
+    "",
     response_model=List[schemas.UserNotificationRead],
     summary="List User Notifications"
     # Permissions: Requires authenticated user. Active org context is used implicitly.
@@ -1369,7 +1369,7 @@ async def get_unread_notification_count(
 # === HITL Job Endpoints ===
 
 @hitl_router.get(
-    "/",
+    "",
     response_model=List[schemas.HITLJobRead],
     summary="List HITL Jobs"
     # Permissions: Requires authenticated user. Service layer filters based on access rules.
