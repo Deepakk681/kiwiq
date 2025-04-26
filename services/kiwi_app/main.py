@@ -97,10 +97,7 @@ app = FastAPI(
     )
 
 origins = [
-    "https://localhost:3000",  # Your frontend URL
-    "https://127.0.0.1:3000",  # Alternative localhost
     "http://localhost:3000",  # Your frontend URL
-    "http://127.0.0.1:3000",  # Alternative localhost
     "https://beta.kiwiq.ai",
 ]
 
