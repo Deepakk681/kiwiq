@@ -67,41 +67,41 @@ ROLES_URL = f"{API_BASE_URL}/auth/roles"
 # Templates
 # --- API Endpoint URLs ---
 # Construct absolute URLs using the base URL from config
-NODE_TEMPLATES_URL = f"{API_BASE_URL}/templates/nodes/"
-NODE_TEMPLATE_DETAIL_URL = lambda template_id: f"{NODE_TEMPLATES_URL}{template_id}"
+NODE_TEMPLATES_URL = f"{API_BASE_URL}/templates/nodes"
+NODE_TEMPLATE_DETAIL_URL = lambda template_id: f"{NODE_TEMPLATES_URL}/{template_id}"
 
-PROMPT_TEMPLATES_URL = f"{API_BASE_URL}/templates/prompts/"
-PROMPT_TEMPLATE_DETAIL_URL = lambda template_id: f"{PROMPT_TEMPLATES_URL}{template_id}"
-PROMPT_TEMPLATES_SEARCH_URL = f"{PROMPT_TEMPLATES_URL}search"
+PROMPT_TEMPLATES_URL = f"{API_BASE_URL}/templates/prompts"
+PROMPT_TEMPLATE_DETAIL_URL = lambda template_id: f"{PROMPT_TEMPLATES_URL}/{template_id}"
+PROMPT_TEMPLATES_SEARCH_URL = f"{PROMPT_TEMPLATES_URL}/search"
 
-SCHEMA_TEMPLATES_URL = f"{API_BASE_URL}/templates/schemas/"
-SCHEMA_TEMPLATE_DETAIL_URL = lambda template_id: f"{SCHEMA_TEMPLATES_URL}{template_id}"
-SCHEMA_TEMPLATES_SEARCH_URL = f"{SCHEMA_TEMPLATES_URL}search"
+SCHEMA_TEMPLATES_URL = f"{API_BASE_URL}/templates/schemas"
+SCHEMA_TEMPLATE_DETAIL_URL = lambda template_id: f"{SCHEMA_TEMPLATES_URL}/{template_id}"
+SCHEMA_TEMPLATES_SEARCH_URL = f"{SCHEMA_TEMPLATES_URL}/search"
 
 
 # Workflows
-WORKFLOWS_URL = f"{API_BASE_URL}/workflows/"
-WORKFLOW_DETAIL_URL = lambda workflow_id: f"{WORKFLOWS_URL}{workflow_id}"
-VALIDATE_GRAPH_URL = f"{WORKFLOWS_URL}validate/"
+WORKFLOWS_URL = f"{API_BASE_URL}/workflows"
+WORKFLOW_DETAIL_URL = lambda workflow_id: f"{WORKFLOWS_URL}/{workflow_id}"
+VALIDATE_GRAPH_URL = f"{WORKFLOWS_URL}/validate"
 
 # Runs
-RUNS_URL = f"{API_BASE_URL}/runs/"
-RUN_DETAIL_URL = lambda run_id: f"{RUNS_URL}{run_id}"
-RUN_DETAILS_URL = lambda run_id: f"{RUNS_URL}{run_id}/details"
-RUN_STREAM_URL = lambda run_id: f"{RUNS_URL}{run_id}/stream"
+RUNS_URL = f"{API_BASE_URL}/runs"
+RUN_DETAIL_URL = lambda run_id: f"{RUNS_URL}/{run_id}"
+RUN_DETAILS_URL = lambda run_id: f"{RUNS_URL}/{run_id}/details"
+RUN_STREAM_URL = lambda run_id: f"{RUNS_URL}/{run_id}/stream"
 # RUN_CANCEL_URL = lambda run_id: f"{RUNS_URL}{run_id}/cancel" # If implemented
 
 # Notifications
-NOTIFICATIONS_URL = f"{API_BASE_URL}/notifications/"
-NOTIFICATION_READ_URL = lambda notification_id: f"{NOTIFICATIONS_URL}{notification_id}/read"
-NOTIFICATIONS_READ_ALL_URL = f"{NOTIFICATIONS_URL}read-all"
-NOTIFICATIONS_UNREAD_COUNT_URL = f"{NOTIFICATIONS_URL}unread-count"
+NOTIFICATIONS_URL = f"{API_BASE_URL}/notifications"
+NOTIFICATION_READ_URL = lambda notification_id: f"{NOTIFICATIONS_URL}/{notification_id}/read"
+NOTIFICATIONS_READ_ALL_URL = f"{NOTIFICATIONS_URL}/read-all"
+NOTIFICATIONS_UNREAD_COUNT_URL = f"{NOTIFICATIONS_URL}/unread-count"
 
 # HITL
-HITL_JOBS_URL = f"{API_BASE_URL}/hitl/"
-HITL_JOB_DETAIL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}"
+HITL_JOBS_URL = f"{API_BASE_URL}/hitl"
+HITL_JOB_DETAIL_URL = lambda job_id: f"{HITL_JOBS_URL}/{job_id}"
 # HITL_JOB_RESPOND_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/respond" # Respond is handled via submitting a run with resume_run_id
-HITL_JOB_CANCEL_URL = lambda job_id: f"{HITL_JOBS_URL}{job_id}/cancel"
+HITL_JOB_CANCEL_URL = lambda job_id: f"{HITL_JOBS_URL}/{job_id}/cancel"
 
 # Customer Data
 CUSTOMER_DATA_BASE_URL = f"{API_BASE_URL}/customer-data"
