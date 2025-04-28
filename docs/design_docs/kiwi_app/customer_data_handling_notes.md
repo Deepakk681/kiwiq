@@ -1,0 +1,55 @@
+- [X]
+    - NOTES:
+        - For every organization, frontend will check if a system workflow template fork exists, if not — create one with parent set to original system workflow. This will create a copy of the workflow for the end user to overwrite their own configs and persist their configs!
+        - Also use slugs → name [version (NOTE: there’s no concept of latest version!)] to unique identify workflows, prompt templates, schemas within each org! and refer to those on frontend for fetching, etc!
+            - name, version, org ID tuple is unique!
+            - include_public_system_entities ⇒ this returns public system entities as well as org saved unique entity! Use this option to return either default object or user overwritten/saved object with user settings! disambiguate using owner ID!
+            - so while querying specific workflows/templates/prompts → you can either set is_system_entity true or false to unique fetch it for that organization!
+            - so fetching by name / version creates 2 queries → 1 on active org, another on name + version + is_system_entity + is_public combo (probably incorporate latter later!)!
+        - is_system_entity → only for our internal application!
+        - is_public → shared publically or not (if its a system entity, is_public means whether its available to public or not, they probably will still not be able to fetch it probably??)
+- [X]
+    - Data versioning and customer data!
+    - a int
+    - Parent of each version - where it branched off from
+    diff versions ->
+        - linear history based on timestamp
+        - manual tags to each version if user wants, otherwise just iterate int!
+    - organization shared folder and org level data!
+    - current active version and switch that
+    - Store schema reference with each data object or just pure dict
+    - Probably one of 2 below will suffice?
+        - **Partial updates support in user data!??**
+        - **multi step form persist data** (continue create form; delete form, get combined form etc)
+            - TODO: mongo DB crud API → execute multi step form for user! send partial updates etc to build up JSOn and then return final merged JSONl; identify / track multi step form via slugs
+    - [X]
+        - paths
+            - takes in initial list of segments and appends version & sequence No. to that list to create underlying regular mongo DB client  working with segment paths
+            - org / shared / namespace / docname
+                - Takes an optional JSON schema dict to validate the object; construct a relaxed JSON schema to validate partial object under construction
+                - org / shared / namespace / docname → store metadata; eg: **active / default version** ; max sequence ID?
+                    - JSON SCHEMA for validation; relaxed JSON schema for partial object validation (remove required nested in schema)
+                - org / shared / namespace / docname / version →
+                    - store current object ;
+                    - metadata : max sequence No., min sequence no.; last updated at??; document complete or not? (eg: document is still under constructions with partial updates or fully finished —> determines which JSON schema → with required fields or relaxed to use for validation)
+                - org / shared / namespace / docname / version / sequence No.
+                    - Store each update with auto incrementing sequence no. int; each update should also have a timestamp
+            - Similarly: org / user / namespace / docname / version / sequence no.
+            - NOTE: sequence ID is always strictly increasing with each update!
+    - [X]
+        - Diff manual/tagged versions with the new full object branch base
+            - each manually tagged version will have separate histories and can branch off (each will retain separate base object)
+            - reversible load and work with each tagger version (kind of like separate workspace!)
+            - branch off to create new tagged version anytime from any other version!
+            - tag latest somehow? based on last commit timestamp!
+            - max limit to diff versions: maybe 20?
+        - store diff as JSON patch
+        - Preview and non-reversible apply restore to a previous version in same changelist linear history
+            - Preview a restore from prior edit history → the JSON patches are applied to the base object upto the chosen historical edit point and object at that point in time is created for preview
+            - apply: change current object to constructed object from preview, and remove all edit history after the restore point (only allow linear edit history)
+        - Fixed length revision history eg: last 100 edits
+            - save moving buffer: keep upgrading base to next commit and delete previous!
+            - don;’t update commited_on timestamp!
+        - Can either be updated by JSON patch or full object (JSON diff will be computed using jsonpatch lib!)
+        - string diff
+    - Support unversioned objects too!

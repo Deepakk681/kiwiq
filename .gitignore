@@ -43,6 +43,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Local development
 *.env.local
@@ -66,3 +67,5 @@ kubeconfig
 backup/
 secrets/
 data/
+*.zip
+*.DONT_COMMIT_*
