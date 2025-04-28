@@ -103,9 +103,20 @@ You configure the `LinkedInScrapingNode` within the `node_config` field of its e
             "profile_info": { "static_value": "yes" } // Required flag alignment
             // Limits will use system defaults (e.g., 50 for post_limit if applicable)
           },
-          // --- Example 2: Dynamic Company Posts with Explicit Limits ---
+          // --- Example 2: Dynamic Company Posts with URL ---
           {
-            "output_field_name": "target_company_posts",
+            "output_field_name": "target_company_posts_via_url",
+            "job_type": { "static_value": "entity_posts" },
+            // Use URL directly - username and type will be extracted automatically
+            "url": { "input_field_path": "input.company_profile_url" }, // Get URL from input
+            "post_limit": { "input_field_path": "input.config.post_count" }, // Override default
+            "post_comments": { "static_value": "yes" },
+            "comment_limit": { "static_value": 10 }, // Override default (50)
+            "entity_posts": { "static_value": "yes" } // Required flag alignment
+          },
+          // --- Example 3: Dynamic Company Posts with Explicit Username/Type ---
+          {
+            "output_field_name": "target_company_posts_via_name",
             "job_type": { "static_value": "entity_posts" },
             "type": { "static_value": "company" },
             "username": { "input_field_path": "input.company_name" }, // Get from input
@@ -114,7 +125,7 @@ You configure the `LinkedInScrapingNode` within the `node_config` field of its e
             "comment_limit": { "static_value": 10 }, // Override default (50)
             "entity_posts": { "static_value": "yes" } // Required flag alignment
           },
-          // --- Example 3: Expand List of Keywords (Uses Default Post Limit) ---
+          // --- Example 4: Expand List of Keywords (Uses Default Post Limit) ---
           {
             "output_field_name": "keyword_search_results",
             "job_type": { "static_value": "search_post_by_keyword" },
@@ -122,7 +133,7 @@ You configure the `LinkedInScrapingNode` within the `node_config` field of its e
             // post_limit not specified, will use default (e.g., 50) per keyword
             "search_post_by_keyword": { "static_value": "yes" } // Required flag alignment
           },
-          // --- Example 4: Test Mode Validation ---
+          // --- Example 5: Test Mode Validation ---
           {
             "output_field_name": "validated_config_only", // In test_mode, this field will contain the generated config dict
             "job_type": { "static_value": "activity_reactions" },
@@ -155,21 +166,25 @@ You configure the `LinkedInScrapingNode` within the `node_config` field of its e
         *   `static_value` (Any): Fixed value (e.g., `"profile_info"`, `"yes"`).
         *   `input_field_path` (str): Dot-notation path to a field in the node's input data (e.g., `"input.user_id"`).
         *   `expand_list` (bool): Default `false`. If `true` and `input_field_path` points to a list, run one job per list item. **Warning:** Multiplies credit cost. Only one field per `JobDefinition` can use this.
+    *   **URL Input (`url`)**:
+        *   You can provide the full LinkedIn profile URL (e.g., `https://www.linkedin.com/in/username/` or `https://www.linkedin.com/company/company-name/`) using an `InputSource` for the `url` field.
+        *   If `url` is provided, the node (specifically the underlying `ScrapingRequest` validator) will attempt to parse the `username` and `type` (person/company) directly from the URL.
+        *   **Important:** If a valid `url` is provided, any values provided for `username` or `type` in the same `JobDefinition` will be ignored (and may cause a validation error if explicitly provided alongside `url`). Use either `url` OR (`username` and `type`), not both.
 
 ### Job Types and Required Inputs
 
 Choose the `job_type` that matches the task you want to perform. Certain fields are required based on the `job_type`:
 
 -   `profile_info`: Get profile details for a specific person or company.
-    -   Requires: `type` (person/company), `username`.
+    -   Requires: `url` OR (`type` (person/company) AND `username`).
 -   `entity_posts`: Get posts made by a specific person or company.
-    -   Requires: `type` (person/company), `username`.
+    -   Requires: `url` OR (`type` (person/company) AND `username`).
     -   Optional: `post_limit`, `post_comments`, `comment_limit`, `post_reactions`, `reaction_limit`.
 -   `activity_comments`: Get posts that a specific person has commented on.
-    -   Requires: `username`.
+    -   Requires: `url` (must resolve to a person profile URL) OR `username`.
     -   Optional: `post_limit` (limits *which* commented-on posts are retrieved), `post_comments` (fetch *other* comments on those posts), `comment_limit`, `post_reactions` (fetch reactions on those posts), `reaction_limit`.
 -   `activity_reactions`: Get posts that a specific person has reacted to (liked, etc.).
-    -   Requires: `username`.
+    -   Requires: `url` (must resolve to a person profile URL) OR `username`.
     -   Optional: `post_limit` (limits *which* reacted-to posts are retrieved), `post_comments` (fetch comments on those posts), `comment_limit`, `post_reactions` (fetch *other* reactions on those posts), `reaction_limit`.
 -   `search_post_by_keyword`: Search for posts containing specific keywords.
     -   Requires: `keyword`.
@@ -215,12 +230,11 @@ The node produces an output object containing results and metadata.
             "username": {"input_field_path": "user_ids", "expand_list": true},
             "profile_info": {"static_value": "yes"}
           },
-          { // Get posts for a single company
-            "output_field_name": "company_updates",
+          { // Get posts for a single company using URL
+            "output_field_name": "company_updates_url",
             "job_type": {"static_value": "entity_posts"},
-            "type": {"static_value": "company"},
-            "username": {"input_field_path": "company_target"},
-            "post_limit": {"static_value": 5}, // Explicit limit
+            "url": {"input_field_path": "company_url"}, // Input provides the URL
+            "post_limit": {"static_value": 5},
             "entity_posts": {"static_value": "yes"}
           }
         ]
@@ -234,7 +248,8 @@ The node produces an output object containing results and metadata.
       "dst_node_id": "scrape_linkedin_data",
       "mappings": [
         { "src_field": "user_ids_output", "dst_field": "user_ids" },
-        { "src_field": "company_name_output", "dst_field": "company_target" }
+        { "src_field": "company_name_output", "dst_field": "company_target" },
+        { "src_field": "company_url_output", "dst_field": "company_url" } // Added mapping for URL example
       ]
     },
     { // Map results to the next node
@@ -243,7 +258,7 @@ The node produces an output object containing results and metadata.
       "mappings": [
         // Access results via scraping_results.<output_field_name>
         { "src_field": "scraping_results.user_profiles", "dst_field": "profiles_input" },
-        { "src_field": "scraping_results.company_updates", "dst_field": "company_posts_input" },
+        { "src_field": "scraping_results.company_updates_url", "dst_field": "company_posts_input" },
         { "src_field": "execution_summary", "dst_field": "scraping_metadata" } // Optional
       ]
     }
@@ -265,6 +280,6 @@ The node produces an output object containing results and metadata.
         -   `input_field_path`: Use a value from a previous step.
         -   `expand_list: true`: **Use carefully!** Runs the task for each item in an input list, multiplying credit cost.
     -   Choose the correct `job_type`.
-    -   Provide required IDs (`username`, `keyword`, `hashtag`).
+    -   For profiles/company posts, provide either the `url` OR the `username` and `type`. For activity jobs, provide a person's `url` or `username`. For searches, provide `keyword` or `hashtag`.
 -   `test_mode: true`: Check setup without spending credits. Output shows planned jobs.
 -   Results are in `scraping_results` under the `output_field_name`. Connect this to the next node.

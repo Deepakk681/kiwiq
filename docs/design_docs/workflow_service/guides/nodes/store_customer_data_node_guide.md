@@ -42,6 +42,7 @@ You configure the `StoreCustomerDataNode` within the `node_config` field of its 
           // "schema_template_name": null, // Default: no schema association
           // "schema_definition": null
         },
+        "global_on_behalf_of_user_id": null, // Default: don't act on behalf of another user
 
         // --- Specific Documents/Data to Store ---
         "store_configs": [ // List of store instructions
@@ -147,7 +148,7 @@ You configure the `StoreCustomerDataNode` within the `node_config` field of its 
 
 ### Key Configuration Sections:
 
-1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
+1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`, `global_on_behalf_of_user_id`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
     *   `global_versioning`: Defines the default versioning strategy.
         *   `is_versioned`: `true` or `false`.
         *   `operation`: Default action (e.g., `"upsert"`, `"update"`). A common default is `is_versioned: false, operation: "upsert"`.
@@ -163,6 +164,7 @@ You configure the `StoreCustomerDataNode` within the `node_config` field of its 
             *   `namespace_pattern` / `docname_pattern`: An f-string like template using `{item[...]}` and `{index}`. Used when `input_field_path` points to a list. `{item[...]}` accesses fields within the current list item being stored, and `{index}` provides its position in the list (0, 1, 2...). Example: `"order_{item[order_id]}_{index}"`.
     *   **`is_shared`** (Optional bool): Overrides global default.
     *   **`is_system_entity`** (Optional bool): Overrides global default (requires superuser context).
+    *   **`on_behalf_of_user_id`** (Optional str): Overrides global default. **Requires the workflow run context to have superuser privileges.** If provided and `is_shared` is `false`, the data will be stored under the path associated with this user ID instead of the user running the workflow. This parameter is ignored if `is_shared` is `true` or `is_system_entity` is `true`.
     *   **`versioning`** (Optional `VersioningInfo` object): Overrides global default. Defines versioning behavior for *this specific* store operation:
         *   `is_versioned` (bool): Is the target location versioned?
         *   `operation` (StoreOperation Enum): **Required**. The action to perform:
@@ -273,4 +275,5 @@ The node primarily performs a write operation and then passes through the origin
         -   `is_versioned: true, operation: "upsert_versioned"`: **Update or Create a specific version**. It first tries to update the version you specify. If that version (or the whole document) doesn't exist, it creates it. Useful for things like auto-saving drafts where you want to overwrite the latest auto-save but create it if it's the first time.
     -   `schema_options`: Optionally link the saved data to a predefined structure (schema) for consistency.
     -   `is_shared`: Set to `true` to save data accessible by everyone in the org.
+    -   `on_behalf_of_user_id`: (Superusers only) Provide a user ID here to save the data as if you *were* that user (only applies when `is_shared` is false). The data gets saved under their specific path.
 -   The node mostly passes through the data it received. You can use the `paths_processed` output to see a list of what was successfully saved. 

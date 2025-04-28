@@ -50,6 +50,7 @@ Here are the core node types available for building workflows (refer to their in
 *   **Data Operations:**
     *   `transform_data`: Restructures or renames data fields. ([Guide](nodes/transform_node_guide.md))
     *   `data_join_data`: Combines data from different sources based on matching keys. ([Guide](nodes/data_join_node_guide.md))
+    *   `merge_aggregate`: Merges multiple data objects based on configurable strategies for mapping, conflict resolution, and transformation. ([Guide](nodes/merge_aggregate_node_guide.md))
 *   **Data Storage:**
     *   `load_customer_data`: Fetches existing data records from storage. ([Guide](nodes/load_customer_data_node_guide.md))
     *   `store_customer_data`: Saves workflow data back into storage. ([Guide](nodes/store_customer_data_node_guide.md))
@@ -57,7 +58,7 @@ Here are the core node types available for building workflows (refer to their in
     *   `prompt_constructor`: Builds text prompts using templates and variables. Can define templates statically (`template`) or load them dynamically from the database (`template_load_config`). Supports sourcing variables via input paths (`construct_options`) or direct mappings. ([Guide](nodes/prompt_constructor_node_guide.md))
     *   `llm`: Interacts with Large Language Models (like GPT, Claude, Gemini), supporting text/structured output, tool calling, and web search. ([Guide](nodes/llm_node_guide.md))
 *   **External Services:**
-    *   `linkedin_scraping`: Executes configured jobs (like profile fetch, post search) via an external LinkedIn scraping service. Consumes API credits. ([Guide](nodes/linkedin_scraping_node_guide.md))
+    *   `linkedin_scraping`: Executes configured scraping `jobs` (like profile fetch, post search) via an external service. Uses `InputSource` for dynamic parameters, supports `expand_list` for batch jobs, and has a `test_mode`. Consumes API credits. ([Guide](nodes/linkedin_scraping_node_guide.md))
 *   *Deprecated:* `load_prompt_templates` (Functionality merged into `prompt_constructor`).
 
 *(Refer to `services/workflow_service/services/db_node_register.py` for the authoritative list of registered nodes.)*
@@ -222,6 +223,14 @@ Here are examples of how nodes work together:
     *   `MapListRouterNode` config specifies `source_path: "product_list"` and `destinations: ["ProcessItemNode", "LogItemNode"]`.
     *   Crucially, edges from `MapListRouterNode` to `ProcessItemNode` and `LogItemNode` define how *each item* is mapped (e.g., sending `item.id` and `item.price` to `ProcessItemNode`).
     *   `ProcessItemNode` and `LogItemNode` likely run with `private_input_mode: true` to handle items independently/in parallel.
+
+-   **Merging Multiple Data Sources:**
+    (`SourceANode` & `SourceBNode`) -> `MergeAggregateNode` -> `OutputNode`
+    *   `SourceANode` and `SourceBNode` produce data objects (e.g., `crm_data`, `activity_data`).
+    *   Edges map these outputs to the `MergeAggregateNode`.
+    *   `MergeAggregateNode` `node_config` defines one or more `operations` with `select_paths` pointing to the input data (`crm_data`, `activity_data`).
+    *   The `merge_strategy` within the operation specifies how to map fields, resolve conflicts (e.g., keep newest, sum values, extend lists), and potentially transform the result.
+    *   Edge maps the desired output field from `MergeAggregateNode`'s `merged_data` (e.g., `src_field: "merged_data.consolidated_record"`) to the `OutputNode`.
 
 ## 7. Tips for Building Workflows
 

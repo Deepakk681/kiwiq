@@ -38,6 +38,7 @@ You configure the `LoadCustomerDataNode` within the `node_config` field of its e
           // "schema_template_version": null,
           // "schema_definition": null
         },
+        "global_on_behalf_of_user_id": null, // Default: don't act on behalf of another user when loading
 
         // --- Specific Documents to Load ---
         "load_paths": [ // List of load instructions
@@ -119,6 +120,7 @@ You configure the `LoadCustomerDataNode` within the `node_config` field of its e
     *   **`output_field_name`**: **Required**. The name of the field where the loaded document's content will be placed in the node's output data. **Important:** This name cannot start with an underscore (`_`).
     *   **`is_shared`** (Optional bool): Overrides `global_is_shared` for this specific load path.
     *   **`is_system_entity`** (Optional bool): Overrides `global_is_system_entity` for this specific load path.
+    *   **`on_behalf_of_user_id`** (Optional str): Overrides global default. **Requires the workflow run context to have superuser privileges.** If provided and `is_shared` is `false`, the node attempts to load the document stored under the path associated with this user ID. This parameter is ignored if `is_shared` is `true` or `is_system_entity` is `true`.
     *   **`version_config`** (Optional `VersionConfig` object): Overrides `global_version_config`. Allows specifying a specific `version` name to load.
     *   **`schema_options`** (Optional `SchemaOptions` object): Overrides `global_schema_options`. Allows enabling `load_schema: true` for this specific path.
 
@@ -212,6 +214,7 @@ The node produces data dynamically based on the `load_paths` configuration. The 
     -   `version_config`: If the data has versions, specify which one (e.g., `"published"`, `"v3"`, default is usually the latest).
     -   `is_shared`: Set to `true` to load data accessible by everyone in the org, not just the user.
     -   `is_system_entity`: Set to `true` only for specific system data (rarely needed, requires special permissions).
+    -   `on_behalf_of_user_id`: (Superusers only) Provide a user ID here to load data belonging to *that specific user* (only applies when `is_shared` is false).
     -   `schema_options.load_schema`: Set to `true` if you need the structure (schema) of the data along with the data itself (useful for validation later).
 -   The node outputs the data under the `output_field_name` you specified. Connect this field to the input of the next node that needs the data.
 -   If a document isn't found, the corresponding output field might be empty or missing. 
