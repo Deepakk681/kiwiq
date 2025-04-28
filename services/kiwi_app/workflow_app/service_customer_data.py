@@ -461,6 +461,11 @@ class CustomerDataService:
                     detail=f"Document '{namespace}/{docname}' not found",
                 )
             return success
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document '{namespace}/{docname}' not found",
+            ) from e
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1181,6 +1186,357 @@ class CustomerDataService:
                 detail=f"Failed to get schema: {str(e)}",
             )
     
+    async def upsert_versioned_document(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        namespace: str,
+        docname: str,
+        is_shared: bool,
+        user: User,
+        data: Any,
+        version: Optional[str] = None,
+        from_version: Optional[str] = None, # Used only if creating a new version during upsert
+        is_complete: Optional[bool] = None,
+        schema_template_name: Optional[str] = None,
+        schema_template_version: Optional[str] = None,
+        schema_definition: Optional[Dict[str, Any]] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Upserts a versioned document: updates if exists, initializes if not.
+        Handles creating a specific version if the update targets a non-existent one.
+
+        Args:
+            db: Database session.
+            org_id: Organization ID.
+            namespace: Document namespace.
+            docname: Document name.
+            is_shared: Whether this is a shared document.
+            user: User object performing the operation.
+            data: Data to upsert into the document.
+            version: Specific version to target for upsert (optional).
+                     If None, targets the currently active version.
+            from_version: Version to branch from if creating a new version during upsert
+                          (only relevant if `version` is specified and doesn't exist).
+            is_complete: Whether the document is considered complete after this operation.
+                         Used during both update and initialization.
+            schema_template_name: Name of schema template to apply/validate against (optional).
+            schema_template_version: Version of schema template (optional).
+            schema_definition: Explicit schema definition to use (optional). Takes precedence
+                               over template if both are provided.
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only).
+            is_system_entity: Whether this is a system entity (superusers only).
+
+        Returns:
+            Tuple[str, Dict[str, Any]]:
+                - operation_performed (str): A string indicating the action taken, e.g.,
+                    "updated_active", "updated_version_x", "created_and_updated_version_x",
+                    "initialized_version_x".
+                - document_identifier (Dict[str, Any]): A dictionary containing the path to the affected
+                    document version, e.g., "org_id/user_id/namespace/docname/version".
+                    The version part will be the targeted version or the initial version.
+
+        Raises:
+            HTTPException:
+                - 403 Forbidden: If permissions are insufficient.
+                - 404 Not Found: If schema template is specified but not found, or if an
+                                 operation fails because the underlying document/version
+                                 cannot be found when expected.
+                - 400 Bad Request: If the document exists but is not versioned.
+                - 500 Internal Server Error: For unexpected errors during database operations.
+
+        Upsert Logic Sequence:
+        1. **Check Document Existence & Type:** Use `get_document_metadata` to see if the
+           document at the base path exists and if it's versioned.
+        2. **If Exists (and Versioned):**
+           a. **Attempt Update:** Call `update_versioned_document` targeting the specified
+              `version` (or active if `version` is None).
+           b. **If Update Succeeds:** Return "updated_active" or "updated_version_{version}".
+           c. **If Update Fails (and `version` was specified):** This implies the target version
+              might not exist.
+              i. **Attempt Create Version:** Call `create_versioned_document_version` to
+                 create the target `version` (optionally branching from `from_version`).
+             ii. **If Create Succeeds:** Retry the `update_versioned_document` call, now
+                 targeting the newly created `version`.
+            iii. **If Retry Succeeds:** Return "created_and_updated_version_{version}".
+             iv. **If Retry Fails (or Create Fails):** Raise an error (indicates a problem
+                  like permissions or conflicting state).
+           d. **If Update Fails (and `version` was None):** This implies a failure updating
+              the active version. Raise an error (likely permissions).
+        3. **If Not Exists (or Metadata Check Failed):**
+           a. **Attempt Initialize:** Call `initialize_versioned_document`. The initial
+              version name will be the specified `version` or "default" if `version` is None.
+              The `initial_data` will be the provided `data`, and `is_complete` is passed.
+           b. **If Initialize Succeeds:** Return "initialized_version_{initial_version}".
+           c. **If Initialize Fails:** Raise an error (likely permissions or conflict).
+        4. **Schema Handling:** If `schema_definition` or `schema_template_name` is provided,
+           the schema is fetched/validated and applied during the update or initialization step.
+        """
+        # Ensure versioned client is configured
+        if not self.versioned_mongo_client:
+            customer_data_logger.error("Upsert failed: Versioned MongoDB client is not configured.")
+            raise ValueError("Versioned MongoDB client is required for upsert_versioned_document")
+
+        # --- Permission Checks ---
+        if on_behalf_of_user_id and not user.is_superuser:
+            customer_data_logger.warning(f"Permission denied for user {user.id} trying to upsert on behalf of {on_behalf_of_user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+        if is_system_entity and not user.is_superuser:
+            customer_data_logger.warning(f"Permission denied for non-superuser {user.id} trying to upsert a system entity")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify system entities"
+            )
+
+        # --- Build Path & Prefixes ---
+        base_path = self._build_base_path(
+            org_id=org_id,
+            namespace=namespace,
+            docname=docname,
+            is_shared=is_shared,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=is_system_entity
+        )
+        allowed_prefixes = self._get_allowed_prefixes(
+            org_id=org_id,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True, # Upsert is a mutation
+            is_system_entity=is_system_entity
+        )
+
+        # --- Resolve Schema ---
+        schema: Optional[Dict[str, Any]] = None
+        if schema_definition:
+            schema = schema_definition
+            customer_data_logger.debug(f"Using provided schema definition for upsert of '{'/'.join(base_path)}'.")
+        elif schema_template_name:
+            customer_data_logger.debug(f"Fetching schema from template '{schema_template_name}' (version: {schema_template_version}) for upsert.")
+            try:
+                schema = await self._get_schema_from_template(
+                    db, schema_template_name, schema_template_version, org_id, user
+                )
+                if not schema:
+                    customer_data_logger.warning(f"Schema template '{schema_template_name}' not found for org {org_id}.")
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Schema template '{schema_template_name}' not found",
+                    )
+            except HTTPException as e:
+                # Propagate HTTP exceptions from schema fetching
+                raise e
+            except Exception as e:
+                customer_data_logger.error(f"Unexpected error fetching schema template '{schema_template_name}': {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to fetch schema template: {str(e)}"
+                )
+
+        # --- Check Document Existence and Type ---
+        doc_exists = False
+        target_metadata: Optional[schemas.CustomerDocumentMetadata] = None
+        try:
+            customer_data_logger.debug(f"Checking metadata for document path: {base_path}")
+            target_metadata = await self.get_document_metadata(
+                org_id=org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=is_shared,
+                user=user,
+                is_system_entity=is_system_entity,
+                on_behalf_of_user_id=on_behalf_of_user_id
+            )
+            if target_metadata:
+                doc_exists = True
+                if not target_metadata.is_versioned:
+                    customer_data_logger.error(f"Upsert failed: Document '{'/'.join(base_path)}' exists but is not versioned.")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Document '{namespace}/{docname}' exists but is not versioned. Cannot perform versioned upsert."
+                    )
+                customer_data_logger.info(f"Document '{'/'.join(base_path)}' exists and is versioned. Proceeding with update logic.")
+            # If metadata is None, doc_exists remains False
+
+        except HTTPException as e:
+            # Log only if it's not a 404 (Not Found) or 403 (Forbidden)
+            if e.status_code not in [status.HTTP_404_NOT_FOUND, status.HTTP_403_FORBIDDEN]:
+                customer_data_logger.warning(f"Error checking metadata for '{'/'.join(base_path)}' during upsert: {e.detail}", exc_info=True)
+            else:
+                 customer_data_logger.info(f"Metadata check for '{'/'.join(base_path)}' resulted in {e.status_code}. Assuming document does not exist or is inaccessible.")
+            # Continue, assuming document might not exist or is inaccessible initially
+            pass # doc_exists remains False
+        except Exception as e:
+            # Catch unexpected errors during metadata check
+            customer_data_logger.error(f"Unexpected error during metadata check for '{'/'.join(base_path)}': {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to check document metadata: {str(e)}"
+            )
+
+
+        # --- Construct Helper Args for Sub-operations ---
+        # Consolidate args used by both update and initialize
+        common_args = {
+            "db": db,
+            "org_id": org_id,
+            "namespace": namespace,
+            "docname": docname,
+            "is_shared": is_shared,
+            "user": user,
+            "schema_definition": schema, # Use resolved schema
+             # Pass schema args only if schema wasn't directly provided
+            "schema_template_name": None if schema else schema_template_name,
+            "schema_template_version": None if schema else schema_template_version,
+            "is_system_entity": is_system_entity,
+            "on_behalf_of_user_id": on_behalf_of_user_id,
+        }
+
+
+        # --- Perform Upsert Operation ---
+        operation_performed = "unknown"
+        final_version = version # Keep track of the version we end up targeting
+
+        if doc_exists:
+            # --- Document Exists - Attempt Update ---
+            customer_data_logger.info(f"Attempting upsert (update phase) for versioned doc '{'/'.join(base_path)}' (target version: {version or 'active'}).")
+            try:
+                # Attempt to update the target version (or active if version is None)
+                await self.update_versioned_document(
+                    **common_args, # type: ignore
+                    data=data,
+                    version=version,
+                    is_complete=is_complete,
+                )
+                # If update_versioned_document succeeds without raising an exception
+                operation_performed = f"updated_{version or '$active'}"
+                # If version was None, we updated the active one. We might not know *which* one that is without another query.
+                # For the path, we'll return the requested target ('active' if None)
+                final_version = version  # Represent active symbolically if None was passed
+                customer_data_logger.info(f"Upsert (update phase) successful for '{'/'.join(base_path)}' (version: {final_version}).")
+
+            except HTTPException as update_exc:
+                # Check if the update failed specifically because the version wasn't found (difficult to be certain from generic exception)
+                # A common reason for update failure is the specific version not existing.
+                # We'll infer this possibility if a specific version was targeted.
+                if version is not None and update_exc.status_code == status.HTTP_404_NOT_FOUND:
+                    customer_data_logger.warning(f"Upsert update failed for specific version '{version}' of '{'/'.join(base_path)}', likely because version does not exist. Attempting to create version.", exc_info=True)
+
+                    # --- Attempt to Create the Missing Version ---
+                    try:
+                        await self.create_versioned_document_version(
+                            org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                            user=user, new_version=version, from_version=from_version,
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id
+                        )
+                        customer_data_logger.info(f"Successfully created missing version '{version}' for '{'/'.join(base_path)}'. Retrying update.")
+
+                        # --- Retry Update on Newly Created Version ---
+                        try:
+                            await self.update_versioned_document(
+                                **common_args, # type: ignore
+                                data=data,
+                                version=version, # Target the newly created version
+                                is_complete=is_complete,
+                            )
+                            operation_performed = f"created_and_updated_version_{version}"
+                            final_version = version
+                            customer_data_logger.info(f"Upsert (retry update phase) successful for '{'/'.join(base_path)}' (version: {version}).")
+                        except Exception as retry_update_err:
+                            customer_data_logger.error(f"Upsert failed: Created version '{version}' for '{'/'.join(base_path)}', but failed the subsequent update: {retry_update_err}", exc_info=True)
+                            # This is a problematic state, raise an error
+                            raise HTTPException(
+                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail=f"Created version '{version}' but failed to update it: {str(retry_update_err)}"
+                            ) from retry_update_err
+
+                    except Exception as create_err:
+                        customer_data_logger.error(f"Upsert failed: Update for version '{version}' failed, and subsequent attempt to create version also failed: {create_err}", exc_info=True)
+                        raise HTTPException(
+                            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Failed to create target version '{version}' after initial update failed: {str(create_err)}"
+                        ) from create_err
+                else:
+                    # Update failed for a reason other than the specific version not existing,
+                    # or it failed when targeting the active version. This is likely a permission issue or other internal error.
+                    customer_data_logger.error(f"Upsert failed: Update phase failed for '{'/'.join(base_path)}' (target version: {version or 'active'}): {update_exc.detail}", exc_info=True)
+                    # Re-raise the original exception from update_versioned_document
+                    raise update_exc
+            except Exception as update_err:
+                 # Catch unexpected errors during the update phase
+                customer_data_logger.error(f"Upsert failed: Unexpected error during update phase for '{'/'.join(base_path)}' (target version: {version or 'active'}): {update_err}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Unexpected error updating document: {str(update_err)}"
+                ) from update_err
+
+        else:
+            # --- Document Does Not Exist (or metadata failed) - Attempt Initialize ---
+            init_version = version or "default" # Use specified version or default for init
+            customer_data_logger.info(f"Upsert: Document '{'/'.join(base_path)}' not found or metadata check failed. Attempting initialization with version '{init_version}'.")
+
+            try:
+                initialize_success = await self.initialize_versioned_document(
+                    **common_args, # type: ignore
+                    initial_version=init_version,
+                    initial_data=data,
+                    is_complete=is_complete or False, # Default is_complete to False for init if not provided
+                )
+                if initialize_success:
+                    operation_performed = f"initialized_version_{init_version}"
+                    final_version = init_version
+                    customer_data_logger.info(f"Upsert (initialize phase) successful for '{'/'.join(base_path)}' with version '{init_version}'.")
+                else:
+                    # Should ideally be caught by exception, but defensive check
+                    customer_data_logger.error(f"Upsert failed: Initialization returned False for '{'/'.join(base_path)}' with version '{init_version}'.")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Document initialization failed unexpectedly for version '{init_version}."
+                    )
+            except HTTPException as init_http_exc:
+                 # Re-raise HTTP exceptions from initialization (e.g., 409 Conflict if it somehow exists now)
+                 customer_data_logger.error(f"Upsert failed: Initialization phase for '{'/'.join(base_path)}' (version: '{init_version}') failed with HTTP error {init_http_exc.status_code}: {init_http_exc.detail}", exc_info=True)
+                 raise init_http_exc
+            except Exception as init_err:
+                customer_data_logger.error(f"Upsert failed: Initialization phase encountered an error for '{'/'.join(base_path)}' (version: '{init_version}'): {init_err}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to initialize document with version '{init_version}': {str(init_err)}"
+                ) from init_err
+
+        # --- Construct Final Path String ---
+        # Use the determined org_id and user_id segments from base_path
+        org_id_segment = base_path[0]
+        user_id_segment = base_path[1]
+        # Include the final version (which might be 'active' symbolically)
+        document_identifier = {
+            "doc_path_segments": {
+                "org_id_segment": org_id_segment,
+                "user_id_segment": user_id_segment,
+                "namespace": namespace,
+                "docname": docname,
+            },
+            "operation_params": {
+                "org_id": org_id,
+                "is_shared": is_shared,
+                "on_behalf_of_user_id": on_behalf_of_user_id,
+                "is_system_entity": is_system_entity,
+                "namespace": namespace,
+                "docname": docname,
+            },
+            "version": final_version,
+        }
+        document_path_str = f"{org_id_segment}/{user_id_segment}/{namespace}/{docname}/{final_version}"
+
+        customer_data_logger.info(f"Upsert completed for path '{'/'.join(base_path)}'. Operation: {operation_performed}, Final Path: {document_path_str}")
+        return operation_performed, document_identifier
+
     # --- Unversioned Document Methods --- #
     
     async def create_or_update_unversioned_document(

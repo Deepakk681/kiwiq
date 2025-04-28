@@ -147,6 +147,9 @@ class JobDefinition(BaseSchema):
     search_post_by_hashtag: InputSource = Field(default_factory=lambda: InputSource(static_value=YesNoEnum.NO.value))
 
     # --- Input Identifiers (Required based on job_type) ---
+    url: Optional[InputSource] = Field(
+        None, description="Source for the LinkedIn profile/entity URL. Overrides username/type if provided."
+    )
     username: Optional[InputSource] = Field(
         None, description="Source for the LinkedIn username/profile ID."
     )

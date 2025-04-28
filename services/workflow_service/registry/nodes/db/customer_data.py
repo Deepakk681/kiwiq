@@ -322,6 +322,10 @@ class LoadPathConfig(BaseSchema):
     schema_options: Optional[SchemaOptions] = Field(
         None, description="Override global default: Schema loading/validation options."
     )
+    # NEW FIELD: Optional user ID to act on behalf of
+    on_behalf_of_user_id: Optional[str] = Field(
+        None, description="User ID (as string) to act on behalf of (requires superuser privileges). Overrides global default."
+    )
 
     @model_validator(mode='after')
     def validate_output_field_name(self) -> 'LoadPathConfig':
@@ -345,6 +349,10 @@ class LoadCustomerDataConfig(BaseSchema):
     )
     global_schema_options: SchemaOptions = Field(
         default_factory=SchemaOptions, description="Default schema handling options."
+    )
+    # NEW FIELD: Global default for on behalf of user ID
+    global_on_behalf_of_user_id: Optional[str] = Field(
+        None, description="Default User ID (as string) to act on behalf of (requires superuser privileges)."
     )
 
 class LoadCustomerDataOutput(DynamicSchema):
@@ -372,7 +380,7 @@ class LoadCustomerDataNode(BaseDynamicNode):
     # TODO: Add support for loading multiple documents at once using patterns
     """
     node_name: ClassVar[str] = "load_customer_data"
-    node_version: ClassVar[str] = "0.1.3" # Version bump for output instantiation change
+    node_version: ClassVar[str] = "0.1.4" # Added on_behalf_of_user_id support
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
     # Ineriting input / output dynamic schemas from base class!
     # input_schema_cls: Type[DynamicSchema] = DynamicSchema
@@ -444,40 +452,89 @@ class LoadCustomerDataNode(BaseDynamicNode):
 
                     doc_metadata = None
                     try:
+                        # Determine the on_behalf_of_user_id
+                        on_behalf_id_str = path_config.on_behalf_of_user_id if path_config.on_behalf_of_user_id is not None else self.config.global_on_behalf_of_user_id
+                        on_behalf_of_user_id_uuid: Optional[uuid.UUID] = None
+                        if on_behalf_id_str:
+                            try:
+                                on_behalf_of_user_id_uuid = uuid.UUID(on_behalf_id_str)
+                            except ValueError:
+                                self.logger.error(f"Invalid UUID format for on_behalf_of_user_id: '{on_behalf_id_str}'. Skipping document load.")
+                                continue # Skip this path_config
+
+                        # --- Superuser Check --- #
+                        if on_behalf_of_user_id_uuid and not user.is_superuser:
+                            self.logger.error(f"User '{user.id}' is not a superuser and cannot use 'on_behalf_of_user_id'='{on_behalf_id_str}'. Skipping load for output field '{path_config.output_field_name}'.")
+                            continue # Skip this path_config
+                        # --- End Superuser Check --- #
+
                         doc_metadata = await customer_data_service.get_document_metadata(
                             org_id=org_id, namespace=namespace, docname=docname,
-                            is_shared=is_shared, user=user, is_system_entity=is_system_entity
+                            is_shared=is_shared, user=user, is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
                         )
                     except Exception as meta_err:
-                         self.logger.warning(f"Could not fetch metadata for '{namespace}/{docname}': {meta_err}. Assuming unversioned.")
+                        # Check if it's a 403 Forbidden, often due to superuser required for on_behalf_of
+                        if hasattr(meta_err, 'status_code') and meta_err.status_code == 403:
+                            self.logger.error(f"Permission denied fetching metadata for '{namespace}/{docname}'. Check if superuser is required for 'on_behalf_of_user_id': {meta_err}")
+                        else:
+                            self.logger.warning(f"Could not fetch metadata for '{namespace}/{docname}': {meta_err}. Assuming unversioned.")
+
                     is_versioned_doc = doc_metadata.is_versioned if doc_metadata else False
 
                     document_data = None
                     loaded_schema = None
+                    # Determine on_behalf_of again for subsequent calls (could be refactored)
+                    on_behalf_id_str = path_config.on_behalf_of_user_id if path_config.on_behalf_of_user_id is not None else self.config.global_on_behalf_of_user_id
+                    on_behalf_of_user_id_uuid: Optional[uuid.UUID] = None
+                    if on_behalf_id_str:
+                        try:
+                            on_behalf_of_user_id_uuid = uuid.UUID(on_behalf_id_str)
+                        except ValueError:
+                            # Error already logged during metadata fetch
+                            continue
+
                     if is_versioned_doc:
-                        document_data = await customer_data_service.get_versioned_document(
-                            org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                            user=user, version=version_cfg.version, is_system_entity=is_system_entity
-                        )
-                        if schema_opts.load_schema:
-                             loaded_schema = await customer_data_service.get_versioned_document_schema(
-                                 org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                                 user=user, is_system_entity=is_system_entity
-                             )
+                        try:
+                            document_data = await customer_data_service.get_versioned_document(
+                                org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                                user=user, version=version_cfg.version, is_system_entity=is_system_entity,
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                            )
+                            if schema_opts.load_schema:
+                                loaded_schema = await customer_data_service.get_versioned_document_schema(
+                                    org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                                    user=user, is_system_entity=is_system_entity,
+                                    on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                                )
+                        except Exception as load_err:
+                             self.logger.error(f"Failed to load versioned document '{namespace}/{docname}': {load_err}", exc_info=True)
+                             continue # Skip this document
                     else:
-                        document_data = await customer_data_service.get_unversioned_document(
-                            org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                            user=user, is_system_entity=is_system_entity
-                        )
-                        if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
-                             if schema_opts.schema_template_name:
-                                 loaded_schema = await customer_data_service._get_schema_from_template(
-                                     db=db, template_name=schema_opts.schema_template_name,
-                                     template_version=schema_opts.schema_template_version,
-                                     org_id=org_id, user=user
-                                 )
-                             elif schema_opts.schema_definition:
-                                 loaded_schema = schema_opts.schema_definition
+                        try:
+                            document_data = await customer_data_service.get_unversioned_document(
+                                org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                                user=user, is_system_entity=is_system_entity,
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                            )
+                            # Schema loading for unversioned (logic remains the same, user context passed)
+                            if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
+                                if schema_opts.schema_template_name:
+                                    try:
+                                        # _get_schema_from_template doesn't directly take on_behalf_of,
+                                        # but the `user` object context is important.
+                                        loaded_schema = await customer_data_service._get_schema_from_template(
+                                            db=db, template_name=schema_opts.schema_template_name,
+                                            template_version=schema_opts.schema_template_version,
+                                            org_id=org_id, user=user
+                                        )
+                                    except Exception as schema_err:
+                                         self.logger.error(f"Failed to load schema template '{schema_opts.schema_template_name}' for '{namespace}/{docname}': {schema_err}")
+                                elif schema_opts.schema_definition:
+                                    loaded_schema = schema_opts.schema_definition
+                        except Exception as load_err:
+                             self.logger.error(f"Failed to load unversioned document '{namespace}/{docname}': {load_err}", exc_info=True)
+                             continue # Skip this document
 
                     if document_data is not None:
                         output_data[path_config.output_field_name] = document_data
@@ -609,6 +666,10 @@ class StoreConfig(BaseSchema):
     versioning: Optional[VersioningInfo] = Field(None, description="Override global: Versioning behavior.")
     # Schema (use global defaults if None)
     schema_options: Optional[SchemaOptions] = Field(None, description="Override global: Schema association/validation.")
+    # NEW FIELD: Optional user ID to act on behalf of
+    on_behalf_of_user_id: Optional[str] = Field(
+        None, description="User ID (as string) to act on behalf of (requires superuser privileges). Overrides global default."
+    )
 
 class StoreCustomerDataConfig(BaseSchema):
     """Configuration schema for the StoreCustomerDataNode."""
@@ -626,6 +687,11 @@ class StoreCustomerDataConfig(BaseSchema):
     )
     global_schema_options: SchemaOptions = Field(
         default_factory=SchemaOptions, description="Default schema handling options."
+    )
+
+    # NEW FIELD: Global default for on behalf of user ID
+    global_on_behalf_of_user_id: Optional[str] = Field(
+        None, description="Default User ID (as string) to act on behalf of (requires superuser privileges)."
     )
 
 class StoreCustomerDataOutput(DynamicSchema):
@@ -653,7 +719,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
     Manages shared, user-specific, and system-level documents based on user permissions.
     """
     node_name: ClassVar[str] = "store_customer_data"
-    node_version: ClassVar[str] = "0.1.4" # Version bump for upsert_versioned
+    node_version: ClassVar[str] = "0.1.5" # Added on_behalf_of_user_id support
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
     # Ineriting input / output dynamic schemas from base class!
     # input_schema_cls: Type[DynamicSchema] = DynamicSchema
@@ -702,6 +768,23 @@ class StoreCustomerDataNode(BaseDynamicNode):
         versioning = store_cfg.versioning or self.config.global_versioning
         schema_opts = store_cfg.schema_options or self.config.global_schema_options
 
+        # --- Determine and Validate on_behalf_of_user_id --- #
+        on_behalf_id_str = store_cfg.on_behalf_of_user_id if store_cfg.on_behalf_of_user_id is not None else self.config.global_on_behalf_of_user_id
+        on_behalf_of_user_id_uuid: Optional[uuid.UUID] = None
+        if on_behalf_id_str:
+            try:
+                on_behalf_of_user_id_uuid = uuid.UUID(on_behalf_id_str)
+            except ValueError:
+                self.logger.error(f"Invalid UUID format for on_behalf_of_user_id: '{on_behalf_id_str}' for doc '{namespace}/{docname}'. Skipping store.")
+                return False, None # Explicit failure due to invalid config
+        # --- --- ---
+
+        # --- Superuser Check --- #
+        if on_behalf_of_user_id_uuid and not user.is_superuser:
+            self.logger.error(f"User '{user.id}' is not a superuser and cannot use 'on_behalf_of_user_id'='{on_behalf_id_str}'. Skipping store for output field '{namespace}/{docname}'.")
+            return False, None # Skip this store_cfg
+        # --- End Superuser Check --- #
+
         async with get_async_db_as_manager() as db:
             try:
                 operation_str = "" # Detailed string describing the successful operation
@@ -715,27 +798,31 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             user=user, data=doc_data, schema_template_name=schema_opts.schema_template_name,
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
-                            is_system_entity=is_system_entity
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
                         )
                         success_flag = True # create_or_update generally doesn't fail unless db error
                         operation_str = f"upsert_unversioned (created: {created})"
                         self.logger.info(f"Upserted unversioned doc '{namespace}/{docname}'. Created: {created}")
                     elif versioning.operation == StoreOperation.UPDATE:
-                         _id, created = await customer_data_service.create_or_update_unversioned_document(
+                        # NOTE: create_or_update_unversioned_document currently behaves like UPSERT.
+                        # To enforce UPDATE (fail if not exists), the service method would need modification.
+                        # For now, we call it and log a warning if it creates the document.
+                        _id, created = await customer_data_service.create_or_update_unversioned_document(
                             db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                             user=user, data=doc_data, schema_template_name=schema_opts.schema_template_name,
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
                             is_system_entity=is_system_entity,
-                            # Force update behavior if service supports it (currently it upserts)
-                            # For now, rely on the warning below if 'created' is True
-                         )
-                         success_flag = True # create_or_update generally doesn't fail unless db error
-                         operation_str = f"update_unversioned (created: {created})"
-                         if created:
-                             self.logger.warning(f"Performed 'update' on unversioned doc '{namespace}/{docname}', but it resulted in creation.")
-                         else:
-                             self.logger.info(f"Updated unversioned doc '{namespace}/{docname}'.")
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            # update_only=True # Hypothetical flag if service supported it
+                        )
+                        success_flag = True # Assume success from service perspective
+                        operation_str = f"update_unversioned (created: {created})"
+                        if created:
+                            self.logger.warning(f"Performed 'update' on unversioned doc '{namespace}/{docname}', but it resulted in creation (upsert behavior). Document did not previously exist.")
+                        else:
+                            self.logger.info(f"Updated unversioned doc '{namespace}/{docname}'.")
                     else:
                         # This case should be prevented by the VersioningInfo validator
                         self.logger.error(f"Invalid operation '{versioning.operation.value}' for unversioned document '{namespace}/{docname}'.")
@@ -751,14 +838,15 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
                             initial_data=doc_data, is_complete=versioning.is_complete or False,
-                            is_system_entity=is_system_entity
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
                         )
                         if success:
                             success_flag = True
                             operation_str = f"initialize_versioned_{versioning.version or 'default'}"
                             self.logger.info(f"Initialized versioned doc '{namespace}/{docname}' with version '{versioning.version or 'default'}'.")
                         else:
-                            self.logger.error(f"Failed to initialize versioned doc '{namespace}/{docname}': Already exists or other error.")
+                            self.logger.error(f"Failed to initialize versioned doc '{namespace}/{docname}'. Check permissions (e.g., superuser for on_behalf_of) or if it already exists.")
                             return False, None # Explicit failure
 
                     elif versioning.operation == StoreOperation.UPDATE:
@@ -767,126 +855,69 @@ class StoreCustomerDataNode(BaseDynamicNode):
                         success = await customer_data_service.update_versioned_document(
                             db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                             user=user, data=doc_data, version=target_version,
-                            is_complete=versioning.is_complete, 
+                            is_complete=versioning.is_complete,
                             schema_template_name=schema_opts.schema_template_name,
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
-                            is_system_entity=is_system_entity
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
                         )
                         if success:
                             success_flag = True
                             operation_str = f"update_versioned_{target_version or 'active'}"
                             self.logger.info(f"Updated versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}).")
                         else:
-                            self.logger.error(f"Failed to update versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}): Not found or other error.")
+                            self.logger.error(f"Failed to update versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}). Check permissions, if doc/version exists, or if superuser is required for on_behalf_of.")
                             return False, None # Explicit failure
 
                     elif versioning.operation == StoreOperation.UPSERT_VERSIONED:
-                        # 1. Attempt to update the specified version (or active if None)
-                        target_version = versioning.version # Can be None
-                        self.logger.info(f"Attempting upsert (update phase) for versioned doc '{namespace}/{docname}' (target version: {target_version or 'active'}).")
-
+                        # --- Use the dedicated upsert service method --- # 
+                        self.logger.info(f"Attempting upsert_versioned for doc '{namespace}/{docname}' (target version: {versioning.version or 'active/default'}).")
                         try:
-                            metadata = await customer_data_service.get_document_metadata(
+                            op_performed, doc_identifier_dict = await customer_data_service.upsert_versioned_document(
+                                db=db,
                                 org_id=org_id,
                                 namespace=namespace,
                                 docname=docname,
                                 is_shared=is_shared,
                                 user=user,
-                                is_system_entity=is_system_entity
-                            )
-                            is_versioned = metadata.is_versioned
-                            if not is_versioned:
-                                self.logger.error(f"Document '{namespace}/{docname}' is not versioned. Cannot perform upsert_versioned operation.")
-                                return False, None # Explicit failure
-                        except Exception as meta_exc:
-                            metadata = None
-
-                        if metadata:
-                            try:
-                                update_success = await customer_data_service.update_versioned_document(
-                                    db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                                    user=user, data=doc_data, version=target_version,
-                                    is_complete=versioning.is_complete,
-                                    schema_template_name=schema_opts.schema_template_name,
-                                    schema_template_version=schema_opts.schema_template_version,
-                                    schema_definition=schema_opts.schema_definition,
-                                    is_system_entity=is_system_entity
-                                )
-                                # print(f"\n\nupdate_success: {update_success}\n\n")
-                                success_flag = True
-                                operation_str = f"upsert_versioned_updated_{target_version or 'active'}"
-                                self.logger.info(f"Upsert (update phase) successful for versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}).")
-                            except Exception as e:
-                                self.logger.warning(f"Error updating when upserting versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}): {e}", exc_info=True)
-                                if target_version is not None:
-                                    # This could be the case where target version doesn't exist! If version is None, active version is updated automatically os this can't be None!
-                                    # try creating a new version, only work with explicitly provided versions!
-                                    create_success = await customer_data_service.create_versioned_document_version(
-                                        org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                                        user=user, new_version=target_version, from_version=versioning.from_version,
-                                        is_system_entity=is_system_entity
-                                    )
-                                    if create_success:
-                                        # Now update the newly created version with data
-                                        update_success = await customer_data_service.update_versioned_document(
-                                            db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                                            user=user, data=doc_data, version=target_version, # Target the new version
-                                            is_complete=versioning.is_complete, # Apply completeness if specified
-                                            schema_template_name=schema_opts.schema_template_name,
-                                            schema_template_version=schema_opts.schema_template_version,
-                                            schema_definition=schema_opts.schema_definition,
-                                            is_system_entity=is_system_entity
-                                        )
-                                        if update_success:
-                                            success_flag = True
-                                            operation_str = f"upsert_created_new_version_{target_version}"
-                                            self.logger.info(f"UPSERT_VERSIONED: Created and updated new version '{target_version}' for doc '{namespace}/{docname}'.")
-                                        else:
-                                            self.logger.error(f"UPSERT_VERSIONED Created new version '{target_version}' for doc '{namespace}/{docname}', but failed to update it with data. The version entry exists but is empty/incomplete.")
-                                            # Return success=False because the operation wasn't fully completed as intended
-                                            return False, None # Explicit failure
-                                if not success_flag:
-                                    self.logger.error(f"UPSERT_VERSIONED: Failed to create new version entry '{target_version}' for doc '{namespace}/{docname}'. Does the 'from_version' exist? Does the document exist?")
-                                    return False, None # Explicit failure
-                        else:
-                            # 2. If update failed (likely doc/version not found), attempt to initialize
-                            self.logger.info(f"Upsert (update phase) failed for '{namespace}/{docname}' (version: {target_version or 'active'}). Attempting initialization.")
-                            # Use specified version if provided, otherwise default to 'default' for initialization
-                            init_version = target_version or "default"
-                            initialize_success = await customer_data_service.initialize_versioned_document(
-                                db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                                user=user, initial_version=init_version,
+                                data=doc_data,
+                                version=versioning.version, # Pass the target version (can be None)
+                                from_version=versioning.from_version, # Pass for potential version creation
+                                is_complete=versioning.is_complete,
                                 schema_template_name=schema_opts.schema_template_name,
                                 schema_template_version=schema_opts.schema_template_version,
                                 schema_definition=schema_opts.schema_definition,
-                                initial_data=doc_data, is_complete=versioning.is_complete or False, # Default is_complete to False for init
-                                is_system_entity=is_system_entity
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                                is_system_entity=is_system_entity,
                             )
-                            if initialize_success:
-                                success_flag = True
-                                operation_str = f"upsert_versioned_initialized_{init_version}"
-                                self.logger.info(f"Upsert (initialize phase) successful for doc '{namespace}/{docname}' with version '{init_version}'.")
-                            else:
-                                # If both update and initialize fail, log error and return failure
-                                self.logger.error(f"Upsert failed for versioned doc '{namespace}/{docname}'. Update failed (target version: {target_version or 'active'}) and initialization failed (init version: {init_version}). Document might already exist but couldn't be updated, or another error occurred.")
-                                return False, None # Explicit failure
+                            # If the service call succeeds without raising an exception, mark success
+                            success_flag = True
+                            operation_str = op_performed # Use the detailed string from the service
+                            self.logger.info(f"Upsert_versioned operation successful for doc '{namespace}/{docname}'. Action: {operation_str}")
+                        except Exception as upsert_err:
+                            # Catch potential HTTPExceptions or other errors from the service
+                            self.logger.error(f"Upsert_versioned operation failed for doc '{namespace}/{docname}': {upsert_err}", exc_info=True)
+                            # Failure is indicated by success_flag remaining False
+                            # Re-raise the exception? Or just return False? Let's return False for now.
+                            return False, None # Explicit failure
 
                     elif versioning.operation == StoreOperation.CREATE_VERSION:
-                        # (Existing logic for CREATE_VERSION remains unchanged)
                         new_version_name = versioning.version
                         if not new_version_name:
+                            # Generate a unique version name if not provided
                             new_version_name = f"version_{uuid.uuid4().hex[:8]}"
-                            self.logger.info(f"Generated new version name: {new_version_name}")
+                            self.logger.info(f"Generated new version name for CREATE_VERSION: {new_version_name}")
 
                         # Create the version entry first
                         create_success = await customer_data_service.create_versioned_document_version(
                             org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                             user=user, new_version=new_version_name, from_version=versioning.from_version,
-                            is_system_entity=is_system_entity
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
                         )
                         if create_success:
-                             # Now update the newly created version with data
+                            # Now update the newly created version with data
                             update_success = await customer_data_service.update_versioned_document(
                                 db=db, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                                 user=user, data=doc_data, version=new_version_name, # Target the new version
@@ -894,18 +925,20 @@ class StoreCustomerDataNode(BaseDynamicNode):
                                 schema_template_name=schema_opts.schema_template_name,
                                 schema_template_version=schema_opts.schema_template_version,
                                 schema_definition=schema_opts.schema_definition,
-                                is_system_entity=is_system_entity
+                                is_system_entity=is_system_entity,
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
                             )
                             if update_success:
                                 success_flag = True
                                 operation_str = f"create_version_{new_version_name}"
                                 self.logger.info(f"Created and updated new version '{new_version_name}' for doc '{namespace}/{docname}'.")
                             else:
-                                self.logger.error(f"Created new version '{new_version_name}' for doc '{namespace}/{docname}', but failed to update it with data. The version entry exists but is empty/incomplete.")
-                                # Return success=False because the operation wasn't fully completed as intended
+                                # Version created, but update failed - inconsistent state
+                                self.logger.error(f"Created new version '{new_version_name}' for doc '{namespace}/{docname}', but failed to update it with data. The version entry exists but is empty/incomplete. Check permissions.")
                                 return False, None # Explicit failure
                         else:
-                            self.logger.error(f"Failed to create new version entry '{new_version_name}' for doc '{namespace}/{docname}'. Does the 'from_version' exist? Does the document exist?")
+                            # Failed to create the version entry itself
+                            self.logger.error(f"Failed to create new version entry '{new_version_name}' for doc '{namespace}/{docname}'. Does the document exist? Does the 'from_version' exist? Check permissions (e.g., superuser for on_behalf_of).")
                             return False, None # Explicit failure
                     else:
                         # This case should be prevented by the VersioningInfo validator
@@ -917,12 +950,19 @@ class StoreCustomerDataNode(BaseDynamicNode):
                     return True, (namespace, docname, operation_str)
                 else:
                     # Should have returned False, None earlier in specific failure cases
-                    self.logger.error(f"Reached end of storage logic without success for '{namespace}/{docname}'. This indicates an unexpected control flow issue.")
+                    self.logger.error(f"Reached end of storage logic without success for '{namespace}/{docname}' operation '{versioning.operation.value if versioning else 'unknown'}': {e}"
+                                     f" (Permission denied - check superuser privileges if using on_behalf_of_user_id)"
+                                     if hasattr(e, 'status_code') and e.status_code == 403 else
+                                     f"This indicates an unexpected control flow issue or prior logged failure.")
                     return False, None
 
             except Exception as e:
-                # Catch unexpected errors during service calls or logic
-                self.logger.error(f"Error storing document '{namespace}/{docname}' during operation '{versioning.operation.value}': {e}", exc_info=True)
+                # Catch unexpected errors during service calls or high-level logic
+                error_msg = f"Error storing document '{namespace}/{docname}' during operation '{versioning.operation.value if versioning else 'unknown'}': {e}"
+                # Check for permission errors specifically
+                if hasattr(e, 'status_code') and e.status_code == 403:
+                    error_msg += " (Permission denied - check superuser privileges if using on_behalf_of_user_id)"
+                self.logger.error(error_msg, exc_info=True)
                 return False, None
 
     async def process(

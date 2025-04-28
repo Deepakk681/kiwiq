@@ -13,6 +13,9 @@ from workflow_service.registry.nodes.data_ops.transform_node import (
     TransformerNode,
     DataJoinNode,
 )
+from workflow_service.registry.nodes.data_ops.merge_aggregate_node import (
+    MergeAggregateNode
+)
 from workflow_service.registry.nodes.core.map_list_router_node import (
     MapListRouterNode
 )
@@ -39,6 +42,7 @@ async def register_node_templates(db_registry: DBRegistry):
         # Data Ops
         TransformerNode,
         DataJoinNode,
+        MergeAggregateNode,
         # Customer / System Data
         LoadCustomerDataNode,
         StoreCustomerDataNode,

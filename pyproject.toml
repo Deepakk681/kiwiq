@@ -59,6 +59,7 @@ datamodel-code-generator = "^0.28.5"
 prefect = "^3.3.3"
 jsonschema = {extras = ["format-nongpl"], version = "^4.23.0"}
 jsonpatch = "^1.33"
+markitdown = {extras = ["docx", "pdf", "pptx", "xls", "xlsx"], version = "^0.1.1"}
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.1.0"

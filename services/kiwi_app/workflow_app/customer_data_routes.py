@@ -19,9 +19,12 @@ from kiwi_app.workflow_app.dependencies import (
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
 from kiwi_app.utils import get_kiwi_logger
 
+from kiwi_app.workflow_app.file_processing import upload_router
+
 customer_data_logger = get_kiwi_logger(name="kiwi_app.customer_data")
 # Create router
 customer_data_router = APIRouter(prefix="/customer-data", tags=["customer-data"])
+customer_data_router.include_router(upload_router)
 
 # --- Versioned document routes --- #
 
@@ -30,7 +33,8 @@ customer_data_router = APIRouter(prefix="/customer-data", tags=["customer-data"]
     response_model=schemas.CustomerDataRead,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Initialize a new versioned document",
-    description="Creates a new versioned document with optional schema validation and initial data."
+    description="Creates a new versioned document with optional schema validation and initial data.",
+    tags=["versioned-customer-data"],
 )
 async def initialize_versioned_document(
     data: schemas.CustomerDataVersionedInitialize,
@@ -86,7 +90,11 @@ async def initialize_versioned_document(
     response_model=schemas.CustomerDataRead,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Update a versioned document",
-    description="Updates a versioned document with new data."
+    description="""Updates a versioned document with new data. Notes: 
+    - For dictionary document types, updates are treated as partial updates
+    - Partial dictionaries will be merged with existing data
+    - The final dictionary will retain previous keys that are not explicitly overwritten""",
+    tags=["versioned-customer-data"],
 )
 async def update_versioned_document(
     data: schemas.CustomerDataVersionedUpdate,
@@ -135,7 +143,8 @@ async def update_versioned_document(
     response_model=schemas.CustomerDataRead,
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Get a versioned document",
-    description="Retrieves a versioned document."
+    description="Retrieves a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def get_versioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -168,7 +177,8 @@ async def get_versioned_document(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Delete a versioned document",
-    description="Deletes a versioned document and all its versions."
+    description="Deletes a versioned document and all its versions.",
+    tags=["versioned-customer-data"],
 )
 async def delete_versioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -200,7 +210,8 @@ async def delete_versioned_document(
     response_model=List[schemas.CustomerDataVersionInfo],
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="List versions of a document",
-    description="Lists all versions of a versioned document."
+    description="Lists all versions of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def list_versioned_document_versions(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -231,7 +242,8 @@ async def list_versioned_document_versions(
     response_model=schemas.CustomerDataVersionInfo,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Create a new version",
-    description="Creates a new version (branch) of a versioned document."
+    description="Creates a new version (branch) of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def create_versioned_document_version(
     data: schemas.CustomerDataCreateVersion,
@@ -284,7 +296,8 @@ async def create_versioned_document_version(
     response_model=schemas.CustomerDataVersionInfo,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Set active version",
-    description="Sets the active version of a versioned document."
+    description="Sets the active version of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def set_active_version(
     data: schemas.CustomerDataSetActiveVersion,
@@ -336,7 +349,8 @@ async def set_active_version(
     response_model=List[schemas.CustomerDataVersionHistoryItem],
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Get version history",
-    description="Gets the history of a versioned document."
+    description="Gets the history of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def get_version_history(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -371,7 +385,8 @@ async def get_version_history(
     response_model=schemas.CustomerDataRead,
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Preview restore",
-    description="Previews restoring a versioned document to a previous state."
+    description="Previews restoring a versioned document to a previous state.",
+    tags=["versioned-customer-data"],
 )
 async def preview_restore(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -406,7 +421,8 @@ async def preview_restore(
     response_model=schemas.CustomerDataRead,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Restore document",
-    description="Restores a versioned document to a previous state."
+    description="Restores a versioned document to a previous state.",
+    tags=["versioned-customer-data"],
 )
 async def restore_document(
     data: schemas.CustomerDataVersionedRestore,
@@ -450,7 +466,8 @@ async def restore_document(
     response_model=Dict[str, Any],
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Get document schema",
-    description="Gets the schema of a versioned document."
+    description="Gets the schema of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def get_versioned_document_schema(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -484,7 +501,8 @@ async def get_versioned_document_schema(
     response_model=Dict[str, Any],
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Update document schema",
-    description="Updates the schema of a versioned document."
+    description="Updates the schema of a versioned document.",
+    tags=["versioned-customer-data"],
 )
 async def update_versioned_document_schema(
     data: schemas.CustomerDataSchemaUpdate,
@@ -537,6 +555,90 @@ async def update_versioned_document_schema(
     customer_data_logger.info(f"Updated schema for document: {namespace}/{docname} for org {active_org_id}")
     return schema
 
+
+@customer_data_router.post(
+    "/versioned/{namespace}/{docname}/upsert",
+    response_model=schemas.CustomerDataVersionedUpsertResponse,
+    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
+    summary="Upsert a versioned document",
+    description=(
+        "Updates a versioned document if it exists, or initializes it if it doesn't. "
+        "This operation combines update and initialization logic.\n\n"
+        "**Behavior:**\n"
+        "- If the document at the path exists and is versioned:\n"
+        "  - Attempts to update the specified `version` (or the active version if `version` is null)."
+        "  - If the update targets a specific `version` that *doesn't* exist, it will first attempt to **create** that version (branching from `from_version` or active) and then apply the update."
+        "  - For dictionary document types, updates are treated as partial updates - the provided data will be merged with existing data, preserving any keys not explicitly overwritten."
+        "- If the document does not exist:\n"
+        "  - Initializes a new versioned document using the provided `data`. The initial version name will be the specified `version` (or 'default' if null)."
+        "- If a document exists at the path but is *unversioned*, the operation will fail.\n\n"
+        "**Schema Handling:**\n"
+        "- If `schema_template_name` is provided, the corresponding schema will be fetched and applied/validated during the update or initialization.\n\n"
+        "**Permissions:**\n"
+        "- Requires write permissions for the organization's customer data."
+        "- `is_system_entity=True` and `on_behalf_of_user_id` require superuser privileges."
+    ),
+    status_code=status.HTTP_200_OK, # Or 201 if we want to distinguish creation?
+                                   # Let's use 200 for simplicity, response indicates action.
+    tags=["versioned-customer-data"],
+)
+async def upsert_versioned_document_route(
+    data: schemas.CustomerDataVersionedUpsert,
+    namespace: str = Path(..., description="Namespace for the document"),
+    docname: str = Path(..., description="Name of the document"),
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_verified_user),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: CustomerDataService = Depends(get_customer_data_service_dependency),
+):
+    """Upsert a versioned document (create or update)."""
+    customer_data_logger.info(f"Upserting versioned document: {namespace}/{docname} for org {active_org_id}, target version: {data.version or 'active/default'}")
+
+    try:
+        operation_performed, document_identifier = await service.upsert_versioned_document(
+            db=db,
+            org_id=active_org_id,
+            namespace=namespace,
+            docname=docname,
+            is_shared=data.is_shared,
+            user=current_user,
+            data=data.data,
+            version=data.version,
+            from_version=data.from_version,
+            is_complete=data.is_complete,
+            schema_template_name=data.schema_template_name,
+            schema_template_version=data.schema_template_version,
+            # schema_definition=data.schema_definition, # Not exposing direct definition via API
+            on_behalf_of_user_id=data.on_behalf_of_user_id,
+            is_system_entity=data.is_system_entity,
+        )
+
+        customer_data_logger.info(f"Upsert successful for {namespace}/{docname}. Operation: {operation_performed}")
+
+        # Manually create the response object as the service returns a tuple
+        # The document_identifier dict from the service matches the schema
+        return schemas.CustomerDataVersionedUpsertResponse(
+            operation_performed=operation_performed,
+            document_identifier=schemas.CustomerDocumentIdentifier(**document_identifier)
+        )
+
+    except HTTPException as e:
+        # Re-raise known HTTP exceptions from the service
+        customer_data_logger.warning(f"Upsert failed for {namespace}/{docname} with status {e.status_code}: {e.detail}")
+        raise e
+    except ValueError as e:
+         # Catch potential ValueErrors (e.g., versioned client not configured)
+        customer_data_logger.error(f"Upsert failed for {namespace}/{docname} due to configuration error: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        # Catch any other unexpected errors
+        customer_data_logger.error(f"Unexpected error during upsert for {namespace}/{docname}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during the upsert operation: {str(e)}"
+        )
+
+
 # --- Unversioned document routes --- #
 
 @customer_data_router.put(
@@ -544,7 +646,8 @@ async def update_versioned_document_schema(
     response_model=schemas.CustomerDataUnversionedRead,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Create or update an unversioned document",
-    description="Creates or updates an unversioned document with new data."
+    description="Creates or updates an unversioned document with new data.",
+    tags=["unversioned-customer-data"],
 )
 async def create_or_update_unversioned_document(
     data: schemas.CustomerDataUnversionedCreateUpdate,
@@ -581,7 +684,8 @@ async def create_or_update_unversioned_document(
     response_model=schemas.CustomerDataUnversionedRead,
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Get an unversioned document",
-    description="Retrieves an unversioned document."
+    description="Retrieves an unversioned document.",
+    tags=["unversioned-customer-data"],
 )
 async def get_unversioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -612,7 +716,8 @@ async def get_unversioned_document(
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
     summary="Delete an unversioned document",
-    description="Deletes an unversioned document."
+    description="Deletes an unversioned document.",
+    tags=["unversioned-customer-data"],
 )
 async def delete_unversioned_document(
     namespace: str = Path(..., description="Namespace for the document"),
@@ -646,7 +751,8 @@ async def delete_unversioned_document(
     response_model=List[schemas.CustomerDocumentMetadata],
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="List documents",
-    description="Lists documents accessible to the user."
+    description="Lists documents accessible to the user.",
+    tags=["customer-data-listing"],
 )
 async def list_documents(
     namespace: Optional[str] = Query(None, description="Filter by namespace."),
@@ -689,7 +795,8 @@ async def list_documents(
     response_model=schemas.CustomerDocumentMetadata,
     dependencies=[Depends(RequireOrgDataReadActiveOrg)],
     summary="Get document metadata",
-    description="Gets metadata for a document by path."
+    description="Gets metadata for a document by path.",
+    tags=["customer-data-listing"],
 )
 async def get_document_metadata(
     namespace: str = Path(..., description="Namespace for the document"),

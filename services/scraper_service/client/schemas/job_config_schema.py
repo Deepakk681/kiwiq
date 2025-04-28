@@ -1,7 +1,8 @@
+import re
 import logging
 from enum import Enum
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, model_validator, Field
+from pydantic import BaseModel, model_validator, Field, HttpUrl
 from datetime import datetime
 
 from scraper_service.settings import rapid_api_settings
@@ -9,10 +10,12 @@ from scraper_service.settings import rapid_api_settings
 # Setup logger
 logger = logging.getLogger(__name__)
 
+
 class YesNoEnum(str, Enum):
     """Enum for simple yes/no choices."""
     YES = "yes"
     NO = "no"
+
 
 class JobTypeEnum(str, Enum):
     """Enum defining the types of scraping jobs supported."""
@@ -23,10 +26,12 @@ class JobTypeEnum(str, Enum):
     SEARCH_POST_BY_KEYWORD = "search_post_by_keyword"
     SEARCH_POST_BY_HASHTAG = "search_post_by_hashtag"
 
+
 class EntityTypeEnum(str, Enum):
     """Enum defining the type of LinkedIn entity (company or person)."""
     COMPANY = "company"
     PERSON = "person"
+
 
 class ScrapingRequest(BaseModel):
     """
@@ -84,6 +89,7 @@ class ScrapingRequest(BaseModel):
     search_post_by_hashtag: YesNoEnum = Field(default=YesNoEnum.NO, description="Search posts by hashtag?")
 
     # Input identifiers - required based on the job type
+    url: Optional[HttpUrl] = Field(default=None, description="URL of the profile/entity to scrape.")
     username: Optional[str] = Field(default=None, description="Username/Profile URL for profile/entity specific jobs.")
     keyword: Optional[str] = Field(default=None, description="Keyword for post search.")
     hashtag: Optional[str] = Field(default=None, description="Hashtag for post search (without '#').")
@@ -127,6 +133,43 @@ class ScrapingRequest(BaseModel):
         if not isinstance(data, dict):
             # Ensure data is a dictionary for further processing
             raise ValueError("Request data must be a dictionary.")
+
+        if data.get('url'):
+            url = HttpUrl(data['url'])
+            if data.get("username") or data.get("type"):
+                raise ValueError("'username' and 'type' cannot be provided if 'url' is provided.")
+            # Parse LinkedIn URLs to extract username and entity type using regex
+            if data.get('url'):
+                url_str = str(url)
+                logger.debug(f"Parsing LinkedIn URL: {url_str}")
+                
+                # Use regex to extract both entity type and username in a single pattern
+                # Pattern matches:
+                # - Group 1: Either "in" (person) or "company" (company)
+                # - Group 2: The username/company name that follows
+                linkedin_pattern = r"linkedin\.com/(?:(in|company))/([^/?#]+)"
+                match = re.search(linkedin_pattern, url_str)
+                
+                if match:
+                    entity_prefix = match.group(1)
+                    identifier = match.group(2).strip('/')
+                    
+                    if entity_prefix == "in":
+                        logger.info(f"Extracted person username '{identifier}' from URL")
+                        data['username'] = identifier
+                        data['type'] = EntityTypeEnum.PERSON.value
+                    elif entity_prefix == "company":
+                        logger.info(f"Extracted company name '{identifier}' from URL")
+                        data['username'] = identifier
+                        data['type'] = EntityTypeEnum.COMPANY.value
+                else:
+                    # URL doesn't match expected LinkedIn profile patterns
+                    logger.warning(f"URL {url_str} doesn't match expected LinkedIn profile patterns")
+                    raise ValueError(
+                        "Invalid LinkedIn URL format. Expected patterns: "
+                        "https://www.linkedin.com/in/username/ or "
+                        "https://www.linkedin.com/company/company-name/"
+                    )
 
         # Define the flags that represent distinct job types
         job_flags = {
@@ -212,3 +255,34 @@ class ScrapingRequest(BaseModel):
         # If all validations pass, return the original data dictionary
         # Pydantic will handle the rest of the type casting and model creation.
         return data
+
+
+# if __name__ == "__main__":
+#     import pprint
+#     data = {
+#         "job_type": "profile_info",
+#         "url": "https://www.linkedin.com/in/username/",
+#         "profile_info": "yes"
+#     }
+#     pprint.pprint(ScrapingRequest(**data).model_dump())
+
+#     data = {
+#         "job_type": "profile_info",
+#         "url": "https://www.linkedin.com/company/company-name/",
+#         "profile_info": "yes"
+#     }
+#     pprint.pprint(ScrapingRequest(**data).model_dump())
+
+#     data = {
+#         "job_type": "profile_info",
+#         "url": "https://www.linkedin.com/in/user-name",
+#         "profile_info": "yes"
+#     }
+#     pprint.pprint(ScrapingRequest(**data).model_dump())
+
+#     data = {
+#         "job_type": "profile_info",
+#         "url": "https://www.linkedin.com/company/company-name",
+#         "profile_info": "yes"
+#     }
+#     pprint.pprint(ScrapingRequest(**data).model_dump())

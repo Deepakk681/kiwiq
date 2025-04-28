@@ -61,6 +61,7 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             "post_limit": None,
             'hashtag': None,
             'keyword': None,
+            'url': None,
             "post_comments": YesNoEnum.NO.value,
             "comment_limit": rapid_api_settings.DEFAULT_COMMENT_LIMIT,
             "post_reactions": YesNoEnum.NO.value,
@@ -509,6 +510,138 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["jobs_triggered"], 1)
         self.assertEqual(summary["successful"], 1)
         self.assertEqual(summary["failed"], 0)
+
+    async def test_static_url_profile_info(self):
+        """Tests a single job definition using a static URL input for profile_info."""
+        input_data = {} # No dynamic input needed
+        test_url = "https://www.linkedin.com/in/static-url-user/"
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "static_url_profile",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "url": {"static_value": test_url},
+                    # profile_info flag will be set automatically based on job_type
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
+        output = await node.process(input_data=input_data)
+
+        # Assertions
+        self.assertIsInstance(output, LinkedInScrapingOutput)
+        self.assertIn("static_url_profile", output.scraping_results)
+        result_config = output.scraping_results["static_url_profile"]
+        self.assertIsInstance(result_config, dict)
+
+        # The ScrapingRequest validator extracts username and type from the URL
+        expected_config = {
+            "job_type": JobTypeEnum.PROFILE_INFO.value,
+            "url": test_url, # URL is passed through
+            "username": "static-url-user", # Extracted by validator
+            "type": EntityTypeEnum.PERSON.value, # Extracted by validator
+            "profile_info": YesNoEnum.YES.value, # Aligned by node
+            "entity_posts": YesNoEnum.NO.value,
+            "activity_comments": YesNoEnum.NO.value,
+            "activity_reactions": YesNoEnum.NO.value,
+            "search_post_by_keyword": YesNoEnum.NO.value,
+            "search_post_by_hashtag": YesNoEnum.NO.value,
+            "post_limit": None,
+            'hashtag': None,
+            'keyword': None,
+            "post_comments": YesNoEnum.NO.value,
+            "comment_limit": rapid_api_settings.DEFAULT_COMMENT_LIMIT,
+            "post_reactions": YesNoEnum.NO.value,
+            "reaction_limit": rapid_api_settings.DEFAULT_REACTION_LIMIT,
+        }
+        # Check specific extracted fields first for clarity
+        self.assertEqual(result_config.get("url"), test_url)
+        self.assertEqual(result_config.get("username"), "static-url-user")
+        self.assertEqual(result_config.get("type"), EntityTypeEnum.PERSON.value)
+        self.assertEqual(result_config.get("profile_info"), YesNoEnum.YES.value)
+        # Check the whole dictionary
+        self.assertDictEqual(result_config, expected_config)
+
+        summary = output.execution_summary["static_url_profile"]
+        self.assertEqual(summary["jobs_triggered"], 1)
+        self.assertEqual(summary["successful"], 1)
+        self.assertEqual(summary["failed"], 0)
+        self.assertEqual(len(summary["errors"]), 0)
+
+    async def test_dynamic_url_company_posts(self):
+        """Tests a job definition using a dynamic URL input for company posts."""
+        test_url = "https://www.linkedin.com/company/dynamic-url-comp/"
+        input_data = {
+            "target_profile_url": test_url,
+            "fetch_limit": 25
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "dynamic_url_posts",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "url": {"input_field_path": "target_profile_url"},
+                    "post_limit": {"input_field_path": "fetch_limit"},
+                    # entity_posts flag will be set automatically based on job_type
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
+        output = await node.process(input_data=input_data)
+
+        # Assertions
+        self.assertIn("dynamic_url_posts", output.scraping_results)
+        result_config = output.scraping_results["dynamic_url_posts"]
+        self.assertIsInstance(result_config, dict)
+
+        # Check specific extracted fields
+        self.assertEqual(result_config.get("url"), test_url)
+        self.assertEqual(result_config.get("username"), "dynamic-url-comp") # Extracted
+        self.assertEqual(result_config.get("type"), EntityTypeEnum.COMPANY.value) # Extracted
+        self.assertEqual(result_config.get("entity_posts"), YesNoEnum.YES.value) # Aligned
+        self.assertEqual(result_config.get("post_limit"), 25)
+
+        summary = output.execution_summary["dynamic_url_posts"]
+        self.assertEqual(summary["jobs_triggered"], 1)
+        self.assertEqual(summary["successful"], 1)
+        self.assertEqual(summary["failed"], 0)
+
+    async def test_validation_url_and_username_conflict(self):
+        """Tests validation failure when both URL and username are provided."""
+        input_data = {"profile_url": "https://www.linkedin.com/in/conflict-user/"}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "url_username_conflict",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "url": {"input_field_path": "profile_url"},
+                    "username": {"static_value": "explicit_username"}, # Conflict
+                    "type": {"static_value": EntityTypeEnum.PERSON.value}, # Conflict
+                    # profile_info flag aligned by node
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
+        output = await node.process(input_data=input_data)
+
+        # Assertions: Expecting validation error from ScrapingRequest
+        self.assertIn("url_username_conflict", output.scraping_results)
+        result = output.scraping_results["url_username_conflict"]
+        self.assertIsInstance(result, dict)
+        self.assertIn("error", result)
+        # Error comes from ScrapingRequest.model_validate called within the node
+        self.assertIn("Validation failed", result["error"])
+        self.assertIn("'username' and 'type' cannot be provided if 'url' is provided", result["error"])
+
+        summary = output.execution_summary["url_username_conflict"]
+        self.assertEqual(summary["jobs_triggered"], 0) # Validation fails before trigger count increments ideally
+        self.assertEqual(summary["successful"], 0)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(len(summary["errors"]), 1)
+        self.assertIn("Validation failed", summary["errors"][0])
 
 # Allow running the tests directly using python -m unittest path/to/test_file.py
 if __name__ == "__main__":
