@@ -88,7 +88,7 @@ class WorkflowGraphValidationResult(BaseModel):
     is_valid: bool = Field(..., description="Whether the graph is valid overall")
     graph_schema_valid: bool = Field(..., description="Whether the graph schema structure is valid")
     node_configs_valid: bool = Field(..., description="Whether all node configurations are valid")
-    errors: Dict[str, List[str]] = Field(default_factory=dict, description="Validation errors by category/node")
+    errors: Dict[str, Any] = Field(default_factory=dict, description="Validation errors by category/node")
 
 
 # --- WorkflowRun Schemas --- #
@@ -366,31 +366,42 @@ class SchemaTemplateListQuery(CommonListQuery):
     include_system: bool = Field(False, description="Include system templates.")
 
 
-class WorkflowSearchQuery(BaseModel):
+class SearchSortBy(str, Enum):
+    """Enum for sorting search results."""
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    SELF_OWNED_FIRST = "self_owned_first"
+
+
+class SortOrder(str, Enum):
+    """Enum for sorting order."""
+    ASC = "asc"
+    DESC = "desc"
+
+
+class BaseSearchQuery(BaseModel):
+    """Base query parameters for searching workflows, prompt templates, and schema templates."""
+    name: str = Field(..., description="Name of the Entity to search for")
+    include_public: bool = Field(True, description="Include public entities in the results")
+    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
+    include_public_system_entities: bool = Field(False, description="Include public system entities")
+    sort_by: SearchSortBy = Field(SearchSortBy.CREATED_AT, description="Field to sort by")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order ('asc' or 'desc'). Note: SELF_OWNED_FIRST sort order is always OWNED entities first.")
+
+
+class WorkflowSearchQuery(BaseSearchQuery):
     """Query parameters for searching workflows by name and version."""
-    name: str = Field(..., description="Name of the workflow to search for")
     version_tag: Optional[str] = Field(None, description="Optional version tag to filter by")
-    include_public: bool = Field(True, description="Include public workflows in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
-class PromptTemplateSearchQuery(BaseModel):
+class PromptTemplateSearchQuery(BaseSearchQuery):
     """Query parameters for searching prompt templates by name and version."""
-    name: str = Field(..., description="Name of the prompt template to search for")
     version: Optional[str] = Field(None, description="Optional version to filter by")
-    include_public: bool = Field(True, description="Include public templates in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
-class SchemaTemplateSearchQuery(BaseModel):
+class SchemaTemplateSearchQuery(BaseSearchQuery):
     """Query parameters for searching schema templates by name and version."""
-    name: str = Field(..., description="Name of the schema template to search for")
     version: Optional[str] = Field(None, description="Optional version to filter by")
-    include_public: bool = Field(True, description="Include public templates in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
 # --- Customer Data Schemas ---

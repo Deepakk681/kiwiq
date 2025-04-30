@@ -12,6 +12,31 @@ Also store the fetched user profile to central state
 
 ## Build workflow from scratch
 
+### Complex workflow: linkedin content analysis
+
+```
+Add the workflow with following stesp in file @test_linkedin_content_analysis_workflow.py  :
+
+1. Inputs: entity name
+2. Load posts using entity name and scraping namespace
+3. Optional: Posts filtering -> only get text content
+4. Extract upto 5 themes using all posts in context with LLM (you can use generated theme name to be theme ID potentially?)
+5. create batches of 10 posts each
+6. For each batch classify posts into the most relevant theme with LLM -> check above structure for classification
+7. Map each post to the most relevant theme to create theme groups; merge all batches together
+8. Analyze each theme group with LLM to create a detailed report for each group
+9. combine all reports together
+10. Store combined results
+
+@test_linkedin_scraping_workflow.py 
+@map_list_router_node.py 
+@test_sources_extraction_workflow.py 
+@transform_node.py 
+```
+
+
+### LInkedin Scraping workflow
+
 ```
 create a linkedin scraping workflow in file @linkedin_scraping_workflow.py  which given user/company's URL and entity name (name is not username) in input: 
 
@@ -33,39 +58,6 @@ NOTE: (only need json with same fields, pydantic is just for reference)
 
 ### Profile Schemas 
 ```
-class LinkedInProfileSchema(BaseSchema):
-    """LinkedIn profile data structure (scraped from LinkedIn)"""
-    full_name: str = Field(description="User's full name from LinkedIn")
-    headline: str = Field(description="LinkedIn headline")
-    location: str = Field(description="User's geographic location")
-    about: str = Field(description="About section content")
-    follower_count: str = Field(description="Number of followers")
-    phone: Optional[str] = Field(None, description="Contact phone number if available")
-    company: str = Field(description="Current company name")
-    company_description: str = Field(description="Description of current company")
-    company_industry: str = Field(description="Industry of current company")
-    experiences: List[ExperienceSchema] = Field(description="Work experience history")
-    educations: List[EducationSchema] = Field(description="Educational background")
-
-class ExperienceSchema(BaseSchema):
-    """Work experience entry from LinkedIn profile"""
-    title: str = Field(description="Job title")
-    company: str = Field(description="Company name")
-    company_id: Optional[str] = Field(None, description="LinkedIn company identifier")
-    company_linkedin_url: Optional[str] = Field(None, description="URL to company LinkedIn page")
-    company_logo_url: Optional[str] = Field(None, description="URL to company logo")
-    date_range: str = Field(description="Employment date range as string")
-    description: Optional[str] = Field(None, description="Job description")
-    duration: str = Field(description="Employment duration")
-    start_month: Optional[int] = Field(None, description="Start month")
-    start_year: int = Field(description="Start year")
-    end_month: Optional[int] = Field(None, description="End month if applicable")
-    end_year: Optional[int] = Field(None, description="End year if applicable")
-    is_current: bool = Field(description="Whether this is current position")
-    job_type: Optional[str] = Field(None, description="Type of employment (full-time, contract, etc.)")
-    location: Optional[str] = Field(None, description="Job location")
-    skills: Optional[str] = Field(None, description="Relevant skills")
-
 
 class EducationSchema(BaseSchema):
     """Education entry from LinkedIn profile"""
@@ -80,12 +72,7 @@ class EducationSchema(BaseSchema):
 ### Posts schema
 
 ```
-class LinkedInPostSchema(BaseSchema):
-    """LinkedIn post data structure (scraped from LinkedIn)"""
-    text: str = Field(description="Post content text")
-    posted_at_timestamp: str = Field(description="When the post was published (DD/MM/YYYY, HH:MM:SS)")
-    type: Literal["Image", "Video", "Text"] = Field(description="Type of LinkedIn post")
-    engagement_metrics: EngagementMetricsSchema = Field(description="Post engagement data")
+
     
 class EngagementMetricsSchema(BaseSchema):
     likes: Dict = Field(description="Number of different reaction types (LIKE, CELEBRATE, SUPPORT, LOVE, INSIGHTFUL, CURIOUS)")

@@ -944,7 +944,9 @@ class WorkflowService:
         include_public: bool = True,
         include_system_entities: bool = False,
         include_public_system_entities: bool = False,
-        user: User
+        user: User,
+        sort_by: schemas.SearchSortBy = schemas.SearchSortBy.CREATED_AT,
+        sort_order: schemas.SortOrder = schemas.SortOrder.DESC
     ) -> List[models.Workflow]:
         """
         Search for workflows by name and optional version_tag.
@@ -962,6 +964,8 @@ class WorkflowService:
             include_public: Whether to include public workflows
             include_system_entities: Whether to include system entities (superuser only)
             user: User performing the search
+            sort_by: Field to sort by
+            sort_order: Sort order ('asc' or 'desc')
             
         Returns:
             List of matching workflow objects
@@ -983,7 +987,9 @@ class WorkflowService:
             include_public=include_public,
             include_system_entities=include_system_entities,
             include_public_system_entities=include_public_system_entities,
-            is_superuser=user.is_superuser
+            is_superuser=user.is_superuser,
+            sort_by=sort_by,
+            sort_order=sort_order
         )
         
         return list(results)
@@ -998,7 +1004,9 @@ class WorkflowService:
         include_public: bool = True,
         include_system_entities: bool = False,
         include_public_system_entities: bool = False,
-        user: User
+        user: User,
+        sort_by: schemas.SearchSortBy = schemas.SearchSortBy.CREATED_AT,
+        sort_order: schemas.SortOrder = schemas.SortOrder.DESC
     ) -> List[models.PromptTemplate]:
         """
         Search for prompt templates by name and optional version.
@@ -1017,6 +1025,8 @@ class WorkflowService:
             include_system_entities: Whether to include system entities (superuser only)
             include_public_system_entities: Whether to include public system entities (superuser only)
             user: User performing the search
+            sort_by: Field to sort by
+            sort_order: Sort order ('asc' or 'desc')
             
         Returns:
             List of matching prompt template objects
@@ -1038,7 +1048,9 @@ class WorkflowService:
             include_public=include_public,
             include_system_entities=include_system_entities,
             include_public_system_entities=include_public_system_entities,
-            is_superuser=user.is_superuser
+            is_superuser=user.is_superuser,
+            sort_by=sort_by,
+            sort_order=sort_order
         )
         
         return list(results)
@@ -1053,7 +1065,9 @@ class WorkflowService:
         include_public: bool = True,
         include_system_entities: bool = False,
         include_public_system_entities: bool = False,
-        user: User
+        user: User,
+        sort_by: schemas.SearchSortBy = schemas.SearchSortBy.CREATED_AT,
+        sort_order: schemas.SortOrder = schemas.SortOrder.DESC
     ) -> List[models.SchemaTemplate]:
         """
         Search for schema templates by name and optional version.
@@ -1072,6 +1086,8 @@ class WorkflowService:
             include_system_entities: Whether to include system entities (superuser only)
             include_public_system_entities: Whether to include public system entities (superuser only)
             user: User performing the search
+            sort_by: Field to sort by
+            sort_order: Sort order ('asc' or 'desc')
             
         Returns:
             List of matching schema template objects
@@ -1093,7 +1109,9 @@ class WorkflowService:
             include_public=include_public,
             include_system_entities=include_system_entities,
             include_public_system_entities=include_public_system_entities,
-            is_superuser=user.is_superuser
+            is_superuser=user.is_superuser,
+            sort_by=sort_by,
+            sort_order=sort_order
         )
         
         return list(results)

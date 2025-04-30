@@ -27,13 +27,14 @@ DEFAULT_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
 DEFAULT_BACKUP_COUNT: int = 5
 
 
-def get_prefect_or_regular_python_logger(name: str) -> logging.Logger:
+def get_prefect_or_regular_python_logger(name: str, log_level: int = global_settings.LOG_LEVEL) -> logging.Logger:
     """
     Returns the appropriate logger based on the environment.
     """
     from prefect.logging import get_run_logger
     try:
         logger = get_run_logger()
+        logger.setLevel(log_level)
         return logger
     except MissingContextError:
         return get_logger(name)

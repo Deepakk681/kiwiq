@@ -721,7 +721,8 @@ class PromptConstructorNode(BaseDynamicNode):
 
         # Use string formatting to replace placeholders with variable values
         try:
-            return template.format(**variables)
+            # NOTE: this assumes that no complex / nested access is required for dict/list variables within the prompt!
+            return template.format(**{k: (json.dumps(v) if isinstance(v, (dict, list)) else v) for k, v in variables.items()})
         except KeyError as e:
             # This should theoretically be caught by the missing_vars check above, but keep as a safeguard.
              raise ValueError(f"Template formatting failed. Missing key: {e}. Placeholders: {placeholders}, Provided: {list(variables.keys())}") from e

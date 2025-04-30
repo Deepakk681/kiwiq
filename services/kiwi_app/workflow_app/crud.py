@@ -70,7 +70,9 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         include_public: bool = True,
         include_system_entities: bool = False,
         include_public_system_entities: bool = False,
-        is_superuser: bool = False
+        is_superuser: bool = False,
+        sort_by: schemas.SearchSortBy = schemas.SearchSortBy.CREATED_AT,
+        sort_order: schemas.SortOrder = schemas.SortOrder.DESC
     ) -> Sequence[ModelType]:
         """
         Generic method to search for templates/entities by name and optional version.
@@ -91,7 +93,8 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             include_public: Whether to include public entities
             include_system_entities: Whether to include system entities (only applies for superusers)
             is_superuser: Whether the user is a superuser (controls system entity access)
-            
+            sort_by: Field to sort by
+            sort_order: Sort order ('asc' or 'desc')
         Returns:
             List of matching entity objects
         """
@@ -116,11 +119,24 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         if include_system_entities and is_superuser and hasattr(self.model, "is_system_entity"):
             or_conditions.append(self.model.is_system_entity == True)
         
+        # Add sort order if provided
+        if sort_by and sort_by != schemas.SearchSortBy.SELF_OWNED_FIRST:
+            if sort_order == schemas.SortOrder.ASC:
+                stmt = stmt.order_by(getattr(self.model, sort_by.value))
+            else:
+                stmt = stmt.order_by(getattr(self.model, sort_by.value).desc())
+        
         stmt = stmt.where(or_(*or_conditions))
         
         # Execute query
         result = await db.execute(stmt)
         response = result.scalars().all()
+
+        if sort_by == schemas.SearchSortBy.SELF_OWNED_FIRST:
+            owned = [obj for obj in response if obj.owner_org_id == owner_org_id]
+            not_owned = [obj for obj in response if obj.owner_org_id != owner_org_id]
+            response = owned + not_owned
+
         # crud_logger.info(f"Found {len(response)} {self.model.__name__}s")
         return response
 

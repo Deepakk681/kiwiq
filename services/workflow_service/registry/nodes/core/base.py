@@ -17,6 +17,8 @@ from workflow_service.utils.utils import get_central_state_field_key, is_dynamic
 
 from kiwi_app.workflow_app.constants import LaunchStatus
 
+from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME
+
 # Define type variables for input, output, and config schemas
 InputSchemaT = TypeVar('InputSchemaT', bound=BaseSchema)
 OutputSchemaT = TypeVar('OutputSchemaT', bound=BaseSchema)
@@ -102,6 +104,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     #   Useful for map/reduce or branching patterns or maintaining private states
     private_input_mode: bool = False
     private_output_mode: bool = False
+    output_private_output_to_central_state: bool = False
 
     class Config:
         arbitrary_types_allowed = True # Allow non-pydantic types like clients, etc!
@@ -272,6 +275,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         #         if field_info.is_required() and any(p == False for p in parents_run_status.values()):
         #             print(f"fname: {fname} is required but not found in input_dict: {input_dict}")
         #             return None
+        # if self.private_input_mode:
+        #     self.warning(f"{self.node_id} --> {self.node_name} private input mode is enabled! input_dict: {input_dict} from state: {json.dumps(state, indent=4)}")
         if not build_input_schema_obj:
             return input_dict
 
@@ -288,7 +293,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         output_schema = self.__class__.output_schema_cls
         if output_schema and isinstance(output_data, output_schema):
             # We will let node outputs be outputed even in private input mode for debugging purpsoes by adding collect values reducer for node output keys!
-            if not self.private_input_mode:
+            if (not self.private_input_mode) or self.output_private_output_to_central_state:
                 state_update = {get_node_output_state_key(self.node_id): output_data}
         
             # Ensure that this node is configured to send outputs to the global central state
@@ -403,6 +408,13 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             # , db_obj=obj
             ######
 
+            central_state_data = {
+                field_name: value 
+                for field_name, value in state.items() 
+                if field_name.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)
+            }
+            kwargs["central_state_data"] = central_state_data
+
             # Process the input data
             if self.prefect_mode:
                 output_data = await task(name=f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", cache_policy=NO_CACHE)(self.process)(input_data, config, *args, **kwargs)
@@ -431,6 +443,11 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             if (isinstance(output_data, dict) or isinstance(output_data, BaseSchema)) and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
                 # assume this is standard state_update and not Command / Send / Interrupts for eg
                 configurable = config.get("configurable", {})
+                # central_state_data = {
+                #     field_name: value 
+                #     for field_name, value in state.items() 
+                #     if field_name.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)
+                # }
                 if self.private_output_mode:
                     # update central state with private output!
                     output_to_nodes = {}
@@ -446,6 +463,14 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                             # Set the destination field in output_data
                             if src_value is not None:
                                 output_to_node[mapping.dst_field] = src_value
+                        
+                        # Central state hack!
+                        # TODO: FIXME
+                        if (not isinstance(output_to_node, dict)) and central_state_data:
+                            self.warning(f"Output to node is not a dict in {self.node_id}. Creating a dict with 'data' key to wrap object and adding central state data directly.")
+                            output_to_node = {"data": output_to_node}
+                        output_to_node.update(central_state_data)
+
                         output_to_nodes[out_node_id] = output_to_node
                     # Ignore any other state update apart from a dictionary, potentialy ignore Command / Send / Interrupt!
                     state_update = state_update if isinstance(state_update, dict) else None

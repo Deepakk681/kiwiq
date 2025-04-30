@@ -189,6 +189,7 @@ class SingleFieldOperationType(str, Enum):
     DIVIDE = "divide"               # Divide the final value by an operand
     ADD = "add"                     # Add an operand to the final value
     SUBTRACT = "subtract"           # Subtract an operand from the final value
+    RECURSIVE_FLATTEN_LIST = "recursive_flatten_list"   # Flatten nested lists into a single-level list
 
 # --- Configuration Schemas (Forward declaration for type hints) ---
 class SingleFieldTransformationSchema(BaseModel):
@@ -353,14 +354,16 @@ def _nested_merge(left_data: Any, right_data: Any, mode: DictMergeMode) -> Any:
 
 # --- Reducer Implementations ---
 
-def _reduce_replace_right(left_val: Any, right_val: Any) -> Any:
+def _reduce_replace_right(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
     return right_val
 
-def _reduce_replace_left(left_val: Any, right_val: Any) -> Any:
+def _reduce_replace_left(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     return left_val
 
-def _reduce_append(left_val: Any, right_val: Any) -> Any:
+def _reduce_append(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
     logger = get_prefect_or_regular_python_logger(f"{__name__}")
+    if is_init: return right_val
     if isinstance(left_val, list):
         new_list = copy.copy(left_val)
         new_list.append(right_val)
@@ -369,7 +372,8 @@ def _reduce_append(left_val: Any, right_val: Any) -> Any:
         logger.warning(f"Warning: APPEND reducer called with non-list left value ({type(left_val).__name__}). Creating new list.")
         return [left_val, right_val]
 
-def _reduce_extend(left_val: Any, right_val: Any) -> Any:
+def _reduce_extend(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     if isinstance(left_val, list) and isinstance(right_val, list):
         new_list = copy.copy(left_val)
         new_list.extend(right_val)
@@ -377,10 +381,12 @@ def _reduce_extend(left_val: Any, right_val: Any) -> Any:
     else:
         raise TypeError(f"EXTEND reducer requires both values to be lists. Got {type(left_val).__name__} and {type(right_val).__name__}.")
 
-def _reduce_combine_in_list(left_val: Any, right_val: Any) -> Any:
+def _reduce_combine_in_list(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    # print(f"\n\ncombine_in_list: left_val={left_val}, right_val={right_val}, is_init={is_init}\n\n")
+    if is_init: return [right_val]
     if (not left_val) or (not right_val):
         ret_val = left_val or right_val
-        return ret_val if isinstance(ret_val, list) and ret_val else [ret_val]
+        return [ret_val] if right_val else ret_val
     
     if isinstance(left_val, list):
         new_list = copy.copy(left_val)
@@ -389,39 +395,46 @@ def _reduce_combine_in_list(left_val: Any, right_val: Any) -> Any:
     else:
         return [left_val, right_val]
 
-def _reduce_sum(left_val: Any, right_val: Any) -> Any:
+def _reduce_sum(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     if isinstance(left_val, numbers.Number) and isinstance(right_val, numbers.Number):
         return left_val + right_val
     else:
         raise TypeError(f"SUM reducer requires both values to be numeric. Got {type(left_val).__name__} and {type(right_val).__name__}.")
 
-def _reduce_min(left_val: Any, right_val: Any) -> Any:
+def _reduce_min(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     try: return min(left_val, right_val)
     except TypeError: raise TypeError(f"MIN reducer requires comparable types. Got {type(left_val).__name__} and {type(right_val).__name__}.")
 
-def _reduce_max(left_val: Any, right_val: Any) -> Any:
+def _reduce_max(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     try: return max(left_val, right_val)
     except TypeError: raise TypeError(f"MAX reducer requires comparable types. Got {type(left_val).__name__} and {type(right_val).__name__}.")
 
-def _reduce_simple_merge_replace(left_val: Any, right_val: Any) -> Any:
+def _reduce_simple_merge_replace(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     if not isinstance(left_val, dict) or not isinstance(right_val, dict):
         raise TypeError(f"SIMPLE_MERGE_REPLACE requires dict inputs. Got {type(left_val)}, {type(right_val)}")
     # Deep copy left to avoid modifying it if it came from a previous step within the *same* merge sequence
     merged = _simple_merge(copy.deepcopy(left_val), right_val, mode=DictMergeMode.REPLACE)
     return merged
 
-def _reduce_simple_merge_aggregate(left_val: Any, right_val: Any) -> Any:
+def _reduce_simple_merge_aggregate(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     if not isinstance(left_val, dict) or not isinstance(right_val, dict):
         raise TypeError(f"SIMPLE_MERGE_AGGREGATE requires dict inputs. Got {type(left_val)}, {type(right_val)}")
     merged = _simple_merge(copy.deepcopy(left_val), right_val, mode=DictMergeMode.AGGREGATE)
     return merged
 
-def _reduce_nested_merge_replace(left_val: Any, right_val: Any) -> Any:
+def _reduce_nested_merge_replace(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     # Nested merge handles non-dict types gracefully in its logic
     merged = _nested_merge(left_val, right_val, mode=DictMergeMode.REPLACE)
     return merged
 
-def _reduce_nested_merge_aggregate(left_val: Any, right_val: Any) -> Any:
+def _reduce_nested_merge_aggregate(left_val: Any, right_val: Any, is_init: bool=False) -> Any:
+    if is_init: return right_val
     merged = _nested_merge(left_val, right_val, mode=DictMergeMode.AGGREGATE)
     return merged
 
@@ -450,6 +463,44 @@ def _transform_average(current_value: Any, config: SingleFieldTransformationSche
     if not isinstance(current_value, numbers.Number):
         raise TypeError(f"Cannot calculate average. Value is not numeric ({type(current_value).__name__}).")
     return current_value / count
+
+def _transform_recursive_flatten_list(current_value: Any, config: SingleFieldTransformationSchema, count: Optional[int]) -> Any:
+    """
+    Transformation: Flatten nested lists into a single-level list.
+    
+    This transformation recursively flattens nested lists while preserving non-list elements.
+    For example:
+    - [1, [2, 3], [[4, 5], 6]] becomes [1, 2, 3, 4, 5, 6]
+    - [1, {'a': [2, 3]}, [4, 5]] becomes [1, {'a': [2, 3]}, 4, 5]
+    
+    Args:
+        current_value: The value to flatten, expected to be a list
+        config: Configuration parameters for the transformation
+        count: Optional count of items (not used in this transformation)
+        
+    Returns:
+        A flattened list containing all non-list elements from the original structure
+        
+    Raises:
+        TypeError: If the input value is not a list
+    """
+    if not isinstance(current_value, list):
+        raise TypeError(f"FLATTEN_LIST requires a list input. Got {type(current_value).__name__}.")
+    
+    result = []
+    
+    def _flatten(items):
+        for item in items:
+            if isinstance(item, list):
+                # Recursively flatten nested lists
+                _flatten(item)
+            else:
+                # Append non-list items directly
+                result.append(item)
+    
+    _flatten(current_value)
+    return result
+
 
 def _transform_multiply(current_value: Any, config: SingleFieldTransformationSchema, count: Optional[int]) -> Any:
     """Transformation: Multiply value by operand."""
@@ -483,6 +534,7 @@ def _transform_subtract(current_value: Any, config: SingleFieldTransformationSch
 
 # Map enum values to transformation functions
 TRANSFORMATION_FUNCTIONS: Dict[SingleFieldOperationType, TransformationFunc] = {
+    SingleFieldOperationType.RECURSIVE_FLATTEN_LIST: _transform_recursive_flatten_list,
     SingleFieldOperationType.AVERAGE: _transform_average,
     SingleFieldOperationType.MULTIPLY: _transform_multiply,
     SingleFieldOperationType.DIVIDE: _transform_divide,
@@ -612,6 +664,12 @@ class MergeOperationConfigSchema(BaseSchema):
                     "Order defines priority (left-to-right)."
     )
     merge_strategy: MergeStrategySchema = Field(default_factory=MergeStrategySchema)
+    merge_each_object_in_selected_list: bool = Field(
+        default=True,
+        description="If True (default), lists found at select_paths will be iterated, and each dictionary element within them will be treated as a separate object to merge. "
+                    "If False, lists found at select_paths will be treated as single, atomic values to be merged using the default reducer, along with any other non-dictionary values found. "
+                    "When False, all selected items for this operation *must* be non-dictionary types (an error will be raised otherwise)."
+    )
 
     @field_validator('output_field_name')
     def output_field_must_not_be_empty(cls, v: str) -> str:
@@ -831,7 +889,12 @@ class MergeAggregateNode(BaseDynamicNode):
 
 
     async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> MergeObjectsOutputSchema:
-        """Processes input data by performing sequential merge operations."""
+        """
+        Processes input data by performing sequential merge operations.
+
+        Handles both merging dictionaries (with optional flattening of lists based on config) 
+        and merging non-dictionary values using a specified default reducer.
+        """
         prepared_input = self._prepare_input_data(input_data)
         final_output_data: Dict[str, Any] = {}
         if not prepared_input: return MergeObjectsOutputSchema(merged_data={})
@@ -839,83 +902,208 @@ class MergeAggregateNode(BaseDynamicNode):
         try:
             active_config = self.config
             for operation_index, operation in enumerate(active_config.operations):
-                output_field, select_paths, strategy = operation.output_field_name, operation.select_paths, operation.merge_strategy
+                output_field = operation.output_field_name
+                select_paths = operation.select_paths
+                strategy = operation.merge_strategy
+                merge_each_item = operation.merge_each_object_in_selected_list
                 merged_counts_for_op: Dict[str, int] = {} # Tracks contributions per destination key
 
-                # --- 1. Select and Flatten Objects ---
-                objects_to_merge: List[Dict[str, Any]] = []
                 self.info(f"Processing merge operation #{operation_index + 1} for output field: '{output_field}'")
+                self.info(f"  - merge_each_object_in_selected_list: {merge_each_item}")
+
+                # --- 1. Select Data --- 
+                # Collect raw selected items first, handling list flattening based on the flag.
+                selected_items: List[Any] = [] 
                 for path in select_paths:
                     selected_data, found = _get_nested_obj(prepared_input, path)
                     items_added = 0
-
                     if found:
-                        if isinstance(selected_data, list):
-                            for item in selected_data:
-                                if isinstance(item, dict): objects_to_merge.append(copy.deepcopy(item)); items_added += 1
-                                else: self.warning(f"  Warning: Item in list from path '{path}' is not a dict. Skipping.")
-                        elif isinstance(selected_data, dict): objects_to_merge.append(copy.deepcopy(selected_data)); items_added = 1
-                        else: self.warning(f"  Warning: Path '{path}' is not list/dict. Skipping.")
-                        if items_added > 0: self.info(f"  - Selected {items_added} object(s) from path: '{path}'")
-                    else: self.warning(f"  Warning: Select path '{path}' not found. Skipping.")
+                        if merge_each_item:
+                            # Flatten lists if flag is True, only taking dicts
+                            if isinstance(selected_data, list):
+                                for item in selected_data:
+                                    if isinstance(item, dict):
+                                        selected_items.append(copy.deepcopy(item))
+                                        items_added += 1
+                                    else:
+                                        self.warning(f"  Warning: Item in list from path '{path}' is not a dict (found {type(item).__name__}). Skipping item.")
+                            elif isinstance(selected_data, dict):
+                                selected_items.append(copy.deepcopy(selected_data))
+                                items_added = 1
+                            else:
+                                self.warning(f"  Warning: Path '{path}' yielded a non-dict/non-list type ({type(selected_data).__name__}) when merge_each_object_in_selected_list is True. Skipping path.")
+                        else:
+                            # Take the item as is if flag is False
+                            selected_items.append(copy.deepcopy(selected_data))
+                            items_added = 1 # Treat the whole list/item as one selected item
 
-                # --- 2. Perform Sequential Merge ---
-                merged_result = {} # Initialize with an empty dictionary
+                        if items_added > 0:
+                            self.info(f"  - Selected {items_added} item(s) from path: '{path}'")
+                    else:
+                        self.warning(f"  Warning: Select path '{path}' not found. Skipping.")
 
-                if not objects_to_merge:
-                    self.warning(f"Warning: No objects to merge for '{output_field}'. Setting to empty dict.")
-                    final_output_data[output_field] = {}
-                    continue
+                # --- 2. Determine Merge Type and Perform Merge --- 
+                merged_result: Any = None
+                is_merging_dicts = False
 
-                # Initialize counts based on the structure expected *after* mapping the first object.
-                # This is complex. Let's simplify: the _merge_two_objects call will initialize counts
-                # when a key is first added (merged_counts[dest_key] = 1).
+                if not selected_items:
+                    self.warning(f"Warning: No items selected for merge operation '{output_field}'. Setting output to None.")
+                    final_output_data[output_field] = None
+                    continue # Skip to the next operation
 
-                # Merge ALL objects sequentially into the initially empty merged_result
-                for i, obj_to_merge in enumerate(objects_to_merge):
-                    self.info(f"  - Merging object {i+1}...")
-                    # The first object is merged into the empty dict, applying mapping rules.
-                    # Subsequent objects are merged into the result of the previous merge.
-                    merged_result = self._merge_two_objects(merged_result, obj_to_merge, strategy, merged_counts_for_op)
+                # Decide if merging dictionaries or non-dictionaries
+                if not merge_each_item:
+                    # If flag is False, all items *must* be non-dict
+                    contains_dict = any(isinstance(item, dict) for item in selected_items)
+                    if contains_dict:
+                        raise TypeError(f"Configuration error for operation '{output_field}': 'merge_each_object_in_selected_list' is False, but a dictionary was found in the selected items. Cannot mix dictionary and non-dictionary types in this mode.")
+                    is_merging_dicts = False
+                else:
+                    # If flag is True, we expect dictionaries (due to filtering during selection)
+                    # Even if somehow a non-dict slipped through, we treat it as a dictionary merge path, 
+                    # where _merge_two_objects might handle it or raise errors.
+                    is_merging_dicts = True
 
+                # --- 2.a Merge Non-Dictionary Items --- 
+                if not is_merging_dicts:
+                    self.info(f"  - Performing non-dictionary merge using default reducer: {strategy.reduce_phase.default_reducer.value}")
+                    merged_result = selected_items[0]
+                    # Keep track of how many items were successfully reduced for potential AVERAGE transform
+                    items_successfully_reduced = 1 if merged_result is not None else 0
+                    
+                    # Get the default reducer function
+                    reducer_type = strategy.reduce_phase.default_reducer
+                    reducer_func = REDUCER_FUNCTIONS.get(reducer_type)
+                    # init:
+                    merged_result = reducer_func(None, merged_result, is_init=True)
+                    if not reducer_func:
+                        raise ValueError(f"Default reducer '{reducer_type.value}' not found.")
 
-                # --- 3. Apply Post-Merge Transformations ---
+                    for i, item in enumerate(selected_items[1:], start=1):
+                        self.info(f"  - Reducing item {i+1}...")
+                        try:
+                            # Apply the default reducer sequentially
+                            merged_result = reducer_func(merged_result, item)
+                            items_successfully_reduced += 1
+                        except Exception as e:
+                            # Use reduction error handling. Note: dest_key is less relevant here.
+                            merged_result = self._handle_reduction_error(e, strategy.reduce_phase.error_strategy, f"{output_field} (non-dict reduction)", merged_result, item)
+                            if strategy.reduce_phase.error_strategy == ErrorHandlingStrategy.FAIL_NODE: 
+                                raise # Re-raise if FAIL_NODE strategy caused _handle_reduction_error to raise
+                    
+                    # Set a generic count for potential AVERAGE transformation
+                    # Use the number of successfully reduced items.
+                    # If the final result is not numeric, AVERAGE will fail later anyway.
+                    if items_successfully_reduced > 0:
+                        merged_counts_for_op[output_field] = items_successfully_reduced
+
+                # --- 2.b Merge Dictionary Items --- 
+                else: # is_merging_dicts is True
+                    self.info(f"  - Performing dictionary merge...")
+                    merged_result = {} # Start with an empty dict
+                    
+                    # Ensure all items are dictionaries before proceeding
+                    # This should be guaranteed by the selection logic when merge_each_item is True
+                    dict_items_to_merge = [item for item in selected_items if isinstance(item, dict)]
+                    if len(dict_items_to_merge) != len(selected_items):
+                        self.warning(f"  Warning: Found non-dictionary items during dictionary merge phase for '{output_field}'. These items will be skipped.")
+                        # Note: This case should ideally not happen if selection logic is correct
+                    
+                    if not dict_items_to_merge:
+                        self.warning(f"Warning: No valid dictionary objects to merge for '{output_field}'. Setting output to empty dict.")
+                        final_output_data[output_field] = {}
+                        continue
+                        
+                    # Merge ALL dictionary objects sequentially into the initially empty merged_result
+                    for i, obj_to_merge in enumerate(dict_items_to_merge):
+                        self.info(f"  - Merging object {i+1}...")
+                        # The first object is merged into the empty dict, applying mapping rules.
+                        # Subsequent objects are merged into the result of the previous merge.
+                        # merged_counts_for_op is updated within _merge_two_objects
+                        merged_result = self._merge_two_objects(merged_result, obj_to_merge, strategy, merged_counts_for_op)
+
+                # --- 3. Apply Post-Merge Transformations --- 
                 if strategy.post_merge_transformations:
                     self.info(f"  - Applying post-merge transformations for '{output_field}'...")
-                    for dest_key, transform_config in strategy.post_merge_transformations.items():
-                        current_value, found_val = _get_nested_obj(merged_result, dest_key)
-                        if not found_val:
-                            self.warning(f"    Warning: Cannot transform '{dest_key}'. Key not found.")
-                            continue
+                    
+                    if is_merging_dicts:
+                        # Apply transforms to specific keys within the merged dictionary
+                        for dest_key, transform_config in strategy.post_merge_transformations.items():
+                            current_value, found_val = _get_nested_obj(merged_result, dest_key)
+                            if not found_val:
+                                self.warning(f"    Warning: Cannot transform '{dest_key}'. Key not found in merged dictionary.")
+                                continue
+                            
+                            transform_func = TRANSFORMATION_FUNCTIONS.get(transform_config.operation_type)
+                            if transform_func:
+                                final_value = None
+                                try:
+                                    # Get count for AVERAGE if needed, based on dictionary merge counts
+                                    count_for_avg = merged_counts_for_op.get(dest_key) if transform_config.operation_type == SingleFieldOperationType.AVERAGE else None
+                                    final_value = transform_func(current_value, transform_config, count_for_avg)
+                                    self.info(f"    - Applied {transform_config.operation_type.value} to '{dest_key}' -> {final_value}")
+                                except Exception as e:
+                                    final_value = self._handle_transformation_error(e, strategy.transformation_error_strategy, dest_key, current_value)
+                                    if strategy.transformation_error_strategy == ErrorHandlingStrategy.FAIL_NODE:
+                                        raise # Re-raise if handler raised
+                                
+                                try: 
+                                    _set_nested_obj(merged_result, dest_key, final_value, create_missing=False) # Don't create missing during transform
+                                except TypeError as e_set: 
+                                    self.warning(f"    Error setting key '{dest_key}' after transform: {e_set}.")
+                            else:
+                                self.warning(f"    Warning: Unknown transformation type '{transform_config.operation_type}'. Skipping for key '{dest_key}'.")
+                                
+                    else: # Apply transforms directly to the non-dictionary merged_result
+                        # We assume only one transformation can apply to the single output value.
+                        # Take the first transformation defined (or warn if multiple are defined for non-dict merge)
+                        if len(strategy.post_merge_transformations) > 1:
+                            self.warning(f"  Warning: Multiple post-merge transformations defined for non-dictionary output '{output_field}'. Only the first one found will be applied.")
+                        
+                        # Use .items() and next() to get the first one without knowing the key
+                        first_transform_item = next(iter(strategy.post_merge_transformations.items()), None)
 
-                        transform_func = TRANSFORMATION_FUNCTIONS.get(transform_config.operation_type)
-                        if transform_func:
-                             final_value, should_fail_node = None, False
-                             try:
-                                 count_for_avg = merged_counts_for_op.get(dest_key) if transform_config.operation_type == SingleFieldOperationType.AVERAGE else None
-                                 final_value = transform_func(current_value, transform_config, count_for_avg)
-                                 self.info(f"    - Applied {transform_config.operation_type.value} to '{dest_key}' -> {final_value}")
-                             except Exception as e:
-                                 # If FAIL_NODE is strategy, _handle_transformation_error will raise, exiting this function.
-                                 # Otherwise, it returns the value to use.
-                                 final_value = self._handle_transformation_error(e, strategy.transformation_error_strategy, dest_key, current_value)
+                        if first_transform_item:
+                            transform_key, transform_config = first_transform_item # Key is ignored here, config is used
+                            current_value = merged_result # The result is the value itself
+                            transform_func = TRANSFORMATION_FUNCTIONS.get(transform_config.operation_type)
+                            
+                            if transform_func:
+                                final_value = None
+                                try:
+                                    # Get count for AVERAGE if needed, using the count from the non-dict reduction
+                                    count_for_avg = merged_counts_for_op.get(output_field) if transform_config.operation_type == SingleFieldOperationType.AVERAGE else None
+                                    final_value = transform_func(current_value, transform_config, count_for_avg)
+                                    self.info(f"    - Applied {transform_config.operation_type.value} to final non-dictionary result -> {final_value}")
+                                    merged_result = final_value # Update the final result directly
+                                except Exception as e:
+                                    merged_result = self._handle_transformation_error(e, strategy.transformation_error_strategy, output_field, current_value)
+                                    if strategy.transformation_error_strategy == ErrorHandlingStrategy.FAIL_NODE:
+                                        raise # Re-raise if handler raised
+                            else:
+                                self.warning(f"    Warning: Unknown transformation type '{transform_config.operation_type}' specified for non-dictionary output '{output_field}'. Skipping transformation.")
+                        elif strategy.post_merge_transformations: # If dict is not empty but next returned None (shouldn't happen)
+                             self.warning(f"    Warning: Could not retrieve transformation config for non-dictionary output '{output_field}'. Skipping transformations.")
 
-                             try: _set_nested_obj(merged_result, dest_key, final_value, create_missing=False) # Don't create missing during transform
-                             except TypeError as e_set: self.warning(f"    Error setting key '{dest_key}' after transform error: {e_set}.")
-                        else:
-                            self.warning(f"    Warning: Unknown transformation type '{transform_config.operation_type}'. Skipping.")
 
-                # Store final result
+                # Store final result for this operation
                 final_output_data[output_field] = merged_result
                 self.info(f"  - Finished processing for '{output_field}'.")
 
             return MergeObjectsOutputSchema(merged_data=final_output_data)
 
         except ValidationError as e:
-            self.error(f"Error: Config validation failed: {e}"); return MergeObjectsOutputSchema(merged_data={})
+            self.error(f"Error: Config validation failed: {e}"); 
+            return MergeObjectsOutputSchema(merged_data={})
+        except TypeError as e: # Catch specific type errors like mixing dicts/non-dicts
+            self.error(f"Error processing node: {e}"); 
+            traceback.print_exc(); 
+            # TODO: FIXME: Log error and potentially fail node and not silently pass through error??
+            return MergeObjectsOutputSchema(merged_data={})
         # Specific exceptions raised by FAIL_NODE strategy should now propagate up
         # Keep the generic Exception catch for truly unexpected errors
         except Exception as e:
-            self.error(f"Error processing node: {e}"); traceback.print_exc(); 
-            # TODO: FXIME: Log error and potentially fail node and not silently pass through error??
+            self.error(f"Error processing node: {e}"); 
+            traceback.print_exc(); 
+            # TODO: FIXME: Log error and potentially fail node and not silently pass through error??
             return MergeObjectsOutputSchema(merged_data={})

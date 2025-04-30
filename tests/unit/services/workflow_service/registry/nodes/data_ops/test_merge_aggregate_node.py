@@ -1013,7 +1013,7 @@ class TestMergeAggregateNode(BaseMergeNodeTest):
         result = await node.process(data_with_non_dicts)
         # Should produce an empty dictionary for this operation
         expected = {
-            "no_objects": {}
+            "no_objects": None
         }
         self.assertEqual(result.merged_data, expected)
 
@@ -1503,7 +1503,8 @@ class TestMergeAggregateNode(BaseMergeNodeTest):
                     "select_paths": ["items"],
                     "merge_strategy": {
                         # Simple replace merge
-                    }
+                    },
+                    # merge_each_object_in_selected_list defaults to True
                 }
             ]
         }
@@ -1528,6 +1529,371 @@ class TestMergeAggregateNode(BaseMergeNodeTest):
         }
         self.assertEqual(result.merged_data, expected)
 
+    # ===================================================
+    # --- Tests for merge_each_object_in_selected_list=False ---
+    # ===================================================
+
+    async def test_non_dict_merge_basic_replace_right(self):
+        """Test merging non-dictionary types with REPLACE_RIGHT (default)."""
+        non_dict_data = {
+            "val1": "apple",
+            "val2": 123,
+            "val3": "banana"
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "non_dict_merged",
+                    "select_paths": ["val1", "val2", "val3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "replace_right"} # Default, explicit for clarity
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_non_dict_replace_right")
+        result = await node.process(non_dict_data)
+        # Merges sequentially: "apple" -> 123 -> "banana"
+        expected = {"non_dict_merged": "banana"}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_replace_left(self):
+        """Test merging non-dictionary types with REPLACE_LEFT."""
+        non_dict_data = {
+            "val1": "apple",
+            "val2": 123,
+            "val3": "banana"
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "non_dict_merged",
+                    "select_paths": ["val1", "val2", "val3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "replace_left"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_non_dict_replace_left")
+        result = await node.process(non_dict_data)
+        # Merges sequentially: "apple" kept -> "apple" kept
+        expected = {"non_dict_merged": "apple"}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_sum(self):
+        """Test merging non-dictionary numbers with SUM."""
+        non_dict_data = {
+            "num1": 10,
+            "num2": 20,
+            "num3": 30
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "non_dict_sum",
+                    "select_paths": ["num1", "num2", "num3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "sum"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_non_dict_sum")
+        result = await node.process(non_dict_data)
+        # Merges sequentially: 10 -> 10+20=30 -> 30+30=60
+        expected = {"non_dict_sum": 60}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_combine_in_list(self):
+        """Test merging non-dictionary types with COMBINE_IN_LIST."""
+        non_dict_data = {
+            "val1": "apple",
+            "val2": 123,
+            "val3": True,
+            "val4": None # Should be handled gracefully by combine_in_list logic
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "non_dict_combined",
+                    "select_paths": ["val1", "val2", "val3", "val4"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "combine_in_list"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_non_dict_combine")
+        result = await node.process(non_dict_data)
+        # Merges sequentially:
+        # 1. "apple"
+        # 2. ["apple", 123]
+        # 3. ["apple", 123, True]
+        expected = {"non_dict_combined": ["apple", 123, True]}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_multiple_lists_replace(self):
+        """Test merging multiple lists as items with REPLACE reducers (flag=False)."""
+        list_data = {
+            "list1": [1, 2],
+            "list2": ["a", "b"],
+            "list3": [True, False]
+        }
+        # Test REPLACE_RIGHT
+        config_right = {
+            "operations": [
+                {
+                    "output_field_name": "merged_lists_right",
+                    "select_paths": ["list1", "list2", "list3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "replace_right"}
+                    }
+                }
+            ]
+        }
+        node_right = MergeAggregateNode(config=config_right, node_id="merge_lists_right")
+        result_right = await node_right.process(list_data)
+        # [1, 2] -> ["a", "b"] -> [True, False]
+        expected_right = {"merged_lists_right": [True, False]}
+        self.assertEqual(result_right.merged_data, expected_right)
+
+        # Test REPLACE_LEFT
+        config_left = {
+            "operations": [
+                {
+                    "output_field_name": "merged_lists_left",
+                    "select_paths": ["list1", "list2", "list3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "replace_left"}
+                    }
+                }
+            ]
+        }
+        node_left = MergeAggregateNode(config=config_left, node_id="merge_lists_left")
+        result_left = await node_left.process(list_data)
+        # [1, 2] kept -> [1, 2] kept
+        expected_left = {"merged_lists_left": [1, 2]}
+        self.assertEqual(result_left.merged_data, expected_left)
+
+    async def test_non_dict_merge_multiple_lists_append(self):
+        """Test merging multiple lists as items with APPEND reducer (flag=False)."""
+        list_data = {
+            "list1": [1, 2],
+            "list2": ["a", "b"],
+            "list3": [True, False]
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "merged_lists_append",
+                    "select_paths": ["list1", "list2", "list3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "append"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_lists_append")
+        result = await node.process(list_data)
+        # Trace APPEND:
+        # 1. Start: [1, 2]
+        # 2. Append([1, 2], ["a", "b"]) -> [1, 2, ["a", "b"]]
+        # 3. Append([1, 2, ["a", "b"]], [True, False]) -> [1, 2, ["a", "b"], [True, False]]
+        expected = {"merged_lists_append": [1, 2, ["a", "b"], [True, False]]}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_multiple_lists_extend(self):
+        """Test merging multiple lists as items with EXTEND reducer (flag=False)."""
+        list_data = {
+            "list1": [1, 2],
+            "list2": ["a", "b"],
+            "list3": [True, False]
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "merged_lists_extend",
+                    "select_paths": ["list1", "list2", "list3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "extend"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_lists_extend")
+        result = await node.process(list_data)
+        # Trace EXTEND:
+        # 1. Start: [1, 2]
+        # 2. Extend([1, 2], ["a", "b"]) -> [1, 2, "a", "b"]
+        # 3. Extend([1, 2, "a", "b"], [True, False]) -> [1, 2, "a", "b", True, False]
+        expected = {"merged_lists_extend": [1, 2, "a", "b", True, False]}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_multiple_lists_combine(self):
+        """Test merging multiple lists as items with COMBINE_IN_LIST reducer (flag=False)."""
+        list_data = {
+            "list1": [1, 2],
+            "list2": ["a", "b"],
+            "list3": [True, False]
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "merged_lists_combine",
+                    "select_paths": ["list1", "list2", "list3"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {"default_reducer": "combine_in_list"}
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_lists_combine")
+        result = await node.process(list_data)
+        # Trace COMBINE_IN_LIST:
+        # 1. Start: [1, 2] (Reducer treats first item as base)
+        # 2. Combine([1, 2], ["a", "b"]) -> [[1, 2], ["a", "b"]]
+        # 3. Combine([[1, 2], ["a", "b"]], [True, False]) -> [[1, 2], ["a", "b"], [True, False]]
+        expected = {"merged_lists_combine": [[1, 2], ["a", "b"], [True, False]]}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_merge_empty_input(self):
+        """Test non-dict merge when no items are selected."""
+        non_dict_data = {
+            "path1": None # Path exists but is None
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "non_dict_empty",
+                    "select_paths": ["non_existent", "path1"],
+                    "merge_each_object_in_selected_list": False,
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_non_dict_empty")
+        result = await node.process(non_dict_data)
+        # Should result in None for this operation
+        expected = {"non_dict_empty": None}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_single_list_path_flatten_and_merge(self):
+        """Test merging items within a single list path (default flatten behavior)."""
+        list_data = {
+            "my_list": [
+                {"id": 1, "value": 10, "tag": "a"},
+                {"id": 2, "value": 20}, # Overwrites value 10
+                {"id": 3, "tag": "c"}  # Overwrites tag "a" (id remains 2)
+            ]
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "single_list_merged",
+                    "select_paths": ["my_list"],
+                    # merge_each_object_in_selected_list defaults to True
+                    "merge_strategy": {
+                        "reduce_phase": {
+                            "default_reducer": "replace_right", # Default
+                            "reducers": {
+                                # Example: maybe we want to SUM value?
+                                # "value": "sum" # Let's stick to default replace_right for simplicity
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_single_list")
+        result = await node.process(list_data)
+        # Trace (replace_right):
+        # 1. {"id": 1, "value": 10, "tag": "a"}
+        # 2. Merge #2 -> {"id": 2, "value": 20, "tag": "a"}
+        # 3. Merge #3 -> {"id": 3, "value": 20, "tag": "c"}
+        expected = {"single_list_merged": {"id": 3, "value": 20, "tag": "c"}}
+        self.assertEqual(result.merged_data, expected)
+
+    async def test_non_dict_flatten_transformation(self):
+        """Test RECURSIVE_FLATTEN_LIST transformation on a non-dict (nested list) result."""
+        nested_list_data = {
+            "l1": [1, 2],
+            "l2": [3, [4, 5]],
+            "l3": [[6], 7],
+            "l4": [] # Empty list
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "flattened_result",
+                    "select_paths": ["l1", "l2", "l3", "l4"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {
+                            "default_reducer": "combine_in_list"
+                        },
+                        "post_merge_transformations": {
+                            # Key doesn't matter for non-dict, config is used
+                            "flatten_op": {
+                                "operation_type": "recursive_flatten_list"
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_flatten_transform")
+        result = await node.process(nested_list_data)
+
+        # Trace:
+        # 1. Reduce (combine_in_list):
+        #    - Start: [1, 2]
+        #    - Combine([1, 2], [3, [4, 5]]) -> [[1, 2], [3, [4, 5]]]
+        #    - Combine(..., [[6], 7]) -> [[1, 2], [3, [4, 5]], [[6], 7]]
+        #    - Combine(..., []) -> [[1, 2], [3, [4, 5]], [[6], 7], []]
+        # 2. Transform (recursive_flatten_list) on [[1, 2], [3, [4, 5]], [[6], 7], []]:
+        #    -> [1, 2, 3, 4, 5, 6, 7]
+        expected = {"flattened_result": [1, 2, 3, 4, 5, 6, 7]}
+        self.assertEqual(result.merged_data, expected)
+    
+    async def test_non_dict_flatten_transformation(self):
+        """Test RECURSIVE_FLATTEN_LIST transformation on a non-dict (nested list) result."""
+        nested_list_data = {
+            "l2": [[3], [4, 5]],
+        }
+        config = {
+            "operations": [
+                {
+                    "output_field_name": "flattened_result",
+                    "select_paths": ["l2"],
+                    "merge_each_object_in_selected_list": False,
+                    "merge_strategy": {
+                        "reduce_phase": {
+                            "default_reducer": "combine_in_list"
+                        },
+                        "post_merge_transformations": {
+                            # Key doesn't matter for non-dict, config is used
+                            "flatten_op": {
+                                "operation_type": "recursive_flatten_list"
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+        node = MergeAggregateNode(config=config, node_id="merge_flatten_transform")
+        result = await node.process(nested_list_data)
+        
+        expected = {"flattened_result": [3, 4, 5]}
+        self.assertEqual(result.merged_data, expected)
 
 
 # === unittest execution ===

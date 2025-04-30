@@ -4,28 +4,37 @@ This guide explains how to configure and use the `MergeAggregateNode` to combine
 
 ## Purpose
 
-The `MergeAggregateNode` is designed to intelligently combine multiple pieces of data (represented as JSON objects or dictionaries) into a single, consolidated result. Think of it like combining information from different reports or forms into one master document, following specific instructions on how to handle overlapping or conflicting information.
+The `MergeAggregateNode` is designed to intelligently combine multiple pieces of data (represented as JSON objects/dictionaries, or simpler types like numbers, strings, and lists) into a single, consolidated result. Think of it like combining information from different reports or forms into one master document, following specific instructions on how to handle overlapping or conflicting information.
 
 You can use it to:
 
 -   Select data from various locations (paths) in your input.
--   Merge selected objects sequentially, giving priority based on the order you specify.
--   Rename or select specific fields (keys) during the merge.
--   Decide how to handle fields that aren't explicitly mentioned (either automatically merge them or ignore them).
--   Define rules (reducers) for what to do when the same field exists in multiple sources (e.g., keep the newest value, keep the oldest, add numbers together, combine lists, merge nested details).
--   Perform calculations or transformations (like averaging, multiplying) on the final merged values for specific fields.
+-   Merge selected objects or values sequentially, giving priority based on the order you specify.
+-   Treat lists found at selection paths either as collections of objects to flatten and merge, or as single atomic items to be merged directly.
+-   Rename or select specific fields (keys) during the merge when working with objects.
+-   Decide how to handle fields that aren't explicitly mentioned when merging objects (`auto_merge` or `ignore`).
+-   Define rules (reducers) for what to do when the same field exists in multiple source objects, or how to combine sequential non-dictionary values (e.g., keep the newest value, keep the oldest, add numbers together, combine items into lists, merge nested details).
+-   Perform calculations or transformations (like averaging, multiplying, flattening lists) on the final merged values.
 -   Configure multiple, independent merge operations within a single node instance, each producing its own output field.
+-   **Perform transformations on a single selected object or value**, even without performing a multi-source merge.
 
 **Important:** This node operates on a *copy* of the input data. The original data structure passed into the node remains unchanged in the central state unless explicitly overwritten by subsequent steps.
 
 ## Core Concepts
 
-1.  **Selection:** You specify where in the input data to find the objects you want to merge (`select_paths`). If a path points to a list of objects, the node will treat each object in the list as a separate source to be merged.
-2.  **Sequential Merging:** The objects found via `select_paths` are merged one after the other, in the order specified. This means data from later sources can potentially overwrite data from earlier sources, depending on the rules.
-3.  **Mapping (`map_phase`):** Before merging, you can define rules for how fields (keys) from the source objects should be mapped to the final merged object. This allows renaming fields or selecting specific nested values. You also decide the fate of fields not explicitly mapped (`unspecified_keys_strategy`: either `auto_merge` them if the name matches, or `ignore` them).
-4.  **Reduction (`reduce_phase`):** When a field exists in both the current merged result (the "left" side) and the new object being merged (the "right" side), a "reducer" rule determines the outcome. You can set a default rule and specific rules for certain fields.
-5.  **Transformation (`post_merge_transformations`):** After all objects for a single operation have been merged, you can apply final transformations to specific fields in the result (e.g., calculate an average, multiply by a factor).
-6.  **Operations:** You can define multiple independent merge operations within one node. Each operation selects its own data, applies its own strategy, and saves its result to a unique output field name.
+1.  **Selection (`select_paths`)**: You specify where in the input data to find the data items you want to merge.
+    *   **Merging Dictionaries (Default):** If `merge_each_object_in_selected_list` is `True` (default), and a path points to a list, the node treats each *dictionary* inside that list as a separate source to be merged sequentially. Non-dictionary items in the list are skipped. If a path points to a single dictionary, it's treated as one source.
+    *   **Merging Non-Dictionaries:** If `merge_each_object_in_selected_list` is `False`, the node takes the value found at *each* `select_paths` exactly as it is (be it a number, string, boolean, list, or null). It does **not** look inside lists. All selected items are then merged sequentially using the `default_reducer`. **Crucially, when this flag is `False`, none of the selected items can be dictionaries.**
+2.  **Sequential Merging:** The selected data items (dictionaries or individual values) are merged one after the other, in the order specified by `select_paths`. This means data from later sources can potentially overwrite data from earlier sources, depending on the rules (reducers).
+3.  **Mapping (`map_phase`, Dictionary Merging Only):** When merging dictionaries (`merge_each_object_in_selected_list: True`), you can define rules *before* merging for how fields (keys) from the source objects map to the final merged object. This allows renaming fields or selecting specific nested values. You also decide the fate of fields not explicitly mapped (`unspecified_keys_strategy`: `auto_merge` or `ignore`). This phase is **ignored** when merging non-dictionaries (`merge_each_object_in_selected_list: False`).
+4.  **Reduction (`reduce_phase`):**
+    *   **Dictionary Merging:** When a field/key exists in both the current merged result ("left") and the new object being merged ("right"), a "reducer" rule determines the outcome.
+    *   **Non-Dictionary Merging:** When merging a sequence of non-dictionary items, the `default_reducer` is applied sequentially to the current merged result ("left") and the next item ("right").
+    *   You can set a `default_reducer` and, for dictionary merges, specific `reducers` for certain destination keys.
+5.  **Transformation (`post_merge_transformations`):** After all items for a single operation have been merged, you can apply final transformations.
+    *   **Dictionary Results:** Apply transformations to specific fields (using their `destination_key`) within the merged dictionary.
+    *   **Non-Dictionary Results:** Apply **only the first listed transformation** to the *entire* final merged value. Any other transformations defined for that operation are ignored.
+6.  **Operations:** Define multiple independent merge/transform tasks within one node. Each operation selects its data, applies its strategy, and saves its result to a unique `output_field_name`.
 
 ## Configuration (`NodeConfig`)
 
@@ -34,19 +43,20 @@ You configure the `MergeAggregateNode` within the `node_config` field of its ent
 ```json
 {
   "nodes": {
-    "consolidate_user_data": {
-      "node_id": "consolidate_user_data", // Unique ID for this node instance
+    "consolidate_data": {
+      "node_id": "consolidate_data", // Unique ID for this node instance
       "node_name": "merge_aggregate", // ** Must be "merge_aggregate" **
       "node_config": { // This is the MergeObjectsConfigSchema
-        "operations": [ // List of merge operations to perform sequentially
-          // --- Operation 1: Create a primary user profile ---
+        "operations": [ // List of merge/transform operations
+          // --- Operation 1: Merge User Dictionaries ---
           {
-            "output_field_name": "user_profile", // Result stored here
+            "output_field_name": "user_profile",
             "select_paths": [
-              "source_system_a.user", // 1st source (highest priority if 'replace_left')
-              "source_system_b.data", // 2nd source
-              "manual_overrides"      // 3rd source (highest priority if 'replace_right')
+              "source_system_a.user",
+              "source_system_b.data",
+              "manual_overrides"
             ],
+            "merge_each_object_in_selected_list": true, // Default: flatten lists, merge dicts
             "merge_strategy": {
               "map_phase": {
                 "key_mappings": [
@@ -74,49 +84,42 @@ You configure the `MergeAggregateNode` within the `node_config` field of its ent
               "transformation_error_strategy": "skip_operation" // If a transformation fails, just keep the pre-transform value
             }
           },
-          // --- Operation 2: Aggregate scores ---
+          // --- Operation 2: Combine List Values ---
           {
-            "output_field_name": "score_aggregation",
-            "select_paths": ["system_scores.all", "bonus_points"], // system_scores.all might be a list
+            "output_field_name": "all_tags",
+            "select_paths": ["system_a_tags", "system_b_tags", "manual_tags"], // Paths point to lists or primitives
+            "merge_each_object_in_selected_list": false, // Treat lists/values as atomic items
             "merge_strategy": {
-                "map_phase": { "unspecified_keys_strategy": "ignore"}, // Only consider explicitly mapped keys
-                "reduce_phase": {
-                    "key_mappings": [
-                        {"source_keys": ["score"], "destination_key": "total_score"},
-                        {"source_keys": ["count"], "destination_key": "item_count"}
-                    ],
-                    "reducers": {
-                        "total_score": "sum",
-                        "item_count": "sum"
-                    },
-                     "default_reducer": "replace_right" // Should not be needed if ignoring unspecified
-                },
-                 "post_merge_transformations": {
-                    "final_average": { "operation_type": "average"} // calculate average based on total_score's merged count
-                 },
-                 "map_phase": {
-                     "key_mappings": [
-                         {"source_keys": ["score"], "destination_key": "total_score"},
-                         {"source_keys": ["count"], "destination_key": "item_count"},
-                         // Map score to avg key for AVERAGE transform
-                         {"source_keys": ["score"], "destination_key": "final_average"}
-                     ],
-                     "unspecified_keys_strategy": "ignore"
-                 },
-                 "reduce_phase": {
-                     "reducers": {
-                         "total_score": "sum",
-                         "item_count": "sum",
-                         "final_average": "sum" // Sum scores into the key that will be averaged
-                     },
-                     "default_reducer": "replace_right"
-                 }
+              // map_phase is ignored here
+              "reduce_phase": {
+                "default_reducer": "combine_in_list" // Combine all selected items into a single list
+                // 'reducers' dict is ignored here
+              },
+              "post_merge_transformations": {
+                "flatten_tags": { // Apply to the combined list result
+                  "operation_type": "recursive_flatten_list"
+                }
+                // Only this first transformation applies if the result is a list
+              }
+            }
+          },
+          // --- Operation 3: Transform a Single Object ---
+          {
+            "output_field_name": "processed_report",
+            "select_paths": ["raw_report_data"], // Select just one object
+            // merge_each_object_in_selected_list: true (default, applies to the single object)
+            "merge_strategy": {
+               // map_phase and reduce_phase might be empty or default if no merging needed
+               "post_merge_transformations": {
+                  "final_score": { "operation_type": "multiply", "operand": 10 },
+                  "report_status": { "operation_type": "...", "operand": "..." }
+                  // Multiple transformations can apply to different fields in the dictionary result
+               }
             }
           }
           // Add more operation objects here
         ]
       }
-      // dynamic_input_schema / dynamic_output_schema usually not needed for this node
     }
     // ... other nodes (e.g., nodes providing 'source_system_a', 'source_system_b', 'manual_overrides')
   }
@@ -126,14 +129,17 @@ You configure the `MergeAggregateNode` within the `node_config` field of its ent
 
 ### Key Configuration Sections:
 
-1.  **`operations`** (List): **Required**. A list where each item defines one independent merge task. They run in the order listed, but the result of one does *not* directly feed into the next (unless you design subsequent operations to select the output of previous ones).
+1.  **`operations`** (List): **Required**. A list where each item defines one independent merge or transformation task. They run in the order listed, but the result of one does *not* directly feed into the next (unless you design subsequent operations to select the output of previous ones).
 2.  **Inside each `operations` item**:
     *   **`output_field_name`** (String): **Required**. The name of the field where the final result of *this specific merge operation* will be stored in the node's overall output. Must be unique across all operations in this node.
-    *   **`select_paths`** (List of Strings): **Required**. Dot-notation paths to the source objects or lists of objects in the input data.
+    *   **`select_paths`** (List of Strings): **Required**. Dot-notation paths to the source data in the input.
         *   Order matters! This defines the sequence of merging (left-to-right).
-        *   If a path points to a list, each object inside that list is merged sequentially.
-    *   **`merge_strategy`** (Object): **Required**. Contains the detailed rules for this merge operation.
-        *   **`map_phase`** (Object): Rules for handling fields *before* merging conflicts are resolved.
+        *   How lists at these paths are handled depends on `merge_each_object_in_selected_list`.
+    *   **`merge_each_object_in_selected_list`** (Boolean): **Optional, Default: `true`**.
+        *   `true` (Default): If a path selects a list, the node iterates through it, merging each *dictionary* found sequentially. Non-dictionary items in the list are skipped. Use this for standard object merging.
+        *   `false`: Treats the entire value found at each `select_path` (including lists) as a single, atomic item. Merges these values sequentially using only the `default_reducer`. **Crucially, all selected items must be non-dictionary types** (string, number, boolean, list, null). Dictionaries will cause an error in this mode.
+    *   **`merge_strategy`** (Object): **Required**. Contains the detailed rules for this merge/transform operation.
+        *   **`map_phase`** (Object): **(Used only if `merge_each_object_in_selected_list` is `true`)** Rules for handling fields *before* merging dictionary conflicts.
             *   `key_mappings` (List of Objects): Define explicit field handling. Each mapping has:
                 *   `source_keys` (List of Strings): Paths within the *source* object to look for a value. Tries them in order; uses the first non-null value found.
                 *   `destination_key` (String, Optional): The desired field name in the *output*. If omitted, defaults to the first `source_keys` entry. Supports dot-notation for nested output (e.g., `user.contact.email`).
@@ -144,12 +150,12 @@ You configure the `MergeAggregateNode` within the `node_config` field of its ent
                     *   It also checks if a top-level key is a *prefix* of an explicit `destination_key` (e.g., right key `user`, explicit destination `user.profile.id`). If yes, auto-merge **also skips** this key to avoid merging the whole parent object when only children were mapped.
                     *   Auto-merge does *not* skip a key just because it was used as a `source_key` in a mapping. A key can be both auto-merged under its own name and used as a source for a *different* destination key.
                 *   `"ignore"`: Discard these fields.
-        *   **`reduce_phase`** (Object): Rules for resolving conflicts when a `destination_key` (either explicitly mapped or auto-merged) already exists in the merged result.
-            *   `default_reducer` (String): The rule applied if no specific reducer is listed for the key. Default is `replace_right`.
-            *   `reducers` (Object): Map specific `destination_key` names (dot-notation supported) to specific reducer rules.
-                *   **Nested Paths:** Keys in this object *can be nested paths* (e.g., `"user.details.settings": "nested_merge_replace"`). When a conflict occurs during the merge (whether from an explicit map or auto-merge), the node looks for the *most specific matching reducer path* in this configuration. For example, if merging the `user` object triggers a conflict at `user.details.settings`, the reducer specified for that exact path will be used, potentially overriding a more general reducer defined for just `user`.
+        *   **`reduce_phase`** (Object): Rules for resolving conflicts (dictionary merging) or combining sequential items (non-dictionary merging).
+            *   `default_reducer` (String): The rule applied if no specific reducer is listed for the key. **Required** when `merge_each_object_in_selected_list` is `false`. For dictionary merges (`true`), defaults to `replace_right`.
+            *   `reducers` (Object): **(Used only if `merge_each_object_in_selected_list` is `true`)** Map specific `destination_key` names (dot-notation supported) to specific reducer rules for dictionary fields, overriding the default.
+                *   **Nested Paths:** Keys in this object *can be nested paths* (e.g., `"user.details.settings": "nested_merge_replace"`). When a conflict occurs during dictionary merging, the node looks for the *most specific matching reducer path* in this configuration. For example, if merging the `user` object triggers a conflict at `user.details.settings`, the reducer specified for that exact path will be used, potentially overriding a more general reducer defined for just `user`.
                 *   Common Reducers:
-                    *   `replace_right`: The value from the new source object overwrites the existing value. (Default)
+                    *   `replace_right`: The value from the new source object overwrites the existing value. (Default for dict merge)
                     *   `replace_left`: Keep the existing value; ignore the value from the new source object.
                     *   `append`: Expects the left value to be a list. Appends the entire right value as a single new element to the list.
                     *   `extend`: Expects *both* values to be lists. Extends the left list with the elements from the right list.
@@ -163,26 +169,45 @@ You configure the `MergeAggregateNode` within the `node_config` field of its ent
                         *   If *both* values are lists, it extends the left list with the non-None items from the right list.
                         *   If values have different types or are primitives (numbers, strings, booleans), they are combined into a list. If the left value is already a list, the right value is appended.
                         *   `None` values on the right side are ignored and do not get added to lists or overwrite existing values during aggregation.
-            *   `error_strategy` (String): How to handle errors during reduction (e.g., trying to `sum` text). Options:
-                *   `coalesce_keep_left`: Keep the original (\"left\") value.
-                *   `coalesce_keep_non_empty`: **(Default)** Keep the original (\"left\") value if it exists and is considered \"truthy\" (not `null`, `false`, `0`, empty string/list/dict). Otherwise, use the new (\"right\") value. This is useful for accumulating values where the first non-empty value encountered should be kept if subsequent reductions fail.
-                *   `skip_operation`: Keep the original (\"left\") value.
+            *   `error_strategy` (String): How to handle errors during reduction (e.g., trying to `sum` text). Default is `coalesce_keep_non_empty`. Options:
+                *   `coalesce_keep_left`: Keep the original ("left") value.
+                *   `coalesce_keep_non_empty`: **(Default)** Keep the original ("left") value if it exists and is considered "truthy" (not `null`, `false`, `0`, empty string/list/dict). Otherwise, use the new ("right") value. This is useful for accumulating values where the first non-empty value encountered should be kept if subsequent reductions fail.
+                *   `skip_operation`: Keep the original ("left") value.
                 *   `set_none`: Set the value to `null`.
                 *   `fail_node`: Stop the node and report an error.
-        *   **`post_merge_transformations`** (Object, Optional): Apply calculations *after* all sources for this operation are merged. Maps `destination_key` names to transformation rules.
+        *   **`post_merge_transformations`** (Object, Optional): Apply calculations/transformations *after* merging is complete.
+            *   **Dictionary Results:** Maps `destination_key` names (dot-notation supported) to transformation rules. Multiple transformations can target different keys.
+            *   **Non-Dictionary Results:** Maps arbitrary keys to transformation rules. **Caveat: Only the first transformation listed in this dictionary will be applied** to the single, final non-dictionary value. Others are ignored.
             *   Each rule specifies:
-                *   `operation_type` (String): The calculation to perform. Common types:
-                    *   `average`: Calculates the average. Assumes the current value is a sum and uses an internally tracked count of how many items were merged into that sum.
-                    *   `multiply`: Multiply the value by the `operand`.
-                    *   `divide`: Divide the value by the `operand`.
-                    *   `add`: Add the `operand` to the value.
-                    *   `subtract`: Subtract the `operand` from the value.
-                *   `operand` (Any): The number to use for multiply, divide, add, subtract. **Required** for those operations.
-        *   **`transformation_error_strategy`** (String): How to handle errors during transformations (e.g., `divide` by zero). Same options as `error_strategy`. Default is `skip_operation`.
+                *   `operation_type` (String): The calculation/transformation. Common types:
+                    *   `average`: Calculates average (uses internal count of merged items for that key).
+                    *   `multiply`, `divide`, `add`, `subtract`: Basic arithmetic (requires `operand`).
+                    *   `recursive_flatten_list`: Flattens a potentially nested list into a single level. Expects the input value to be a list.
+                *   `operand` (Any): Value needed for arithmetic operations.
+        *   **`transformation_error_strategy`** (String): How to handle errors during transformations (e.g., `divide` by zero). Default is `skip_operation`. Same options as `error_strategy`.
+
+## Using for Single-Object Transformations
+
+You can use this node simply to apply transformations to a single object or value without complex merging.
+
+**Scenario 1: Transform fields within a single dictionary**
+
+1.  Set `select_paths` to point to the single dictionary you want to transform.
+2.  Ensure `merge_each_object_in_selected_list` is `true` (default).
+3.  Leave `map_phase` and `reduce_phase` with defaults or empty if no mapping/reduction is needed.
+4.  Define your transformations in `post_merge_transformations`, targeting the specific fields within the dictionary by their keys.
+
+**Scenario 2: Transform a single non-dictionary value (e.g., flatten a list)**
+
+1.  Set `select_paths` to point to the single value (e.g., a list).
+2.  Set `merge_each_object_in_selected_list` to `false`. (This is crucial, otherwise, it might try to merge items *within* the list if they were dictionaries).
+3.  The `reduce_phase` will technically run with the `default_reducer` on the single item, but effectively just passes the item through.
+4.  Define your transformation in `post_merge_transformations`. Give it any key (e.g., `"flatten_op"`).
+    *   **Caveat:** If you define multiple transformations here, **only the first one listed will be applied** to the non-dictionary value.
 
 ## Input (`DynamicSchema`)
 
-The `MergeAggregateNode` expects input data (typically a dictionary or `DynamicSchema`) containing the data structures referenced by the `select_paths` in its configuration.
+Input data (dictionary or `DynamicSchema`) containing the data referenced by `select_paths`.
 
 ## Output (`MergeObjectsOutputSchema`)
 
@@ -252,25 +277,25 @@ The node produces an output object containing:
 
 ## Notes for Non-Coders
 
--   Use this node when you need to combine information from different places into one structured object, especially when the same information might appear in multiple places and you need rules to decide which version to keep or how to combine them.
--   Think of it like creating a "best version" of a record by layering information from several sources.
--   **`operations`**: You can set up multiple independent combining tasks in one node. Each task gets its own name (`output_field_name`).
-    -   `select_paths`: Tell the node where to find the data pieces to combine for *this* task. The order you list them matters for some rules (like "keep the last value seen").
-    -   `merge_strategy`: The core instructions for combining.
-        -   **`map_phase`**: Prepare the fields.
-            -   `key_mappings`: Use this to rename fields (e.g., call `customer_id` -> `clientID`) or grab nested values.
-            -   `unspecified_keys_strategy`: Should fields *not* specifically mentioned in mappings be included (`auto_merge`) or dropped (`ignore`)? See the **Configuration** section for important nuances on how `auto_merge` interacts with explicit mappings and nested keys.
-        -   **`reduce_phase`**: Handle overlaps.
-            -   `default_reducer`: The basic rule (usually "keep the last value seen").
-            -   `reducers`: Special rules for specific fields (e.g., `sum` for numbers, `extend` for lists, `nested_merge` for complex details). These can target nested paths directly (e.g., `user.settings`).
-                -   Use `nested_merge_replace` or `nested_merge_aggregate` to combine complex nested data structures deeply.
-                -   `nested_merge_aggregate` is useful for combining everything found: it merges nested objects, extends lists, and groups differing values into lists.
-        -   **`post_merge_transformations`**: Final tweaks after combining (e.g., calculate an `average`, `multiply` a value).
+-   Use this node when you need to combine information from different places into one structured object or value, especially when the same information might appear in multiple places and you need rules to decide which version to keep or how to combine them. It can also be used just to transform a single piece of data.
+-   Think of it like creating a "best version" of a record by layering information from several sources, or applying a calculation to existing data.
+-   **`operations`**: You can set up multiple independent combining/transforming tasks in one node. Each task gets its own name (`output_field_name`).
+    -   `select_paths`: Tell the node where to find the data pieces for *this* task. The order you list them matters for some rules (like "keep the last value seen" or sequential non-dictionary reduction).
+    -   `merge_each_object_in_selected_list`:
+        -   `true` (Default): Good for combining multiple detailed records (dictionaries). If it finds a list, it looks *inside* for dictionaries to merge.
+        -   `false`: Good for combining simple values or lists directly. Treats lists as single items. **Cannot be used if any selected item is a dictionary.**
+    -   `merge_strategy`: The core instructions for combining/transforming.
+        -   **`map_phase`** (Only for dictionary merging): Prepare the fields before merging. Use `key_mappings` to rename fields (e.g., `customer_id` -> `clientID`) or grab nested values. Use `unspecified_keys_strategy` to decide if other fields are included (`auto_merge`) or dropped (`ignore`). See the Configuration section for important nuances on `auto_merge`.
+        -   **`reduce_phase`**: Handle overlaps (dict merging) or combine sequence (non-dict merging). Use `default_reducer` to pick the main rule (e.g., `replace_right`, `combine_in_list`, `sum`). For dictionary merging, you can use `reducers` to apply special rules for specific fields (even nested ones like `user.settings`). Use `nested_merge_replace` or `nested_merge_aggregate` to combine complex nested dictionary data deeply.
+        -   **`post_merge_transformations`**: Final tweaks after combining. If the result is a dictionary, you can transform multiple fields (e.g., calculate an `average`, `multiply` a value). If the result is *not* a dictionary (e.g., a number, a list), **only the first transformation you list gets applied.** Use `recursive_flatten_list` to turn `[1, [2, 3], [[4]]]` into `[1, 2, 3, 4]`.
+-   **Single Item Transformation:** You *can* use this node to just transform one piece of data. Select only that piece in `select_paths`. If it's a dictionary, use transformations as normal. If it's a list or value, set `merge_each_object_in_selected_list` to `false` and define *one* transformation in `post_merge_transformations`.
 -   **Dot Notation:** Use dots (`.`) to access data inside objects (e.g., `customer.address.zipcode`).
 -   **It Modifies a Copy:** The node doesn't change the original input data; it creates a new combined result in its output field (`merged_data`).
 -   Connect the necessary input data sources to this node using edges and mappings. Connect the `merged_data` field (or a specific field *inside* it like `merged_data.my_output_name`) to the next node that needs the combined result.
 
 ## Comparison to DataJoinNode
 
--   `MergeAggregateNode`: Combines *multiple source objects* into *one output object* based on sequential order and explicit rules for key mapping and conflict resolution. Good for creating a single, consolidated view from potentially overlapping sources.
--   `DataJoinNode`: Links items *between two lists/objects* based on matching key values (like a database join). It typically *nests* the matched item(s) from the second list inside the corresponding item of the first list. Good for enriching items in one list with related details from another.
+-   `MergeAggregateNode`: Combines *multiple sources* into *one output object/value* based on sequence and rules. Good for consolidation or sequential processing/transformation.
+-   `DataJoinNode`: Links items *between two lists/objects* based on matching key values (like a database join). It typically *nests* the matched 
+item(s) from the second list inside the corresponding item of the first list. Good for enriching items in one list with related details from 
+another.

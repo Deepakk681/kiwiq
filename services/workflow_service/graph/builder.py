@@ -472,6 +472,7 @@ class GraphBuilder:
                 config=node_config.node_config,
                 private_input_mode=node_config.private_input_mode,
                 private_output_mode=node_config.private_output_mode,
+                output_private_output_to_central_state=node_config.output_private_output_to_central_state,
                 allow_non_user_editable_fields_in_config=allow_non_user_editable_fields
             )
         
@@ -535,6 +536,7 @@ class GraphBuilder:
                                                    config=node_config.node_config, 
                                                    private_input_mode=node_config.private_input_mode, 
                                                    private_output_mode=node_config.private_output_mode, 
+                                                   output_private_output_to_central_state=node_config.output_private_output_to_central_state,
                                                    allow_non_user_editable_fields_in_config=allow_non_user_editable_fields)
         
         return node_instances
@@ -550,8 +552,11 @@ class GraphBuilder:
         #         fields[field_name] = field_info.annotation
         for node_id, node_instance in node_instances.items():
             # NOTE: this is only for debugging parallel branches outputs!
-            # node_output_field = Annotated[node_instance.output_schema_cls, ReducerRegistry.get_reducer(ReducerType.COLLECT_VALUES)]
-            fields[get_node_output_state_key(node_id)] = node_instance.output_schema_cls
+            if node_instance.private_input_mode and node_instance.output_private_output_to_central_state:
+                node_output_field = Annotated[node_instance.output_schema_cls, ReducerRegistry.get_reducer(ReducerType.COLLECT_VALUES)]
+            else:
+                node_output_field = node_instance.output_schema_cls
+            fields[get_node_output_state_key(node_id)] = node_output_field
         GraphState = TypedDict('GraphState', fields)
         return GraphState
     

@@ -68,7 +68,13 @@ from typing import List, Optional, Dict, Any, Literal
 #     educations: List[EducationSchema] = [] # Field(description="Educational background") # NOTE: Detailed mapping difficult with transform_data
 
 # --- Workflow Constants ---
-TARGET_NAMESPACE = "linkedin_scraping_results"
+
+from kiwi_client.workflows.document_models.customer_docs import (
+    LINKEDIN_SCRAPING_NAMESPACE,
+    LINKEDIN_PROFILE_DOCNAME_PATTERN,
+    LINKEDIN_POST_DOCNAME_PATTERN
+)
+
 POST_LIMIT = 50
 
 # --- Workflow Graph Definition ---
@@ -131,10 +137,10 @@ workflow_graph_schema = {
             "input_field_path": "scraping_results.scraped_profile_job",
             "target_path": {
               "filename_config": {
-                "static_namespace": TARGET_NAMESPACE,
+                "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
                 # Use entity_name (from node input, mapped from $graph_state) for the pattern context
                 "input_docname_field": "entity_name", # Field in node's input containing the value
-                "input_docname_field_pattern": "profile_{item}" # 'item' here will be the value of entity_name
+                "input_docname_field_pattern": LINKEDIN_PROFILE_DOCNAME_PATTERN  # 'item' here will be the value of entity_name
               }
             }
           },
@@ -143,10 +149,10 @@ workflow_graph_schema = {
             "input_field_path": "scraping_results.scraped_posts_job",
             "target_path": {
               "filename_config": {
-                "static_namespace": TARGET_NAMESPACE,
+                "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
                 # Use entity_name (from node input, mapped from $graph_state) for the pattern context
                 "input_docname_field": "entity_name", # Field in node's input containing the value
-                "input_docname_field_pattern": "posts_{item}" # 'item' here will be the value of entity_name
+                "input_docname_field_pattern": LINKEDIN_POST_DOCNAME_PATTERN # 'item' here will be the value of entity_name
               }
             }
           }
@@ -402,14 +408,14 @@ async def main_test_linkedin_scraping():
 
     # Define documents created by the workflow for cleanup
     profile_cleanup_doc: CleanupDocInfo = {
-        'namespace': TARGET_NAMESPACE,
+        'namespace': LINKEDIN_SCRAPING_NAMESPACE,
         'docname': f"profile_{entity_name}", # Docname pattern from the workflow
         'is_shared': False, # Matches store_raw_data node config
         'is_versioned': False, # Matches store_raw_data node config
         'is_system_entity': False
     }
     posts_cleanup_doc: CleanupDocInfo = {
-        'namespace': TARGET_NAMESPACE,
+        'namespace': LINKEDIN_SCRAPING_NAMESPACE,
         'docname': f"posts_{entity_name}", # Docname pattern from the workflow
         'is_shared': False, # Matches store_raw_data node config
         'is_versioned': False, # Matches store_raw_data node config

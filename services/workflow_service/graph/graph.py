@@ -71,6 +71,7 @@ class NodeConfig(BaseModel):
     node_config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Node-specific configuration parameters")
     private_input_mode: Optional[bool] = Field(False, description="Enable private input mode for the node which means the node will receive direct inputs instead of whole graph state, this is useful for map/reduce or branching patterns or maintaining private states.")
     private_output_mode: Optional[bool] = Field(False, description="Enable private output mode for the node which means the node will send direct outputs to connected nodes, this is useful for map/reduce or branching patterns or maintaining private states. NOTE: the branches will converge to the next node where this is unset and they are collapsing to it, and that node will receive the full graph state. For reducing, you have to use the central state field with the correct reducer!")
+    output_private_output_to_central_state: Optional[bool] = Field(False, description="Enable output private output to central state for the node which means the node will send direct outputs to the central state too for debugging purposes.")
     # TODO: implement support for JSON Schema which can be converted to Pydantic models using: https://github.com/koxudaxi/datamodel-code-generator
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/

@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+import json
 import uuid
 import traceback
 from typing import List, Optional, Dict, Any, Annotated, Union, AsyncGenerator
@@ -9,13 +10,14 @@ from fastapi import (
     WebSocketDisconnect, Body, Path, Response # Added Path, Response
 )
 import jsonschema
+from pydantic import ValidationError as PydanticValidationError
 from jsonschema import ValidationError
 from jsonschema.validators import Draft202012Validator
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt # For encoding/decoding tokens (requires python-jose)
 from datetime import datetime, timedelta
 
-from pydantic import ValidationError as PydanticValidationError
+
 
 # --- Core Dependencies ---
 from db.session import get_async_session, get_async_db_dependency
@@ -560,6 +562,8 @@ async def search_prompt_templates(
             include_public=search_params.include_public,
             include_system_entities=search_params.include_system_entities,
             include_public_system_entities=search_params.include_public_system_entities,
+            sort_by=search_params.sort_by,
+            sort_order=search_params.sort_order,
             user=current_user
         )
         workflow_logger.info(f"User {current_user.id} searched for prompt templates with name '{search_params.name}' in org {active_org_id}")
@@ -602,6 +606,8 @@ async def search_schema_templates(
             include_public=search_params.include_public,
             include_system_entities=search_params.include_system_entities,
             include_public_system_entities=search_params.include_public_system_entities,
+            sort_by=search_params.sort_by,
+            sort_order=search_params.sort_order,
             user=current_user
         )
         workflow_logger.info(f"User {current_user.id} searched for schema templates with name '{search_params.name}' in org {active_org_id}")
@@ -712,12 +718,28 @@ async def validate_graph(
                 workflow_logger.warning(f"Node {node_id} ({node_name}) config validation failed: {error_msg}")
             except PydanticValidationError as e:
                 node_configs_valid = False
-                all_errors[node_id].append(e.errors())
+                all_errors[node_id].append(str(e))
                 workflow_logger.error(f"Error validating node {node_id} ({node_name}): \n{str(e)}", exc_info=True)
             except Exception as e:
                 node_configs_valid = False
                 all_errors[node_id].append(f"Error validating node: {str(e)}")
                 workflow_logger.error(f"Error validating node {node_id} ({node_name}): {str(e)}", exc_info=True)
+        
+        if not all_errors:
+            from workflow_service.graph.graph import GraphSchema
+            from workflow_service.graph.builder import GraphBuilder
+            from workflow_service.services.external_context_manager import get_external_context_manager_with_clients
+            external_context_manager = await get_external_context_manager_with_clients()
+            db_registry = external_context_manager.db_registry
+            
+            # Run the async function in an event loop to get the db_registry
+            graph_builder = GraphBuilder(db_registry)
+            try:
+                graph_entities = graph_builder.build_graph_entities(graph_schema)
+            except Exception as e:
+                node_configs_valid = False
+                all_errors[node_id].append(f"Error validating graph schema while building graph entities: {str(e)}")
+                workflow_logger.error(f"Error validating graph schema while building graph entities: {str(e)}", exc_info=True)
     
     # Overall validation result
     is_valid = graph_schema_valid and (not validate_nodes or node_configs_valid)
@@ -863,6 +885,8 @@ async def search_workflows(
             include_public=search_params.include_public,
             include_system_entities=search_params.include_system_entities,
             include_public_system_entities=search_params.include_public_system_entities,
+            sort_by=search_params.sort_by,
+            sort_order=search_params.sort_order,
             user=current_user
         )
         workflow_logger.info(f"User {current_user.id} searched for workflows with name '{search_params.name}' in org {active_org_id}")
