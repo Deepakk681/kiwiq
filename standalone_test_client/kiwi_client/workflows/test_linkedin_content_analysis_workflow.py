@@ -583,12 +583,6 @@ workflow_graph_schema = {
       ]
     },
 
-    { "src_node_id": "classify_batch", "dst_node_id": "flatten_classifications", "mappings": [
-        # Store the list of classifications *from this batch*
-        { "src_field": "structured_output", "dst_field": "all_classifications_batches", "description": "Collect classification results from each batch."}
-      ]
-    },
-
     # --- Step 7a: Flatten Classifications (Runs after map completes) ---
     { "src_node_id": "$graph_state", "dst_node_id": "flatten_classifications", "mappings": [
         { "src_field": "all_classifications_batches", "dst_field": "all_classifications_batches", "description": "Pass collected batches for flattening."}
