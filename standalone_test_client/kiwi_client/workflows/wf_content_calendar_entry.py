@@ -36,7 +36,6 @@ from kiwi_client.workflows.document_models.customer_docs import (
 #     # Define common namespaces/patterns if available, otherwise define here
 #     USER_PROFILES_NAMESPACE, # Example
 #     DRAFT_POSTS_NAMESPACE,   # Example
-#     SCRAPED_POSTS_NAMESPACE, # Example
 #     GENERATED_BRIEFS_NAMESPACE # Example
 )
 
@@ -53,8 +52,8 @@ GENERATED_BRIEFS_DOCNAME_PATTERN = "content_calendar_initial_brief_{item[brief_i
 # LLM Configuration
 LLM_PROVIDER = "openai"
 GENERATION_MODEL = "gpt-4.1" # Or gpt-4-turbo etc.
-LLM_TEMPERATURE = 0.5
-LLM_MAX_TOKENS = 2000 # Adjust as needed for brief generation
+LLM_TEMPERATURE = 1
+LLM_MAX_TOKENS = 5000 # Adjust as needed for brief generation
 
 # Workflow Defaults
 DEFAULT_WEEKS_TO_GENERATE = 1
@@ -67,7 +66,6 @@ PAST_CONTEXT_POSTS_LIMIT = 20 # Limit the combined list of posts fed to the LLM
 # Namespaces (Define actual namespaces used in your storage)
 USER_PROFILES_NAMESPACE = "user_profiles"
 DRAFT_POSTS_NAMESPACE = "draft_posts"
-SCRAPED_POSTS_NAMESPACE = "scraped_posts" # Namespace for scraped posts
 GENERATED_BRIEFS_NAMESPACE = "generated_briefs"
 STRATEGY_DOCS_NAMESPACE = "strategy_docs" # Namespace for strategy docs
 

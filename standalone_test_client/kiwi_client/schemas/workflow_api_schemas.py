@@ -17,6 +17,8 @@ from kiwi_client.schemas.graph_schema import GraphSchema
 from kiwi_client.schemas import events_schema as event_schemas
 
 
+# --- NodeTemplate Schemas --- #
+
 class NodeTemplateBase(BaseModel):
     """Base schema for NodeTemplate."""
     name: str = Field(..., description="Unique name identifying the node type (e.g., 'llm_generator')")
@@ -89,7 +91,7 @@ class WorkflowGraphValidationResult(BaseModel):
     is_valid: bool = Field(..., description="Whether the graph is valid overall")
     graph_schema_valid: bool = Field(..., description="Whether the graph schema structure is valid")
     node_configs_valid: bool = Field(..., description="Whether all node configurations are valid")
-    errors: Dict[str, List[str]] = Field(default_factory=dict, description="Validation errors by category/node")
+    errors: Dict[str, Any] = Field(default_factory=dict, description="Validation errors by category/node")
 
 
 # --- WorkflowRun Schemas --- #
@@ -158,6 +160,15 @@ class WorkflowRunRead(WorkflowRunBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+class WorkflowRunState(BaseModel):
+    """Schema for reading a WorkflowRun state (SQL data mainly)."""
+    central_state: Dict[str, Any]
+    node_outputs: Dict[str, Any]
+    run_id: uuid.UUID
+    thread_id: uuid.UUID
+
+    model_config = ConfigDict(from_attributes=True)
+
 # Define a type for the detailed_results (list of events from MongoDB)
 WorkflowRunEventDetail = Union[event_schemas.WorkflowRunNodeOutputEvent, event_schemas.WorkflowRunStatusUpdateEvent, event_schemas.MessageStreamChunk, event_schemas.HITLRequestEvent, Dict[str, Any]]
 
@@ -175,6 +186,7 @@ class PromptTemplateBase(BaseModel):
     description: Optional[str] = Field(None, description="Description of the prompt template")
     template_content: str = Field(..., description="The prompt template string (e.g., Jinja2 format)")
     input_variables: Optional[Dict[str, Any]] = Field(None, description="Dictionary of expected input variables and optional defaults")
+    is_public: bool = Field(default=False, description="Whether the template is public (system templates only)")
 
 class PromptTemplateCreate(PromptTemplateBase):
     """Schema for creating an organization-specific PromptTemplate."""
@@ -210,7 +222,7 @@ class SchemaTemplateBase(BaseModel):
     description: Optional[str] = Field(None, description="Description of the schema template")
     schema_definition: Optional[Dict[str, Any]] = Field(None, description="The JSON schema definition")
     schema_type: SchemaType = Field(default=SchemaType.JSON_SCHEMA, description="Type of schema")
-    is_public: Optional[bool] = Field(default=False, description="Whether the schema is public (system templates only)")
+    is_public: bool = Field(default=False, description="Whether the schema is public (system templates only)")
 
 class SchemaTemplateCreate(SchemaTemplateBase):
     """Schema for creating an organization-specific SchemaTemplate."""
@@ -357,31 +369,48 @@ class SchemaTemplateListQuery(CommonListQuery):
     include_system: bool = Field(False, description="Include system templates.")
 
 
-class WorkflowSearchQuery(BaseModel):
+class CustomerDataSortBy(str, Enum):
+    """Enum for sorting customer data results."""
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+
+
+class SearchSortBy(str, Enum):
+    """Enum for sorting search results."""
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    SELF_OWNED_FIRST = "self_owned_first"
+
+
+class SortOrder(str, Enum):
+    """Enum for sorting order."""
+    ASC = "asc"
+    DESC = "desc"
+
+
+class BaseSearchQuery(BaseModel):
+    """Base query parameters for searching workflows, prompt templates, and schema templates."""
+    name: str = Field(..., description="Name of the Entity to search for")
+    include_public: bool = Field(True, description="Include public entities in the results")
+    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
+    include_public_system_entities: bool = Field(False, description="Include public system entities")
+    sort_by: SearchSortBy = Field(SearchSortBy.CREATED_AT, description="Field to sort by")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order ('asc' or 'desc'). Note: SELF_OWNED_FIRST sort order is always OWNED entities first.")
+
+
+class WorkflowSearchQuery(BaseSearchQuery):
     """Query parameters for searching workflows by name and version."""
-    name: str = Field(..., description="Name of the workflow to search for")
     version_tag: Optional[str] = Field(None, description="Optional version tag to filter by")
-    include_public: bool = Field(True, description="Include public workflows in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
-class PromptTemplateSearchQuery(BaseModel):
+class PromptTemplateSearchQuery(BaseSearchQuery):
     """Query parameters for searching prompt templates by name and version."""
-    name: str = Field(..., description="Name of the prompt template to search for")
     version: Optional[str] = Field(None, description="Optional version to filter by")
-    include_public: bool = Field(True, description="Include public templates in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
-class SchemaTemplateSearchQuery(BaseModel):
+class SchemaTemplateSearchQuery(BaseSearchQuery):
     """Query parameters for searching schema templates by name and version."""
-    name: str = Field(..., description="Name of the schema template to search for")
     version: Optional[str] = Field(None, description="Optional version to filter by")
-    include_public: bool = Field(True, description="Include public templates in the results")
-    include_system_entities: bool = Field(False, description="Include system entities (superuser only)")
-    include_public_system_entities: bool = Field(False, description="Include public system entities")
 
 
 # --- Customer Data Schemas ---
@@ -582,7 +611,6 @@ class CustomerDocumentMetadata(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class CustomerDataVersionedUpsert(BaseModel):
     """
     Schema for upserting a versioned customer data document.
@@ -600,6 +628,7 @@ class CustomerDataVersionedUpsert(BaseModel):
     # schema_definition: Optional[Dict[str, Any]] = Field(None, description="Optional explicit schema definition (takes precedence over template). NOTE: Not typically exposed directly in API for security/simplicity, prefer templates.")
     is_system_entity: bool = Field(False, description="Target a system entity (superusers only).")
     on_behalf_of_user_id: Optional[uuid.UUID] = Field(None, description="Act on behalf of another user (superusers only, requires is_shared=False).")
+    set_active_version: bool = Field(True, description="Set the active version after the operation.")
 
 
 class CustomerDocumentIdentifier(BaseModel):

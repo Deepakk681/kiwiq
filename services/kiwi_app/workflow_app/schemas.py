@@ -625,6 +625,7 @@ class CustomerDataVersionedUpsert(BaseModel):
     # schema_definition: Optional[Dict[str, Any]] = Field(None, description="Optional explicit schema definition (takes precedence over template). NOTE: Not typically exposed directly in API for security/simplicity, prefer templates.")
     is_system_entity: bool = Field(False, description="Target a system entity (superusers only).")
     on_behalf_of_user_id: Optional[uuid.UUID] = Field(None, description="Act on behalf of another user (superusers only, requires is_shared=False).")
+    set_active_version: bool = Field(True, description="Set the active version after the operation.")
 
 
 class CustomerDocumentIdentifier(BaseModel):

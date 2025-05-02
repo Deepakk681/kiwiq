@@ -611,6 +611,7 @@ async def upsert_versioned_document_route(
             # schema_definition=data.schema_definition, # Not exposing direct definition via API
             on_behalf_of_user_id=data.on_behalf_of_user_id,
             is_system_entity=data.is_system_entity,
+            set_active_version=data.set_active_version,
         )
 
         customer_data_logger.info(f"Upsert successful for {namespace}/{docname}. Operation: {operation_performed}")

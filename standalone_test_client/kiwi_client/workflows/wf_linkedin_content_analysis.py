@@ -794,8 +794,6 @@ async def main_test_linkedin_analysis():
         timeout_sec=1800 # Allow time for multiple LLM calls
     )
 
-    print(f"--- {test_name} Finished (Placeholder Execution) --- ")
-    print("NOTE: Actual test execution logic needs setup/cleanup docs defined and uncommenting the run_workflow_test call.")
     # if 'final_run_status_obj' in locals(): # Check if run_workflow_test was actually called
     #      print(f"Final Status: {final_run_status_obj.status}")
     #      if final_run_outputs:
@@ -822,5 +820,3 @@ if __name__ == "__main__":
     else:
          print("Starting new async event loop...")
          asyncio.run(main_test_linkedin_analysis())
-
-    print("\nSchema definition and test logic placeholder complete.")

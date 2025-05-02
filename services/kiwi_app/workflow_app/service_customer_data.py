@@ -1202,6 +1202,7 @@ class CustomerDataService:
         schema_template_version: Optional[str] = None,
         schema_definition: Optional[Dict[str, Any]] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        set_active_version: bool = True,
         is_system_entity: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         """
@@ -1401,6 +1402,7 @@ class CustomerDataService:
         # --- Perform Upsert Operation ---
         operation_performed = "unknown"
         final_version = version # Keep track of the version we end up targeting
+        is_active_version = version is None
 
         if doc_exists:
             # --- Document Exists - Attempt Update ---
@@ -1492,6 +1494,7 @@ class CustomerDataService:
                     operation_performed = f"initialized_version_{init_version}"
                     final_version = init_version
                     customer_data_logger.info(f"Upsert (initialize phase) successful for '{'/'.join(base_path)}' with version '{init_version}'.")
+                    is_active_version = True
                 else:
                     # Should ideally be caught by exception, but defensive check
                     customer_data_logger.error(f"Upsert failed: Initialization returned False for '{'/'.join(base_path)}' with version '{init_version}'.")
@@ -1529,10 +1532,22 @@ class CustomerDataService:
                 "is_system_entity": is_system_entity,
                 "namespace": namespace,
                 "docname": docname,
+                "set_active_version": set_active_version,
+                "is_complete": is_complete,
             },
             "version": final_version,
         }
         document_path_str = f"{org_id_segment}/{user_id_segment}/{namespace}/{docname}/{final_version}"
+
+        if (not is_active_version) and final_version and set_active_version:
+            # If we didn't target the active version, and we're supposed to set it, do that now
+            try:
+                await self.set_active_version(
+                    org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                    user=user, version=final_version, on_behalf_of_user_id=on_behalf_of_user_id, is_system_entity=is_system_entity
+                )
+            except Exception as set_active_err:
+                customer_data_logger.error(f"Failed to set active version during upsert for '{'/'.join(base_path)}': {set_active_err} - DOC IDENTIFIER: {json.dumps(document_identifier, indent=2)}", exc_info=True)
 
         customer_data_logger.info(f"Upsert completed for path '{'/'.join(base_path)}'. Operation: {operation_performed}, Final Path: {document_path_str}")
         return operation_performed, document_identifier

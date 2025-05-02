@@ -10,6 +10,35 @@ Also store the fetched user profile to central state
 @job_config_schema.py 
 
 
+## Build workflow with text flow and copied rough nodes
+
+Update the diff node configs (input is already accurate) and add edges as per the flow below and pass appropriate data while strictly following the reference graph structures / patterns since they are fully accurate and well tested.
+
+IMPORTANT: Don't add any new options/node configs you don't see being used in other workflows, this is super important to avoid hallucination; don't assume or make stuff up!
+
+Don't add any new nodes ro change the flow.
+
+Also create template vars, inputs dict etc correctly as shown in reference graphs
+
+@content_calendar_entry.py @content_generation.py 
+
+Flow: 
+1. input node -> load_all_context_docs and load_draft_posts
+2. [load_all_context_docs, load_draft_posts] -> construct_initial_concepts_prompt (enable_node_fan_in true)
+3. construct_initial_concepts_prompt -> generate_concepts
+4. generate_concepts -> store_concepts
+5. store_concepts -> capture_user_choice
+5. capture_user_choice -> route_on_user_choice
+6. route_on_user_choice -> construct_concepts_regeneration_prompt [selection: regenerate concepts]
+7. route_on_user_choice -> output_node [selection: Go back to initial ideas brief generation]
+8. route_on_user_choice -> filter_selected_concepts [selection: select list of concepts]
+9. construct_concepts_regeneration_prompt -> generate_concepts (concepts regeneration loop, generate_concepts reads message_history from state)
+10. filter_selected_concepts -> construct_update_content_brief_prompt
+11. construct_update_content_brief_prompt -> generated_updated_content_brief
+12. generated_updated_content_brief -> save_updated_content_brief
+13. save_updated_content_brief -> output_node
+
+
 ## Build workflow from scratch
 
 ### Content Idea Brief Draft generation

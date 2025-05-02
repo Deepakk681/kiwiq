@@ -585,10 +585,10 @@ def evaluate_condition_recursive(
                 result = evaluate_condition_recursive(
                     item_context, full_data, sub_condition, list_op, None, None
                 )
-                print("\n\n--------------------------------")
-                print(json.dumps(item_context, indent=4))
-                print(f"SUB CONDITION result: {result} -- > {sub_condition.model_dump_json(indent=4)}")
-                print("--------------------------------\n\n")
+                # print("\n\n--------------------------------")
+                # print(json.dumps(item_context, indent=4))
+                # print(f"SUB CONDITION result: {result} -- > {sub_condition.model_dump_json(indent=4)}")
+                # print("--------------------------------\n\n")
                 return result
             else:
                 path_existed = False
@@ -682,10 +682,10 @@ def evaluate_filter_config_for_list_item(
                 target_item_index=item_index
             )
             condition_results.append(result)
-            print("\n\n--------------------------------")
-            print(json.dumps(target_list_instance, indent=4))
-            print(f"Condition result for item {item_index}: {result} -- > {condition.model_dump_json(indent=4)}")
-            print("--------------------------------\n\n")
+            # print("\n\n--------------------------------")
+            # print(json.dumps(target_list_instance, indent=4))
+            # print(f"Condition result for item {item_index}: {result} -- > {condition.model_dump_json(indent=4)}")
+            # print("--------------------------------\n\n")
             
         # Combine condition results based on group's logical operator
         group_passed = all(condition_results) if group.logical_operator == LogicalOperator.AND else any(condition_results)
@@ -925,6 +925,7 @@ class FilterNode(BaseDynamicNode):
         """
         # Create a deep copy of input data to avoid modifying the original
         original_input_dict = self._prepare_input_data(input_data) 
+        # self.warning(f"Original input dict: {json.dumps(original_input_dict, indent=4)}")
         try:
             # Resolve and validate the configuration
             active_config = self.config
@@ -1019,7 +1020,7 @@ class FilterNode(BaseDynamicNode):
                         item_passed = evaluate_filter_config_for_list_item(
                             original_input_dict, config, original_list_instance, i
                         )
-                        print(f"\n\nItem {i} passed: {original_list_instance[i]} -- {item_passed}!\n\n")
+                        # self.warning(f"\n\nItem {i} passed: {original_list_instance[i]} -- {item_passed}!\n\n")
 
                         # Determine action based on whether config targets the item or a field within
                         if config.filter_target == list_path:  # Targets the entire item

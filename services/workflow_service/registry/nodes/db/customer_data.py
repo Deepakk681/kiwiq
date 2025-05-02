@@ -345,8 +345,8 @@ class StoreOperation(str, Enum):
 
 class VersionConfig(BaseSchema):
     """Configuration for specifying a document version."""
-    version: str = Field(
-        "default",
+    version: Optional[str] = Field(
+        None,
         description="The specific version name to load or store (e.g., 'default', 'v1.2')."
     )
 
