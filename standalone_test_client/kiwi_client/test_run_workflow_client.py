@@ -642,6 +642,7 @@ async def run_workflow_test(
     setup_docs: Optional[List[SetupDocInfo]] = None,
     cleanup_docs: Optional[List[CleanupDocInfo]] = None,
     setup_schemas: Optional[List[SetupSchemaInfo]] = None,
+    cleanup_docs_created_by_setup: bool = True,
     cleanup_created_schemas: bool = True,
     validate_output_func: Optional[Callable[[Optional[Dict[str, Any]]], Awaitable[bool]]] = None,
     stream_intermediate_results: bool = True,
@@ -1045,7 +1046,7 @@ async def run_workflow_test(
 
         # --- 4a. Cleanup Documents --- #
         # Combine documents created during setup with explicitly requested cleanup docs.
-        all_docs_to_cleanup = list(docs_created_by_setup)
+        all_docs_to_cleanup = list(docs_created_by_setup) if cleanup_docs_created_by_setup else []
         if cleanup_docs:
             # Create a set of identifiers for docs already in the setup list to avoid duplicates.
             # Identifier includes namespace, docname, is_shared, is_versioned, is_system.

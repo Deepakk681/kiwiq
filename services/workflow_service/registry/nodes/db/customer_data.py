@@ -641,7 +641,8 @@ class LoadCustomerDataNode(BaseDynamicNode):
                         doc_metadata = await customer_data_service.get_document_metadata(
                             org_id=org_id, namespace=namespace, docname=docname,
                             is_shared=is_shared, user=user, is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass the UUID
+                            is_called_from_workflow=True
                         )
                     except Exception as meta_err:
                         # Check if it's a 403 Forbidden, often due to superuser required for on_behalf_of
@@ -669,13 +670,15 @@ class LoadCustomerDataNode(BaseDynamicNode):
                             document_data = await customer_data_service.get_versioned_document(
                                 org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                                 user=user, version=version_cfg.version, is_system_entity=is_system_entity,
-                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass the UUID
+                                is_called_from_workflow=True
                             )
                             if schema_opts.load_schema:
                                 loaded_schema = await customer_data_service.get_versioned_document_schema(
                                     org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                                     user=user, is_system_entity=is_system_entity,
-                                    on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                                    on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass the UUID
+                                    is_called_from_workflow=True
                                 )
                         except Exception as load_err:
                              self.error(f"Failed to load versioned document '{namespace}/{docname}': {load_err}", exc_info=True)
@@ -685,7 +688,8 @@ class LoadCustomerDataNode(BaseDynamicNode):
                             document_data = await customer_data_service.get_unversioned_document(
                                 org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                                 user=user, is_system_entity=is_system_entity,
-                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass the UUID
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass the UUID
+                                is_called_from_workflow=True
                             )
                             # Schema loading for unversioned (logic remains the same, user context passed)
                             if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
@@ -1015,7 +1019,8 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
                             is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True
                         )
                         success_flag = True # create_or_update generally doesn't fail unless db error
                         operation_str = f"upsert_unversioned (created: {created})"
@@ -1031,6 +1036,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             schema_definition=schema_opts.schema_definition,
                             is_system_entity=is_system_entity,
                             on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True
                             # update_only=True # Hypothetical flag if service supported it
                         )
                         success_flag = True # Assume success from service perspective
@@ -1055,7 +1061,8 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             schema_definition=schema_opts.schema_definition,
                             initial_data=doc_data, is_complete=versioning.is_complete or False,
                             is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True
                         )
                         if success:
                             success_flag = True
@@ -1076,7 +1083,8 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             schema_template_version=schema_opts.schema_template_version,
                             schema_definition=schema_opts.schema_definition,
                             is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True
                         )
                         if success:
                             success_flag = True
@@ -1106,6 +1114,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
                                 schema_definition=schema_opts.schema_definition,
                                 on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
                                 is_system_entity=is_system_entity,
+                                is_called_from_workflow=True
                             )
                             # If the service call succeeds without raising an exception, mark success
                             success_flag = True
@@ -1130,7 +1139,8 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
                             user=user, new_version=new_version_name, from_version=versioning.from_version,
                             is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True
                         )
                         if create_success:
                             # Now update the newly created version with data
@@ -1142,7 +1152,8 @@ class StoreCustomerDataNode(BaseDynamicNode):
                                 schema_template_version=schema_opts.schema_template_version,
                                 schema_definition=schema_opts.schema_definition,
                                 is_system_entity=is_system_entity,
-                                on_behalf_of_user_id=on_behalf_of_user_id_uuid # Pass UUID
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                                is_called_from_workflow=True
                             )
                             if update_success:
                                 success_flag = True

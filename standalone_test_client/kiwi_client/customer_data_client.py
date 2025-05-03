@@ -869,8 +869,7 @@ class CustomerDataTestClient:
             params["is_system_entity"] = is_system_entity
         if on_behalf_of_user_id:
             params["on_behalf_of_user_id"] = str(on_behalf_of_user_id)
-        if is_shared:
-            params["is_shared"] = is_shared
+        params["is_shared"] = is_shared
             
         try:
             response = await self._client.get(url, params=params)

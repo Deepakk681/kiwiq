@@ -308,9 +308,7 @@ workflow_graph_schema = {
           },
       }
       # Reads (private): user_prompt, system_prompt
-      # Reads (state): brief_generation_history (if manage_message_history=True)
       # Writes: structured_output -> all_generated_briefs (state reducer)
-      # Writes: current_messages -> brief_generation_history (state reducer, if manage_message_history=True)
     },
 
     # --- Check Brief Count Node (after first brief generation) ---

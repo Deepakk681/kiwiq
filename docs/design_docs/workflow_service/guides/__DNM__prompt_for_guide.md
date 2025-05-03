@@ -10,6 +10,53 @@ Also store the fetched user profile to central state
 @job_config_schema.py 
 
 
+## Populate workflow template where graph structure / edges don't change
+
+### NOTE: IMPORTANT: ONE SHOT SUCCESSFULL! IF GIVEN STRUCTURE, LLM is great to do menial, non reasoning tasks and rewrite vars while keeping structure same!
+```
+Modify the constants / variables (keep system docs as is, same are required to be loaded) and testing code of the workflow (the workflow itself, graph structure, edges - doesn't require any changes)
+
+to make it work with roughly the new requirements mentioned:
+
+
+
+## the files to be loaded are 4 : 
+1& 2: user scraped profile and user analyzed linkedin content, the
+3 user preferences
+4. content pillars doc for user
+
+
+filename pattern for linkedin profile: {
+                "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
+                # Use entity_name (from node input, mapped from $graph_state) for the pattern context
+                "input_docname_field": "entity_username", # Field in node's input containing the value
+                "input_docname_field_pattern": LINKEDIN_PROFILE_DOCNAME_PATTERN  # 'item' here will be the value of entity_name
+              }
+
+
+filename pattern for analyzed linkedin content: {
+                "static_namespace": ANALYSIS_OUTPUT_NAMESPACE,
+                "input_docname_field": "entity_username", # From state via edge mapping
+                "input_docname_field_pattern": ANALYSIS_OUTPUT_DOCNAME_PATTERN
+              }
+
+
+
+## Generation changes (the graph now generates user dna)
+
+**Static Prompt:** "Gather and analyze the following information about the user to build their User DNA: Full Name, Professional Descriptor, Background Summary, Personal Brand, Voice and Tone, Online Presence, Goals, and Audience Insights. Use the user's LinkedIn profile, Content Analysis, and any additional provided materials to complete the User Profile Template."
+
+**Template Sections:**
+
+1. Professional Identity (background, experience, expertise)
+2. LinkedIn Profile Analysis (metrics, engagement data)
+3. Brand Voice & Style (communication preferences)
+4. Content Strategy Goals (objectives, audience, topics)
+5. Personal Context (values, influences, story elements)
+6. Analytics Insights (performance data, patterns)
+7. Success Metrics (KPIs, timeline, benchmarks)
+```
+
 ## Build workflow with text flow and copied rough nodes
 
 Update the diff node configs (input is already accurate) and add edges as per the flow below and pass appropriate data while strictly following the reference graph structures / patterns since they are fully accurate and well tested.

@@ -36,6 +36,7 @@ class CustomerDataService:
     
     # Constant for shared document user ID placeholder
     SHARED_DOC_PLACEHOLDER = "_shared_"
+    SHARED_AND_API_READABLE_SYSTEM_NAMESPACE = "_shared_and_api_readable_"  # Only use for system docs!
     PRIVATE_DOC_PLACEHOLDER = "_private_"
     SYSTEM_DOC_PLACEHOLDER = "_system_"
     
@@ -69,7 +70,8 @@ class CustomerDataService:
         self, 
         is_shared: bool, 
         user: User, 
-        on_behalf_of_user_id: Optional[uuid.UUID] = None
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
     ) -> str:
         """
         Get the user_id segment for document paths.
@@ -78,6 +80,7 @@ class CustomerDataService:
             is_shared: Whether this is a shared document
             user: User object for user-specific documents
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity (superusers only)
             
         Returns:
             The user_id segment (either user ID, on-behalf user ID, or shared placeholder)
@@ -87,7 +90,10 @@ class CustomerDataService:
             
         if on_behalf_of_user_id and user.is_superuser:
             return str(on_behalf_of_user_id)
-            
+        
+        if is_system_entity and not is_shared:
+            return self.PRIVATE_DOC_PLACEHOLDER
+
         return str(user.id)
     
     def _build_base_path(
@@ -119,7 +125,7 @@ class CustomerDataService:
         org_id_segment = CustomerDataService.SYSTEM_DOC_PLACEHOLDER if is_system_entity else str(org_id)
         
         # Get user ID segment (handles shared docs and on-behalf actions)
-        user_id_segment = self._get_user_id_segment(is_shared, user, on_behalf_of_user_id)
+        user_id_segment = self._get_user_id_segment(is_shared, user, on_behalf_of_user_id, is_system_entity)
         
         return [org_id_segment, user_id_segment, namespace, docname]
     
@@ -129,6 +135,7 @@ class CustomerDataService:
         user: User, 
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_mutation: bool = False,
+        is_called_from_workflow: bool = False,
         is_system_entity: bool = False,
     ) -> List[List[str]]:
         """
@@ -149,11 +156,12 @@ class CustomerDataService:
 
         prefixes.extend([
             [str(org_id), self.SHARED_DOC_PLACEHOLDER],  # Shared docs
+            [str(org_id), self.SHARED_DOC_PLACEHOLDER, CustomerDataService.SHARED_AND_API_READABLE_SYSTEM_NAMESPACE],  # Shared and API readable docs
             [str(org_id), str(user.id)],                # Their own docs
         ])
 
-        # if not is_mutation:
-        #     prefixes.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.SHARED_DOC_PLACEHOLDER])
+        if (not is_mutation) and is_called_from_workflow:
+            prefixes.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, self.SHARED_DOC_PLACEHOLDER])
             
         # Regular organization prefixes
         if user.is_superuser:
@@ -245,6 +253,7 @@ class CustomerDataService:
         is_complete: bool = False,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Initialize a new versioned document.
@@ -264,6 +273,7 @@ class CustomerDataService:
             is_complete: Whether the initial data is complete (for validation)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             True if document was initialized, False if already exists
@@ -299,6 +309,7 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
+            is_called_from_workflow=is_called_from_workflow,
             is_system_entity=is_system_entity
         )
         
@@ -368,6 +379,7 @@ class CustomerDataService:
         schema_definition: Optional[Dict[str, Any]] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Update a versioned document.
@@ -387,6 +399,7 @@ class CustomerDataService:
             schema_definition: Schema definition to use (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             True if document was updated successfully
@@ -422,6 +435,7 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
+            is_called_from_workflow=is_called_from_workflow,
             is_system_entity=is_system_entity
         )
         
@@ -482,6 +496,7 @@ class CustomerDataService:
         version: Optional[str] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Any:
         """
         Get a versioned document.
@@ -495,7 +510,8 @@ class CustomerDataService:
             version: Specific version to retrieve (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             The document data
         """
@@ -524,7 +540,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -560,6 +577,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Delete a versioned document.
@@ -572,6 +590,7 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             True if document was deleted successfully
@@ -607,7 +626,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -642,6 +662,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> List[schemas.CustomerDataVersionInfo]:
         """
         List all versions of a versioned document.
@@ -654,7 +675,8 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             List of version info objects
         """
@@ -683,7 +705,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -721,6 +744,7 @@ class CustomerDataService:
         from_version: Optional[str] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Create a new version of a versioned document.
@@ -735,7 +759,8 @@ class CustomerDataService:
             from_version: Version to branch from (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             True if version was created successfully
         """
@@ -770,7 +795,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -797,6 +823,7 @@ class CustomerDataService:
         version: str,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Set the active version of a versioned document.
@@ -810,7 +837,8 @@ class CustomerDataService:
             version: Version to set as active
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             True if active version was set successfully
         """
@@ -845,7 +873,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -872,6 +901,7 @@ class CustomerDataService:
         limit: int = 100,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> List[schemas.CustomerDataVersionHistoryItem]:
         """
         Get the history of a versioned document.
@@ -886,6 +916,7 @@ class CustomerDataService:
             limit: Maximum number of history entries to return
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             List of version history items
@@ -915,7 +946,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -955,6 +987,7 @@ class CustomerDataService:
         version: Optional[str] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Any:
         """
         Preview restoring a versioned document to a previous state.
@@ -969,7 +1002,8 @@ class CustomerDataService:
             version: Specific version to restore (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             The document state at the specified sequence number
         """
@@ -1004,7 +1038,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1043,6 +1078,7 @@ class CustomerDataService:
         version: Optional[str] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Restore a versioned document to a previous state.
@@ -1057,6 +1093,7 @@ class CustomerDataService:
             version: Specific version to restore (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             True if document was restored successfully
@@ -1092,7 +1129,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1129,6 +1167,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Get the schema of a versioned document.
@@ -1141,7 +1180,8 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             The document schema or None if not found
         """
@@ -1170,7 +1210,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1204,6 +1245,7 @@ class CustomerDataService:
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         set_active_version: bool = True,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Upserts a versioned document: updates if exists, initializes if not.
@@ -1229,6 +1271,7 @@ class CustomerDataService:
                                over template if both are provided.
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only).
             is_system_entity: Whether this is a system entity (superusers only).
+            is_called_from_workflow: Whether this operation is called from a workflow
 
         Returns:
             Tuple[str, Dict[str, Any]]:
@@ -1309,7 +1352,8 @@ class CustomerDataService:
             user=user,
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True, # Upsert is a mutation
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
 
         # --- Resolve Schema ---
@@ -1568,6 +1612,7 @@ class CustomerDataService:
         schema_definition: Optional[Dict[str, Any]] = None,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Tuple[str, bool]:
         """
         Create or update an unversioned document.
@@ -1585,6 +1630,7 @@ class CustomerDataService:
             schema_definition: Schema definition to validate against (optional)
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             Tuple of (document_id, is_created)
@@ -1617,7 +1663,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         schema = None
@@ -1671,6 +1718,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> Any:
         """
         Get an unversioned document.
@@ -1683,7 +1731,8 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity
-            
+            is_called_from_workflow: Whether this operation is called from a workflow
+
         Returns:
             The document data
         """
@@ -1709,7 +1758,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1744,6 +1794,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> bool:
         """
         Delete an unversioned document.
@@ -1756,6 +1807,7 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             True if document was deleted successfully
@@ -1788,7 +1840,8 @@ class CustomerDataService:
             user=user, 
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=True,
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1823,6 +1876,7 @@ class CustomerDataService:
         user: User,
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
     ) -> schemas.CustomerDocumentMetadata:
         """
         Retrieve document metadata at the specified path.
@@ -1835,6 +1889,7 @@ class CustomerDataService:
             user: User object
             on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
             is_system_entity: Whether this is a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             Document metadata including versioning information
@@ -1849,7 +1904,7 @@ class CustomerDataService:
                 detail="Only superusers can act on behalf of other users"
             )
             
-        if is_system_entity and not user.is_superuser:
+        if is_system_entity and (not user.is_superuser) and (not is_called_from_workflow):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only superusers can access system entities"
@@ -1872,7 +1927,8 @@ class CustomerDataService:
             user=user,
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,  # This is a read operation
-            is_system_entity=is_system_entity
+            is_system_entity=is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
         )
         
         try:
@@ -1946,6 +2002,7 @@ class CustomerDataService:
         include_system_entities: bool = False,
         sort_by: Optional[schemas.CustomerDataSortBy] = None,
         sort_order: Optional[schemas.SortOrder] = schemas.SortOrder.DESC,
+        is_called_from_workflow: bool = False,
     ) -> List[schemas.CustomerDocumentMetadata]:
         """
         List documents accessible to the user.
@@ -1962,6 +2019,7 @@ class CustomerDataService:
             include_system_entities: Whether to include system entities (superusers only)
             sort_by: Field to sort results by
             sort_order: Order to sort results (ASC or DESC)
+            is_called_from_workflow: Whether this operation is called from a workflow
             
         Returns:
             List of document metadata
@@ -1992,7 +2050,8 @@ class CustomerDataService:
             user=user,
             on_behalf_of_user_id=on_behalf_of_user_id,
             is_mutation=False,  # Listing is not a mutation operation
-            is_system_entity=False  # Basic prefixes, specific system patterns added below
+            is_system_entity=False,  # Basic prefixes, specific system patterns added below
+            is_called_from_workflow=is_called_from_workflow,
         )
         customer_data_logger.debug(f"Allowed prefixes: {allowed_prefixes}")
         

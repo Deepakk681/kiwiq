@@ -193,7 +193,7 @@ workflow_graph_schema = {
                     },
                     "concepts_system_prompt": {
                         "id": "concepts_system_prompt",
-                        "template": "You are an expert LinkedIn content strategist. Generate between 5-10 unique initial content concepts based on the provided user context. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```",
+                        "template": "You are an expert LinkedIn content strategist. Generate between 3-4 unique initial content concepts based on the provided user context. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```",
                         "variables": { "schema": json.dumps(ConceptSchema.model_json_schema(), indent=2) },
                         "construct_options": {}
                     }
@@ -214,13 +214,8 @@ workflow_graph_schema = {
                 "output_schema": {
                     "schema_definition": ConceptListSchema.model_json_schema()
                 },
-                "manage_message_history": True
             }
         },
-
-
-
-
 
         # --- 5. Store Concepts ---
         "store_concepts": {

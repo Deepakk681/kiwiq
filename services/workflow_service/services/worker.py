@@ -256,6 +256,7 @@ async def run_graph(
                 "user": await external_context.daos.user.get(db, id=user_id)
             }
         runtime_config[EXTERNAL_CONTEXT_MANAGER_KEY] = external_context
+        initial_runtime_config = runtime_config
 
         # Configure thread_id for checkpointing
         thread_id = workflow_run_job.thread_id or run_id
@@ -492,6 +493,16 @@ async def run_graph(
                                 }
                                 if central_state_update:
                                     payload["central_state_update"] = central_state_update
+                                
+                                # Redact potentially sensitive data such as shared system docs / prompts
+                                restricted_node_names = ["prompt_constructor", "load_customer_data", ]  # , "llm"
+                                user = initial_runtime_config[APPLICATION_CONTEXT_KEY].get("user", None)
+                                node_name = workflow_run_job.graph_schema.nodes.get(node_id).node_name
+                                if (not user.is_superuser) and node_name in restricted_node_names:
+                                    payload["node_output"] = "DATA_REDACTED"
+                                    if "central_state_update" in payload:
+                                        payload["central_state_update"] = "DATA_REDACTED"
+
                                 output_event = WorkflowRunNodeOutputEvent(
                                     **base_event_data,
                                     node_id=node_id,
