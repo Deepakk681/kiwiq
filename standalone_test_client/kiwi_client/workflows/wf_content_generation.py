@@ -22,40 +22,13 @@ workflow_graph_schema = {
           "fields": {
               "post_draft_name": { "type": "str", "required": True, "description": "Name of the post being drafted for saving." },
               "initial_content_brief": { "type": "str", "required": True, "description": "Content brief for the post being generated." },
-              "linkedin_username": { "type": "str", "required": True, "description": "LinkedIn username for profile scraping." },
           }
         }
     },
     # Defines workflow start inputs: post_draft_name, initial_content_brief, linkedin_username
     # outgoing edges:
-    #  - Sends edge to scrape_linkedin_profile with linkedin_username
     #  - stores post_draft_name to $graph_state
     #  - stores initial_content_brief to $graph_state
-
-    # --- 1b. Scrape LinkedIn Profile ---
-    "scrape_linkedin_profile": {
-      "node_id": "scrape_linkedin_profile",
-      "node_name": "linkedin_scraping",
-      "node_config": {
-        "test_mode": False, # Set to True for testing without API calls/credits
-        "jobs": [
-          {
-            "output_field_name": "scraped_profile", # Key for results in node output
-            "job_type": { "static_value": "profile_info" },
-            "type": { "static_value": "person" },
-            "username": { "input_field_path": "linkedin_username" }, # Get username from node input
-            "profile_info": { "static_value": "yes" } # Required flag alignment
-            # Limits will use system defaults
-          }
-        ]
-      }
-      # Reads: linkedin_username from input_node
-      # Writes: execution_summary, scraping_results (containing 'scraped_profile')
-      # Outgoing edges:
-      #  - Sends scraping_results.scraped_profile -> scraped_profile_data to construct_initial_prompt
-      #  - Sends scraping_results.scraped_profile -> scraped_linkedin_profile to $graph_state
-      #  - Triggers load_user_dna
-    },
 
     # --- 2. Load User Data ---
     "load_user_dna": {
@@ -94,20 +67,18 @@ workflow_graph_schema = {
         "prompt_templates": {
           "initial_generation_prompt": {
             "id": "initial_generation_prompt",
-            "template": "Create a LinkedIn post based on the following:\nBrief: {brief}\nUser Style: {user_style}\nUser LinkedIn Profile Info (Use this to personalize the post): {linkedin_profile}\n\n",
+            "template": "Create a LinkedIn post based on the following:\nBrief: {brief}\nUser Style: {user_style}\n\n",
             # "Generate the post now as JSON matching the schema: {schema_definition}",
             "variables": {
               "brief": None, # Required from input_node via edge mapping
               "user_style": "default", # Default if not found via construct_options
               # "schema_definition": f"{LinkedInPostSchemaDefinition}", # Required (placeholder for actual schema JSON string or loaded 
               # "schema_definition": None # Required via construct_options
-              "linkedin_profile": None # Required from scraping node via edge mapping
             },
             "construct_options": { # P1 Sourcing: Map variables to paths within node's input fields
                "user_style": "user_dna_doc.style_preference", # Look inside the mapped 'user_dna_doc' input field
                "brief": "initial_content_brief", # Look inside the mapped 'initial_content_brief' input field
             #    "schema_definition": "schema_def_string" # Look inside the mapped 'schema_def_string' input field
-               "linkedin_profile": "scraped_profile_data.scraped_profile" # Look inside the mapped 'scraped_profile_data' input field
             }
           },
           "system_prompt": {  # NOTE: this can directly be set in the LLM node too! But putting it here for using template variables!
@@ -119,7 +90,7 @@ workflow_graph_schema = {
           }
         }
       }
-      # Reads: initial_content_brief (from $graph_state), user_dna_doc (from `load_user_dna`), scraped_profile_data (from `scrape_linkedin_profile`)
+      # Reads: initial_content_brief (from $graph_state), user_dna_doc (from `load_user_dna`)
       # Waits for all inputs due to enable_node_fan_in=True
       # Outgoing edges
       #   - Sends: initial_generation_prompt -> to user_prompt ; system_prompt -> system_prompt in LLM Node
@@ -431,22 +402,6 @@ workflow_graph_schema = {
     # State -> Construct Initial Prompt: Provide initial brief for prompt construction
     { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_prompt", "mappings": [
         { "src_field": "initial_content_brief", "dst_field": "initial_content_brief", "description": "Pass the initial brief for the prompt."}
-      ]
-    },
-
-    # Input -> Scrape LinkedIn Profile: Provide username
-    { "src_node_id": "input_node", "dst_node_id": "scrape_linkedin_profile", "mappings": [
-        { "src_field": "linkedin_username", "dst_field": "linkedin_username", "description": "Pass the LinkedIn username for scraping."}
-      ]
-    },
-    # Scrape LinkedIn Profile -> State: Store scraped profile globally
-    { "src_node_id": "scrape_linkedin_profile", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "scraping_results", "dst_field": "scraped_linkedin_profile_results", "description": "Store the fetched LinkedIn profile data globally."}
-      ]
-    },
-    # Scrape LinkedIn Profile -> Construct Initial Prompt: Provide scraped profile data
-    { "src_node_id": "scrape_linkedin_profile", "dst_node_id": "construct_initial_prompt", "mappings": [
-        { "src_field": "scraping_results", "dst_field": "scraped_profile_data", "description": "Pass scraped profile data for prompt construction."}
       ]
     },
 
