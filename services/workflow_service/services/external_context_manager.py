@@ -1,6 +1,10 @@
 # NOTE: uncomment drop_collection to delete mongo collections and reset customer data!
 # PYTHONPATH=$(pwd):$(pwd)/services poetry run python services/workflow_service/services/external_context_manager.py
 
+# In PROD: use following:
+# docker-compose -f docker-compose.prod.yml exec app bash
+# PYTHONPATH=$(pwd):$(pwd)/services python services/workflow_service/services/external_context_manager.py
+
 from db.session import get_async_db_as_manager
 from global_config.settings import global_settings
 from mongo_client.mongo_versioned_client import AsyncMongoVersionedClient
@@ -383,7 +387,9 @@ async def get_mongo_client(client_type: str, extra_segments: List[str] = []) -> 
                          f"Must be one of: 'customer', 'workflow'")
     
     # Initialize client
+    print(f"Dropping collection {client.collection} for client {client_type}...")
     setup_success = await client.drop_collection(confirm=True)
+    print(f"Setup success: {setup_success}")
     await client.setup()
     
     # Cache client in global storage
