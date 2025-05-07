@@ -16,6 +16,9 @@ The `StoreCustomerDataNode` allows your workflow to write data back to the centr
     -   **Upsert Versioned:** Update a specific version of a versioned document if it exists, otherwise initialize that version (or the document itself if it's entirely new).
 -   Associate a schema with the stored data for validation and structure.
 -   Store data as user-specific, shared across the organization, or as system-level data (with appropriate permissions).
+-   Enrich objects with additional fields from elsewhere in the workflow input.
+-   Automatically generate and add UUIDs to objects being stored.
+-   Use the same UUID in both the document filename and its content.
 
 ## Configuration (`NodeConfig`)
 
@@ -53,6 +56,11 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
         },
         "global_on_behalf_of_user_id": null, // Default: don't act on behalf of another user
         "global_process_list_items_separately": true, // Default: process items in lists individually
+        "global_generate_uuid": false, // Default: don't generate UUID for documents
+        "global_extra_fields": [ // Default: no extra fields added to documents
+          // Example global extra fields (optional)
+          // { "src_path": "metadata.workflow_id", "dst_path": "source.workflow_id" }
+        ],
 
         // --- Option 1: Define Store Configs Statically ---
         "store_configs": [ // List of store instructions (Use this OR store_configs_input_path)
@@ -65,7 +73,11 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
                 "static_docname": "report_final"
               }
             },
-            "process_list_items_separately": false // Store the entire list in one go
+            "process_list_items_separately": false, // Store the entire list in one go
+            "generate_uuid": false, // Don't add UUID to this document
+            "extra_fields": [ // No extra fields for this document
+              // ...
+            ]
           },
           // --- Example 2: Initialize a new versioned document ---
           {
@@ -126,7 +138,17 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
                 "docname_pattern": "order_{item[order_id]}" // Docname based on item's order_id
               }
             },
-            "versioning": { "is_versioned": false, "operation": "upsert"} // Store each as unversioned
+            "versioning": { "is_versioned": false, "operation": "upsert"}, // Store each as unversioned
+            "extra_fields": [
+              {
+                "src_path": "batch_metadata.source", // Add field from global input
+                "dst_path": "source" // Default would be just the last part of src_path
+              },
+              {
+                "src_path": "batch_metadata.timestamp", // Add timestamp from global input
+                "dst_path": "metadata.created_at" // Creating nested structure
+              }
+            ]
           },
           // --- Example 6: Upsert a specific version of a versioned document ---
           {
@@ -171,6 +193,29 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
                }
              },
              "process_list_items_separately": false // Store the entire list in one go
+          },
+          // --- Example 9: Store with UUID generation ---
+          {
+            "input_field_path": "user_activity",
+            "target_path": {
+              "filename_config": {
+                "static_namespace": "activity_logs",
+                "docname_pattern": "activity_{_uuid_}" // Use UUID in filename
+              }
+            },
+            "versioning": { "is_versioned": false, "operation": "upsert" },
+            "generate_uuid": true // Add UUID to document and use it in filename
+          },
+          // --- Example 10: Store non-dictionary data with UUID ---
+          {
+            "input_field_path": "simple_value", // Points to a string, number, etc.
+            "target_path": {
+              "filename_config": {
+                "static_namespace": "primitive_values",
+                "static_docname": "latest_value"
+              }
+            },
+            "generate_uuid": true // Will wrap non-dict as {"uuid": "...", "data": original_value}
           }
         ],
         // --- Option 2: Define Store Configs Dynamically from Input ---
@@ -188,12 +233,14 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
 
 ### Key Configuration Sections:
 
-1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`, `global_on_behalf_of_user_id`, `global_process_list_items_separately`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
+1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`, `global_on_behalf_of_user_id`, `global_process_list_items_separately`, `global_generate_uuid`, `global_extra_fields`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
     *   `global_versioning`: Defines the default versioning strategy.
         *   `is_versioned`: `true` or `false`.
         *   `operation`: Default action (e.g., `"upsert"`, `"update"`). A common default is `is_versioned: false, operation: "upsert"`.
         *   `version`: Default version name (e.g., `"default"`).
-    *   `global_process_list_items_separately` (Optional bool): Default is `null`. If set to `true` or `false`, this provides the default behavior for list processing when the local `process_list_items_separately` is `null`. If both global and local are `null`, the ultimate fallback is `false` (store list as a single document).
+    *   `global_process_list_items_separately` (Optional bool): Default is `false`. If set to `true`, lists found at input_field_path will be processed item by item rather than stored as a single document.
+    *   `global_generate_uuid` (Optional bool): Default is `false`. If set to `true`, a UUID will be added to all documents.
+    *   `global_extra_fields` (Optional array): Default is an empty array. A list of extra fields to add to all documents. Each item needs `src_path` and optionally `dst_path`.
     *   See `LoadCustomerDataNode` guide for details on other global defaults.
 2.  **`store_configs`** (List): **Required (unless `store_configs_input_path` is used)**. A list where each item defines a specific store operation. Provide this OR `store_configs_input_path`.
 3.  **`store_configs_input_path`** (String): **Required (unless `store_configs` is used)**. A dot-notation path (e.g., `"dynamic_configs.store_jobs"`) within the node's input data. The data at this path must be either a single JSON object matching the `StoreConfig` structure, or a list of such JSON objects. If this path is provided, the static `store_configs` list is ignored. This allows generating the entire storage plan dynamically based on previous workflow steps.
@@ -205,10 +252,29 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
             *   `input_namespace_field` / `input_docname_field`: Dot-notation path to a field in the node's input data *or* within the item being stored (if `input_field_path` points to a list and `process_list_items_separately` is `true`). The system checks the item first, then the overall input data. **Note:** If `process_list_items_separately` is `false`, path resolution cannot depend on fields *within* the list items themselves using this method. This path is also used to fetch data for the `input_*_field_pattern` options below.
             *   `namespace_pattern` / `docname_pattern`: An f-string like template using `{item[...]}` and `{index}`. Used when `input_field_path` points to a list *and `process_list_items_separately` is `true`*. `{item[...]}` accesses fields within the current list item being stored (assumed to be a dict), and `{index}` provides its position in the list (0, 1, 2...). Example: `"order_{item[order_id]}_{index}"`. **Note:** This method will likely fail if items in the list are not dictionaries or if `process_list_items_separately` is `false`.
             *   `input_namespace_field_pattern` / `input_docname_field_pattern`: An f-string like template that uses data found at the path specified by `input_namespace_field` or `input_docname_field` respectively. The context provided to the format string is `{'item': retrieved_data}`. This allows generating paths based on metadata located elsewhere in the input. **Note:** If you use `input_..._field_pattern`, you *must* also provide the corresponding `input_..._field` to specify where to get the data for the pattern.
-    *   **`process_list_items_separately`** (Optional bool): Default is `null`. Controls behavior if `input_field_path` points to a list:
+            *   **Special placeholders in patterns:** When using `docname_pattern` or `input_docname_field_pattern`, you can include special placeholders:
+                * `{_uuid_}`: Will be replaced with a UUID - if `generate_uuid` is `true`, the same UUID added to the document will be used; otherwise, a fresh UUID will be generated just for the filename.
+                * `{_timestamp_}`: Will be replaced with the current UTC timestamp in ISO format.
+    *   **`process_list_items_separately`** (Optional bool): Default is `null` (defers to global setting, which defaults to `false`). Controls behavior if `input_field_path` points to a list:
         *   `true`: Each item in the list is processed individually. Path resolution can use `{item[...]}` if items are dictionaries.
         *   `false`: The entire list is stored as a single document. Path resolution cannot use `{item[...]}`.
         *   `null`: Behavior is determined by `global_process_list_items_separately`. If that is also `null`, the behavior defaults to `false` (store list as a single document).
+    *   **`generate_uuid`** (Optional bool): Default is `null` (defers to global setting, which defaults to `false`). Controls whether a UUID is automatically generated and added to each stored object:
+        *   `true`: A UUID is generated for each document being stored.
+        *   If the object is a dictionary, adds a `"uuid"` field directly to the dict.
+        *   If the object is not a dictionary (string, number, etc.), it's wrapped in a structure like `{"uuid": "...", "data": original_value}`.
+        *   The same UUID is used in `{_uuid_}` placeholders in docname patterns.
+        *   `false`: No UUID is added to the document.
+        *   `null`: Behavior is determined by `global_generate_uuid`.
+    *   **`extra_fields`** (Optional array): Default is `null` (defers to global setting, which defaults to `[]`). List of extra fields to add to objects being stored:
+        *   Each entry must have:
+            *   `src_path`: Dot-notation path to a value in the full input data.
+            *   `dst_path` (Optional): Dot-notation path where the value should be placed in the stored object. If not provided, defaults to the last segment of `src_path`.
+        *   Behavior notes:
+            *   Extra fields are only added to dictionary objects. If storing primitives, extra fields are ignored.
+            *   If a source path resolves to a list, that field is skipped (list values not copied).
+            *   Nested destination paths are created as needed (e.g., `"metadata.source"` creates a `metadata` object if not present).
+            *   The same extra fields are added to all objects when `process_list_items_separately` is `true`.
     *   **`is_shared`** (Optional bool): Overrides global default.
     *   **`is_system_entity`** (Optional bool): Overrides global default (requires superuser context).
     *   **`on_behalf_of_user_id`** (Optional str): Overrides global default. **Requires the workflow run context to have superuser privileges.** If provided and `is_shared` is `false`, the data will be stored under the path associated with this user ID instead of the user running the workflow. This parameter is ignored if `is_shared` is `true` or `is_system_entity` is `true`.
@@ -260,13 +326,23 @@ The node primarily performs a write operation and then passes through the origin
           "is_versioned": true, // Default to versioned storage
           "operation": "upsert_versioned" // Default to upserting versioned docs
         },
+        "global_generate_uuid": true, // Add UUIDs to all documents
+        "global_extra_fields": [
+          {
+            "src_path": "metadata.workflow_run_id",
+            "dst_path": "source.workflow_run_id"
+          },
+          {
+            "src_path": "metadata.timestamp" // dst_path defaults to "timestamp"
+          }
+        ],
         "store_configs": [
           {
             "input_field_path": "report_data", // Get data from this input field
             "target_path": {
               "filename_config": {
                 "static_namespace": "generated_reports",
-                "input_docname_field": "report_metadata.report_id" // Docname from input
+                "docname_pattern": "{item[report_type]}_{_uuid_}" // Use generated UUID in filename
               }
             },
             "versioning": {
@@ -283,9 +359,9 @@ The node primarily performs a write operation and then passes through the origin
       "src_node_id": "generate_report",
       "dst_node_id": "store_report",
       "mappings": [
-        // Map the report data and the ID needed for the path
+        // Map the report data and metadata needed for extra fields
         { "src_field": "report_data", "dst_field": "report_data" },
-        { "src_field": "report_metadata", "dst_field": "report_metadata" }
+        { "src_field": "workflow_metadata", "dst_field": "metadata" }
       ]
     },
     {
@@ -311,11 +387,13 @@ The node primarily performs a write operation and then passes through the origin
 -   `store_configs` (or the data found at `store_configs_input_path`): Tell the node what data to save and where.
 -   Inside each save instruction:
     *   `input_field_path`: Which piece of data from the previous step should be saved? (e.g., `"customer_summary"`, `"list_of_names"`, `"final_score"`).
-    *   `process_list_items_separately` (usually default/`null` which means `false`): If the data is a list, should each item be saved individually (`true`) or should the whole list be saved as one file (`false`)? If you don't set it, it usually defaults to saving the **whole list as one file (`false`)**.
+    *   `process_list_items_separately` (usually default/`null` which means `false`): If the data is a list, should each item be saved individually (`true`) or should the whole list be saved as one file (`false`)?
+    *   `generate_uuid`: Should a unique ID be automatically added to each stored object? This ID can also be used in the filename using the `{_uuid_}` placeholder.
+    *   `extra_fields`: A list of additional fields to add to the stored data, taken from other parts of the input. For example, add a timestamp or workflow ID to everything you save.
     *   `target_path.filename_config`: Where should it be saved?
         -   `static_...`: Use if you know the exact name (e.g., save as `"latest_results"` in the `"daily_reports"` namespace).
         -   `input_..._field`: Use if the name comes from the data itself (e.g., save the order using the `"order_id"` field from the order data). **Works best if the item being saved is an object/dictionary.**
-        -   `..._pattern`: Use when saving a list of items *individually* (`process_list_items_separately: true`), creating names based on each item's properties (e.g., save each product using its `"product_id"`). **Requires items in the list to be objects/dictionaries.**
+        -   `..._pattern`: Use when saving a list of items *individually* (`process_list_items_separately: true`), creating names based on each item's properties (e.g., save each product using its `"product_id"`). **Requires items in the list to be objects/dictionaries.** You can use special placeholders like `{_uuid_}` to include a unique ID in the filename.
         -   `input_..._field_pattern`: Use when the name needs to be constructed using a template, but the data for the template comes from *another* part of the input, not the item being saved (e.g., creating a log filename using `run_id` and `system_name` provided elsewhere in the input).
     *   `versioning`: How to handle saving?
         -   `is_versioned: false, operation: "upsert"`: Simple save - create if new, overwrite if exists (good for status dashboards, latest configs, simple values).
@@ -327,3 +405,27 @@ The node primarily performs a write operation and then passes through the origin
     -   `is_shared`: Set to `true` to save data accessible by everyone in the org.
     -   `on_behalf_of_user_id`: (Superusers only) Provide a user ID here to save the data as if you *were* that user (only applies when `is_shared` is false). The data gets saved under their specific path.
 -   The node mostly passes through the data it received. You can use the `paths_processed` output to see a list of what was successfully saved. 
+
+## Common Use Cases for Extra Fields and UUID Generation
+
+These features are particularly useful in several scenarios:
+
+1. **Automatic Tracking and Auditing**:
+   - Add metadata like workflow run ID, timestamp, and user ID to all stored documents
+   - Generate a unique ID for each document for reliable tracking and referencing
+
+2. **Creating Hierarchical Data Structures**:
+   - Store related documents that reference each other via UUIDs
+   - Maintain parent-child relationships between documents 
+
+3. **Object Enrichment**:
+   - Add global context (like batch ID, source system) to each item in a list
+   - Maintain consistent metadata across all documents created in a workflow
+
+4. **Simple Document Versioning** (even for unversioned documents):
+   - Generate unique filenames with `{_uuid_}` while maintaining the same data structure
+   - Track document lineage with source references
+
+5. **Simplifying Access Patterns**:
+   - Add lookup keys or normalized data to documents to simplify downstream queries
+   - Enrich objects with computed values that aid in searching or filtering

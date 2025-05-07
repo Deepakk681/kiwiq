@@ -191,7 +191,8 @@ def _resolve_single_doc_path(
     config: FilenameConfig,
     full_input_data: Dict[str, Any],
     current_item_data: Optional[Dict[str, Any]] = None,
-    item_index: Optional[int] = None
+    item_index: Optional[int] = None,
+    generated_uuid: Optional[str] = None  # NEW PARAMETER: Pass generated UUID if available
 ) -> Optional[Tuple[str, str]]:
     """
     Resolves the namespace and docname for a single document operation.
@@ -208,6 +209,8 @@ def _resolve_single_doc_path(
                            resolving input fields within the item and for patterns.
                            If None, dynamic fields must point to full_input_data.
         item_index: The index if current_item_data is from a list. Used for pattern context.
+        generated_uuid: If provided, this UUID will be used for _uuid_ placeholders in docname patterns
+                        instead of generating a new one.
 
     Returns:
         A tuple (namespace, docname) or None if resolution fails.
@@ -274,7 +277,7 @@ def _resolve_single_doc_path(
          return None
 
     DOCNAME_SPECIAL_PLACEHOLDERS = {
-        "_uuid_": lambda: str(uuid.uuid4()),
+        "_uuid_": lambda: generated_uuid if generated_uuid else str(uuid.uuid4()),  # Use the provided UUID if available
         "_timestamp_": lambda: datetime_now_utc().isoformat() 
     }
 
@@ -393,6 +396,94 @@ class SchemaOptions(BaseSchema):
         if self.schema_template_name and self.schema_definition:
             raise ValueError("Provide either 'schema_template_name' or 'schema_definition', not both.")
         return self
+
+# --- Extra Field Configuration for Store Customer Data ---
+
+class ExtraFieldConfig(BaseSchema):
+    """
+    Configuration for adding extra fields to objects before storing.
+    
+    Extra fields are retrieved from the input data and added to the object(s) being stored.
+    """
+    src_path: str = Field(
+        ...,
+        description="Dot-notation path within the full input data to find the value to add."
+    )
+    dst_path: Optional[str] = Field(
+        None,
+        description="Dot-notation path within the object being stored where the value should be placed. "
+                   "If not provided, defaults to the last segment of src_path."
+    )
+
+    @model_validator(mode='after')
+    def set_default_dst_path(self) -> 'ExtraFieldConfig':
+        """Set default dst_path if not provided."""
+        if self.dst_path is None:
+            # Use the last segment of src_path as the default dst_path
+            path_segments = self.src_path.split('.')
+            if path_segments:
+                self.dst_path = path_segments[-1]
+            else:
+                raise ValueError("Invalid src_path: must contain at least one segment")
+        return self
+
+# Helper function to add extra fields to an object
+def _add_extra_fields(
+    target_obj: Any, 
+    full_input_data: Dict[str, Any], 
+    extra_fields: List[ExtraFieldConfig],
+    logger: BaseDynamicNode
+) -> Any:
+    """
+    Adds extra fields to the target object based on the provided configuration.
+    
+    Args:
+        target_obj: The object to add fields to (modified in-place if dict)
+        full_input_data: The complete input data to retrieve values from
+        extra_fields: List of ExtraFieldConfig objects defining fields to add
+        logger: Logger instance for error reporting
+        
+    Returns:
+        The modified object (same object if dict, or wrapper object if non-dict)
+    """
+    if not isinstance(target_obj, dict):
+        logger.warning(f"Target object is not a dictionary, extra fields will be skipped: {type(target_obj)}")
+        return target_obj
+    
+    # Create a mutable copy if needed
+    target_dict = target_obj
+    
+    for field_config in extra_fields:
+        # Retrieve value from source path
+        value, found = _get_nested_obj(full_input_data, field_config.src_path)
+        
+        if not found:
+            logger.warning(f"Source path '{field_config.src_path}' not found in input data, skipping extra field")
+            continue
+            
+        # Skip if value is a list (as per requirements)
+        if isinstance(value, list):
+            logger.warning(f"Source path '{field_config.src_path}' resolves to a list, skipping as per requirements")
+            continue
+            
+        # Set value at destination path (handle nested paths)
+        dst_parts = field_config.dst_path.split('.')
+        current = target_dict
+        
+        # Navigate to the final object that will contain the field
+        for i, part in enumerate(dst_parts[:-1]):
+            if part not in current:
+                current[part] = {}
+            elif not isinstance(current[part], dict):
+                logger.warning(f"Cannot add field at '{field_config.dst_path}': path segment '{part}' exists but is not a dictionary")
+                break
+            current = current[part]
+        else:
+            # Set the value in the final object
+            current[dst_parts[-1]] = value
+            logger.debug(f"Added extra field '{field_config.dst_path}' with value from '{field_config.src_path}'")
+    
+    return target_dict
 
 # --- Load Customer Data Node ---
 
@@ -881,6 +972,19 @@ class StoreConfig(BaseSchema):
         None,
         description="If True and input data is a list, process each item separately using the target path config. If False, store the entire list as a single document."
     )
+    # NEW FIELDS: Extra field configurations and UUID generation
+    extra_fields: Optional[List[ExtraFieldConfig]] = Field(
+        None,
+        description="List of extra field configurations to add to the object(s) being stored. "
+                   "Same fields are added to all objects when processing list items separately."
+    )
+    generate_uuid: Optional[bool] = Field(
+        None,
+        description="If True, generates and adds a UUID to each object being stored. "
+                   "For dictionary objects, adds a 'uuid' key directly. "
+                   "For non-dictionary objects, wraps them in a dict with 'uuid' and 'data' keys. "
+                   "If _uuid_ is used in filename patterns, this generated UUID will be used."
+    )
 
 class StoreCustomerDataConfig(BaseSchema):
     """Configuration schema for the StoreCustomerDataNode."""
@@ -913,9 +1017,19 @@ class StoreCustomerDataConfig(BaseSchema):
         None, description="Default User ID (as string) to act on behalf of (requires superuser privileges)."
     )
     # NEW FIELD: Global default for list processing
-    global_process_list_items_separately: Optional[bool] = Field(
-        None,
+    global_process_list_items_separately: bool = Field(
+        False,
         description="Default value for 'process_list_items_separately'."
+    )
+    # NEW FIELD: Global default for UUID generation
+    global_generate_uuid: bool = Field(
+        False,
+        description="Default value for 'generate_uuid'."
+    )
+    # NEW FIELD: Global default for extra fields
+    global_extra_fields: Optional[List[ExtraFieldConfig]] = Field(
+        None,
+        description="Default extra fields to add to all objects being stored."
     )
 
     @model_validator(mode='after')
@@ -987,12 +1101,35 @@ class StoreCustomerDataNode(BaseDynamicNode):
         run_job: WorkflowRunJobCreate = app_context["workflow_run_job"]
         org_id = run_job.owner_org_id
         customer_data_service: CustomerDataService = ext_context.customer_data_service
+        
+        # Generate UUID if configured
+        generated_uuid = None
+        should_generate_uuid = store_cfg.generate_uuid if store_cfg.generate_uuid is not None else self.config.global_generate_uuid
+        if should_generate_uuid:
+            generated_uuid = str(uuid.uuid4())
+            
+            # Apply UUID to document data
+            if isinstance(doc_data, dict):
+                doc_data = dict(doc_data)  # Create a copy to avoid modifying the original
+                doc_data["uuid"] = generated_uuid
+            else:
+                # Wrap non-dict objects
+                doc_data = {
+                    "uuid": generated_uuid,
+                    "data": doc_data
+                }
+                
+        # Apply extra fields if configured
+        effective_extra_fields = store_cfg.extra_fields or self.config.global_extra_fields
+        if effective_extra_fields:
+            doc_data = _add_extra_fields(doc_data, full_input_dict, effective_extra_fields, self)
 
         resolved_path = _resolve_single_doc_path(
             config=store_cfg.target_path.filename_config,
             full_input_data=full_input_dict,
             current_item_data=doc_data,
-            item_index=item_index
+            item_index=item_index,
+            generated_uuid=generated_uuid  # Pass the generated UUID to use in filename pattern
         )
         if not resolved_path:
             self.error(f"Could not resolve target path for item from input '{store_cfg.input_field_path}' (index: {item_index}). Skipping store.")
@@ -1229,11 +1366,14 @@ class StoreCustomerDataNode(BaseDynamicNode):
             a list of successfully processed paths with their operations.
         """
         # Retrieve context from runtime_config
+        input_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
+        passthrough_input = input_dict
+        input_dict = copy.deepcopy(input_dict)
+        
         if not runtime_config:
             self.error("Missing runtime_config.")
-            passthrough_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
             # Instantiate output using class reference, even on failure
-            return self.__class__.output_schema_cls(passthrough_data=passthrough_dict, paths_processed=[])
+            return self.__class__.output_schema_cls(passthrough_data=passthrough_input, paths_processed=[])
 
         runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
@@ -1241,11 +1381,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
 
         if not app_context or not ext_context:
             self.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY} or {EXTERNAL_CONTEXT_MANAGER_KEY}")
-            passthrough_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
-            return self.__class__.output_schema_cls(passthrough_data=passthrough_dict, paths_processed=[])
+            return self.__class__.output_schema_cls(passthrough_data=passthrough_input, paths_processed=[])
 
-        input_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
-        passthrough_input = input_dict  # copy.deepcopy(input_dict) # Keep original for output
+        # passthrough_input = input_dict  # copy.deepcopy(input_dict) # Keep original for output
 
         # Use List[List[str]] to match existing output schema more easily
         paths_processed: List[List[str]] = [] # List of [namespace, docname, operation_details] lists

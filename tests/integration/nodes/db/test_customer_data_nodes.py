@@ -93,6 +93,9 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
 
         # Initialize context for each test
         self.external_context = await get_external_context_manager_with_clients()
+        self.external_context.mongo.customer.add_default_fields_to_data = False
+        self.external_context.customer_data_service.mongo_client.add_default_fields_to_data = False
+        self.external_context.customer_data_service.versioned_mongo_client.return_timestamp_metadata = False
 
         # Runtime Configs
         self.runtime_config_regular = {
@@ -192,12 +195,12 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
     def _get_store_node(self, config: Dict[str, Any]) -> StoreCustomerDataNode:
         """Instantiate StoreCustomerDataNode with given config."""
         node_config = StoreCustomerDataConfig(**config)
-        return StoreCustomerDataNode(config=node_config, node_id="test-store-node")
+        return StoreCustomerDataNode(config=node_config, node_id="test-store-node", prefect_mode=False)
 
     def _get_load_node(self, config: Dict[str, Any]) -> LoadCustomerDataNode:
         """Instantiate LoadCustomerDataNode with given config."""
         node_config = LoadCustomerDataConfig(**config)
-        return LoadCustomerDataNode(config=node_config, node_id="test-load-node")
+        return LoadCustomerDataNode(config=node_config, node_id="test-load-node", prefect_mode=False)
 
     # Helper to create dynamic output model for Load node tests
     def _get_dynamic_load_output_cls(self, model_name: str, field_definitions: List[Tuple[str, Type, Any]] = [] , cur__class=LoadCustomerDataOutput) -> Type[LoadCustomerDataOutput]:
@@ -250,7 +253,7 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
         is_system: bool,
         user: MockUser,
         expected_data: Optional[Dict] = None,
-        version_to_check: Optional[str] = None
+        version_to_check: Optional[str] = None,
     ):
         is_versioned = False
         metadata = None
@@ -293,7 +296,7 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
                  actual_data_to_compare = fetched_data.get('document')
 
             self.assertIsNotNone(actual_data_to_compare, f"Document '{namespace}/{docname}' (version: {version_to_check or 'active/N/A'}) should exist and contain data.")
-
+            
             if expected_data is not None:
                 self.assertEqual(actual_data_to_compare, expected_data, f"Data mismatch for '{namespace}/{docname}' (version: {version_to_check or 'active/N/A'}).")
 
@@ -1776,6 +1779,7 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
         output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
         self.assertEqual(len(output.paths_processed), 3)
         expected_ns = "metrics/batch_XYZ"
+        # import ipdb; ipdb.set_trace()
         await self._assert_doc_exists(expected_ns, "cpu_usage_web_1", False, False, self.user_regular, input_data["metric_items"][0])
         await self._assert_doc_exists(expected_ns, "memory_usage_db_1", False, False, self.user_regular, input_data["metric_items"][1])
         await self._assert_doc_exists(expected_ns, "cpu_usage_web_2", False, False, self.user_regular, input_data["metric_items"][2])
@@ -2391,6 +2395,613 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output.output_metadata, {})
 
     # --- End Load/Store Interaction Tests --- #
+
+    # --- Tests for Extra Fields and UUID Generation Features --- #
+
+    async def test_store_with_extra_fields_simple(self):
+        """Test storing a document with extra fields from input data."""
+        doc_name = self.test_docname_base + "extra_fields_simple"
+        doc_data = {"original": "value"}
+        extra_value = "extra_value_from_input"
+        input_data = {
+            "doc_to_store": doc_data,
+            "metadata": {
+                "extra_field": extra_value
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "extra_fields": [
+                        {
+                            "src_path": "metadata.extra_field",
+                            "dst_path": "added_field"  # Custom destination path
+                        }
+                    ]
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Expected data should have the extra field added
+        expected_data = {"original": "value", "added_field": extra_value}
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+
+    async def test_store_with_extra_fields_default_dst_path(self):
+        """Test storing with extra fields using default destination path (last segment of src_path)."""
+        doc_name = self.test_docname_base + "extra_fields_default_dst"
+        doc_data = {"original": "content"}
+        input_data = {
+            "doc_to_store": doc_data,
+            "context": {
+                "timestamp": "2023-01-01T12:00:00Z"
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "extra_fields": [
+                        {
+                            "src_path": "context.timestamp"
+                            # No dst_path - should default to "timestamp"
+                        }
+                    ]
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Expected data should have the timestamp field added using default dst path
+        expected_data = {"original": "content", "timestamp": "2023-01-01T12:00:00Z"}
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+
+    async def test_store_with_extra_fields_nested_paths(self):
+        """Test storing with extra fields using nested source and destination paths."""
+        doc_name = self.test_docname_base + "extra_fields_nested"
+        doc_data = {"level1": {"level2": "original"}}
+        input_data = {
+            "doc_to_store": doc_data,
+            "deep": {
+                "nested": {
+                    "source": "nested_value"
+                }
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "extra_fields": [
+                        {
+                            "src_path": "deep.nested.source",
+                            "dst_path": "new.nested.field"  # Deep nesting in target
+                        }
+                    ]
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Expected data with the nested field structure created
+        expected_data = {
+            "level1": {"level2": "original"},
+            "new": {"nested": {"field": "nested_value"}}
+        }
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+
+    async def test_store_with_extra_fields_list_skipped(self):
+        """Test that list values at source paths are skipped as per requirements."""
+        doc_name = self.test_docname_base + "extra_fields_skip_list"
+        doc_data = {"original": "data"}
+        input_data = {
+            "doc_to_store": doc_data,
+            "metadata": {
+                "scalar_field": "scalar_value",
+                "list_field": [1, 2, 3]  # This should be skipped
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "extra_fields": [
+                        {
+                            "src_path": "metadata.scalar_field",
+                            "dst_path": "scalar"
+                        },
+                        {
+                            "src_path": "metadata.list_field",
+                            "dst_path": "list_value"  # This shouldn't be added
+                        }
+                    ]
+                }
+            ]
+        })
+
+        # Using assertLogs to check for the warning about skipping list values
+        with self.assertLogs(level='WARNING') as log_cm:
+            output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        self.assertEqual(len(output.paths_processed), 1)
+        
+        # Expected data should only have the scalar field added, not the list
+        expected_data = {"original": "data", "scalar": "scalar_value"}
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+        
+        # Check log for warning about skipping list value
+        self.assertTrue(any("resolves to a list, skipping as per requirements" in msg for msg in log_cm.output))
+
+    async def test_store_with_global_extra_fields(self):
+        """Test storing with extra fields defined in the global config."""
+        doc_name = self.test_docname_base + "global_extra_fields"
+        doc_data = {"doc": "content"}
+        input_data = {
+            "doc_to_store": doc_data,
+            "global_meta": "global_value"
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                    # No extra_fields here - using global config
+                }
+            ],
+            "global_extra_fields": [
+                {
+                    "src_path": "global_meta",
+                    "dst_path": "global_field"
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Expected data should have the global extra field
+        expected_data = {"doc": "content", "global_field": "global_value"}
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+
+    async def test_store_extra_fields_override_global(self):
+        """Test that config-specific extra fields override global extra fields."""
+        doc_name = self.test_docname_base + "override_extra_fields"
+        doc_data = {"doc": "base"}
+        input_data = {
+            "doc_to_store": doc_data,
+            "global_value": "from_global",
+            "specific_value": "from_specific"
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "extra_fields": [
+                        {
+                            "src_path": "specific_value",
+                            "dst_path": "added_field"
+                        }
+                    ]
+                }
+            ],
+            "global_extra_fields": [
+                {
+                    "src_path": "global_value",
+                    "dst_path": "added_field"  # Same destination, should be overridden
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Expected data should have the specific value, not the global one
+        expected_data = {"doc": "base", "added_field": "from_specific"}
+        await self._assert_doc_exists(self.test_namespace, doc_name, False, False, self.user_regular, expected_data)
+
+    async def test_store_with_generate_uuid_dict(self):
+        """Test UUID generation for dictionary objects."""
+        doc_name = self.test_docname_base + "uuid_dict"
+        doc_data = {"original": "content"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": True  # Enable UUID generation
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Retrieve the stored document
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+
+        # Verify it has the original content plus a UUID field
+        self.assertEqual(fetched_data["original"], "content")
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        self.assertTrue(isinstance(fetched_data["uuid"], str), "UUID should be a string")
+        try:
+            uuid_obj = uuid.UUID(fetched_data["uuid"])
+            self.assertTrue(uuid_obj.version == 4, "Should be a valid UUIDv4")
+        except ValueError:
+            self.fail("UUID is not a valid UUID string")
+
+    async def test_store_with_generate_uuid_primitive(self):
+        """Test UUID generation for primitive/non-dict objects (should be wrapped)."""
+        doc_name = self.test_docname_base + "uuid_primitive"
+        simple_value = "simple string value"
+        input_data = {"primitive_to_store": simple_value}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "primitive_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": True  # Enable UUID generation
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Retrieve the stored document
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+
+        # Verify it's a wrapper with uuid and data fields
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        self.assertTrue("data" in fetched_data, "Data field should be present")
+        self.assertEqual(fetched_data["data"], simple_value, "Original data should be in 'data' field")
+        self.assertTrue(isinstance(fetched_data["uuid"], str), "UUID should be a string")
+        try:
+            uuid.UUID(fetched_data["uuid"])  # Validate UUID format
+        except ValueError:
+            self.fail("UUID is not a valid UUID string")
+
+    async def test_store_with_uuid_in_filename(self):
+        """Test UUID generation with _uuid_ placeholder in filename."""
+        doc_data = {"content": "with_uuid_filename"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "docname_pattern": f"{self.test_docname_base}_{{_uuid_}}"  # Using _uuid_ placeholder
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": True  # Enable UUID generation
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+        
+        # Extract the generated docname from the result
+        namespace, docname, _ = output.paths_processed[0]
+        
+        # Verify the document exists with expected content
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=namespace, docname=docname,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Verify it has a UUID field and the original content
+        self.assertEqual(fetched_data["content"], "with_uuid_filename")
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        
+        # Most importantly, verify the UUID in the docname matches the UUID in the document
+        # Extract the UUID part from the docname
+        prefix = f"{self.test_docname_base}_"
+        docname_uuid = docname[len(prefix):]
+        
+        # Check that it's the same UUID used in the document
+        self.assertEqual(docname_uuid, fetched_data["uuid"], 
+                        "UUID in filename should match UUID in document")
+
+    async def test_store_with_uuid_filename_placeholder_no_generate(self):
+        """Test filename with _uuid_ placeholder when generate_uuid is False (should use different UUIDs)."""
+        doc_data = {"content": "separate_uuids"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "docname_pattern": f"{self.test_docname_base}_{{_uuid_}}"  # Using _uuid_ placeholder
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": False  # UUID not generated for document
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+        
+        # Extract the generated docname from the result
+        namespace, docname, _ = output.paths_processed[0]
+        
+        # Verify the document exists with expected content
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=namespace, docname=docname,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Verify the original content is intact
+        self.assertEqual(fetched_data["content"], "separate_uuids")
+        
+        # Verify document does NOT have a uuid field
+        self.assertFalse("uuid" in fetched_data, "Document should not have a UUID field")
+        
+        # Verify the filename contains a UUID format
+        prefix = f"{self.test_docname_base}_"
+        docname_uuid = docname[len(prefix):]
+        
+        # Check that it's a valid UUID
+        try:
+            uuid.UUID(docname_uuid)
+        except ValueError:
+            self.fail("UUID in filename is not valid")
+
+    async def test_store_with_global_generate_uuid(self):
+        """Test UUID generation using global setting."""
+        doc_name = self.test_docname_base + "global_uuid"
+        doc_data = {"content": "global_uuid_test"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                    # No generate_uuid here - using global config
+                }
+            ],
+            "global_generate_uuid": True  # Global setting for UUID generation
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Retrieve the stored document
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+
+        # Verify it has the content plus UUID
+        self.assertEqual(fetched_data["content"], "global_uuid_test")
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        self.assertTrue(isinstance(fetched_data["uuid"], str), "UUID should be a string")
+
+    async def test_generate_uuid_override_global(self):
+        """Test that config-specific generate_uuid overrides global setting."""
+        doc_name = self.test_docname_base + "override_uuid"
+        doc_data = {"content": "override_test"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": False  # Explicitly disable, overriding global
+                }
+            ],
+            "global_generate_uuid": True  # Global setting is enabled
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Retrieve the stored document
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+
+        # Verify it does NOT have a UUID field because the specific config overrode global
+        self.assertEqual(fetched_data["content"], "override_test")
+        self.assertFalse("uuid" in fetched_data, "UUID field should NOT be present")
+
+    async def test_store_with_combined_features(self):
+        """Test combining extra fields and UUID generation."""
+        doc_name = self.test_docname_base + "combined_features"
+        doc_data = {"original": "data"}
+        input_data = {
+            "doc_to_store": doc_data,
+            "metadata": {
+                "timestamp": "2023-01-01T12:30:00Z"
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": True,
+                    "extra_fields": [
+                        {
+                            "src_path": "metadata.timestamp",
+                            "dst_path": "created_at"
+                        }
+                    ]
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+
+        # Retrieve the stored document
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+
+        # Verify it has all expected fields
+        self.assertEqual(fetched_data["original"], "data")
+        self.assertEqual(fetched_data["created_at"], "2023-01-01T12:30:00Z")
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        self.assertTrue(isinstance(fetched_data["uuid"], str), "UUID should be a string")
+
+    async def test_store_list_with_uuid_and_extra_fields(self):
+        """Test storing list items with both UUID generation and extra fields."""
+        input_data = {
+            "items": [
+                {"id": "item1", "value": 10},
+                {"id": "item2", "value": 20}
+            ],
+            "batch_info": {
+                "batch_id": "batch_123",
+                "created_by": "test_user"
+            }
+        }
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "items",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "docname_pattern": f"{self.test_docname_base}_{{item[id]}}"
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "process_list_items_separately": True,
+                    "generate_uuid": True,
+                    "extra_fields": [
+                        {
+                            "src_path": "batch_info.batch_id",
+                            "dst_path": "batch_id"
+                        },
+                        {
+                            "src_path": "batch_info.created_by", 
+                            "dst_path": "processing.created_by"  # Test nested destination
+                        }
+                    ]
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 2)
+
+        # Expected fields for each item
+        for i, item in enumerate(input_data["items"]):
+            item_id = item["id"]
+            docname = f"{self.test_docname_base}_{item_id}"
+            
+            # Retrieve the stored document
+            fetched_data = await self.customer_data_service.get_unversioned_document(
+                org_id=self.test_org_id, namespace=self.test_namespace, docname=docname,
+                is_shared=False, user=self.user_regular
+            )
+            
+            # Verify all expected fields
+            self.assertEqual(fetched_data["id"], item_id)
+            self.assertEqual(fetched_data["value"], item["value"])
+            self.assertEqual(fetched_data["batch_id"], "batch_123")
+            self.assertEqual(fetched_data["processing"]["created_by"], "test_user")
+            self.assertTrue("uuid" in fetched_data, f"UUID field missing in item {i}")
+            self.assertTrue(isinstance(fetched_data["uuid"], str), f"UUID not a string in item {i}")
+
+    # --- End of Extra Fields and UUID Generation Tests --- #
+
+    # --- Load/Store Interaction Tests --- #
 
 
 # ... main execution block ...
