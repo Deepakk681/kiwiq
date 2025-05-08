@@ -676,6 +676,254 @@ class TestLoadMultipleCustomerNode(unittest.IsolatedAsyncioTestCase):
         # Check metadata includes schema loaded count
         self.assertEqual(output.load_metadata["schemas_loaded_count"], 1) # Only versioned doc had schema associated
 
+    # --- New tests for dynamic configuration functionality ---
+
+    async def test_load_multiple_with_config_input_path(self):
+        """Test loading docs using configuration from input_data via config_input_path."""
+        output_field = "dynamic_config_docs"
+        
+        # Create test documents in namespace A
+        doc_name_a = self.test_doc_prefix + "dynamic_conf_a"
+        data_a = {"source": "namespace_a"}
+        await self._store_test_doc(self.test_namespace_a, doc_name_a, data_a)
+        
+        # Create test documents in namespace B
+        doc_name_b = self.test_doc_prefix + "dynamic_conf_b" 
+        data_b = {"source": "namespace_b"}
+        await self._store_test_doc(self.test_namespace_b, doc_name_b, data_b)
+        
+        # Define the expected output model
+        ExpectedOutputModel = self._get_dynamic_load_multiple_output_cls(
+            "LoadMultipleDynamicConfigOutput",
+            [(output_field, List[Dict[str, Any]], ...)]
+        )
+        
+        # Create node with config_input_path
+        load_node = self._get_load_multiple_node({
+            "config_input_path": "dynamic_config",  # Look for config in input_data.dynamic_config
+            "output_field_name": output_field,      # Default field name if not overridden
+            "namespace_filter": self.test_namespace_a  # Default namespace if not overridden
+        })
+        load_node.__class__.output_schema_cls = ExpectedOutputModel
+        
+        # Input data containing the dynamic configuration
+        input_data = {
+            "dynamic_config": {
+                "namespace_filter": self.test_namespace_b,  # Override namespace_filter
+                "limit": 10,
+                "output_field_name": output_field  # Keep same output field
+            }
+        }
+        
+        # Process with dynamic config
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify results
+        loaded_data = getattr(output, output_field)
+        self.assertEqual(len(loaded_data), 1)
+        self.assertEqual(loaded_data[0], data_b)  # Should load namespace B doc
+        self.assertEqual(output.load_metadata["documents_loaded"], 1)
+        self.assertTrue(output.load_metadata["used_dynamic_config"])
+        
+    async def test_load_multiple_namespace_pattern(self):
+        """Test loading docs using namespace pattern and namespace_pattern_input_path."""
+        output_field = "pattern_docs"
+        
+        # Create test documents in dynamically determined namespaces
+        # Format: user_{user_id}_docs
+        user1_id = "user123"
+        user2_id = "user456"
+        
+        user1_namespace = f"user_{user1_id}_docs"
+        user2_namespace = f"user_{user2_id}_docs"
+        
+        # Store docs in user-specific namespaces
+        doc_name_1 = self.test_doc_prefix + "pattern_test_1"
+        data_1 = {"owner": user1_id}
+        await self._store_test_doc(user1_namespace, doc_name_1, data_1)
+        
+        doc_name_2 = self.test_doc_prefix + "pattern_test_2"
+        data_2 = {"owner": user2_id}
+        await self._store_test_doc(user2_namespace, doc_name_2, data_2)
+        
+        # Define the expected output model
+        ExpectedOutputModel = self._get_dynamic_load_multiple_output_cls(
+            "LoadMultiplePatternOutput",
+            [(output_field, List[Dict[str, Any]], ...)]
+        )
+        
+        # Create node with namespace pattern
+        load_node = self._get_load_multiple_node({
+            "namespace_pattern": "user_{item}_docs",
+            "namespace_pattern_input_path": "user_context.user_id",
+            "output_field_name": output_field,
+        })
+        load_node.__class__.output_schema_cls = ExpectedOutputModel
+        
+        # Input data containing user context
+        input_data = {
+            "user_context": {
+                "user_id": user1_id  # Will resolve to user_user123_docs
+            }
+        }
+        
+        # Process with namespace pattern
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify results
+        loaded_data = getattr(output, output_field)
+        self.assertEqual(len(loaded_data), 1)
+        self.assertEqual(loaded_data[0], data_1)  # Should load user1's doc
+        self.assertEqual(output.load_metadata["documents_loaded"], 1)
+        self.assertEqual(output.load_metadata["resolved_namespace"], user1_namespace)
+        
+        # Try with the second user
+        input_data = {
+            "user_context": {
+                "user_id": user2_id  # Will resolve to user_user456_docs
+            }
+        }
+        
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify results
+        loaded_data = getattr(output, output_field)
+        self.assertEqual(len(loaded_data), 1)
+        self.assertEqual(loaded_data[0], data_2)  # Should load user2's doc
+        self.assertEqual(output.load_metadata["documents_loaded"], 1)
+        self.assertEqual(output.load_metadata["resolved_namespace"], user2_namespace)
+    
+    async def test_load_multiple_namespace_pattern_with_complex_object(self):
+        """Test namespace pattern with a complex object from input path."""
+        output_field = "complex_pattern_docs"
+        
+        # Create test document with a complex namespace pattern
+        complex_namespace = "customer_123_project_456"
+        
+        doc_name = self.test_doc_prefix + "complex_pattern"
+        data = {"type": "complex_pattern_test"}
+        await self._store_test_doc(complex_namespace, doc_name, data)
+        
+        # Define the expected output model
+        ExpectedOutputModel = self._get_dynamic_load_multiple_output_cls(
+            "LoadMultipleComplexPatternOutput",
+            [(output_field, List[Dict[str, Any]], ...)]
+        )
+        
+        # Create node with namespace pattern
+        load_node = self._get_load_multiple_node({
+            "namespace_pattern": "customer_{item[customer_id]}_project_{item[project_id]}",
+            "namespace_pattern_input_path": "project_context",
+            "output_field_name": output_field,
+        })
+        load_node.__class__.output_schema_cls = ExpectedOutputModel
+        
+        # Input data containing complex object
+        input_data = {
+            "project_context": {
+                "customer_id": "123",
+                "project_id": "456"
+            }
+        }
+        
+        # Process with namespace pattern
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify results
+        loaded_data = getattr(output, output_field)
+        self.assertEqual(len(loaded_data), 1)
+        self.assertEqual(loaded_data[0], data)
+        self.assertEqual(output.load_metadata["documents_loaded"], 1)
+        self.assertEqual(output.load_metadata["resolved_namespace"], complex_namespace)
+    
+    async def test_load_multiple_missing_namespace_pattern_data(self):
+        """Test behavior when namespace pattern input path doesn't exist."""
+        output_field = "missing_pattern_docs"
+        
+        # Define the expected output model
+        ExpectedOutputModel = self._get_dynamic_load_multiple_output_cls(
+            "LoadMultipleMissingPatternOutput",
+            [(output_field, List[Dict[str, Any]], ...)]
+        )
+        
+        # Create node with namespace pattern
+        load_node = self._get_load_multiple_node({
+            "namespace_pattern": "user_{item}_docs",
+            "namespace_pattern_input_path": "nonexistent.path",
+            "output_field_name": output_field,
+        })
+        load_node.__class__.output_schema_cls = ExpectedOutputModel
+        
+        # Empty input data
+        input_data = {}
+        
+        # Process with namespace pattern - should not fail but return empty results
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify we get empty results due to pattern resolution failure
+        loaded_data = getattr(output, output_field)
+        self.assertEqual(len(loaded_data), 0)
+        self.assertEqual(output.load_metadata["documents_loaded"], 0)
+        # Should be no resolved namespace in metadata
+        self.assertIsNone(output.load_metadata["resolved_namespace"])
+    
+    async def test_load_multiple_combined_dynamic_config_and_pattern(self):
+        """Test combining dynamic configuration and namespace pattern."""
+        output_field = "combined_feature_docs"
+        dynamic_output_field = "dynamic_output_name"
+        
+        # Create test documents in a dynamically determined namespace
+        dynamic_namespace = "tenant_789_data"
+        
+        doc_name = self.test_doc_prefix + "combined_test"
+        data = {"type": "combined_features_test"}
+        await self._store_test_doc(dynamic_namespace, doc_name, data)
+        
+        # Define the expected output model - support both potential field names
+        ExpectedOutputModel = self._get_dynamic_load_multiple_output_cls(
+            "LoadMultipleCombinedOutput",
+            [
+                (output_field, List[Dict[str, Any]], []),
+                (dynamic_output_field, List[Dict[str, Any]], [])
+            ]
+        )
+        
+        # Create node with config_input_path but default values
+        load_node = self._get_load_multiple_node({
+            "config_input_path": "dynamic_node_config",
+            "namespace_pattern": "default_pattern_{item}",  # Should be overridden
+            "namespace_pattern_input_path": "default.path", # Should be overridden
+            "output_field_name": output_field,               # Should be overridden
+        })
+        load_node.__class__.output_schema_cls = ExpectedOutputModel
+        
+        # Input data containing both dynamic config and pattern data
+        input_data = {
+            "dynamic_node_config": {
+                "namespace_pattern": "tenant_{item}_data",
+                "namespace_pattern_input_path": "tenant_info.id",
+                "output_field_name": dynamic_output_field,
+                "limit": 5
+            },
+            "tenant_info": {
+                "id": "789",
+                "name": "Test Tenant"
+            }
+        }
+        
+        # Process with combined features
+        output = await load_node.process(input_data, runtime_config=self.runtime_config_regular)
+        
+        # Verify results - should use dynamically configured field name
+        loaded_data = getattr(output, dynamic_output_field)
+        self.assertEqual(len(loaded_data), 1)
+        self.assertEqual(loaded_data[0], data)
+        self.assertEqual(output.load_metadata["documents_loaded"], 1)
+        self.assertEqual(output.load_metadata["resolved_namespace"], dynamic_namespace)
+        self.assertTrue(output.load_metadata["used_dynamic_config"])
+        # Original field should be an empty list (or missing)
+        self.assertFalse(hasattr(output, output_field) and getattr(output, output_field))
+
 # --- Run Tests ---
 if __name__ == '__main__':
     unittest.main()

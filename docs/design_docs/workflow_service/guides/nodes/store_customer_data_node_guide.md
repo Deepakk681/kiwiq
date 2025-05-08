@@ -20,6 +20,220 @@ The `StoreCustomerDataNode` allows your workflow to write data back to the centr
 -   Automatically generate and add UUIDs to objects being stored.
 -   Use the same UUID in both the document filename and its content.
 
+
+## Full Config and all fields with brief explanations
+
+```python
+{
+    # --- CONFIG SOURCE OPTIONS (choose ONE of these) ---
+    
+    # Option 1: Static list of store configurations
+    "store_configs": [
+        {
+            # Required: Path to the data within the node's input that you want to store
+            # This can point to a dictionary, list, or primitive value
+            "input_field_path": "analysis_output", 
+            
+            # Required: Defines where to store the data
+            "target_path": {
+                # Required: Configuration for determining namespace and docname
+                "filename_config": {
+                    # --- NAMESPACE OPTIONS (choose ONE of these) ---
+                    
+                    # Option 1: Fixed namespace string
+                    "static_namespace": "analysis_reports",
+                    
+                    # Option 2: Path to a field in input data containing the namespace
+                    "input_namespace_field": "metadata.namespace",
+                    
+                    # Option 3: Template for generating namespace from data at input_namespace_field
+                    # Uses {'item': retrieved_data} context
+                    "input_namespace_field_pattern": "ns_{item[category]}",
+                    
+                    # Option 4: Template for namespace using current item (when processing lists)
+                    # Uses {'item': current_item, 'index': item_index} context
+                    "namespace_pattern": "orders_{item[region]}",
+                    
+                    # --- DOCNAME OPTIONS (choose ONE of these) ---
+                    
+                    # Option 1: Fixed docname string
+                    "static_docname": "report_final",
+                    
+                    # Option 2: Path to a field in input data containing the docname
+                    "input_docname_field": "metadata.doc_id",
+                    
+                    # Option 3: Template for generating docname from data at input_docname_field
+                    # Uses {'item': retrieved_data} context
+                    # Special placeholders: {_uuid_} (UUID), {_timestamp_} (current UTC time)
+                    "input_docname_field_pattern": "doc_{item[topic]}_{_timestamp_}",
+                    
+                    # Option 4: Template for docname using current item (when processing lists)
+                    # Uses {'item': current_item, 'index': item_index} context
+                    # Special placeholders: {_uuid_} (UUID), {_timestamp_} (current UTC time)
+                    "docname_pattern": "order_{item[order_id]}_{_uuid_}"
+                }
+            },
+            
+            # Optional: Controls behavior if input_field_path points to a list
+            # If true, each item processed separately; if false, entire list stored as one document
+            "process_list_items_separately": True,
+            
+            # Optional: Whether to store as shared data (vs. user-specific)
+            # Overrides global_is_shared
+            "is_shared": False,
+            
+            # Optional: Whether to store as system data (requires superuser)
+            # Overrides global_is_system_entity
+            "is_system_entity": False,
+            
+            # Optional: User ID to act on behalf of (requires superuser privileges)
+            # Overrides global_on_behalf_of_user_id
+            "on_behalf_of_user_id": "d5f06b6a-e564-4f56-9fe0-b9f32bee8f89",
+            
+            # Optional: Versioning behavior for this specific store operation
+            # Overrides global_versioning
+            "versioning": {
+                # Whether the target document is versioned
+                "is_versioned": True,
+                
+                # Required: Operation to perform
+                # Options: "initialize", "update", "upsert", "create_version", "upsert_versioned"
+                "operation": "initialize",
+                
+                # Optional: Version name to use
+                # For initialize: Name for initial version (defaults to "default")
+                # For update: Version to update (null means active version)
+                # For create_version: Name for the new version
+                # For upsert_versioned: Version to update/create
+                "version": "v1.0",
+                
+                # Optional: For create_version, specify source version
+                # Defaults to active version if not specified
+                "from_version": "draft",
+                
+                # Optional: For update/initialize/upsert_versioned, mark if document is complete
+                # Relevant for version history tracking
+                "is_complete": True
+            },
+            
+            # Optional: Schema handling options
+            # Overrides global_schema_options
+            "schema_options": {
+                # Whether to load schema (ignored during store)
+                "load_schema": True,
+                
+                # Name of pre-registered schema template
+                "schema_template_name": "AnalysisReportSchema",
+                
+                # Optional: Version of the template
+                "schema_template_version": "1.2",
+                
+                # Alternative: Direct JSON schema definition
+                # Cannot use both template and definition
+                "schema_definition": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["title", "content"]
+                }
+            },
+            
+            # Optional: Whether to generate and add UUID to stored objects
+            # For dicts: Adds "uuid" field directly
+            # For non-dicts: Wraps as {"uuid": "...", "data": original_value}
+            # Overrides global_generate_uuid
+            "generate_uuid": True,
+            
+            # Optional: List of extra fields to add to objects being stored
+            # Only applied to dictionary objects
+            # Overrides global_extra_fields
+            "extra_fields": [
+                {
+                    # Required: Path to value in input data
+                    "src_path": "metadata.workflow_id",
+                    
+                    # Optional: Path where value should be placed in stored object
+                    # If not provided, defaults to last segment of src_path
+                    "dst_path": "source.workflow_id"
+                },
+                {
+                    "src_path": "metadata.timestamp",
+                    # dst_path defaults to "timestamp" in this case
+                }
+            ],
+            
+            # Optional: Fields that should be preserved during document creation
+            # but removed during updates unless they exist in original
+            # UUID is automatically added when generate_uuid=True
+            # Overrides global_create_only_fields
+            "create_only_fields": ["created_at", "created_by"],
+            
+            # Optional: Controls whether create-only fields should be preserved
+            # during updates if they don't exist in original document
+            # Overrides global_keep_create_fields_if_missing
+            "keep_create_fields_if_missing": True
+        }
+    ],
+    
+    # Option 2: Path to find store configurations in input data
+    # If specified, store_configs is ignored
+    "store_configs_input_path": "dynamic_configs.store_jobs",
+    
+    # --- GLOBAL DEFAULTS (applied if not overridden in individual configs) ---
+    
+    # Default for storing as shared data (across organization)
+    # False means user-specific storage
+    "global_is_shared": False,
+    
+    # Default for storing as system-level data
+    # Requires superuser context
+    "global_is_system_entity": False,
+    
+    # Default versioning behavior
+    "global_versioning": {
+        "is_versioned": False,
+        "operation": "upsert",
+        "version": "default"
+    },
+    
+    # Default schema options
+    "global_schema_options": {
+        "load_schema": False,
+        "schema_template_name": None,
+        "schema_template_version": None,
+        "schema_definition": None
+    },
+    
+    # Default user ID to act on behalf of (requires superuser)
+    "global_on_behalf_of_user_id": None,
+    
+    # Default behavior for processing lists
+    # True: Process each list item individually
+    # False: Store entire list as one document
+    "global_process_list_items_separately": False,
+    
+    # Default behavior for adding UUIDs to documents
+    "global_generate_uuid": False,
+    
+    # Default extra fields to add to all stored documents
+    "global_extra_fields": [
+        {
+            "src_path": "metadata.workflow_run_id",
+            "dst_path": "source.workflow_run_id"
+        }
+    ],
+    
+    # Default create-only fields
+    "global_create_only_fields": ["created_at"],
+    
+    # Default behavior for keeping create-only fields if missing in original
+    "global_keep_create_fields_if_missing": True
+}
+```
+
+
 ## Configuration (`NodeConfig`)
 
 You configure the `StoreCustomerDataNode` within the `node_config` field of its entry in the `GraphSchema`. The configuration follows the `StoreCustomerDataConfig` schema.

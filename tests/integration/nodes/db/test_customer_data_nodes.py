@@ -2771,6 +2771,51 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
         # Check that it's the same UUID used in the document
         self.assertEqual(docname_uuid, fetched_data["uuid"], 
                         "UUID in filename should match UUID in document")
+    
+    async def test_store_with_uuid_in_filename_in_static_docname(self):
+        """Test UUID generation with _uuid_ placeholder in filename."""
+        doc_data = {"content": "with_uuid_filename"}
+        input_data = {"doc_to_store": doc_data}
+        store_node = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc_to_store",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": f"{self.test_docname_base}_{{_uuid_}}"  # Using _uuid_ placeholder
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"},
+                    "generate_uuid": True  # Enable UUID generation
+                }
+            ]
+        })
+
+        output = await store_node.process(input_data, runtime_config=self.runtime_config_regular)
+        self.assertEqual(len(output.paths_processed), 1)
+        
+        # Extract the generated docname from the result
+        namespace, docname, _ = output.paths_processed[0]
+        
+        # Verify the document exists with expected content
+        fetched_data = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=namespace, docname=docname,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Verify it has a UUID field and the original content
+        self.assertEqual(fetched_data["content"], "with_uuid_filename")
+        self.assertTrue("uuid" in fetched_data, "UUID field should be present")
+        
+        # Most importantly, verify the UUID in the docname matches the UUID in the document
+        # Extract the UUID part from the docname
+        prefix = f"{self.test_docname_base}_"
+        docname_uuid = docname[len(prefix):]
+        
+        # Check that it's the same UUID used in the document
+        self.assertEqual(docname_uuid, fetched_data["uuid"], 
+                        "UUID in filename should match UUID in document")
 
     async def test_store_with_uuid_filename_placeholder_no_generate(self):
         """Test filename with _uuid_ placeholder when generate_uuid is False (should use different UUIDs)."""

@@ -284,6 +284,12 @@ def _resolve_single_doc_path(
     # --- Resolve Docname ---
     if config.static_docname is not None:
         resolved_docname = config.static_docname
+        kwargs = {}
+        for placeholder, func in DOCNAME_SPECIAL_PLACEHOLDERS.items():
+            if f"{{{placeholder}}}" in resolved_docname:
+                kwargs[placeholder] = func()
+        if kwargs:
+            resolved_docname = resolved_docname.format(**kwargs)
     elif config.input_docname_field and not config.input_docname_field_pattern:
         # Direct retrieval using input_docname_field
         dn_val, found = _get_nested_obj(full_input_data, config.input_docname_field)

@@ -42,11 +42,31 @@ class LoadMultipleCustomerDataConfig(BaseSchema):
 
     Defines criteria for listing documents and options for loading them.
     """
+    # Dynamic Configuration Loading
+    config_input_path: Optional[str] = Field(
+        None,
+        description="Dot-notation path within the node's input data to find the listing configuration. "
+                   "This can be a JSON object matching this schema structure. "
+                   "If provided, values from this dynamic configuration override the static configuration fields."
+    )
+    
     # Listing Criteria
     namespace_filter: Optional[str] = Field(
         None,
         description="Optional namespace to filter documents by. If None or '*', lists across all accessible namespaces."
     )
+    # Namespace Pattern Support (similar to customer_data.py)
+    namespace_pattern: Optional[str] = Field(
+        None,
+        description="f-string like template to generate the namespace (e.g., 'user_{item}'). "
+                   "Used to dynamically create namespace filters."
+    )
+    namespace_pattern_input_path: Optional[str] = Field(
+        None,
+        description="Dot-notation path within the input data to find the value(s) to use in the namespace_pattern. "
+                   "The object found at this path will be available as 'item' in the pattern context."
+    )
+    
     include_shared: bool = Field(
         True, description="Include shared documents in the listing."
     )
@@ -104,6 +124,26 @@ class LoadMultipleCustomerDataConfig(BaseSchema):
         if not self.include_system_entities and not self.include_shared and not self.include_user_specific:
              raise ValueError("At least one of 'include_shared', 'include_user_specific', or 'include_system_entities' must be True.")
         return self
+        
+    @model_validator(mode='after')
+    def validate_namespace_pattern(self) -> 'LoadMultipleCustomerDataConfig':
+        """Validate namespace pattern configuration."""
+        if self.namespace_pattern and not self.namespace_pattern_input_path:
+            raise ValueError("When using 'namespace_pattern', 'namespace_pattern_input_path' must also be provided.")
+            
+        if self.namespace_pattern_input_path and not self.namespace_pattern:
+            raise ValueError("When using 'namespace_pattern_input_path', 'namespace_pattern' must also be provided.")
+            
+        # Basic pattern validation (simple check)
+        if self.namespace_pattern and ('{' not in self.namespace_pattern or '}' not in self.namespace_pattern):
+            logger = get_prefect_or_regular_python_logger(f"{__name__}")
+            logger.warning(f"namespace_pattern '{self.namespace_pattern}' doesn't look like a valid f-string pattern.")
+            
+        # Prevent conflicting namespace specifications
+        if self.namespace_pattern and self.namespace_filter:
+            raise ValueError("Provide either 'namespace_filter' or 'namespace_pattern', not both.")
+            
+        return self
 
 
 # --- Output Schema ---
@@ -137,7 +177,7 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
     unversioned getter from the service.
     """
     node_name: ClassVar[str] = "load_multiple_customer_data"
-    node_version: ClassVar[str] = "0.1.0"
+    node_version: ClassVar[str] = "0.1.2" # Updated version for namespace pattern support
     env_flag: ClassVar[LaunchStatus] = LaunchStatus.DEVELOPMENT # Start as development
 
     # Input schema can be dynamic, accepting various inputs potentially used by other nodes
@@ -145,6 +185,45 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
     output_schema_cls: ClassVar[Type[LoadMultipleCustomerDataOutput]] = LoadMultipleCustomerDataOutput
     config_schema_cls: ClassVar[Type[LoadMultipleCustomerDataConfig]] = LoadMultipleCustomerDataConfig
     config: LoadMultipleCustomerDataConfig
+    
+    def _resolve_namespace_pattern(
+        self, 
+        pattern: str,
+        pattern_input_path: str,
+        input_dict: Dict[str, Any],
+        logger
+    ) -> Optional[str]:
+        """
+        Resolve a namespace pattern using values from the input data.
+        
+        Args:
+            pattern: The pattern template with placeholders (e.g., 'user_{item}').
+            pattern_input_path: Path in the input data to find values for the pattern.
+            input_dict: The complete input dictionary.
+            logger: Logger instance for error reporting.
+            
+        Returns:
+            The resolved namespace string or None if resolution fails.
+        """
+        try:
+            # Get the object to use in pattern substitution
+            pattern_data, found = _get_nested_obj(input_dict, pattern_input_path)
+            
+            if not found:
+                logger.error(f"Data for namespace pattern not found at '{pattern_input_path}' in input data.")
+                return None
+                
+            # Format the pattern using the retrieved data as the 'item' context
+            resolved_namespace = pattern.format(item=pattern_data)
+            logger.info(f"Resolved namespace pattern '{pattern}' to '{resolved_namespace}'")
+            return resolved_namespace
+            
+        except KeyError as e:
+            logger.error(f"Error formatting namespace_pattern '{pattern}': Key {e} not found in data at '{pattern_input_path}'.")
+            return None
+        except Exception as e:
+            logger.error(f"Error formatting namespace_pattern '{pattern}': {e}")
+            return None
 
     async def process(
         self,
@@ -157,7 +236,7 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         Lists and loads multiple customer documents based on node configuration.
 
         Args:
-            input_data: Input data (currently unused by this node but passed for signature compatibility).
+            input_data: Input data (can contain dynamic configuration if config_input_path is set).
             runtime_config: Runtime configuration containing execution context
                             (MUST include APPLICATION_CONTEXT_KEY and EXTERNAL_CONTEXT_MANAGER_KEY).
             *args: Additional positional arguments (unused).
@@ -193,12 +272,67 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
 
         org_id = run_job.owner_org_id
         customer_data_service: CustomerDataService = ext_context.customer_data_service
-        # input_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json') # Currently unused
+        input_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
 
         logger.info(f"Starting {self.node_name} processing for org {org_id}, user {user.id}.")
 
+        # --- 1.5 Handle Dynamic Configuration if specified ---
+        effective_config = self.config
+        
+        if self.config.config_input_path:
+            logger.info(f"Attempting to load configuration from input path: {self.config.config_input_path}")
+            dynamic_config_data, found = _get_nested_obj(input_dict, self.config.config_input_path)
+            
+            if not found:
+                logger.warning(f"Input path '{self.config.config_input_path}' for dynamic configuration not found in input data. Using static configuration.")
+            else:
+                try:
+                    if isinstance(dynamic_config_data, dict):
+                        # Create a merged configuration with static config as base and dynamic config as override
+                        # First, create a copy of current config values
+                        static_config_dict = self.config.model_dump()
+                        
+                        # Remove the config_input_path to prevent circular reference issues
+                        dynamic_config_dict = {
+                            k: v for k, v in dynamic_config_data.items() 
+                            if k != "config_input_path"
+                        }
+                        
+                        # Merge: start with static config and override with dynamic values
+                        merged_config_dict = {**static_config_dict, **dynamic_config_dict}
+                        
+                        # Validate the merged configuration
+                        effective_config = LoadMultipleCustomerDataConfig.model_validate(merged_config_dict)
+                        logger.info(f"Successfully loaded and merged dynamic configuration from '{self.config.config_input_path}'.")
+                    else:
+                        logger.warning(f"Data found at '{self.config.config_input_path}' is not a valid object for configuration. Type: {type(dynamic_config_data)}. Using static configuration.")
+                except ValidationError as e:
+                    logger.error(f"Validation error parsing dynamic configuration from input path '{self.config.config_input_path}': {e}. Using static configuration.")
+                except Exception as e:
+                    logger.error(f"Unexpected error parsing dynamic configuration from input path '{self.config.config_input_path}': {e}. Using static configuration.")
+
+        # --- 1.75 Resolve Namespace Pattern if specified ---
+        effective_namespace_filter = effective_config.namespace_filter
+        
+        if effective_config.namespace_pattern and effective_config.namespace_pattern_input_path:
+            logger.info(f"Attempting to resolve namespace pattern: {effective_config.namespace_pattern}")
+            resolved_namespace = self._resolve_namespace_pattern(
+                pattern=effective_config.namespace_pattern,
+                pattern_input_path=effective_config.namespace_pattern_input_path,
+                input_dict=input_dict,
+                logger=logger
+            )
+            
+            if resolved_namespace:
+                effective_namespace_filter = resolved_namespace
+                logger.info(f"Using resolved namespace filter: {effective_namespace_filter}")
+            else:
+                logger.error("Failed to resolve namespace pattern. Defaulting to static namespace_filter.")
+                # Depending on requirements, you might want to terminate here instead:
+                # return self.__class__.output_schema_cls(load_metadata={"error": "Failed to resolve namespace pattern"})
+
         # --- 2. Prepare Listing Parameters ---
-        on_behalf_id_str = self.config.on_behalf_of_user_id
+        on_behalf_id_str = effective_config.on_behalf_of_user_id
         on_behalf_of_user_id_uuid: Optional[uuid.UUID] = None
         if on_behalf_id_str:
             try:
@@ -212,7 +346,7 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
                 return self.__class__.output_schema_cls(load_metadata={"error": "Invalid on_behalf_of_user_id format"})
 
         # Superuser check for including system entities
-        if self.config.include_system_entities and not user.is_superuser:
+        if effective_config.include_system_entities and not user.is_superuser:
              logger.error(f"User '{user.id}' is not a superuser and cannot use 'include_system_entities=True'.")
              return self.__class__.output_schema_cls(load_metadata={"error": "Permission denied for include_system_entities"})
 
@@ -220,19 +354,19 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         # --- 3. List Documents ---
         listed_docs_metadata: List[CustomerDocumentMetadata] = []
         try:
-            logger.info(f"Listing documents with config: {self.config.model_dump(exclude_none=True)}")
+            logger.info(f"Listing documents with config: {effective_config.model_dump(exclude_none=True)}")
             listed_docs_metadata = await customer_data_service.list_documents(
                 org_id=org_id,
                 user=user,
-                namespace_filter=self.config.namespace_filter,
-                include_shared=self.config.include_shared,
-                include_user_specific=self.config.include_user_specific,
-                skip=self.config.skip or 0,
-                limit=self.config.limit or 100,
+                namespace_filter=effective_namespace_filter,
+                include_shared=effective_config.include_shared,
+                include_user_specific=effective_config.include_user_specific,
+                skip=effective_config.skip or 0,
+                limit=effective_config.limit or 100,
                 on_behalf_of_user_id=on_behalf_of_user_id_uuid,
-                include_system_entities=self.config.include_system_entities,
-                sort_by=self.config.sort_by,
-                sort_order=self.config.sort_order,
+                include_system_entities=effective_config.include_system_entities,
+                sort_by=effective_config.sort_by,
+                sort_order=effective_config.sort_order,
             )
             logger.info(f"Found {len(listed_docs_metadata)} document(s) matching criteria.")
 
@@ -246,8 +380,8 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         schemas_loaded: Dict[str, Any] = {} # Track loaded schemas if needed
 
         # Get global loading options once
-        version_cfg = self.config.global_version_config # Keep it Optional
-        schema_opts = self.config.global_schema_options or SchemaOptions()
+        version_cfg = effective_config.global_version_config # Keep it Optional
+        schema_opts = effective_config.global_schema_options or SchemaOptions()
 
         async with get_async_db_as_manager() as db: # Needed for schema template loading
             for metadata in listed_docs_metadata:
@@ -339,14 +473,19 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
                     load_errors.append(f"Error loading '{doc_identifier}': {load_err}")
 
         # --- 5. Prepare and Return Output ---
+        print("\n\n\n\neffective_namespace_filter\n\n\n\n")
+        print(effective_namespace_filter, effective_config.namespace_pattern)
+        print("\n\n\n\n")
         output_metadata = {
             "documents_listed": len(listed_docs_metadata),
             "documents_loaded": len(loaded_documents_list),
             "load_errors": load_errors,
             "schemas_loaded_count": len(schemas_loaded), # Basic schema metadata for now
             # Add more metadata like pagination info if needed
-            "config_skip": self.config.skip,
-            "config_limit": self.config.limit,
+            "config_skip": effective_config.skip,
+            "config_limit": effective_config.limit,
+            "used_dynamic_config": self.config.config_input_path is not None and effective_config != self.config,
+            "resolved_namespace": effective_namespace_filter  #  if effective_config.namespace_pattern else None
         }
 
         # Create output instance dynamically
@@ -356,13 +495,13 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
             init_data = {
                 "load_metadata": output_metadata,
                 # Add the list of documents under the dynamic field name
-                self.config.output_field_name: loaded_documents_list,
+                effective_config.output_field_name: loaded_documents_list,
             }
 
             # Instantiate, relying on DynamicSchema's handling of extra fields
             output_instance = output_cls(**init_data)
 
-            logger.info(f"Completed {self.node_name} processing. Loaded {len(loaded_documents_list)} documents into field '{self.config.output_field_name}'.")
+            logger.info(f"Completed {self.node_name} processing. Loaded {len(loaded_documents_list)} documents into field '{effective_config.output_field_name}'.")
             return output_instance
 
         except ValidationError as ve:

@@ -40,26 +40,20 @@ You **cannot** provide both `load_paths` and `load_configs_input_path`.
             # Static namespace (simplest approach)
             "static_namespace": "content_strategy_docs",
             
-            # OR Dynamic field path for namespace
+            # Dot-notation path in the input data to retrieve the namespace value OR the object for pattern evaluation.
             "input_namespace_field": "metadata.doc_namespace",
             
-            # OR Pattern using current item context
-            "namespace_pattern": "{item[type]}_{item[year]}",
-            
-            # OR Pattern with specific input field
+            # f-string like template to generate the namespace using data found at 'input_namespace_field'. Uses {'item': retrieved_data} context.
             "input_namespace_field_pattern": "ns_{item[category]}",
             
             # --- DOCNAME OPTIONS (choose ONE of these) ---
             # Static docname (simplest approach)
             "static_docname": "strategy_2023_q4",
             
-            # OR Dynamic field path for docname
+            # Dot-notation path in the input data to retrieve the docname value OR the object for pattern evaluation.
             "input_docname_field": "metadata.doc_id",
             
-            # OR Pattern using current item context
-            "docname_pattern": "{item[type]}_report_{item[quarter]}",
-            
-            # OR Pattern with specific input field
+            # f-string like template to generate the docname using data found at 'input_docname_field'. Uses {'item': retrieved_data} context.
             "input_docname_field_pattern": "doc_{item[topic]}"
         },
         

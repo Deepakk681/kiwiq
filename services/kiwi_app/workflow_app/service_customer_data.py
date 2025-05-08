@@ -2322,9 +2322,9 @@ class CustomerDataService:
             for pattern in patterns:
                 customer_data_logger.debug(f"Processing pattern: {pattern}")
                 key_pattern = pattern + [None] * len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES)
-                if text_search_query or value_filter:
-                    #     ALSO enable searches in versioned docs data in the version segment!
-                    key_pattern = pattern + ["*"] + [None] * (len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES) - 1)
+                # if text_search_query or value_filter:
+                #     #     ALSO enable searches in versioned docs data in the version segment!
+                key_pattern = pattern + ["*"] + [None] * (len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES) - 1)
                 key_patterns.append(key_pattern)
                 
             # # Log search query details for debugging purposes
@@ -2374,6 +2374,11 @@ class CustomerDataService:
                 if len(doc_path) > 4:
                     version = doc_path[4]
                     is_versioning_metadata = False
+                from langchain_core.load import dumps
+                if is_versioning_metadata:
+                    customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
+                else:
+                    customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
                 org_id_str, user_id_str, namespace, docname = doc_path[:4]
                 
                 # Determine if shared and system

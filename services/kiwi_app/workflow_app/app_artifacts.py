@@ -22,10 +22,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
 {
   "documents": {
     "user_dna_doc": {
-      "docname_template": "user_dna_doc_{entity_username}",
-      "namespace_template": "user_strategy",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "user_dna_doc",
+      "namespace_template": "user_strategy_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -34,10 +34,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "content_strategy_doc": {
-      "docname_template": "content_strategy_doc_{entity_username}",
-      "namespace_template": "user_strategy",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "content_strategy_doc",
+      "namespace_template": "user_strategy_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -46,10 +46,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "user_source_analysis": {
-      "docname_template": "user_source_analysis_{entity_username}",
-      "namespace_template": "user_analysis",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "user_source_analysis",
+      "namespace_template": "user_analysis_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -58,10 +58,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "uploaded_files": {
-      "docname_template": "{uploaded_file_name}",
-      "namespace_template": "uploaded_files",
-      "docname_template_vars": {"uploaded_file_name": null},
-      "namespace_template_vars": {},
+      "docname_template": "",
+      "namespace_template": "uploaded_files_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": false,
       "initial_version": null,
@@ -70,10 +70,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "core_beliefs_perspectives_doc": {
-      "docname_template": "core_beliefs_perspectives_doc_{entity_username}",
-      "namespace_template": "user_insights",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "core_beliefs_perspectives_doc",
+      "namespace_template": "user_inputs_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -82,10 +82,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "content_pillars_doc": {
-      "docname_template": "content_pillars_doc_{entity_username}",
-      "namespace_template": "user_insights",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "content_pillars_doc",
+      "namespace_template": "user_inputs_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -94,10 +94,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "user_preferences_doc": {
-      "docname_template": "user_preferences_doc_{entity_username}",
-      "namespace_template": "user_insights",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "user_preferences_doc",
+      "namespace_template": "user_inputs_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -106,10 +106,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "content_analysis_doc": {
-      "docname_template": "content_analysis_doc_{entity_username}",
-      "namespace_template": "user_analysis",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "content_analysis_doc",
+      "namespace_template": "user_analysis_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": false,
       "initial_version": null,
@@ -118,10 +118,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "linkedin_scraped_profile_doc": {
-      "docname_template": "linkedin_scraped_profile_doc_{entity_username}",
-      "namespace_template": "user_identity",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "linkedin_scraped_profile_doc",
+      "namespace_template": "scraping_results_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": false,
       "initial_version": null,
@@ -130,10 +130,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "linkedin_scraped_posts_doc": {
-      "docname_template": "linkedin_scraped_posts_doc_{entity_username}",
-      "namespace_template": "user_identity",
-      "docname_template_vars": {"entity_username": null},
-      "namespace_template_vars": {},
+      "docname_template": "linkedin_scraped_posts_doc",
+      "namespace_template": "scraping_results_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": false,
       "initial_version": null,
@@ -142,10 +142,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "brief": {
-      "docname_template": "brief_{entity_username}_{uuid}",
-      "namespace_template": "content_briefs",
-      "docname_template_vars": {"entity_username": null, "uuid": null},
-      "namespace_template_vars": {},
+      "docname_template": "brief_{_uuid_}",
+      "namespace_template": "content_briefs_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -154,10 +154,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "concept": {
-      "docname_template": "concept_{entity_username}_{uuid}",
-      "namespace_template": "content_concepts",
-      "docname_template_vars": {"entity_username": null, "uuid": null},
-      "namespace_template_vars": {},
+      "docname_template": "concept_{_uuid_}",
+      "namespace_template": "content_concepts_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -166,10 +166,10 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "is_system_entity": false
     },
     "draft": {
-      "docname_template": "draft_{entity_username}_{uuid}",
-      "namespace_template": "post_drafts",
-      "docname_template_vars": {"entity_username": null, "uuid": null},
-      "namespace_template_vars": {},
+      "docname_template": "draft_{_uuid_}",
+      "namespace_template": "post_drafts_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
       "is_shared": false,
       "is_versioned": true,
       "initial_version": null,
@@ -395,51 +395,45 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "content_calendar_entry_workflow",
       "version": null,
       "inputs": {
-        "user_dna_doc": {
-          "filename_config": {
-            "static_namespace": "user_strategy",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "user_dna_doc_{item}"
-          },
-          "output_field_name": "user_dna",
-          "is_shared": "$filename:user_dna_doc.is_shared",
-          "is_system_entity": "$filename:user_dna_doc.is_system_entity"
-        },
-        "content_strategy_doc": {
-          "filename_config": {
-            "static_namespace": "user_strategy",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "content_strategy_doc_{item}"
-          },
-          "output_field_name": "content_strategy",
-          "is_shared": "$filename:content_strategy_doc.is_shared",
-          "is_system_entity": "$filename:content_strategy_doc.is_system_entity"
-        },
-        "scraped_posts_doc": {
-          "filename_config": {
-            "static_namespace": "user_identity",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "linkedin_scraped_posts_doc_{item}"
-          },
-          "output_field_name": "scraped_posts",
-          "is_shared": "$filename:linkedin_scraped_posts_doc.is_shared",
-          "is_system_entity": "$filename:linkedin_scraped_posts_doc.is_system_entity"
-        },
-        "draft_doc": {
-          "filename_config": {
-            "static_namespace": "$filename:draft.namespace.built",
-            "input_docname_field": "uuid",
-            "input_docname_field_pattern": "$filename:draft.docname.partial"
-          },
-          "output_field_name": "draft_post",
-          "is_shared": "$filename:draft.is_shared",
-          "is_system_entity": "$filename:draft.is_system_entity"
-        }
-      },
-      "user_documents_config_variables": {
         "entity_username": null,
-        "uuid": null
-      },
+        "weeks_to_generate": 1,
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_dna_doc"
+                },
+                "output_field_name": "user_dna"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_preferences_doc"
+                },
+                "output_field_name": "user_preferences"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "content_strategy_doc"
+                },
+                "output_field_name": "strategy_doc"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "scraping_results_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "linkedin_scraped_posts_doc"
+                },
+                "output_field_name": "scraped_posts"
+            }
+        ],
+        "past_context_posts_limit": 20
+    },
+      "user_documents_config_variables": {},
       "template_specific": false
     },
     "content_creation": {
@@ -1170,7 +1164,7 @@ async def get_workflow(
     summary="Get information about unresolved inputs and variables for a predefined workflow.",
     dependencies=[Depends(get_current_active_superuser)],
     description="Analyzes a predefined workflow (by key) to identify $filename references, "
-                "the document configurations they point to (from defaults), and variables required."
+                "the document configurations they point to (from defaults), and variables required. Needs `workflow_key` to be set in Body!"
 )
 async def get_workflow_processing_info(
     request_data: WorkflowInfoRequest = Body(...)
@@ -1258,15 +1252,15 @@ async def get_built_document_configurations(
     summary="Get template information for specified document configurations from default config.",
     dependencies=[Depends(get_current_active_superuser)],
     description="Retrieves details about document templates, placeholders, and default variables "
-                "for the specified document keys from the default UserDocumentsConfig. Superuser only."
+                "for the specified document keys from the default UserDocumentsConfig. Superuser only. Optionally, provide `doc_keys` key with list of documents keys set in Body!"
 )
 async def get_document_configurations_info(
-    request_data: DocConfigsInfoRequest = Body(...)
+    request_data: Optional[DocConfigsInfoRequest] = Body(None)
 ) -> DocConfigsInfoResponse:
     docs_config_source = DEFAULT_USER_DOCUMENTS_CONFIG # Use default
     results: List[DocConfigInfoItem] = []
     
-    keys_to_inspect = request_data.doc_keys if request_data.doc_keys is not None else list(docs_config_source.documents.keys())
+    keys_to_inspect = request_data.doc_keys if request_data and request_data.doc_keys is not None else list(docs_config_source.documents.keys())
 
     for key in keys_to_inspect:
         item_result = DocConfigInfoItem(doc_key=key)
