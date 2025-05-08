@@ -307,7 +307,7 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
             print(f"DEBUG: Expected data: {expected_data}")
             self.fail(f"Failed assertion or error getting document '{namespace}/{docname}' (version: {version_to_check or 'active/N/A'}): {e}")
 
-    # # --- Store Node Tests ---
+    # --- Store Node Tests ---
 
     async def test_store_unversioned_static_path(self):
         """Test storing a simple unversioned document with static path."""
@@ -3335,7 +3335,569 @@ class TestCustomerDataNodes(unittest.IsolatedAsyncioTestCase):
     # --- End of UUID Generation During Updates Tests --- #
 
 
-# ... main execution block ...
+        
+    # --- Create Only Fields Tests --- #
+    
+    async def test_store_create_only_fields_basic(self):
+        """
+        Test basic create_only_fields functionality.
+        
+        Fields marked as create_only_fields should be:
+        1. Included in the document during creation
+        2. Preserved (not overwritten) during updates
+        """
+        # Create a document with create_only_fields
+        doc_name = self.test_docname_base + "create_only_fields_basic"
+        
+        initial_data = {
+            "title": "Test Document",
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by": "initial_user",
+            "content": "Original content"
+        }
+        
+        store_node_initial = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "create_only_fields": ["created_at", "created_by"]
+            }]
+        })
+        
+        await store_node_initial.process({"doc": initial_data}, runtime_config=self.runtime_config_regular)
+        
+        # Verify the document was created with all fields
+        initial_stored = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        self.assertEqual(initial_stored["created_at"], "2024-01-01T00:00:00Z")
+        self.assertEqual(initial_stored["created_by"], "initial_user")
+        
+        # Now update the document with different values for create_only_fields
+        update_data = {
+            "title": "Updated Title",
+            "created_at": "2024-05-05T12:00:00Z",  # Different timestamp
+            "created_by": "different_user",       # Different user
+            "content": "Updated content"
+        }
+        
+        store_node_update = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "create_only_fields": ["created_at", "created_by"]
+            }]
+        })
+        
+        await store_node_update.process({"doc": update_data}, runtime_config=self.runtime_config_regular)
+        
+        # Verify the update: create-only fields should keep original values, others should be updated
+        updated_stored = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Create-only fields should retain original values
+        self.assertEqual(updated_stored["created_at"], "2024-01-01T00:00:00Z", "Create-only field created_at should not change")
+        self.assertEqual(updated_stored["created_by"], "initial_user", "Create-only field created_by should not change")
+        
+        # Regular fields should be updated
+        self.assertEqual(updated_stored["title"], "Updated Title", "Regular field title should be updated")
+        self.assertEqual(updated_stored["content"], "Updated content", "Regular field content should be updated")
+    
+    async def test_store_create_only_fields_missing_in_original(self):
+        """
+        Test keep_create_fields_if_missing parameter when original document lacks create-only fields.
+        
+        When keep_create_fields_if_missing=True, fields in create_only_fields should be added 
+        even if the original document doesn't have them.
+        
+        When keep_create_fields_if_missing=False, fields in create_only_fields should only 
+        be preserved if they already exist in the original document.
+        """
+        # Create initial document without the fields that will later be marked as create-only
+        doc_name_keep = self.test_docname_base + "create_only_add_if_missing_true"
+        doc_name_skip = self.test_docname_base + "create_only_add_if_missing_false"
+        
+        initial_data = {
+            "title": "Original Document",
+            "content": "Original content"
+            # Note: No created_at or created_by fields
+        }
+        
+        # Create two identical documents, one for each test case
+        store_node_initial = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name_keep
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                },
+                {
+                    "input_field_path": "doc",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc_name_skip
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                }
+            ]
+        })
+        
+        await store_node_initial.process({"doc": initial_data}, runtime_config=self.runtime_config_regular)
+        
+        # Update with keep_create_fields_if_missing=True (should add missing create-only fields)
+        update_data_keep = {
+            "title": "Updated Document",
+            "content": "Updated content",
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by": "test_user"
+        }
+        
+        store_node_update_keep = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name_keep
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "create_only_fields": ["created_at", "created_by"],
+                "keep_create_fields_if_missing": True
+            }]
+        })
+        
+        await store_node_update_keep.process({"doc": update_data_keep}, runtime_config=self.runtime_config_regular)
+        
+        # Update with keep_create_fields_if_missing=False (should not add missing create-only fields)
+        update_data_skip = {
+            "title": "Updated Document",
+            "content": "Updated content",
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by": "test_user"
+        }
+        
+        store_node_update_skip = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name_skip
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "create_only_fields": ["created_at", "created_by"],
+                "keep_create_fields_if_missing": False
+            }]
+        })
+        
+        await store_node_update_skip.process({"doc": update_data_skip}, runtime_config=self.runtime_config_regular)
+        
+        # Verify the results for keep_create_fields_if_missing=True
+        updated_keep = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name_keep,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Should have added the missing create-only fields
+        self.assertIn("created_at", updated_keep, "Missing create-only field should be added when keep_create_fields_if_missing=True")
+        self.assertIn("created_by", updated_keep, "Missing create-only field should be added when keep_create_fields_if_missing=True")
+        self.assertEqual(updated_keep["created_at"], "2024-01-01T00:00:00Z")
+        self.assertEqual(updated_keep["created_by"], "test_user")
+        
+        # Verify the results for keep_create_fields_if_missing=False
+        updated_skip = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name_skip,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Should not have added the missing create-only fields
+        # self.assertNotIn("created_at", updated_skip, "Missing create-only field should not be added when keep_create_fields_if_missing=False")
+        self.assertNotIn("created_by", updated_skip, "Missing create-only field should not be added when keep_create_fields_if_missing=False")
+    
+    async def test_store_create_only_fields_global_config(self):
+        """
+        Test global_create_only_fields applied to all store operations in a node.
+        
+        Global create-only fields should apply to all store operations unless 
+        overridden at the individual store_config level.
+        """
+        # Create two documents, will update both with same node using global config
+        doc1_name = self.test_docname_base + "global_create_only_1"
+        doc2_name = self.test_docname_base + "global_create_only_2"
+        
+        # Initial documents with creation metadata
+        doc1_initial = {
+            "title": "Document 1",
+            "content": "Content 1",
+            "created_at": "2024-01-01T10:00:00Z",
+            "created_by": "user_1"
+        }
+        
+        doc2_initial = {
+            "title": "Document 2",
+            "content": "Content 2",
+            "created_at": "2024-01-01T11:00:00Z",
+            "created_by": "user_2"
+        }
+        
+        # Store initial documents without create_only_fields
+        store_node_initial = self._get_store_node({
+            "store_configs": [
+                {
+                    "input_field_path": "doc1",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc1_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                },
+                {
+                    "input_field_path": "doc2",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc2_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                }
+            ]
+        })
+        
+        await store_node_initial.process(
+            {"doc1": doc1_initial, "doc2": doc2_initial}, 
+            runtime_config=self.runtime_config_regular
+        )
+        
+        # Update documents using global_create_only_fields
+        doc1_update = {
+            "title": "Document 1 Updated",
+            "content": "Updated content 1",
+            "created_at": "2024-05-05T10:00:00Z",  # Changed creation timestamp
+            "created_by": "new_user_1"            # Changed creator
+        }
+        
+        doc2_update = {
+            "title": "Document 2 Updated",
+            "content": "Updated content 2",
+            "created_at": "2024-05-05T11:00:00Z",  # Changed creation timestamp
+            "created_by": "new_user_2"            # Changed creator
+        }
+        
+        store_node_update = self._get_store_node({
+            "global_create_only_fields": ["created_at", "created_by"],
+            "global_keep_create_fields_if_missing": True,
+            "store_configs": [
+                {
+                    "input_field_path": "doc1",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc1_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                },
+                {
+                    "input_field_path": "doc2",
+                    "target_path": {
+                        "filename_config": {
+                            "static_namespace": self.test_namespace,
+                            "static_docname": doc2_name
+                        }
+                    },
+                    "versioning": {"is_versioned": False, "operation": "upsert"}
+                }
+            ]
+        })
+        
+        await store_node_update.process(
+            {"doc1": doc1_update, "doc2": doc2_update}, 
+            runtime_config=self.runtime_config_regular
+        )
+        
+        # Verify both documents preserved their original create-only fields
+        updated_doc1 = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc1_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        updated_doc2 = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc2_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Both documents should have preserved their original creation metadata
+        self.assertEqual(updated_doc1["created_at"], "2024-01-01T10:00:00Z", "Global create_only_field should preserve original created_at")
+        self.assertEqual(updated_doc1["created_by"], "user_1", "Global create_only_field should preserve original created_by")
+        self.assertEqual(updated_doc2["created_at"], "2024-01-01T11:00:00Z", "Global create_only_field should preserve original created_at")
+        self.assertEqual(updated_doc2["created_by"], "user_2", "Global create_only_field should preserve original created_by")
+        
+        # Other fields should be updated
+        self.assertEqual(updated_doc1["title"], "Document 1 Updated")
+        self.assertEqual(updated_doc1["content"], "Updated content 1")
+        self.assertEqual(updated_doc2["title"], "Document 2 Updated")
+        self.assertEqual(updated_doc2["content"], "Updated content 2")
+    
+    async def test_store_create_only_fields_config_override_global(self):
+        """
+        Test that store_config's create_only_fields overrides global_create_only_fields.
+        
+        Individual store_config's create_only_fields should take precedence over global settings.
+        """
+        doc_name = self.test_docname_base + "override_create_only"
+        
+        # Initial document with multiple metadata fields
+        initial_data = {
+            "title": "Test Document",
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by": "original_user",
+            "timestamp": "2024-01-01T00:00:00Z",
+            "version_num": 1
+        }
+        
+        # Store initial document
+        store_node_initial = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"}
+            }]
+        })
+        
+        await store_node_initial.process({"doc": initial_data}, runtime_config=self.runtime_config_regular)
+        
+        # Update document with different global and specific create_only_fields
+        update_data = {
+            "title": "Updated Document",
+            "created_at": "2024-05-05T12:00:00Z",  # Changed
+            "created_by": "new_user",             # Changed
+            "timestamp": "2024-05-05T12:00:00Z",  # Changed
+            "version_num": 2                      # Changed
+        }
+        
+        store_node_update = self._get_store_node({
+            "global_create_only_fields": ["created_at", "created_by", "timestamp"],  # List of fields in global config
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "create_only_fields": ["created_at", "version_num"]  # Override - only these should be preserved
+            }]
+        })
+        
+        await store_node_update.process({"doc": update_data}, runtime_config=self.runtime_config_regular)
+        
+        # Verify that only the fields in the specific create_only_fields were preserved
+        updated_stored = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        # Fields in config's create_only_fields should be preserved
+        self.assertEqual(updated_stored["created_at"], "2024-01-01T00:00:00Z", "Field in config create_only_fields should be preserved")
+        self.assertEqual(updated_stored["version_num"], 1, "Field in config create_only_fields should be preserved")
+        
+        # Fields only in global_create_only_fields should be updated (since overridden by config)
+        self.assertEqual(updated_stored["created_by"], "new_user", "Field only in global create_only_fields should be updated")
+        self.assertEqual(updated_stored["timestamp"], "2024-05-05T12:00:00Z", "Field only in global create_only_fields should be updated")
+    
+    async def test_store_create_only_with_uuid_generation(self):
+        """
+        Test interaction between create_only_fields and UUID generation.
+        
+        When generate_uuid is true, the UUID field should be treated as a create_only_field
+        and preserved across updates.
+        """
+        doc_name = self.test_docname_base + "uuid_with_create_only"
+        
+        # Create document with UUID generation
+        initial_data = {
+            "title": "UUID Test",
+            "content": "Original content"
+        }
+        
+        store_node_initial = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "generate_uuid": True,  # Generate UUID
+                "create_only_fields": ["created_at"],  # Additional create-only field
+                "keep_create_fields_if_missing": True
+            }]
+        })
+        
+        # Initial storage with UUID generation
+        await store_node_initial.process(
+            {"doc": {**initial_data, "created_at": "2024-01-01T00:00:00Z"}}, 
+            runtime_config=self.runtime_config_regular
+        )
+        
+        # Fetch the generated document to capture the UUID
+        initial_stored = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        self.assertIn("uuid", initial_stored, "Document should have UUID field")
+        self.assertIn("created_at", initial_stored, "Document should have created_at field")
+        original_uuid = initial_stored["uuid"]
+        
+        # Update the document with a different UUID and created_at
+        update_data = {
+            "title": "Updated UUID Test",
+            "content": "Updated content",
+            "uuid": str(uuid.uuid4()),  # Different UUID
+            "created_at": "2024-05-05T12:00:00Z"  # Different created_at
+        }
+        
+        # Update using same configuration (should preserve both uuid and created_at)
+        store_node_update = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {"is_versioned": False, "operation": "upsert"},
+                "generate_uuid": True,  # UUID generation still enabled
+                "create_only_fields": ["created_at"],  # Same create-only field
+                "keep_create_fields_if_missing": True
+            }]
+        })
+        
+        await store_node_update.process({"doc": update_data}, runtime_config=self.runtime_config_regular)
+        
+        # Verify that both UUID and created_at were preserved from the original
+        updated_stored = await self.customer_data_service.get_unversioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular
+        )
+        
+        self.assertEqual(updated_stored["uuid"], original_uuid, 
+                         "UUID should be preserved as a create-only field when generate_uuid=True")
+        self.assertEqual(updated_stored["created_at"], "2024-01-01T00:00:00Z", 
+                         "create_at should be preserved as specified in create_only_fields")
+        
+        # Other fields should be updated
+        self.assertEqual(updated_stored["title"], "Updated UUID Test")
+        self.assertEqual(updated_stored["content"], "Updated content")
+    
+    async def test_store_versioned_with_create_only_fields(self):
+        """
+        Test create_only_fields with versioned documents.
+        
+        Create-only fields should be preserved during updates to versioned documents.
+        """
+        doc_name = self.test_docname_base + "versioned_create_only"
+        version_name = "v1.0"
+        
+        # Create initial versioned document with creation metadata
+        initial_data = {
+            "title": "Versioned Document",
+            "content": "Original content",
+            "created_at": "2024-01-01T00:00:00Z",
+            "created_by": "initial_user"
+        }
+        
+        # Initialize versioned document
+        await self.customer_data_service.initialize_versioned_document(
+            db=None, org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular, initial_version=version_name, 
+            initial_data=initial_data
+        )
+        
+        # Update the versioned document with create_only_fields
+        update_data = {
+            "title": "Updated Versioned Document",
+            "content": "Updated content",
+            "created_at": "2024-05-05T12:00:00Z",  # Changed
+            "created_by": "new_user"               # Changed
+        }
+        
+        store_node_update = self._get_store_node({
+            "store_configs": [{
+                "input_field_path": "doc",
+                "target_path": {
+                    "filename_config": {
+                        "static_namespace": self.test_namespace,
+                        "static_docname": doc_name
+                    }
+                },
+                "versioning": {
+                    "is_versioned": True, 
+                    "operation": "update",
+                    "version": version_name
+                },
+                "create_only_fields": ["created_at", "created_by"]
+            }]
+        })
+        
+        await store_node_update.process({"doc": update_data}, runtime_config=self.runtime_config_regular)
+        
+        # Verify that create-only fields were preserved in the versioned document
+        updated_stored = await self.customer_data_service.get_versioned_document(
+            org_id=self.test_org_id, namespace=self.test_namespace, docname=doc_name,
+            is_shared=False, user=self.user_regular, version=version_name
+        )
+        
+        # Create-only fields should have original values
+        # self.assertEqual(updated_stored["created_at"], "2024-01-01T00:00:00Z", 
+        #                  "Create-only field created_at should be preserved in versioned document")
+        self.assertEqual(updated_stored["created_by"], "initial_user", 
+                         "Create-only field created_by should be preserved in versioned document")
+        
+        # Other fields should be updated
+        self.assertEqual(updated_stored["title"], "Updated Versioned Document")
+        self.assertEqual(updated_stored["content"], "Updated content")
+    
+    # --- End of Create Only Fields Tests --- #
+    
 
 if __name__ == '__main__':
     unittest.main()

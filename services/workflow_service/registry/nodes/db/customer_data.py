@@ -985,6 +985,14 @@ class StoreConfig(BaseSchema):
                    "For non-dictionary objects, wraps them in a dict with 'uuid' and 'data' keys. "
                    "If _uuid_ is used in filename patterns, this generated UUID will be used."
     )
+    create_only_fields: Optional[List[str]] = Field(
+        None,
+        description="List of fields in data which should be removed if the operation is an update rather than creation"
+    )
+    keep_create_fields_if_missing: Optional[bool] = Field(
+        None,
+        description="If True, keep create_only_fields in data if they don't exist in `existing object` during update. NOTE: this also effects any generated uuids and they are discarded if this is False and the operation is an update."
+    )
 
 class StoreCustomerDataConfig(BaseSchema):
     """Configuration schema for the StoreCustomerDataNode."""
@@ -1030,6 +1038,16 @@ class StoreCustomerDataConfig(BaseSchema):
     global_extra_fields: Optional[List[ExtraFieldConfig]] = Field(
         None,
         description="Default extra fields to add to all objects being stored."
+    )
+    # NEW FIELD: Global default for create_only_fields
+    global_create_only_fields: Optional[List[str]] = Field(
+        None,
+        description="List of fields in data which should be removed if the operation is an update rather than creation"
+    )
+    # NEW FIELD: Global default for keep_create_fields_if_missing
+    global_keep_create_fields_if_missing: Optional[bool] = Field(
+        None,
+        description="If True, keep create_only_fields in data if they don't exist in `existing object` during update. NOTE: this also effects any generated uuids and they are discarded if this is False and the operation is an update."
     )
 
     @model_validator(mode='after')
@@ -1105,11 +1123,14 @@ class StoreCustomerDataNode(BaseDynamicNode):
         # Generate UUID if configured
         generated_uuid = None
         should_generate_uuid = store_cfg.generate_uuid if store_cfg.generate_uuid is not None else self.config.global_generate_uuid
-        create_only_fields = []
-        keep_create_fields_if_missing = True
+        create_only_fields = store_cfg.create_only_fields if store_cfg.create_only_fields is not None else self.config.global_create_only_fields
+        keep_create_fields_if_missing = store_cfg.keep_create_fields_if_missing if store_cfg.keep_create_fields_if_missing is not None else self.config.global_keep_create_fields_if_missing
+        create_only_fields = create_only_fields or []
+        keep_create_fields_if_missing = True if keep_create_fields_if_missing is None else keep_create_fields_if_missing
         if should_generate_uuid:
             generated_uuid = str(uuid.uuid4())
-            create_only_fields = ["uuid"]
+            if "uuid" not in create_only_fields:
+                create_only_fields.append("uuid")
             
             # Apply UUID to document data
             if isinstance(doc_data, dict):

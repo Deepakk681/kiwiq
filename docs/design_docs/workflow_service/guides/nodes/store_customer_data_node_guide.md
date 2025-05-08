@@ -61,6 +61,8 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
           // Example global extra fields (optional)
           // { "src_path": "metadata.workflow_id", "dst_path": "source.workflow_id" }
         ],
+        "global_create_only_fields": [], // Default: no create-only fields
+        "global_keep_create_fields_if_missing": true, // Default: preserve create-only fields if missing
 
         // --- Option 1: Define Store Configs Statically ---
         "store_configs": [ // List of store instructions (Use this OR store_configs_input_path)
@@ -233,7 +235,7 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
 
 ### Key Configuration Sections:
 
-1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`, `global_on_behalf_of_user_id`, `global_process_list_items_separately`, `global_generate_uuid`, `global_extra_fields`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
+1.  **Global Defaults (`global_is_shared`, `global_is_system_entity`, `global_versioning`, `global_schema_options`, `global_on_behalf_of_user_id`, `global_process_list_items_separately`, `global_generate_uuid`, `global_extra_fields`, `global_create_only_fields`, `global_keep_create_fields_if_missing`)**: (Optional) Set default behaviors for all store operations. These can be individually overridden within each `store_configs` item.
     *   `global_versioning`: Defines the default versioning strategy.
         *   `is_versioned`: `true` or `false`.
         *   `operation`: Default action (e.g., `"upsert"`, `"update"`). A common default is `is_versioned: false, operation: "upsert"`.
@@ -241,6 +243,8 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
     *   `global_process_list_items_separately` (Optional bool): Default is `false`. If set to `true`, lists found at input_field_path will be processed item by item rather than stored as a single document.
     *   `global_generate_uuid` (Optional bool): Default is `false`. If set to `true`, a UUID will be added to all documents.
     *   `global_extra_fields` (Optional array): Default is an empty array. A list of extra fields to add to all documents. Each item needs `src_path` and optionally `dst_path`.
+    *   `global_create_only_fields` (Optional List[str]): Default is an empty list. Specifies fields that should be preserved during document creation but removed during updates unless they already exist in the original document.
+    *   `global_keep_create_fields_if_missing` (Optional bool): Default is `true`. Controls whether create-only fields should be preserved during updates if they don't exist in the original document.
     *   See `LoadCustomerDataNode` guide for details on other global defaults.
 2.  **`store_configs`** (List): **Required (unless `store_configs_input_path` is used)**. A list where each item defines a specific store operation. Provide this OR `store_configs_input_path`.
 3.  **`store_configs_input_path`** (String): **Required (unless `store_configs` is used)**. A dot-notation path (e.g., `"dynamic_configs.store_jobs"`) within the node's input data. The data at this path must be either a single JSON object matching the `StoreConfig` structure, or a list of such JSON objects. If this path is provided, the static `store_configs` list is ignored. This allows generating the entire storage plan dynamically based on previous workflow steps.
@@ -264,6 +268,7 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
         *   If the object is a dictionary, adds a `"uuid"` field directly to the dict.
         *   If the object is not a dictionary (string, number, etc.), it's wrapped in a structure like `{"uuid": "...", "data": original_value}`.
         *   The same UUID is used in `{_uuid_}` placeholders in docname patterns.
+        *   When `generate_uuid` is `true`, the "uuid" field is automatically added to the internal `create_only_fields` list, ensuring the UUID is preserved during document updates.
         *   `false`: No UUID is added to the document.
         *   `null`: Behavior is determined by `global_generate_uuid`.
     *   **`extra_fields`** (Optional array): Default is `null` (defers to global setting, which defaults to `[]`). List of extra fields to add to objects being stored:
@@ -275,6 +280,8 @@ You **cannot** provide both `store_configs` and `store_configs_input_path`.
             *   If a source path resolves to a list, that field is skipped (list values not copied).
             *   Nested destination paths are created as needed (e.g., `"metadata.source"` creates a `metadata` object if not present).
             *   The same extra fields are added to all objects when `process_list_items_separately` is `true`.
+    *   **`create_only_fields`** (Optional List[str]): Default is `null` (defers to global setting, which defaults to `[]`). List of fields that should be preserved only during document creation and removed during updates unless they already exist in the original document. When using `generate_uuid=true`, the "uuid" field is automatically added to this list.
+    *   **`keep_create_fields_if_missing`** (Optional bool): Default is `null` (defers to global setting, which defaults to `true`). If `true`, fields in `create_only_fields` will be preserved during updates if they don't already exist in the document being updated. This is particularly important for UUID preservation - when set to `false`, UUIDs may be discarded during updates if the original document doesn't have a UUID.
     *   **`is_shared`** (Optional bool): Overrides global default.
     *   **`is_system_entity`** (Optional bool): Overrides global default (requires superuser context).
     *   **`on_behalf_of_user_id`** (Optional str): Overrides global default. **Requires the workflow run context to have superuser privileges.** If provided and `is_shared` is `false`, the data will be stored under the path associated with this user ID instead of the user running the workflow. This parameter is ignored if `is_shared` is `true` or `is_system_entity` is `true`.
@@ -327,13 +334,20 @@ The node primarily performs a write operation and then passes through the origin
           "operation": "upsert_versioned" // Default to upserting versioned docs
         },
         "global_generate_uuid": true, // Add UUIDs to all documents
+        "global_create_only_fields": ["created_at", "created_by"], // Fields that should never be overwritten
+        "global_keep_create_fields_if_missing": true, // Add creation fields if missing
         "global_extra_fields": [
           {
             "src_path": "metadata.workflow_run_id",
             "dst_path": "source.workflow_run_id"
           },
           {
-            "src_path": "metadata.timestamp" // dst_path defaults to "timestamp"
+            "src_path": "metadata.timestamp", // dst_path defaults to "timestamp"
+            "dst_path": "created_at"
+          },
+          {
+            "src_path": "metadata.user_id",
+            "dst_path": "created_by"
           }
         ],
         "store_configs": [
@@ -390,6 +404,8 @@ The node primarily performs a write operation and then passes through the origin
     *   `process_list_items_separately` (usually default/`null` which means `false`): If the data is a list, should each item be saved individually (`true`) or should the whole list be saved as one file (`false`)?
     *   `generate_uuid`: Should a unique ID be automatically added to each stored object? This ID can also be used in the filename using the `{_uuid_}` placeholder.
     *   `extra_fields`: A list of additional fields to add to the stored data, taken from other parts of the input. For example, add a timestamp or workflow ID to everything you save.
+    *   `create_only_fields`: A list of field names that should never be overwritten after initial creation. For example, "created_at" timestamps or "created_by" values are preserved during updates.
+    *   `keep_create_fields_if_missing`: If set to `true`, adds creation fields to existing documents if they're missing those fields. Useful when retrofitting metadata to existing objects.
     *   `target_path.filename_config`: Where should it be saved?
         -   `static_...`: Use if you know the exact name (e.g., save as `"latest_results"` in the `"daily_reports"` namespace).
         -   `input_..._field`: Use if the name comes from the data itself (e.g., save the order using the `"order_id"` field from the order data). **Works best if the item being saved is an object/dictionary.**
@@ -429,3 +445,86 @@ These features are particularly useful in several scenarios:
 5. **Simplifying Access Patterns**:
    - Add lookup keys or normalized data to documents to simplify downstream queries
    - Enrich objects with computed values that aid in searching or filtering
+
+## Advanced UUID and Creation Fields Management
+
+The `create_only_fields` and `keep_create_fields_if_missing` parameters provide powerful controls for field preservation during document updates:
+
+### UUID Generation and Preservation
+
+When you set `generate_uuid: true`, the system:
+
+1. Generates a unique UUID for each document being stored
+2. Adds the UUID to the document (as a direct field for dictionaries, or wrapped for primitives)
+3. **Automatically adds "uuid" to the `create_only_fields` list**
+4. Ensures this UUID is:
+   - Used in the filename via `{_uuid_}` placeholders if specified
+   - **Preserved during all future updates** (the UUID never changes once assigned)
+
+This behavior guarantees that once a document has been assigned a UUID, that identifier remains constant throughout its lifecycle, ensuring reliable referencing and tracking.
+
+### How create_only_fields Work During Updates
+
+When updating a document with the "update" or "upsert" operations, the following logic applies for fields in the `create_only_fields` list:
+
+1. The system first checks if each create-only field exists in the original document
+2. If the field exists in the original document, its value is preserved (the update value is ignored)
+3. If the field doesn't exist in the original document:
+   - When `keep_create_fields_if_missing` is `true`: The field from the update data is kept
+   - When `keep_create_fields_if_missing` is `false`: The field from the update data is discarded
+
+For UUID fields in particular:
+- If updating a document that already has a UUID, that UUID is always preserved
+- If updating a document without a UUID:
+  - With `keep_create_fields_if_missing = true`: A new UUID is added to the document
+  - With `keep_create_fields_if_missing = false`: No UUID is added (update-only behavior)
+
+### Using Create-Only Fields
+
+The `create_only_fields` parameter lets you designate specific fields that should:
+- Be included when a document is first created
+- Be preserved during updates (the original values are kept, not overwritten)
+
+This is ideal for:
+- **Creation timestamps**: Add a `created_at` field that's never modified
+- **Creator identifiers**: Preserve information about who originally created the document
+- **Source tracking**: Maintain information about where the document originally came from
+- **Immutable reference IDs**: Ensure stable identifiers don't change, even if they're included in update data
+
+### Controlling Missing Field Behavior
+
+The `keep_create_fields_if_missing` parameter adds additional control:
+
+- When `false` (Default behavior prior to changes): Create-only fields are only preserved if they already exist in the document
+- When `true` (New default behavior): Create-only fields from the update data will be added if they don't exist in the original document
+
+This is particularly useful when:
+- Migrating data that's missing creation metadata
+- Implementing a document recovery or repair process
+- Retrofitting UUID generation to existing documents
+
+### Example: Audit Trail Implementation
+
+```json
+{
+  "store_configs": [{
+    "input_field_path": "document_data",
+    "target_path": { ... },
+    "generate_uuid": true,  // Automatically adds "uuid" to create_only_fields
+    "create_only_fields": ["created_at", "created_by", "source_system"],
+    "keep_create_fields_if_missing": true,
+    "extra_fields": [
+      { "src_path": "metadata.timestamp", "dst_path": "created_at" },
+      { "src_path": "metadata.user_id", "dst_path": "created_by" },
+      { "src_path": "metadata.system", "dst_path": "source_system" },
+      { "src_path": "metadata.timestamp", "dst_path": "updated_at" }
+    ]
+  }]
+}
+```
+
+In this example:
+- Every document gets a UUID that never changes
+- Creation metadata (`created_at`, `created_by`, `source_system`) is preserved on updates
+- If a document lacks these fields, they'll be added from the update data (`keep_create_fields_if_missing: true`)
+- The `updated_at` field will change with each update since it's not in `create_only_fields`
