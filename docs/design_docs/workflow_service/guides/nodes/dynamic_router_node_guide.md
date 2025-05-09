@@ -27,6 +27,7 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
         // --- Base Router Settings ---
         "choices": ["node_A", "node_B", "node_C"], // List ALL possible destinations
         "allow_multiple": false, // false = route to FIRST match only; true = route to ALL matches
+        "default_choice": "node_C", // Optional fallback if no conditions match
 
         // --- Specific Routing Conditions ---
         "choices_with_conditions": [
@@ -39,11 +40,6 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
             "choice_id": "node_B",
             "input_path": "user_data::needs_review",
             "target_value": true
-          },
-          {
-            "choice_id": "node_C", // Default/fallback route (optional)
-            "input_path": "data::status", // Can check the same or different fields
-            "target_value": "pending"
           }
           // Add more conditions as needed
         ]
@@ -64,6 +60,10 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
 -   **`allow_multiple`** (bool, default: `false`):
     *   If `false`: The router evaluates conditions in order. It routes to the *first* `choice_id` whose condition matches. Subsequent matches are ignored.
     *   If `true`: The router evaluates *all* conditions. It routes to *every* `choice_id` whose condition matches. This can cause the workflow to branch into multiple parallel paths.
+-   **`default_choice`** (str, optional):
+    *   Specifies which node to route to if none of the conditions match. 
+    *   Must be one of the nodes listed in the main `choices` list.
+    *   If not provided and no conditions match, the router will raise an error and the workflow will fail.
 -   **`choices_with_conditions`** (List[`RouterChoiceCondition`], required):
     *   This is a list defining the actual routing logic. Conditions are evaluated in the order they appear.
     *   Each item in the list is a `RouterChoiceCondition` object with:
@@ -74,7 +74,7 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
 ## Input & Output
 
 -   **Input:** Receives data from upstream nodes via incoming `EdgeSchema` mappings. The `RouterNode` uses this data to evaluate the conditions defined in its `choices_with_conditions`.
--   **Output:** The `RouterNode` primarily outputs a routing decision. Internally, it produces a special `ROUTER_CHOICE_KEY` containing a list of the matched `choice_id`(s). If `allow_multiple` is false, this list will contain zero or one ID. If `allow_multiple` is true, it can contain multiple IDs. If no conditions match, the list will be empty. The node also passes through its input data unchanged via the `TEMP_STATE_UPDATE_KEY`.
+-   **Output:** The `RouterNode` primarily outputs a routing decision. Internally, it produces a special `ROUTER_CHOICE_KEY` containing a list of the matched `choice_id`(s). If `allow_multiple` is false, this list will contain zero or one ID. If `allow_multiple` is true, it can contain multiple IDs. If no conditions match and no default choice is specified, the node will raise an error. The node also passes through its input data unchanged via the `TEMP_STATE_UPDATE_KEY`.
 
 ## Example (`GraphSchema`)
 
@@ -90,6 +90,7 @@ Let's route based on a `status` field.
       "node_config": {
         "choices": ["handle_approved", "handle_rejected", "needs_review"],
         "allow_multiple": false,
+        "default_choice": "needs_review", // Fallback if no conditions match
         "choices_with_conditions": [
           {
             "choice_id": "handle_approved",
@@ -100,11 +101,6 @@ Let's route based on a `status` field.
             "choice_id": "handle_rejected",
             "input_path": "status",
             "target_value": "Rejected"
-          },
-          {
-            "choice_id": "needs_review", // Catch-all for other statuses
-            "input_path": "needs_manual_review", // Check a different field
-            "target_value": true
           }
         ]
       }
@@ -137,7 +133,7 @@ Let's route based on a `status` field.
     },
     {
       "src_node_id": "status_router",
-      "dst_node_id": "needs_review", // Destination for the third choice_id
+      "dst_node_id": "needs_review", // Destination for the third choice_id (default)
       "mappings": []
     }
     // ... other edges
@@ -151,8 +147,8 @@ Let's route based on a `status` field.
 1.  The `status_router` receives data containing `status` and `needs_manual_review` fields.
 2.  It first checks if `status == "Approved"`. If yes, it decides to route to `handle_approved` and stops checking (because `allow_multiple` is false).
 3.  If not approved, it checks if `status == "Rejected"`. If yes, it routes to `handle_rejected` and stops.
-4.  If not rejected, it checks if `needs_manual_review == true`. If yes, it routes to `needs_review`.
-5.  If none of the conditions match, the workflow might stall here unless a fallback mechanism is designed (e.g., a condition that always matches or specific graph error handling).
+4.  If none of the conditions match, it routes to the `default_choice`, which is `needs_review`.
+5.  If no `default_choice` was specified and no conditions matched, the router would raise an error and the workflow would fail.
 
 **Key points about edges from a router:**
 -   You **must** define an `EdgeSchema` in the graph for *every* node ID listed in the router's `choices` list, originating from the router's `node_id`.
@@ -165,6 +161,7 @@ Let's route based on a `status` field.
 -   Configure it by:
     -   Listing all possible destination node IDs in `choices`.
     -   Deciding if you want to go to the *first* place that matches (`allow_multiple: false`) or *all* places that match (`allow_multiple: true`).
+    -   Setting a `default_choice` to specify where to go if none of the conditions match (recommended).
     -   Setting up rules in `choices_with_conditions`:
         -   `choice_id`: Where to go if the rule matches.
         -   `input_path`: What piece of information to look at (use `::` to look inside data, like `order::details::item_name`).

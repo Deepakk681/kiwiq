@@ -64,6 +64,11 @@ class RouterConfigSchema(BaseRouterSchema):
         description="List of conditions evaluated in order to determine routing."
     )
 
+    default_choice: Optional[str] = Field(
+        None,
+        description="The default choice to route to if no conditions are met."
+    )
+
     @model_validator(mode='after')
     def validate_choice_ids_exist(self) -> 'RouterConfigSchema':
         """
@@ -77,6 +82,11 @@ class RouterConfigSchema(BaseRouterSchema):
                     f"Choice ID '{condition.choice_id}' in conditions is not present "
                     f"in the main 'choices' list: {self.choices}"
                 )
+        if self.default_choice and self.default_choice not in available_choices:
+            raise ValueError(
+                f"Default choice '{self.default_choice}' is not present "
+                f"in the main 'choices' list: {self.choices}"
+            )
         return self
 
 
@@ -213,6 +223,13 @@ class RouterNode(DynamicRouterNode):
             else:
                  # Optionally log a warning if a path doesn't exist
                  self.warning(f"Input path '{condition.input_path}' not found in data for RouterNode.")
+
+        if not matched_choices:
+            if active_config.default_choice:
+                matched_choices.append(active_config.default_choice)
+            else:
+                self.error(f"No matching choices found and no default choice specified.")
+                raise ValueError("No matching choices found and no default choice specified.")
 
 
         # Prepare the output data structure expected by the execution engine
