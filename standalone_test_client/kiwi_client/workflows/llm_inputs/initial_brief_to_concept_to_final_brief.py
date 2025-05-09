@@ -1,0 +1,66 @@
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+
+
+INITIAL_CONCEPTS_USER_PROMPT = """Pitch 4 post concepts for LinkedIn posts based on the following documents:
+
+**Context:**
+- Initial Brief: {initial_brief}
+- User DNA (use this for understanding the individual's unique background): {user_dna}
+- Recent User Posts (use this for understanding the individual's recent posts and try to provide unique angles): {merged_posts}
+
+**Task:**
+Generate 4 distinct content concepts that could be developed into LinkedIn posts.
+Each concept should include a Hook, and a Angle that are topic area, and key points.
+Ensure variety in the concepts to give the user different options.
+- **Hook:** [Insert a concise, attention-grabbing statement or scenario that introduces the main idea, often tying the individual unique background to a broader insight.]
+- **Angle:** [Describe the post perspective or approach in 2-3 sentences. Explain how it leverages the individual expertise or experience to address a specific topic, and how it positions them strategically (e.g., as a thought leader, innovator, or practical expert).]
+
+                        Respond ONLY with the JSON object matching the specified schema.
+"""
+
+INITIAL_CONCEPTS_SYSTEM_PROMPT = """
+You are an expert LinkedIn content strategist. Generate 4 unique initial content concepts based on the provided user context. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```
+"""
+
+class PostConceptSchema(BaseModel):
+    concept_id: str = Field(description="Unique identifier for the concept")
+    hook: str = Field(description="Attention-grabbing hook")
+    message: str = Field(description="Main message of the concept")
+
+class PostConceptListSchema(BaseModel):
+    concepts: List[PostConceptSchema] = Field(description="List of post concepts")
+
+
+
+CONCEPTS_SCHEMA = PostConceptListSchema.model_json_schema()
+
+ADDITIONAL_CONCEPTS_USER_PROMPT = "Generate more content concepts. Please consider this feedback: {feedback_text}. Ensure the new concepts are different from previous ones and follow the same schema."
+
+
+BRIEF_USER_PROMPT_TEMPLATE = """Update the content brief based on the selected concepts.
+
+**Selected Concepts:**
+{selected_concepts}
+
+**User Context:**
+- User DNA (use this for understanding the individual's unique background and adding more context to the brief based on your understanding): {user_dna}
+- Recent User Posts (use this for understanding the individual's recent posts and try to provide unique angles): {merged_posts}
+
+**Initial Brief:**
+- Initial Brief: {initial_brief}
+
+**Task:**
+Develop a comprehensive content brief that expands on the selected concepts. Try to make this as unique as possible from previous posts and very particular to the concept that is selected.
+The brief should include a refined topic, compelling angle/hook, detailed key talking points, a clear call to action, and relevant hashtags.
+
+Use the details from the selected concepts as the foundation for developing the content brief.
+
+Respond ONLY with the JSON object matching the specified schema."""
+
+BRIEF_SYSTEM_PROMPT_TEMPLATE = """
+You are an expert LinkedIn content strategist. Update the content brief based on the selected concepts and user context. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```
+"""
+
+

@@ -30,6 +30,7 @@ CONTENT_BRIEF_DOCNAME = "brief_{_uuid_}"
 CONTENT_BRIEF_NAMESPACE_TEMPLATE = "content_briefs_{item}"
 CONTENT_BRIEF_IS_VERSIONED = True
 CONTENT_BRIEF_DEFAULT_VERSION = "draft"
+CONTENT_BRIEF_FINAL_VERSION = "final"
 
 # Namespace and docname for storing the final content analysis result
 CONTENT_ANALYSIS_DOCNAME = "content_analysis_doc"

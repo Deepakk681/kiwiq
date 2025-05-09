@@ -471,36 +471,35 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "initial_brief_to_concepts_workflow",
       "version": null,
       "inputs": {
-        "user_dna_doc": {
-          "filename_config": {
-            "static_namespace": "user_strategy",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "user_dna_doc_{item}"
-          },
-          "output_field_name": "user_dna",
-          "is_shared": "$filename:user_dna_doc.is_shared",
-          "is_system_entity": "$filename:user_dna_doc.is_system_entity"
-        },
-        "scraped_posts_doc": {
-          "filename_config": {
-            "static_namespace": "user_identity",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "linkedin_scraped_posts_doc_{item}"
-          },
-          "output_field_name": "scraped_posts",
-          "is_shared": "$filename:linkedin_scraped_posts_doc.is_shared",
-          "is_system_entity": "$filename:linkedin_scraped_posts_doc.is_system_entity"
-        },
-        "draft_doc": {
-          "filename_config": {
-            "static_namespace": "$filename:draft.namespace.built",
-            "input_docname_field": "uuid",
-            "input_docname_field_pattern": "$filename:draft.docname.partial"
-          },
-          "output_field_name": "draft_post",
-          "is_shared": "$filename:draft.is_shared",
-          "is_system_entity": "$filename:draft.is_system_entity"
-        }
+        "initial_brief_docname": "test_brief_1",
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_dna_doc"
+                },
+                "output_field_name": "user_dna"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "content_briefs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "input_docname_field": "initial_brief_docname"
+                },
+                "output_field_name": "initial_brief"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "scraping_results_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "linkedin_scraped_posts_doc"
+                },
+                "output_field_name": "scraped_posts"
+            }
+        ],
+        "past_context_posts_limit": 20,
+        "entity_username": null
       },
       "user_documents_config_variables": {
         "entity_username": null,
