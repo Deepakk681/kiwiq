@@ -147,6 +147,7 @@ class LLMNodeOutputSchema(BaseSchema):
     current_messages: List[AnyMessage] = Field(description="Current messages including any user prompts / tool outputs and the new response")
     # Content type copied from langgraph message content annotation!
     content: Optional[Union[str, List[Union[str, Dict[str, Any]]]]] = Field(None, description="Raw response content from the provider")
+    text_content: Optional[Any] = Field(None, description="Text content of the response")
     # For structured output
     structured_output: Optional[Dict[str, Any]] = Field(
         None, 
@@ -303,7 +304,7 @@ class LLMStructuredOutputSchema(BaseSchema):
 
     def is_output_str(self) -> bool:
         """Check if no structured output schema is defined."""
-        return self.dynamic_schema_spec is None and self.schema_template_name is None and self.schema_definition is None
+        return not (self.dynamic_schema_spec or self.schema_template_name or self.schema_definition)
 
     async def get_schema(
         self,
@@ -944,7 +945,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 invoke_kwargs["extra_body"] = {
                     "web_search_options": web_search_options
                 }
-        invoke_kwargs["max_concurrency"] = 50
+        # NOTE: this arg is not supported by some langchain integrations with providers, eg: perplexity
+        # invoke_kwargs["max_concurrency"] = 50
       # import ipdb; ipdb.set_trace()
         # from asyncio import shield
         return model.invoke(messages, **invoke_kwargs)
@@ -1000,15 +1002,19 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # Determine if the model actually made tool calls (excluding potential internal structured output calls)
         has_tool_calls = False
         filtered_tool_calls = []
+
+        schema_name_to_filter = None
+        if output_schema:
+            if isinstance(output_schema, dict):
+                schema_name_to_filter = output_schema.get("title", output_schema.get("$id", None))
+            else:
+                schema_name_to_filter = output_schema.__name__
+        
         if hasattr(original_response, 'tool_calls') and original_response.tool_calls:
+            # TODO: change this behaviour for only Anthropic which uses tool calls for structured responses!
             # We filter here ONLY if a structured output schema was provided.
             # If output_schema is None, we assume any tool call is a legitimate external tool call.
-            schema_name_to_filter = None
-            if output_schema:
-                if isinstance(output_schema, dict):
-                    schema_name_to_filter = output_schema.get("title", output_schema.get("$id", None))
-                else:
-                    schema_name_to_filter = output_schema.__name__
+            
             if schema_name_to_filter:
                  filtered_tool_calls = [t for t in original_response.tool_calls if t["name"] != schema_name_to_filter]
             else:
@@ -1083,17 +1089,31 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # import ipdb; ipdb.set_trace()
         # Handle structured output
         # TODO: FIXME: Assumes that tool response and structured outputs can't both happen at once!
+        
+        raw_text = response.content
+        # import ipdb; ipdb.set_trace()
+        try:
+            if isinstance(response.content, list):
+                for item in reversed(response.content):
+                    if "text" in item:
+                        raw_text = item["text"]
+                        break
+                    # if item.get("type", None) == "text":
+                    #     raw_text = item["text"]
+                    #     break
+            # if isinstance(response.content, list):
+            #     raw_text = response.content[-1]["text"]
+        except Exception as e:
+            pass
+
         structured_output = None
         if not has_tool_calls:
             if not self.config.output_schema.is_output_str():
                 try:
                     # NOTE: parsing non-list content probably woudn't be neccessary and should be the same attempt as the result in `parsed` key below!
-                    raw_content = response.content
-                    if isinstance(response.content, list):
-                        raw_content = response.content[-1]["text"]
                         
                         
-                    parsed_json_data = json.loads(raw_content)
+                    parsed_json_data = json.loads(raw_text)
                     structured_output = parsed_json_data
                     if issubclass(output_schema, BaseModel):
                         structured_output = output_schema.model_validate(parsed_json_data)
@@ -1106,12 +1126,42 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 structured_output = structured_output.model_dump() if isinstance(structured_output, BaseModel) else structured_output
                 
         
-        current_messages=current_messages + [response]
+        # TODO: change this behaviour for only Anthropic which uses tool calls for structured responses!
+        try:
+            if hasattr(response, "content") and schema_name_to_filter:
+                
+                filtered_tool_calls = []
+                for t in response.tool_calls:
+                    if t["name"] != schema_name_to_filter:
+                        filtered_tool_calls.append(t)
+                response.tool_calls = filtered_tool_calls
+                
+                filtered_content = []
+                for t in response.content:
+                    if t["name"] != schema_name_to_filter:
+                        filtered_content.append(t)
+                    else:
+                        temp_text_content = t
+                        if isinstance(t, dict):
+                            temp_text_content = t.get('input')
+                            temp_text_content = t or t.get('partial_json')
+                            temp_text_content = t or t.get('json')
+                        temp_text_content = str(temp_text_content)
+                        filtered_content.append({'type': 'text', 'text': temp_text_content})
+                response.content = filtered_content
+                
+        except Exception as e:
+            pass
+        # import ipdb; ipdb.set_trace()
+        
+        current_messages=current_messages + (response if isinstance(response, list) else [response])
+        # import ipdb; ipdb.set_trace()
         metadata.iteration_count = self._get_iteration_count(message_history + current_messages)
         # import ipdb; ipdb.set_trace()
         return LLMNodeOutputSchema(
             current_messages=current_messages,
             content=response.content,
+            text_content=raw_text,
             metadata=metadata,
             structured_output=structured_output,
             tool_calls=tool_calls or None,
