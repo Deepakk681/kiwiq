@@ -440,31 +440,29 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "content_creation_workflow",
       "version": null,
       "inputs": {
-        "brief_doc": {
-          "filename_config": {
-            "static_namespace": "content_briefs",
-            "input_docname_field": "uuid",
-            "input_docname_field_pattern": "$filename:brief.docname.partial"
-          },
-          "output_field_name": "brief",
-          "is_shared": "$filename:brief.is_shared",
-          "is_system_entity": "$filename:brief.is_system_entity"
+            "post_uuid": "test_post_uuid",
+            "brief_docname": "brief_docname",
+            "customer_context_doc_configs": [
+                {
+                    "filename_config": {
+                        "input_namespace_field_pattern": "user_strategy_{item}",
+                        "input_namespace_field": "entity_username",
+                        "static_docname": "user_dna_doc"
+                    },
+                    "output_field_name": "user_dna"
+                },
+                {
+                    "filename_config": {
+                        "input_namespace_field_pattern": "content_briefs_{item}",
+                        "input_namespace_field": "entity_username",
+                        "input_docname_field": "brief_docname"
+                    },
+                    "output_field_name": "content_brief"
+                }
+            ],
+            "entity_username": "example-user"
         },
-        "user_dna_doc": {
-          "filename_config": {
-            "static_namespace": "user_strategy",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "user_dna_doc_{item}"
-          },
-          "output_field_name": "user_dna",
-          "is_shared": "$filename:user_dna_doc.is_shared",
-          "is_system_entity": "$filename:user_dna_doc.is_system_entity"
-        }
-      },
-      "user_documents_config_variables": {
-        "entity_username": null,
-        "uuid": null
-      },
+      "user_documents_config_variables": {},
       "template_specific": false
     },
     "brief_to_concepts": {
@@ -501,10 +499,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "past_context_posts_limit": 20,
         "entity_username": null
       },
-      "user_documents_config_variables": {
-        "entity_username": null,
-        "uuid": null
-      },
+      "user_documents_config_variables": {},
       "template_specific": false
     }
   }
