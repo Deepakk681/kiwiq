@@ -34,8 +34,7 @@ from scraper_service.client.schemas.activity_schema import (
 from pydantic import BaseModel
 
 
-from global_config.logger import get_logger
-logger = get_logger(__name__)
+from global_config.logger import get_prefect_or_regular_python_logger
 
 # Generic type for Pydantic models
 T = TypeVar('T', bound=BaseModel)
@@ -71,10 +70,11 @@ class RapidAPIClient(Generic[T]):
             'x-rapidapi-key': self.api_key,
             'x-rapidapi-host': self.base_url
         }
+        self.logger = get_prefect_or_regular_python_logger(__name__)
         
         # Verify API key is set
         if not self.api_key:
-            logger.warning("RapidAPI key is not set. API requests will fail.")
+            self.logger.warning("RapidAPI key is not set. API requests will fail.")
 
     def _get_url(self, endpoint: str) -> str:
         return f"https://{self.base_url}{endpoint}"
@@ -106,18 +106,18 @@ class RapidAPIClient(Generic[T]):
             # Basic check if the API itself indicates failure (common pattern)
             if isinstance(json_response, dict) and not json_response.get("success", True):
                  error_msg = json_response.get("message", "API indicated failure without specific message.")
-                 logger.warning(f"API request successful (HTTP {response.status}) but API returned success=false: {error_msg}")
+                 self.logger.warning(f"API request successful (HTTP {response.status}) but API returned success=false: {error_msg}")
                  # Include the error message in the response for upstream handling
                  json_response["error"] = error_msg # Add error key for consistency
 
             return json_response
         except aiohttp.ClientResponseError as http_error:
             # Handle HTTP errors (4xx, 5xx)
-            logger.error(f"HTTP error {http_error.status}: {http_error.message} for URL {response.url}")
+            self.logger.error(f"HTTP error {http_error.status}: {http_error.message} for URL {response.url}")
             # Try to get error details from response body if possible
             try:
                 error_body = await response.text()
-                logger.error(f"Error response body: {error_body[:500]}") # Log beginning of body
+                self.logger.error(f"Error response body: {error_body[:500]}") # Log beginning of body
                 # Attempt to parse as JSON to extract API specific error message
                 error_json = json.loads(error_body)
                 api_message = error_json.get("message", http_error.message)
@@ -126,11 +126,11 @@ class RapidAPIClient(Generic[T]):
                  return {"error": f"HTTP {http_error.status}: {http_error.message}", "status_code": http_error.status}
         except json.JSONDecodeError:
             # Handle cases where response is not valid JSON
-            logger.error(f"Failed to decode JSON response from {response.url}. Status: {response.status}")
+            self.logger.error(f"Failed to decode JSON response from {response.url}. Status: {response.status}")
             return {"error": "Invalid JSON response from API", "status_code": response.status}
         except Exception as e:
             # Catch any other unexpected errors during parsing
-            logger.error(f"Unexpected error parsing response from {response.url}: {str(e)}")
+            self.logger.error(f"Unexpected error parsing response from {response.url}: {str(e)}")
             return {"error": f"Failed to parse response: {str(e)}", "status_code": response.status}
     
     async def make_get_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -151,7 +151,7 @@ class RapidAPIClient(Generic[T]):
         """
         url = self._get_url(endpoint)
         # Log the request with parameters for better debugging
-        logger.info(f"Making GET API request to: {url} with params: {params}")
+        self.logger.info(f"Making GET API request to: {url} with params: {params}")
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -162,15 +162,15 @@ class RapidAPIClient(Generic[T]):
 
         except aiohttp.ClientError as client_error:
             # Log and return structured error
-            logger.error(f"HTTP client error during GET {url}: {str(client_error)}")
+            self.logger.error(f"HTTP client error during GET {url}: {str(client_error)}")
             return {"error": f"HTTP request failed: {str(client_error)}"}
         except asyncio.TimeoutError:
             # Log and return structured error
-            logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds for GET {url}")
+            self.logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds for GET {url}")
             return {"error": f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds"}
         except Exception as e:
             # Log and return structured error for unexpected issues
-            logger.error(f"Unexpected error in make_get_request for {url}: {str(e)}")
+            self.logger.error(f"Unexpected error in make_get_request for {url}: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}
 
     async def make_get_request_with_delay(self, endpoint: str, delay_seconds: int = None) -> Union[T, Dict[str, Any]]:
@@ -206,9 +206,9 @@ class RapidAPIClient(Generic[T]):
             Exception: For any other unexpected errors.
         """
         url = self._get_url(endpoint)
-        logger.info(f"Making POST API request to: {url}")
+        self.logger.info(f"Making POST API request to: {url}")
         # Avoid logging sensitive parts of payload if necessary in future
-        logger.debug(f"Request payload: {payload}")
+        self.logger.debug(f"Request payload: {payload}")
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -222,15 +222,15 @@ class RapidAPIClient(Generic[T]):
 
         except aiohttp.ClientError as client_error:
             # Log and return structured error
-            logger.error(f"HTTP client error during POST {url}: {str(client_error)}")
+            self.logger.error(f"HTTP client error during POST {url}: {str(client_error)}")
             return {"error": f"HTTP request failed: {str(client_error)}"}
         except asyncio.TimeoutError:
             # Log and return structured error
-            logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds for POST {url}")
+            self.logger.error(f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds for POST {url}")
             return {"error": f"Request timed out after {rapid_api_settings.SCRAPING_SERVICE_REQUEST_TIMEOUT} seconds"}
         except Exception as e:
             # Log and return structured error
-            logger.error(f"Unexpected error in make_post_request for {url}: {str(e)}")
+            self.logger.error(f"Unexpected error in make_post_request for {url}: {str(e)}")
             return {"error": f"Request failed: {str(e)}"}
     
     async def get_profile_data(self, request: Dict[str, Any]) -> ProfileResponse:
@@ -253,7 +253,7 @@ class RapidAPIClient(Generic[T]):
         params = {"username": request['username']}
         response = await self.make_get_request(endpoint, params=params)
         if "error" in response:
-            logger.error(f"Error fetching profile data for {request['username']}: {response['error']}")
+            self.logger.error(f"Error fetching profile data for {request['username']}: {response['error']}")
             return response
         if "data" in response:
             response = response["data"]
@@ -280,7 +280,7 @@ class RapidAPIClient(Generic[T]):
         params = {"username": request['username']}
         response_data = await self.make_get_request(endpoint, params=params)
         if "error" in response_data:
-            logger.error(f"Error fetching company data for {request['username']}: {response_data['error']}")
+            self.logger.error(f"Error fetching company data for {request['username']}: {response_data['error']}")
             return response_data
         if "data" in response_data:
             response_data = response_data["data"]

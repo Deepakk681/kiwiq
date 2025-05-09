@@ -12,6 +12,8 @@
 9.  Configure your DNS A record to point your domain/subdomain to the EC2 instance's Elastic IP.
 10. Wait for DNS propagation, then verify HTTPS access. The Certbot process within the Nginx container should handle certificate acquisition automatically.
 
+IMPORTANT:
+11. SETUP ELASTIC IP AND associate with your container!
 
 ---
 

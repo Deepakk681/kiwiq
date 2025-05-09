@@ -6,6 +6,9 @@ import http.client
 import json
 from fastapi import FastAPI, Depends, HTTPException,APIRouter, Header
 
+from global_config.logger import get_prefect_or_regular_python_logger
+# Configure logging
+
 
 class SearchPosts:
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
@@ -17,6 +20,7 @@ class SearchPosts:
             'x-rapidapi-host': self.host,
             'Content-Type': "application/json"
         }
+        self.logger = get_prefect_or_regular_python_logger(__name__)
 
     async def search_post_by_keyword(self, keyword: str, total_posts: Optional[int] = None) -> List[dict]:
         if not total_posts:

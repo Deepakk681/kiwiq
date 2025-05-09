@@ -12,7 +12,7 @@ import json
 from scraper_service.client.core_api_client import RapidAPIClient
 from scraper_service.settings import rapid_api_settings
 from scraper_service.client.utils.url_helper import extract_urn_from_url
-from global_config.logger import get_logger
+from global_config.logger import get_prefect_or_regular_python_logger
 
 from scraper_service.client.schemas.posts_schema import (
     PostReactionsRequest , 
@@ -48,7 +48,7 @@ from scraper_service.client.schemas.activity_schema import (
 
 from scraper_service.client.utils.url_helper import extract_urn_from_url
 # Configure logging
-logger = get_logger(__name__)
+
 
 class LinkedinPostFetcher:
     """
@@ -70,7 +70,7 @@ class LinkedinPostFetcher:
         self.rapidapi_key = api_key or rapid_api_settings.RAPID_API_KEY
         self.rapidapi_host = base_url or rapid_api_settings.RAPID_API_HOST
         self.api_client = RapidAPIClient(self.rapidapi_key, self.rapidapi_host)
-
+        self.logger = get_prefect_or_regular_python_logger(__name__)
     async def fetch_share_url(self, post_url):
         """Fetches shareUrl from LinkedIn post API if not available.
         
@@ -82,7 +82,7 @@ class LinkedinPostFetcher:
         response = await self.api_client.make_get_request(endpoint)
 
         if not response.get("success", False):
-            logger.error(f"Error fetching company posts: {response.get('message')}")
+            self.logger.error(f"Error fetching company posts: {response.get('message')}")
             return CompanyPostResponse(posts=[])
 
         post_data = response.get("data", [])
@@ -117,7 +117,7 @@ class LinkedinPostFetcher:
         NOTE: fetch_share_url costs 1 credit per request if used to fetch shareUrl for a company post!
         """
         if not request['username']:
-            logger.error("Username is required to fetch company posts.")
+            self.logger.error("Username is required to fetch company posts.")
             return {"error": "Username is required"}
 
         post_limit = request['post_limit'] or rapid_api_settings.DEFAULT_POST_LIMIT
@@ -126,7 +126,7 @@ class LinkedinPostFetcher:
         fetch_comments_flag = request['post_comments'].lower() == "yes"
         fetch_reactions_flag = request['post_reactions'].lower() == "yes"
 
-        logger.info(f"Fetching up to {post_limit} posts for company: {request['username']}")
+        self.logger.info(f"Fetching up to {post_limit} posts for company: {request['username']}")
 
         all_raw_posts = []
         start = 0
@@ -138,11 +138,11 @@ class LinkedinPostFetcher:
             if pagination_token:
                 params["paginationToken"] = pagination_token
 
-            logger.debug(f"Fetching company posts page starting at {start} for {request['username']}")
+            self.logger.debug(f"Fetching company posts page starting at {start} for {request['username']}")
             response = await self.api_client.make_get_request(endpoint, params=params)
 
             if "error" in response:
-                logger.error(f"Error fetching company posts for {request['username']} at start {start}: {response['error']}")
+                self.logger.error(f"Error fetching company posts for {request['username']} at start {start}: {response['error']}")
                 return response
 
             response_data = response.get("data", response)
@@ -154,19 +154,19 @@ class LinkedinPostFetcher:
                 posts_batch = response_data.get("items", [])
 
             if not posts_batch:
-                logger.info(f"No more company posts found for {request['username']} at start {start}.")
+                self.logger.info(f"No more company posts found for {request['username']} at start {start}.")
                 break
 
             all_raw_posts.extend(posts_batch)
-            logger.debug(f"Fetched {len(posts_batch)} posts in this batch. Total raw posts: {len(all_raw_posts)}")
+            self.logger.debug(f"Fetched {len(posts_batch)} posts in this batch. Total raw posts: {len(all_raw_posts)}")
 
             if len(all_raw_posts) >= post_limit:
-                logger.info(f"Company post limit ({post_limit}) reached for {request['username']}.")
+                self.logger.info(f"Company post limit ({post_limit}) reached for {request['username']}.")
                 break
 
             pagination_token = response.get("paginationToken") or (response_data.get("paginationToken") if isinstance(response_data, dict) else None)
             if not pagination_token:
-                logger.info(f"No pagination token found for company posts of {request['username']}.")
+                self.logger.info(f"No pagination token found for company posts of {request['username']}.")
                 break
             if len(posts_batch) < rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE:
                 break
@@ -175,11 +175,11 @@ class LinkedinPostFetcher:
 
         structured_posts: List[CompanyPostResponse] = []
         posts_to_process = all_raw_posts[:post_limit]
-        logger.info(f"Processing {len(posts_to_process)} raw company posts for {request['username']}...")
+        self.logger.info(f"Processing {len(posts_to_process)} raw company posts for {request['username']}...")
 
         for i, raw_post in enumerate(posts_to_process):
             if not isinstance(raw_post, dict):
-                logger.warning(f"Skipping non-dictionary item in company posts: {raw_post}")
+                self.logger.warning(f"Skipping non-dictionary item in company posts: {raw_post}")
                 continue
 
             post_url = raw_post.get("postUrl")
@@ -190,25 +190,25 @@ class LinkedinPostFetcher:
 
             comments_list = []
             if fetch_comments_flag and urn and i < post_limit:
-                logger.debug(f"Fetching comments for company post URN: {urn}")
+                self.logger.debug(f"Fetching comments for company post URN: {urn}")
                 comments_result = await self.get_company_post_comments(
                     CompanyPostCommentsRequest(post_urn=urn),
                     limit=comment_limit
                 )
                 if isinstance(comments_result, dict) and "error" in comments_result:
-                    logger.error(f"Failed to fetch comments for company post {urn}: {comments_result['error']}")
+                    self.logger.error(f"Failed to fetch comments for company post {urn}: {comments_result['error']}")
                 elif isinstance(comments_result, list):
                     comments_list = comments_result
 
             reactions_list = []
             if fetch_reactions_flag and reaction_target_url and i < post_limit:
-                logger.debug(f"Fetching reactions for company post URL: {reaction_target_url}")
+                self.logger.debug(f"Fetching reactions for company post URL: {reaction_target_url}")
                 reactions_result = await self.get_post_reactions(
                     PostReactionsRequest(urn=urn),
                     limit=reaction_limit
                 )
                 if isinstance(reactions_result, dict) and "error" in reactions_result:
-                    logger.error(f"Failed to fetch reactions for company post {reaction_target_url}: {reactions_result['error']}")
+                    self.logger.error(f"Failed to fetch reactions for company post {reaction_target_url}: {reactions_result['error']}")
                 elif isinstance(reactions_result, list):
                     reactions_list = reactions_result
 
@@ -219,7 +219,12 @@ class LinkedinPostFetcher:
             )
             structured_posts.append(post)
 
-        logger.info(f"Successfully processed {len(structured_posts)} company posts for {request['username']}.")
+        self.logger.info(f"Successfully processed {len(structured_posts)} company posts for {request['username']}.")
+        # Sort posts by postedDateTimestamp descending
+        try:
+            structured_posts.sort(key=lambda x: x.postedDateTimestamp, reverse=True)
+        except Exception as e:
+            self.logger.error(f"Error sorting posts by postedDateTimestamp: {e}")
         return structured_posts
 
     async def get_company_post_comments(
@@ -242,13 +247,13 @@ class LinkedinPostFetcher:
         # NOTE: TODO: may require pagination!
         """
         if not request.post_urn:
-            logger.warning("Cannot fetch company post comments without a post URN.")
+            self.logger.warning("Cannot fetch company post comments without a post URN.")
             # Return empty list for consistency, as error dict implies API failure
             return []
 
         # Use the provided limit or fall back to the default setting
         comment_limit = limit if limit is not None else rapid_api_settings.DEFAULT_COMMENT_LIMIT
-        logger.info(f"Fetching up to {comment_limit} comments for company post URN: {request.post_urn}")
+        self.logger.info(f"Fetching up to {comment_limit} comments for company post URN: {request.post_urn}")
 
         # Define the API endpoint and parameters
         endpoint = rapid_api_settings.RAPID_API_ENDPOINTS['company_post_comments']
@@ -259,7 +264,7 @@ class LinkedinPostFetcher:
 
         # Check for errors returned by the API client's parsing logic
         if "error" in response:
-            logger.error(f"Error fetching company post comments for URN {request.post_urn}: {response['error']}")
+            self.logger.error(f"Error fetching company post comments for URN {request.post_urn}: {response['error']}")
             return response # Propagate the error dictionary
 
         # --- Data Extraction ---
@@ -274,11 +279,11 @@ class LinkedinPostFetcher:
             raw_comments = response_data.get("comments", response_data.get("items", []))
         else:
             # Unexpected format
-            logger.error(f"Unexpected response data format for company comments: {type(response_data)}. URN: {request.post_urn}")
+            self.logger.error(f"Unexpected response data format for company comments: {type(response_data)}. URN: {request.post_urn}")
             return {"error": "Unexpected data format received for company comments."}
 
         if not raw_comments:
-            logger.info(f"No comments found for company post URN {request.post_urn}.")
+            self.logger.info(f"No comments found for company post URN {request.post_urn}.")
             return []
 
         # --- Parsing and Limit Application ---
@@ -287,12 +292,12 @@ class LinkedinPostFetcher:
         for raw_comment in raw_comments:
             # Stop if the requested limit is reached
             # if count >= comment_limit:
-            #     logger.info(f"Comment limit ({comment_limit}) reached for company post URN {request.post_urn}.")
+            #     self.logger.info(f"Comment limit ({comment_limit}) reached for company post URN {request.post_urn}.")
             #     break
 
             # Ensure the item is a dictionary before attempting to parse
             if not isinstance(raw_comment, dict):
-                logger.warning(f"Skipping non-dictionary item in company comments list for URN {request.post_urn}. Item: {raw_comment}")
+                self.logger.warning(f"Skipping non-dictionary item in company comments list for URN {request.post_urn}. Item: {raw_comment}")
                 continue
 
             try:
@@ -310,9 +315,9 @@ class LinkedinPostFetcher:
                 count += 1
             except Exception as e:
                 # Log a warning if parsing fails for a specific comment
-                logger.warning(f"Skipping invalid company comment data due to parsing error: {e}. URN: {request.post_urn}. Data: {raw_comment}")
+                self.logger.warning(f"Skipping invalid company comment data due to parsing error: {e}. URN: {request.post_urn}. Data: {raw_comment}")
 
-        logger.info(f"Successfully retrieved and parsed {len(comments)} company comments for URN {request.post_urn}.")
+        self.logger.info(f"Successfully retrieved and parsed {len(comments)} company comments for URN {request.post_urn}.")
         return comments
 
     async def get_post_reactions(
@@ -340,12 +345,12 @@ class LinkedinPostFetcher:
             https://rapidapi.com/rockapis-rockapis-default/api/linkedin-data-api/playground/apiendpoint_05186403-0154-462c-ab21-a10657f13a58
         """
         if (not request.post_url) and (not request.urn):
-            logger.warning("Cannot fetch post reactions without a post URL or URN.")
+            self.logger.warning("Cannot fetch post reactions without a post URL or URN.")
             return []
 
         # Use the provided limit or fall back to the default setting
         reaction_limit = limit if limit is not None else rapid_api_settings.DEFAULT_REACTION_LIMIT
-        logger.info(f"Fetching up to {reaction_limit} reactions for post URL: {request.post_url}")
+        self.logger.info(f"Fetching up to {reaction_limit} reactions for post URL: {request.post_url}")
 
         all_reactions: List[PostReaction] = []
         page = 1 # Start pagination from page 1
@@ -360,14 +365,14 @@ class LinkedinPostFetcher:
             elif request.post_url:
                 payload["url"] = request.post_url
             
-            logger.debug(f"Fetching reactions page {page} for URL/URN: {request.post_url or request.urn}")
+            self.logger.debug(f"Fetching reactions page {page} for URL/URN: {request.post_url or request.urn}")
 
             # Make the API request using the core client
             response = await self.api_client.make_post_request(endpoint, payload=payload)
 
             # Check for errors returned by the API client's parsing logic
             if "error" in response:
-                logger.error(f"Error fetching reactions for URL/URN {request.post_url or request.urn} on page {page}: {response['error']}")
+                self.logger.error(f"Error fetching reactions for URL/URN {request.post_url or request.urn} on page {page}: {response['error']}")
                 # If an error occurs during pagination, return what we have gathered so far, plus the error.
                 # Alternatively, could just return the error dict: return response
                 # Returning partial results might be useful, but signals an incomplete fetch.
@@ -382,19 +387,19 @@ class LinkedinPostFetcher:
 
             if not raw_items:
                 # No more reactions found, end pagination
-                logger.info(f"No more reactions found for URL/URN {request.post_url or request.urn} on page {page}.")
+                self.logger.info(f"No more reactions found for URL/URN {request.post_url or request.urn} on page {page}.")
                 break
 
             # --- Parsing and Limit Application ---
             for item in raw_items:
                 # # Stop if the requested limit is reached
                 # if len(all_reactions) >= reaction_limit:
-                #     logger.info(f"Reaction limit ({reaction_limit}) reached for URL {request.post_url}.")
+                #     self.logger.info(f"Reaction limit ({reaction_limit}) reached for URL {request.post_url}.")
                 #     break # Break inner loop
 
                 # Ensure the item is a dictionary before attempting to parse
                 if not isinstance(item, dict):
-                    logger.warning(f"Skipping non-dictionary item in reactions list for URL/URN {request.post_url or request.urn}. Item: {item}")
+                    self.logger.warning(f"Skipping non-dictionary item in reactions list for URL/URN {request.post_url or request.urn}. Item: {item}")
                     continue
 
                 try:
@@ -404,14 +409,14 @@ class LinkedinPostFetcher:
                     all_reactions.append(reaction)
                 except Exception as e:
                     # Log a warning if parsing fails for a specific reaction
-                    logger.warning(f"Skipping invalid reaction data due to parsing error: {e}. URL/URN: {request.post_url or request.urn}. Data: {item}")
+                    self.logger.warning(f"Skipping invalid reaction data due to parsing error: {e}. URL/URN: {request.post_url or request.urn}. Data: {item}")
 
             # Break outer loop if limit was reached in inner loop
             if len(all_reactions) >= reaction_limit:
                 break
             
             if page >= totalPages:
-                logger.info(f"Pagination limit ({totalPages}) reached for URL/URN {request.post_url or request.urn}.")
+                self.logger.info(f"Pagination limit ({totalPages}) reached for URL/URN {request.post_url or request.urn}.")
                 break
 
             # Prepare for the next page
@@ -419,7 +424,7 @@ class LinkedinPostFetcher:
             # Consider adding a small delay if rate limiting is a concern
             await asyncio.sleep(rapid_api_settings.SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS) # Use configured delay
 
-        logger.info(f"Successfully retrieved and parsed {len(all_reactions)} reactions for URL/URN {request.post_url or request.urn}.")
+        self.logger.info(f"Successfully retrieved and parsed {len(all_reactions)} reactions for URL/URN {request.post_url or request.urn}.")
         return all_reactions
 
 
@@ -446,7 +451,7 @@ class LinkedinPostFetcher:
                 on success, or a dictionary with an 'error' key on failure.
         """
         if not request.get('username'):
-            logger.error("Username is required to fetch profile posts.")
+            self.logger.error("Username is required to fetch profile posts.")
             return {"error": "Username is required"}
 
         # Extract parameters with defaults
@@ -457,7 +462,7 @@ class LinkedinPostFetcher:
         fetch_comments_flag = request.get('post_comments', 'no').lower() == "yes"
         fetch_reactions_flag = request.get('post_reactions', 'no').lower() == "yes"
 
-        logger.info(f"Fetching up to {post_limit} posts for profile: {username}")
+        self.logger.info(f"Fetching up to {post_limit} posts for profile: {username}")
 
         all_raw_posts = []
         start = 0
@@ -471,12 +476,12 @@ class LinkedinPostFetcher:
             if pagination_token:
                 params["paginationToken"] = pagination_token
 
-            logger.debug(f"Fetching profile posts page starting at {start} for {username}")
+            self.logger.debug(f"Fetching profile posts page starting at {start} for {username}")
             response = await self.api_client.make_get_request(endpoint, params=params)
 
             # Check for errors
             if "error" in response:
-                logger.error(f"Error fetching profile posts for {username} at start {start}: {response['error']}")
+                self.logger.error(f"Error fetching profile posts for {username} at start {start}: {response['error']}")
                 return response # Return error dict
 
             # --- Data Extraction ---
@@ -489,15 +494,15 @@ class LinkedinPostFetcher:
                 posts_batch = response_data.get("posts", response_data.get("items", []))
 
             if not posts_batch:
-                logger.info(f"No more profile posts found for {username} at start {start}.")
+                self.logger.info(f"No more profile posts found for {username} at start {start}.")
                 break
 
             all_raw_posts.extend(posts_batch)
-            logger.debug(f"Fetched {len(posts_batch)} posts in this batch. Total raw posts: {len(all_raw_posts)}")
+            self.logger.debug(f"Fetched {len(posts_batch)} posts in this batch. Total raw posts: {len(all_raw_posts)}")
 
             # Check if limit reached
             if len(all_raw_posts) >= post_limit:
-                logger.info(f"Profile post limit ({post_limit}) reached for {username}.")
+                self.logger.info(f"Profile post limit ({post_limit}) reached for {username}.")
                 break # Exit loop if limit reached
 
             # --- Pagination Token Handling ---
@@ -507,12 +512,12 @@ class LinkedinPostFetcher:
                 pagination_token = response_data.get("paginationToken")
 
             if not pagination_token:
-                logger.info(f"No pagination token found for profile posts of {username}.")
+                self.logger.info(f"No pagination token found for profile posts of {username}.")
                 break # Exit loop if no token
 
             # Optional: Check if the number of items fetched suggests the last page
             if len(posts_batch) < rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE:
-                logger.info(f"Fetched fewer posts ({len(posts_batch)}) than batch size, assuming end of results for {username}.")
+                self.logger.info(f"Fetched fewer posts ({len(posts_batch)}) than batch size, assuming end of results for {username}.")
                 break # Exit loop if likely last page
 
             # Increment start for the next batch
@@ -524,11 +529,11 @@ class LinkedinPostFetcher:
         # --- Processing Fetched Posts ---
         structured_posts: List[ProfilePost] = []
         posts_to_process = all_raw_posts # Ensure we don't exceed the limit; otherwise exess comments / reactions requests will also be triggered!
-        logger.info(f"Processing {len(posts_to_process)} raw profile posts for {username}...")
+        self.logger.info(f"Processing {len(posts_to_process)} raw profile posts for {username}...")
 
         for i, raw_post in enumerate(posts_to_process):
             if not isinstance(raw_post, dict):
-                logger.warning(f"Skipping non-dictionary item in profile posts: {raw_post}")
+                self.logger.warning(f"Skipping non-dictionary item in profile posts: {raw_post}")
                 continue
 
             post_url = raw_post.get("postUrl")
@@ -541,14 +546,14 @@ class LinkedinPostFetcher:
             # --- Fetch Comments (Conditional) ---
             comments_list: List[PostComment] = []
             if fetch_comments_flag and urn and i < post_limit:
-                logger.debug(f"Fetching comments for profile post URN: {urn}")
+                self.logger.debug(f"Fetching comments for profile post URN: {urn}")
                 comments_result = await self.get_profile_post_comments(
                     ProfilePostCommentsRequest(post_urn=urn),
                     limit=comment_limit
                 )
                 # Check if the result is an error dict or the list of comments
                 if isinstance(comments_result, dict) and "error" in comments_result:
-                    logger.error(f"Failed to fetch comments for profile post {urn}: {comments_result['error']}")
+                    self.logger.error(f"Failed to fetch comments for profile post {urn}: {comments_result['error']}")
                 elif isinstance(comments_result, list):
                     comments_list = comments_result
                 # Add delay after sub-call? Depends on rate limits.
@@ -558,14 +563,14 @@ class LinkedinPostFetcher:
             # --- Fetch Reactions (Conditional) ---
             reactions_list: List[PostReaction] = []
             if fetch_reactions_flag and reaction_target_url and i < post_limit:
-                logger.debug(f"Fetching reactions for profile post URL: {reaction_target_url}")
+                self.logger.debug(f"Fetching reactions for profile post URL: {reaction_target_url}")
                 reactions_result = await self.get_post_reactions(
                     PostReactionsRequest(urn=urn),
                     limit=reaction_limit
                 )
                  # Check if the result is an error dict or the list of reactions
                 if isinstance(reactions_result, dict) and "error" in reactions_result:
-                    logger.error(f"Failed to fetch reactions for profile post {reaction_target_url}: {reactions_result['error']}")
+                    self.logger.error(f"Failed to fetch reactions for profile post {reaction_target_url}: {reactions_result['error']}")
                 elif isinstance(reactions_result, list):
                     # Convert PostReaction models back to dicts if the ProfilePost schema expects dicts
                     # If ProfilePost expects List[PostReaction], just assign: reactions_list = reactions_result
@@ -585,10 +590,13 @@ class LinkedinPostFetcher:
                 )
                 structured_posts.append(structured_post)
             except Exception as e:
-                 logger.warning(f"Skipping profile post due to parsing error: {e}. Post data: {raw_post}")
+                 self.logger.warning(f"Skipping profile post due to parsing error: {e}. Post data: {raw_post}")
 
-
-        logger.info(f"Successfully processed {len(structured_posts)} profile posts for {username}.")
+        try:
+            structured_posts.sort(key=lambda x: x.postedDateTimestamp, reverse=True)
+        except Exception as e:
+            self.logger.error(f"Error sorting posts by postedDateTimestamp: {e}")
+        self.logger.info(f"Successfully processed {len(structured_posts)} profile posts for {username}.")
         return structured_posts
 
     async def get_profile_post_comments(
@@ -612,12 +620,12 @@ class LinkedinPostFetcher:
         https://rapidapi.com/rockapis-rockapis-default/api/linkedin-data-api/playground/apiendpoint_32b2d880-fbcc-4494-a7c5-cf754d20dbb4
         """
         if not request.post_urn:
-            logger.warning("Cannot fetch profile post comments without a post URN.")
+            self.logger.warning("Cannot fetch profile post comments without a post URN.")
             return []
 
         # Set the overall limit for comments across all pages
         comment_limit = limit if limit is not None else rapid_api_settings.DEFAULT_COMMENT_LIMIT
-        logger.info(f"Fetching up to {comment_limit} comments for profile post URN: {request.post_urn}")
+        self.logger.info(f"Fetching up to {comment_limit} comments for profile post URN: {request.post_urn}")
 
         # Define endpoint
         endpoint = rapid_api_settings.RAPID_API_ENDPOINTS['profile_post_comments'] # Ensure this exists
@@ -634,13 +642,13 @@ class LinkedinPostFetcher:
             if pagination_token:
                 params["paginationToken"] = pagination_token
 
-            logger.debug(f"Fetching profile comments page {page_count} for URN {request.post_urn}, token: {pagination_token}")
+            self.logger.debug(f"Fetching profile comments page {page_count} for URN {request.post_urn}, token: {pagination_token}")
             # Make the API request
             response = await self.api_client.make_get_request(endpoint, params=params)
 
             # Check for errors from the API client
             if "error" in response:
-                logger.error(f"Error fetching profile post comments for URN {request.post_urn} on page {page_count}: {response['error']}")
+                self.logger.error(f"Error fetching profile post comments for URN {request.post_urn} on page {page_count}: {response['error']}")
                 # Return error, potentially with partially gathered comments if needed, but error dict is clearer
                 return response
 
@@ -650,25 +658,25 @@ class LinkedinPostFetcher:
 
             # Handle case where 'data' key exists but is not a list
             if not isinstance(response_data, list):
-                logger.error(f"Unexpected response data format for profile comments: expected list under 'data', got {type(response_data)}. URN: {request.post_urn}, Page: {page_count}")
+                self.logger.error(f"Unexpected response data format for profile comments: expected list under 'data', got {type(response_data)}. URN: {request.post_urn}, Page: {page_count}")
                 # Consider returning error or stopping pagination
                 return {"error": "Unexpected data format received for profile comments."}
 
             raw_comments_batch = response_data
 
             if not raw_comments_batch:
-                logger.info(f"No more comments found for profile post URN {request.post_urn} on page {page_count}.")
+                self.logger.info(f"No more comments found for profile post URN {request.post_urn} on page {page_count}.")
                 break # Exit loop if no comments in this batch
 
             # --- Parsing and Limit Application for Current Page ---
             for raw_comment in raw_comments_batch:
                 #  # Stop processing immediately if the overall limit is reached
                 # if len(all_comments) >= comment_limit:
-                #     logger.info(f"Overall comment limit ({comment_limit}) reached for profile post URN {request.post_urn}.")
+                #     self.logger.info(f"Overall comment limit ({comment_limit}) reached for profile post URN {request.post_urn}.")
                 #     break # Break inner loop
 
                 if not isinstance(raw_comment, dict):
-                    logger.warning(f"Skipping non-dictionary item in profile comments list for URN {request.post_urn}, Page: {page_count}. Item: {raw_comment}")
+                    self.logger.warning(f"Skipping non-dictionary item in profile comments list for URN {request.post_urn}, Page: {page_count}. Item: {raw_comment}")
                     continue
 
                 try:
@@ -676,7 +684,7 @@ class LinkedinPostFetcher:
                     parsed_comment = PostComment.model_construct(**raw_comment)
                     all_comments.append(parsed_comment)
                 except Exception as e:
-                    logger.warning(f"Skipping invalid profile comment data due to parsing error: {e}. URN: {request.post_urn}, Page: {page_count}. Data: {raw_comment}")
+                    self.logger.warning(f"Skipping invalid profile comment data due to parsing error: {e}. URN: {request.post_urn}, Page: {page_count}. Data: {raw_comment}")
 
             # Break outer loop if limit was reached in inner loop
             if len(all_comments) >= comment_limit:
@@ -687,12 +695,12 @@ class LinkedinPostFetcher:
             total_pages = response.get("totalPage") # Optional: Use totalPage for logging or early exit
 
             if not pagination_token:
-                logger.info(f"No further pagination token found for profile post comments (URN: {request.post_urn}). Fetched {page_count} pages.")
+                self.logger.info(f"No further pagination token found for profile post comments (URN: {request.post_urn}). Fetched {page_count} pages.")
                 break # Exit loop if no more tokens
 
             # Optional: Check against totalPages if provided
             if total_pages is not None and page_count >= total_pages:
-                 logger.info(f"Reached total pages ({total_pages}) indicated by API for profile post comments (URN: {request.post_urn}).")
+                 self.logger.info(f"Reached total pages ({total_pages}) indicated by API for profile post comments (URN: {request.post_urn}).")
                  break
 
             page_count += 1
@@ -701,7 +709,7 @@ class LinkedinPostFetcher:
             await asyncio.sleep(rapid_api_settings.SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS)
 
 
-        logger.info(f"Successfully retrieved and parsed {len(all_comments)} profile comments across {page_count} pages for URN {request.post_urn}.")
+        self.logger.info(f"Successfully retrieved and parsed {len(all_comments)} profile comments across {page_count} pages for URN {request.post_urn}.")
         # Return only up to the limit requested
         return all_comments
 
@@ -729,7 +737,7 @@ class LinkedinPostFetcher:
                 on success, or a dictionary with an 'error' key on failure.
         """
         if not request.get('username'):
-            logger.error("Username is required to fetch user likes.")
+            self.logger.error("Username is required to fetch user likes.")
             return {"error": "Username is required"}
 
         # Extract parameters with defaults
@@ -741,7 +749,7 @@ class LinkedinPostFetcher:
         fetch_comments_flag = request.get('post_comments', 'no').lower() == "yes"
         fetch_reactions_flag = request.get('post_reactions', 'no').lower() == "yes"
 
-        logger.info(f"Fetching up to {post_limit} liked posts for profile: {username}")
+        self.logger.info(f"Fetching up to {post_limit} liked posts for profile: {username}")
 
         all_likes: List[LikeItem] = []
         start = 0
@@ -754,12 +762,12 @@ class LinkedinPostFetcher:
             if pagination_token:
                 params["paginationToken"] = pagination_token
 
-            logger.debug(f"Fetching user likes page starting at {start} for {username}")
+            self.logger.debug(f"Fetching user likes page starting at {start} for {username}")
             response = await self.api_client.make_get_request(endpoint, params=params)
 
             # Check for errors
             if "error" in response:
-                logger.error(f"Error fetching user likes for {username} at start {start}: {response['error']}")
+                self.logger.error(f"Error fetching user likes for {username} at start {start}: {response['error']}")
                 return response
 
             # --- Data Extraction ---
@@ -768,18 +776,18 @@ class LinkedinPostFetcher:
             items_batch = response_data.get("items", [])
 
             if not items_batch:
-                logger.info(f"No more user likes found for {username} at start {start}.")
+                self.logger.info(f"No more user likes found for {username} at start {start}.")
                 break
 
             # --- Process Batch of Liked Items ---
             for i, raw_like in enumerate(items_batch):
                 # # Stop if limit reached
                 # if len(all_likes) >= post_limit:
-                #     logger.info(f"User likes limit ({post_limit}) reached for {username}.")
+                #     self.logger.info(f"User likes limit ({post_limit}) reached for {username}.")
                 #     break # Break inner loop
 
                 if not isinstance(raw_like, dict):
-                     logger.warning(f"Skipping non-dictionary item in user likes list for {username}. Item: {raw_like}")
+                     self.logger.warning(f"Skipping non-dictionary item in user likes list for {username}. Item: {raw_like}")
                      continue
 
                 # --- Extract Core Like Info ---
@@ -793,26 +801,26 @@ class LinkedinPostFetcher:
                 # --- Fetch Reactions (Conditional) ---
                 reactions_list: List[PostReaction] = []
                 if fetch_reactions_flag and reaction_target_url and i < post_limit:
-                    logger.debug(f"Fetching reactions for liked post URL: {reaction_target_url}")
+                    self.logger.debug(f"Fetching reactions for liked post URL: {reaction_target_url}")
                     reactions_result = await self.get_post_reactions(
                         PostReactionsRequest(urn=urn),
                         limit=reaction_limit
                     )
                     if isinstance(reactions_result, dict) and "error" in reactions_result:
-                        logger.error(f"Failed to fetch reactions for liked post {reaction_target_url}: {reactions_result['error']}")
+                        self.logger.error(f"Failed to fetch reactions for liked post {reaction_target_url}: {reactions_result['error']}")
                     elif isinstance(reactions_result, list):
                         reactions_list = reactions_result
 
                 # --- Fetch Comments (Conditional) ---
                 comments_list: List[PostComment] = []
                 if fetch_comments_flag and comment_target_urn and i < post_limit:
-                    logger.debug(f"Fetching comments for liked post URN: {comment_target_urn}")
+                    self.logger.debug(f"Fetching comments for liked post URN: {comment_target_urn}")
                     comments_result = await self.get_profile_post_comments(
                         ProfilePostCommentsRequest(post_urn=comment_target_urn),
                         limit=comment_limit
                     )
                     if isinstance(comments_result, dict) and "error" in comments_result:
-                        logger.error(f"Failed to fetch comments for liked post {comment_target_urn}: {comments_result['error']}")
+                        self.logger.error(f"Failed to fetch comments for liked post {comment_target_urn}: {comments_result['error']}")
                     elif isinstance(comments_result, list):
                         comments_list = comments_result
 
@@ -850,7 +858,7 @@ class LinkedinPostFetcher:
                     )
                     all_likes.append(like_item)
                 except Exception as e:
-                     logger.warning(f"Skipping liked item due to parsing error: {e}. Like data: {raw_like}")
+                     self.logger.warning(f"Skipping liked item due to parsing error: {e}. Like data: {raw_like}")
 
             # Break outer loop if limit was reached in inner loop
             if len(all_likes) >= post_limit:
@@ -859,19 +867,24 @@ class LinkedinPostFetcher:
             # --- Pagination Token Handling ---
             pagination_token = response_data.get("paginationToken")
             if not pagination_token:
-                logger.info(f"No pagination token found for user likes of {username}.")
+                self.logger.info(f"No pagination token found for user likes of {username}.")
                 break
 
             # Optional: Check batch size for potential end
             if len(items_batch) < rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE_FOR_ACTIVITY_REACTIONS:
-                logger.info(f"Fetched fewer liked items ({len(items_batch)}) than batch size, assuming end of results for {username}.")
+                self.logger.info(f"Fetched fewer liked items ({len(items_batch)}) than batch size, assuming end of results for {username}.")
                 break
 
             # Increment start and delay
             start += rapid_api_settings.SCRAPER_SERVICE_BATCH_SIZE_FOR_ACTIVITY_REACTIONS # Use the specific batch size
             await asyncio.sleep(rapid_api_settings.SCRAPER_SERVICE_DEFAULT_DELAY_SECONDS)
 
-        logger.info(f"Successfully processed {len(all_likes)} liked items for {username}.")
+        
+        try:
+            all_likes.sort(key=lambda x: x.postedDateTimestamp, reverse=True)
+        except Exception as e:
+            self.logger.error(f"Error sorting posts by postedDateTimestamp: {e}")
+        self.logger.info(f"Successfully processed {len(all_likes)} liked items for {username}.")
         return all_likes
 
 
@@ -899,7 +912,7 @@ class LinkedinPostFetcher:
                 or a dictionary with an 'error' key on failure.
         """
         if not request.get('username'):
-            logger.error("Username is required to fetch user comments.")
+            self.logger.error("Username is required to fetch user comments.")
             return {"error": "Username is required"}
 
         # Extract parameters
@@ -910,7 +923,7 @@ class LinkedinPostFetcher:
         fetch_comments_flag = request.get('post_comments', 'no').lower() == "yes"
         fetch_reactions_flag = request.get('post_reactions', 'no').lower() == "yes"
 
-        logger.info(f"Fetching up to {post_limit} posts commented on by profile: {username}")
+        self.logger.info(f"Fetching up to {post_limit} posts commented on by profile: {username}")
 
         # --- Data Fetching ---
         # Assuming the endpoint returns a list of posts the user commented on.
@@ -924,7 +937,7 @@ class LinkedinPostFetcher:
 
         # Check for errors
         if "error" in response:
-            logger.error(f"Error fetching posts commented on by {username}: {response['error']}")
+            self.logger.error(f"Error fetching posts commented on by {username}: {response['error']}")
             return response
 
         # --- Data Extraction ---
@@ -936,22 +949,22 @@ class LinkedinPostFetcher:
             # Check common keys like 'items', 'posts', 'comments'
             raw_commented_posts = response_data.get("items", response_data.get("posts", []))
         else:
-             logger.error(f"Unexpected response data format for user commented posts: {type(response_data)}. User: {username}")
+             self.logger.error(f"Unexpected response data format for user commented posts: {type(response_data)}. User: {username}")
              return {"error": "Unexpected data format received for user commented posts."}
 
         if (not raw_commented_posts) or (not isinstance(raw_commented_posts, list)):
-             logger.info(f"No posts found commented on by user {username}.")
+             self.logger.info(f"No posts found commented on by user {username}.")
              return []
 
         # --- Processing Fetched Posts ---
         structured_results: List[GetProfileCommentResponse] = []
         # Apply limit *before* fetching details for each post
         posts_to_process = raw_commented_posts
-        logger.info(f"Processing {len(posts_to_process)} raw commented posts for {username}...")
+        self.logger.info(f"Processing {len(posts_to_process)} raw commented posts for {username}...")
 
         for i, raw_post_info in enumerate(posts_to_process):
             if not isinstance(raw_post_info, dict):
-                logger.warning(f"Skipping non-dictionary item in commented posts list for {username}. Item: {raw_post_info}")
+                self.logger.warning(f"Skipping non-dictionary item in commented posts list for {username}. Item: {raw_post_info}")
                 continue
 
             post_url = raw_post_info.get("postUrl")
@@ -964,26 +977,26 @@ class LinkedinPostFetcher:
              # --- Fetch Other Comments (Conditional) ---
             other_comments_list: List[PostComment] = []
             if fetch_comments_flag and comment_target_urn and i < post_limit:
-                logger.debug(f"Fetching *other* comments for commented post URN: {comment_target_urn}")
+                self.logger.debug(f"Fetching *other* comments for commented post URN: {comment_target_urn}")
                 comments_result = await self.get_profile_post_comments(
                     ProfilePostCommentsRequest(post_urn=comment_target_urn),
                     limit=comment_limit
                 )
                 if isinstance(comments_result, dict) and "error" in comments_result:
-                    logger.error(f"Failed to fetch comments for commented post {comment_target_urn}: {comments_result['error']}")
+                    self.logger.error(f"Failed to fetch comments for commented post {comment_target_urn}: {comments_result['error']}")
                 elif isinstance(comments_result, list):
                     other_comments_list = comments_result
 
             # --- Fetch Reactions (Conditional) ---
             reactions_list: List[PostReaction] = []
             if fetch_reactions_flag and reaction_target_url and i < post_limit:
-                logger.debug(f"Fetching reactions for commented post URL: {reaction_target_url}")
+                self.logger.debug(f"Fetching reactions for commented post URL: {reaction_target_url}")
                 reactions_result = await self.get_post_reactions(
                     PostReactionsRequest(urn=urn),
                     limit=reaction_limit
                 )
                 if isinstance(reactions_result, dict) and "error" in reactions_result:
-                    logger.error(f"Failed to fetch reactions for commented post {reaction_target_url}: {reactions_result['error']}")
+                    self.logger.error(f"Failed to fetch reactions for commented post {reaction_target_url}: {reactions_result['error']}")
                 elif isinstance(reactions_result, list):
                     reactions_list = reactions_result
 
@@ -999,7 +1012,12 @@ class LinkedinPostFetcher:
                 )
                 structured_results.append(response_item)
             except Exception as e:
-                 logger.warning(f"Skipping commented post due to parsing error: {e}. Post data: {raw_post_info}")
+                 self.logger.warning(f"Skipping commented post due to parsing error: {e}. Post data: {raw_post_info}")
 
-        logger.info(f"Successfully processed {len(structured_results)} posts commented on by {username}.")
+        self.logger.info(f"Successfully processed {len(structured_results)} posts commented on by {username}.")
+        
+        try:
+            structured_results.sort(key=lambda x: x.postedDateTimestamp, reverse=True)
+        except Exception as e:
+            self.logger.error(f"Error sorting posts by postedDateTimestamp: {e}")
         return structured_results

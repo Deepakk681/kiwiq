@@ -11,10 +11,10 @@ from scraper_service.settings import rapid_api_settings
 from pydantic import ValidationError, BaseModel
 
 # Setup logger
-logger = logging.getLogger(__name__)
+from global_config.logger import get_prefect_or_regular_python_logger
 # Basic configuration for logging during development/testing.
 # In a production environment, use a more robust logging setup.
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # --- Client Initialization ---
 # Retrieve API key and base URL from settings.
@@ -23,24 +23,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 api_key = rapid_api_settings.RAPID_API_KEY
 base_url = rapid_api_settings.RAPID_API_HOST
 
-# Instantiate the necessary API client classes.
-# These clients encapsulate the logic for interacting with the external scraping API.
-try:
-    # Check if API key is present, as it's critical for function.
-    if not api_key:
-        raise ValueError("RAPID_API_KEY is not set in the environment or settings.")
-    rapid_api_client = RapidAPIClient(api_key=api_key, base_url=base_url)
-    linkedin_post_fetcher = LinkedinPostFetcher(api_key=api_key, base_url=base_url)
-    search_post_client = SearchPosts(api_key=api_key, base_url=base_url)
-    logger.info("API clients initialized successfully.")
-except ValueError as ve:
-    logger.error(f"Configuration error during client initialization: {ve}")
-    # Raise RuntimeError to indicate a fatal configuration issue preventing startup.
-    raise RuntimeError("API Client initialization failed due to missing configuration.") from ve
-except Exception as e:
-    # Log and raise an error if client initialization fails for other reasons.
-    logger.exception("Failed to initialize API clients. Check API key and base URL settings.")
-    raise RuntimeError("API Client initialization failed.") from e
+
 
 
 async def execute_scraper_job(job_config: ScrapingRequest) -> Any:
@@ -71,7 +54,27 @@ async def execute_scraper_job(job_config: ScrapingRequest) -> Any:
         Exception: Propagates exceptions raised by the API client methods during execution,
                    such as network errors, timeouts, or errors returned by the external API.
     """
+    logger = get_prefect_or_regular_python_logger(__name__)
     logger.info(f"Executing scraper job for type: {job_config.job_type} with config: {job_config.model_dump(exclude_none=True)}")
+
+    # Instantiate the necessary API client classes.
+    # These clients encapsulate the logic for interacting with the external scraping API.
+    try:
+        # Check if API key is present, as it's critical for function.
+        if not api_key:
+            raise ValueError("RAPID_API_KEY is not set in the environment or settings.")
+        rapid_api_client = RapidAPIClient(api_key=api_key, base_url=base_url)
+        linkedin_post_fetcher = LinkedinPostFetcher(api_key=api_key, base_url=base_url)
+        search_post_client = SearchPosts(api_key=api_key, base_url=base_url)
+        logger.info("API clients initialized successfully.")
+    except ValueError as ve:
+        logger.error(f"Configuration error during client initialization: {ve}")
+        # Raise RuntimeError to indicate a fatal configuration issue preventing startup.
+        raise RuntimeError("API Client initialization failed due to missing configuration.") from ve
+    except Exception as e:
+        # Log and raise an error if client initialization fails for other reasons.
+        logger.exception("Failed to initialize API clients. Check API key and base URL settings.")
+        raise RuntimeError("API Client initialization failed.") from e
 
     # Convert the validated Pydantic model to a dictionary.
     # Most underlying client methods currently expect a dictionary as input.
@@ -182,6 +185,7 @@ async def execute_scraper_job(job_config: ScrapingRequest) -> Any:
 async def run_test(config_data: Dict[str, Any], test_name: str):
     """Helper async function to validate and run a test configuration."""
     print(f"\n\n\n\n--- Running Test: {test_name} ---")
+    logger = get_prefect_or_regular_python_logger(__name__)
     try:
         # 1. Validate the configuration using the Pydantic model
         logger.info(f"Validating test configuration for '{test_name}': {config_data}")
