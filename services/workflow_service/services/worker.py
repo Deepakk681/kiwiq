@@ -9,9 +9,12 @@ from pydantic import BaseModel
 # Prefect imports
 from prefect import flow, get_run_logger
 from prefect.deployments import run_deployment
+from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
+from prefect.client.schemas import FlowRun
 from prefect.server.schemas.schedules import CronSchedule
 # from prefect.filesystems import S3, GitHub, LocalFileSystem
 from prefect.cache_policies import NO_CACHE
+from prefect.context import get_run_context
 
 # LangGraph and DB imports
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -100,6 +103,8 @@ prefect-agent-dev  |
     # cache_result_in_memory=True, # by default, True
     # cache_policy=NO_CACHE,
     validate_parameters=False,
+    # persist_result=False,
+    # # TODO: persist_result and result_storage configs!
 )
 async def workflow_execution_flow(
     run_job: wf_schemas.WorkflowRunJobCreate
@@ -154,6 +159,12 @@ async def workflow_execution_flow(
 
         # logger.info(f"Workflow execution flow finished for Run ID {run_job.run_id}")
         # Return the final update info, which includes status and outputs
+        
+        # logger.warning(f"TEST: ATTEMPTING TO SUSPEND FLOW RUN FOR RUN ID {run_job.run_id}")
+        # if workflow_run_update_result.status == wf_schemas.WorkflowRunStatus.WAITING_HITL:
+        #     logger.warning(f"TEST: Workflow execution waiting for HITL input for Run ID {run_job.run_id}")
+        #     suspend_flow_run(flow_run_id=get_run_context().flow_run.id, wait_for_input=wf_schemas.WorkflowRunJobCreate, timeout=None)
+        
         return workflow_run_update_result  # .model_dump(mode='json', exclude_defaults=False)
 
     except Exception as e:
@@ -659,7 +670,8 @@ async def trigger_workflow_run(
     thread_id: Optional[uuid.UUID] = None, # Added thread_id
     graph_schema: Optional[GraphSchema] = None,
     resume_after_hitl: Optional[bool] = False,
-) -> uuid.UUID:
+    prefect_run_ids: Optional[str] = None,
+) -> FlowRun:
     """
     Helper function to trigger a workflow run via the Prefect deployment.
     
@@ -670,7 +682,9 @@ async def trigger_workflow_run(
         triggered_by_user_id: User ID that triggered this workflow run
         run_id: Optional custom run_id, generated if not provided
         thread_id: Optional thread_id for resuming runs
-        
+        graph_schema: Optional graph schema for resuming runs
+        resume_after_hitl: Optional flag to resume after HITL
+        prefect_run_ids: Optional Prefect flow run ID for resuming runs
     Returns:
         uuid.UUID: The run ID of the triggered flow
     """
@@ -695,8 +709,13 @@ async def trigger_workflow_run(
         resume_after_hitl=resume_after_hitl,
     )
     
-    # Trigger the workflow as a deployment
-    # This returns a PrefectFuture we could wait on if needed
+    # # Trigger the workflow as a deployment
+    # if resume_after_hitl:
+    #     flow_run = await resume_flow_run(
+    #         flow_run_id=prefect_run_ids,
+    #         run_input={"run_job": run_job}
+    #     )
+    # else:
     flow_run = await run_deployment(
         name="workflow-execution/prod",  # References the deployment name below
         parameters={"run_job": run_job},   # .model_dump(mode='json')}, # Ensure proper serialization
@@ -705,7 +724,7 @@ async def trigger_workflow_run(
     from global_config.logger import get_logger
     get_logger(__name__).info(f"Triggered deployment 'workflow-execution/prod' for Run ID: {run_id} (Prefect Flow Run ID: {flow_run.id})")
 
-    return run_id
+    return flow_run
 
 # --- Prefect Deployment Definition ---
 

@@ -17,7 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt # For encoding/decoding tokens (requires python-jose)
 from datetime import datetime, timedelta
 
-
+from prefect import get_client
+from prefect.client.schemas.filters import (
+    LogFilter,
+    LogFilterFlowRunId
+)
 
 # --- Core Dependencies ---
 from db.session import get_async_session, get_async_db_dependency
@@ -1146,6 +1150,78 @@ async def list_runs(
     except Exception as e:
         workflow_logger.error(f"Error listing workflow runs for org {active_org_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while listing workflow runs")
+
+@run_router.get(
+    "/{run_id}/logs",
+    response_model=schemas.WorkflowRunLogs,
+    summary="Get Workflow Run Logs",
+    dependencies=[Depends(wf_deps.RequireRunReadActiveOrg)] # Basic check on active org context
+)
+async def get_run_logs(
+    # Use dependency to fetch run and ensure it belongs to active org
+    run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
+    current_superuser: User = Depends(auth_deps.get_current_active_superuser),
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(100, ge=1, le=200, description="Maximum number of items to return"),
+):
+    """
+    Gets the logs of a specific workflow run.
+
+    - Fetches data from Prefect for all flow runs associated with this workflow run
+    - Returns logs with level (as string), message, and timestamp
+    - Supports pagination via skip and limit
+    - Requires `run:read` permission on the active organization.
+    """
+    try:
+        if not run.prefect_run_ids:
+            return {"logs": []}
+            
+        prefect_run_ids = [uuid.UUID(_id) for _id in run.prefect_run_ids.split(",") if _id.strip()]
+        if not prefect_run_ids:
+            return {"logs": []}
+            
+        flow_logs = []
+        async with get_client() as client:
+            # Fetch logs for each Prefect run ID
+            
+            flow_logs = await client.read_logs(
+                log_filter=LogFilter(flow_run_id=LogFilterFlowRunId(any_=prefect_run_ids)),
+                limit=limit,
+                offset=skip,
+            )
+        
+        # Sort logs by timestamp
+        flow_logs.sort(key=lambda log: log.timestamp, reverse=True)
+        
+        # Convert log level from int to string
+        level_map = {
+            50: "CRITICAL",
+            40: "ERROR",
+            30: "WARNING",
+            20: "INFO",
+            10: "DEBUG"
+        }
+        
+        # Format logs to include only level (as string), message, and timestamp
+        formatted_logs = [
+            schemas.LogEntry(
+                level=level_map.get(log.level, "UNKNOWN"),
+                message=log.message,
+                timestamp=log.timestamp,
+                flow_run_id=log.flow_run_id
+            )
+            for log in flow_logs
+        ]
+        
+        # Apply pagination
+        paginated_logs = formatted_logs  # [skip:skip + limit] if formatted_logs else []
+        
+        workflow_logger.info(f"Retrieved {len(paginated_logs)} workflow run logs for run {run.id}")
+        return {"logs": paginated_logs}
+    except Exception as e:
+        workflow_logger.error(f"Error retrieving workflow run logs for run {run.id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow run logs")
+
 
 @run_router.get(
     "/{run_id}",

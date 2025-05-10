@@ -168,7 +168,26 @@ async def handle_workflow_event(msg: Any,
     # Note: Stream messages might have additional metadata like offset,
     # but FastStream typically abstracts this unless you delve deeper into the context object.
     # For simple logging, the message content is usually sufficient.
-    logger.info(f"Received stream event message OFFSET: {message.headers.get('x-stream-offset')}: {msg}")
+    loaded_msg = json.loads(message.body)
+    text_msges = []
+    text_keys = ["text", "partial_json", "json", "thinking", "reasoning", "reason", "think"]
+    if loaded_msg.get("event_type") == "message_chunk":
+        content_or_content_list = loaded_msg.get("message", {}).get("content", {})
+        if not isinstance(content_or_content_list, list):
+            content_or_content_list = [content_or_content_list]
+        for content in content_or_content_list:
+            if isinstance(content, str):
+                text_msges.append(content)
+            elif isinstance(content, dict):
+                for text_key in text_keys:
+                    text_msg = content.get(text_key)
+                    if text_msg:
+                        text_msges.append(str(text_msg))
+                        break
+    text_msg = "\n".join(text_msges)
+        
+    logger.info(f"Received stream event message (event Type: {loaded_msg.get('event_type')}): \n{text_msg}\n")
+    logger.info(f"Received stream event message OFFSET: {message.headers.get('x-stream-offset')}")
     # Add further processing (e.g., writing to MongoDB, WebSocket push)
 
 

@@ -15,6 +15,7 @@ from db.session import get_async_pool
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from pydantic import ValidationError # For schema validation
+from prefect.client.schemas import FlowRun
 
 from jsonschema import validate
 from jsonschema.validators import Draft202012Validator
@@ -348,7 +349,7 @@ class WorkflowService:
                  graph_schema_dict = workflow.graph_config
 
             # Trigger the workflow run via the helper function
-            await trigger_workflow_run(
+            flow_run: FlowRun = await trigger_workflow_run(
                 workflow_id=workflow_run.workflow_id,
                 owner_org_id=owner_org_id,
                 triggered_by_user_id=user.id,
@@ -356,7 +357,15 @@ class WorkflowService:
                 run_id=workflow_run.id, # Pass the created run_id
                 thread_id=workflow_run.thread_id, # Pass thread_id
                 graph_schema=GraphSchema.model_validate(graph_schema_dict), # Pass the graph schema
-                resume_after_hitl=run_submit.resume_after_hitl # This is a new submission
+                resume_after_hitl=run_submit.resume_after_hitl, # This is a new submission
+                prefect_run_ids=workflow_run.prefect_run_ids # Pass the prefect run_id if provided
+            )
+            workflow_run = await self.workflow_run_dao.update(
+                db,
+                db_obj=workflow_run,
+                obj_in={
+                    "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_run.id)]) if workflow_run.prefect_run_ids else str(flow_run.id)
+                }
             )
         except Exception as e:
             # If triggering fails, mark the run as failed immediately
@@ -1347,7 +1356,7 @@ class WorkflowService:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated workflow definition not found.")
 
             # Call the worker trigger function
-            await trigger_workflow_run(
+            flow_run: FlowRun = await trigger_workflow_run(
                 workflow_id=run.workflow_id,
                 owner_org_id=run.owner_org_id,
                 triggered_by_user_id=run.triggered_by_user_id, # Original triggerer
@@ -1355,7 +1364,15 @@ class WorkflowService:
                 run_id=run.id,
                 thread_id=run.thread_id, # Use existing thread_id for checkpointing
                 graph_schema=workflow.graph_config, # Pass the workflow schema
-                resume_after_hitl=True # Indicate this is a resumption
+                resume_after_hitl=True, # Indicate this is a resumption
+                prefect_run_ids=run.prefect_run_ids # Pass the prefect run_id if provided
+            )
+            run = await self.workflow_run_dao.update(
+                db,
+                db_obj=run,
+                obj_in={
+                    "prefect_run_ids": ",".join([run.prefect_run_ids, str(flow_run.id)]) if run.prefect_run_ids else str(flow_run.id)
+                }
             )
             logger.info(f"INFO: Triggered workflow resumption for run {run.id} after HITL response for job {job.id}.")
         except Exception as e:

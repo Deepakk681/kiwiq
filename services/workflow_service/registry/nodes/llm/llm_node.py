@@ -4,6 +4,7 @@ LLM Node using LangChain.
 This module provides a LangChain-based LLM node implementation that supports multiple
 model providers (OpenAI, Anthropic, Gemini) with structured output and tool calling.
 """
+import asyncio
 from copy import copy
 import json
 import os
@@ -30,6 +31,8 @@ from langchain_core.messages import (
     AnyMessage,
     # BaseMessage
 )
+from langchain_core.messages.utils import message_chunk_to_message
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.tools import BaseTool
@@ -949,7 +952,21 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # invoke_kwargs["max_concurrency"] = 50
       # import ipdb; ipdb.set_trace()
         # from asyncio import shield
-        return model.invoke(messages, **invoke_kwargs)
+        if "extra_body" in invoke_kwargs:
+            return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
+        else:
+            message = None
+            async for chunk in model.astream(messages, **invoke_kwargs):
+                if not message:
+                    message = chunk
+                else:
+                    message += chunk
+            message = message_chunk_to_message(message)
+            if "raw" in message:
+                message["raw"] = message_chunk_to_message(message["raw"])
+            # import ipdb; ipdb.set_trace()
+            return message
+        # return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
         # return await shield(model.ainvoke)(messages, **invoke_kwargs)
     
     def filter_tool_calls(self, tool_calls: Any, output_schema: Any) -> LLMNodeOutputSchema:

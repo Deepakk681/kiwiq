@@ -131,6 +131,12 @@ script_location = libs/src/db/alembic
 ```bash
 # migration #1
 PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Initial revision"
+
+# migration #2
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Prefect RUN ID"
+
+# migration #3
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Prefect RUN ID convert to comma separated list"
 ```
 
 7. apply migration script

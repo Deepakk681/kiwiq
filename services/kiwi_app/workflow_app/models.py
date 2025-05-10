@@ -162,6 +162,11 @@ class WorkflowRun(SQLModel, table=True):
         nullable=True,
         description="Reference (e.g., ID or path) to detailed logs/results in NoSQL/S3"
     )
+    prefect_run_ids: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Comma-separated list of IDs of the Prefect runs"
+    )
 
     started_at: Optional[datetime] = Field(default=None, nullable=True)
     ended_at: Optional[datetime] = Field(default=None, nullable=True)
