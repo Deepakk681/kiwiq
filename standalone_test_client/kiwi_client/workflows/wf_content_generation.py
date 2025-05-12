@@ -284,7 +284,7 @@ workflow_graph_schema = {
             "choices_with_conditions": [
                 {
                     "choice_id": "route_to_initial_or_additional_prompt", # Continue loop
-                    "input_path": "if_else_condition_tag_results::iteration_limit_check", # Path WITHIN the node's input data
+                    "input_path": "if_else_condition_tag_results.iteration_limit_check", # Path WITHIN the node's input data
                     "target_value": True # Value output by check_iteration_limit
                 },
                 {
@@ -334,14 +334,14 @@ workflow_graph_schema = {
                 "id": "interpret_feedback_prompt",
                 "template": USER_FEEDBACK_INITIAL_USER_PROMPT,
                 "variables": {
-                    "feedback_text": None,
+                    "current_feedback_text": None,
                     "current_post_draft": None,
-                    "user_dna": None,
+                    "user_dna_doc": None,
                 },
                 "construct_options": {
-                    "feedback_text": "current_feedback_text",
+                    "current_feedback_text": "current_feedback_text",
                     "current_post_draft": "current_post_draft",
-                    "user_dna": "user_dna",
+                    "user_dna_doc": "user_dna",
                 }
             },
             }
@@ -360,10 +360,10 @@ workflow_graph_schema = {
                 "id": "interpret_feedback_prompt",
                 "template": USER_FEEDBACK_ADDITIONAL_USER_PROMPT,
                 "variables": {
-                    "feedback_text": None
+                    "current_feedback_text": None
                 },
                 "construct_options": {
-                    "feedback_text": "current_feedback_text",
+                    "current_feedback_text": "current_feedback_text",
                     "current_post_draft": "current_post_draft",
                 }
             },
@@ -896,6 +896,10 @@ async def main_test_content_workflow_with_client():
         {
             "approval_status": "needs_work",
             "feedback_text": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?"
+        },
+        {
+            "approval_status": "needs_work",
+            "feedback_text": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?"
         },
         # Input for the second HITL stop (approve)
         {

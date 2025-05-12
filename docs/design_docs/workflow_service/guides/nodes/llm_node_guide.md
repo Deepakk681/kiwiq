@@ -218,13 +218,13 @@ The node produces data matching the `LLMNodeOutputSchema`:
       "src_node_id": "extract_info",
       "dst_node_id": "save_output",
       "mappings": [
-        // Use '::' delimiter to access nested fields within structured_output
-        { "src_field": "structured_output::person_name", "dst_field": "contact_name" },
-        { "src_field": "structured_output::company", "dst_field": "account_name" },
-        { "src_field": "structured_output::meeting_summary", "dst_field": "notes" },
+        // Use '.' delimiter to access nested fields within structured_output
+        { "src_field": "structured_output.person_name", "dst_field": "contact_name" },
+        { "src_field": "structured_output.company", "dst_field": "account_name" },
+        { "src_field": "structured_output.meeting_summary", "dst_field": "notes" },
         // Map the entire metadata object
         { "src_field": "metadata", "dst_field": "llm_metadata" }
-        // Note: Mapping directly to nested fields like "metadata::token_usage::total_tokens"
+        // Note: Mapping directly to nested fields like "metadata.token_usage.total_tokens"
         // in src_field might not be supported currently by the EdgeMapping mechanism.
         // You may need an intermediate node (e.g., a Transformer node) to extract
         // specific nested values from the metadata object if needed.
@@ -244,4 +244,4 @@ The node produces data matching the `LLMNodeOutputSchema`:
 -   **Let AI Use Functions:** Enable `tool_calling_config` and list allowed `tools` (by their workflow `node_name`) if the AI should be able to trigger other workflow steps. Use `input_overwrites` in the tool config to hide sensitive info from the AI.
 -   **Enable Web Search:** Use `web_search_options` for models that support it (like Perplexity) to get up-to-date answers.
 -   **Connect Inputs:** Provide `user_prompt` or `messages_history`. If tools ran before this node, connect their results to `tool_outputs`.
--   **Connect Outputs:** Use the results: `content` (text), `structured_output::your_field_name` (specific extracted data - using `::` here *is* supported for structured output), `tool_calls` (to trigger tool nodes), or the whole `metadata` object (which includes `iteration_count` for loop control). To get specific values *from* metadata (like token count), you might need another node step after the LLM. Refer to `test_basic_llm_workflow.py` for many configuration patterns.
+-   **Connect Outputs:** Use the results: `content` (text), `structured_output.your_field_name` (specific extracted data - using `.` here *is* supported for structured output), `tool_calls` (to trigger tool nodes), or the whole `metadata` object (which includes `iteration_count` for loop control). To get specific values *from* metadata (like token count), you might need another node step after the LLM. Refer to `test_basic_llm_workflow.py` for many configuration patterns.

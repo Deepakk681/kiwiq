@@ -115,7 +115,7 @@ The `PromptConstructorNode` requires specific fields in its input data to functi
 
 1.  **Fields for `construct_options`:** Any top-level keys that are the start of a path used in `construct_options` or `global_construct_options` (e.g., if you have path `"user_profile.address.city"`, the input schema needs a field named `"user_profile"` of type `any` or `object`).
 2.  **Fields for Dynamic Template Loading:** Any fields referenced by `input_name_field_path` or `input_version_field_path` if using `template_load_config`.
-3.  **Fields for Direct Input Mappings (P3/P4):** Any fields mapped directly via edges with `dst_field` matching `TEMPLATE_ID::VARIABLE_NAME` (P3) or `variable_name` (P4).
+3.  **Fields for Direct Input Mappings (P3/P4):** Any fields mapped directly via edges with `dst_field` matching `TEMPLATE_ID.VARIABLE_NAME` (P3) or `variable_name` (P4).
 
 **Variable Resolution Priority:**
 
@@ -130,7 +130,7 @@ The node resolves the final value for each placeholder (`{variable}`) in each te
     *   If the `variable_name` exists as a key, it attempts to retrieve the value from the input data using the specified dot-notation path. If found, this value is used.
 
 3.  **Template-Specific Input Mapping:**
-    *   If not found via P1 or P2, checks if the node's input data contains a key matching `TEMPLATE_ID::VARIABLE_NAME` (e.g., `greeting_prompt::user_name`).
+    *   If not found via P1 or P2, checks if the node's input data contains a key matching `TEMPLATE_ID.VARIABLE_NAME` (e.g., `greeting_prompt.user_name`).
     *   If the key exists and its value is not `None`, that value is used *only* for this template. (Requires an incoming edge mapping to this `dst_field`).
 
 4.  **Global Input Mapping:**
@@ -258,7 +258,7 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
     *   `global_construct_options`: Map variables to input locations as a fallback for *all* tasks if they don't have a specific `construct_options` for that variable.
 -   **Alternatively, Provide Input Values *Directly* (Lower Priority):**
     *   Use edges to map values *directly* to the node.
-    *   Map to `TEMPLATE_ID::VARIABLE_NAME` (e.g., `final_greeting::user_name`) to set it just for that template (Priority 3).
+    *   Map to `TEMPLATE_ID.VARIABLE_NAME` (e.g., `final_greeting.user_name`) to set it just for that template (Priority 3).
     *   Map to `VARIABLE_NAME` (e.g., `user_name`) to set it for all templates (Priority 4).
     *   **Important:** These direct mappings are *lower* priority than `construct_options`.
 -   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the default value from `variables` (P5), then the default from a loaded template (P6).

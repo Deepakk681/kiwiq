@@ -492,7 +492,7 @@ This section outlines the nodes and edges for the core workflow based on the rev
         "choices_with_conditions": [
           {
             "choice_id": "interpret_feedback",
-            "input_path": "if_else_condition_tag_results::iteration_limit_check",
+            "input_path": "if_else_condition_tag_results.iteration_limit_check",
             "target_value": true
           },
           {

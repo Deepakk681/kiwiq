@@ -316,12 +316,12 @@ workflow_graph_schema = {
         "choices_with_conditions": [
           {
             "choice_id": "construct_additional_brief_prompt", # Continue generating more briefs
-            "input_path": "if_else_condition_tag_results::brief_count_check",
+            "input_path": "if_else_condition_tag_results.brief_count_check",
             "target_value": True
           },
           {
             "choice_id": "store_all_briefs", # End loop and store briefs
-            "input_path": "if_else_condition_tag_results::brief_count_check",
+            "input_path": "if_else_condition_tag_results.brief_count_check",
             "target_value": False,
           }
         ]

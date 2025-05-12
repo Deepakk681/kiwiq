@@ -599,7 +599,7 @@ The node primarily performs a write operation and then passes through the origin
         // Pass through the original data if needed
         { "src_field": "passthrough_data", "dst_field": "original_input" }
         // Or map specific fields from the passthrough data
-        // { "src_field": "passthrough_data::report_metadata::report_id", "dst_field": "processed_report_id" }
+        // { "src_field": "passthrough_data.report_metadata.report_id", "dst_field": "processed_report_id" }
       ]
     }
   ],

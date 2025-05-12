@@ -16,7 +16,7 @@ RESUME_KEY = "resume"
 HITL_USER_PROMPT_KEY = "__user_prompt"
 HITL_USER_SCHEMA_KEY = "__schema"
 
-OBJECT_PATH_REFERENCE_DELIMITER = "::"
+OBJECT_PATH_REFERENCE_DELIMITER = "."
 
 # Application Config
 APPLICATION_CONTEXT_KEY = "__application_context"

@@ -140,7 +140,7 @@ You configure the `MapListRouterNode` within the `node_config` field of its entr
         *   A dictionary containing a single item under the `batch_field_name` key.
         *   A dictionary containing a list (batch) of items under the `batch_field_name` key.
         The `Send` action also includes the target `node_id`.
-    -   A state update dictionary, primarily containing the execution order tracker (`__central_state__::node_execution_order`).
+    -   A state update dictionary, primarily containing the execution order tracker (`__central_state__.node_execution_order`).
 
 ## Parallel Processing & Private Modes
 

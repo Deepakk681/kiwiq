@@ -35,7 +35,7 @@ from kiwi_client.test_run_workflow_client import (
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 from kiwi_client.workflows.document_models.customer_docs import (
     ANALYSIS_OUTPUT_DOCNAME_PATTERN,
-    LINKEDIN_PROFILE_DOCNAME_PATTERN,
+    LINKEDIN_PROFILE_DOCNAME,
     LINKEDIN_SCRAPING_NAMESPACE,
     ANALYSIS_OUTPUT_NAMESPACE,
 )
@@ -252,7 +252,7 @@ INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW = [
         "filename_config": {
             "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
             "input_docname_field": "entity_username", 
-            "input_docname_field_pattern": LINKEDIN_PROFILE_DOCNAME_PATTERN
+            "input_docname_field_pattern": LINKEDIN_PROFILE_DOCNAME
         },
         "output_field_name": "linkedin_profile",
         "is_shared": False,
@@ -498,7 +498,7 @@ async def main_test_idea_to_brief_workflow():
     setup_docs: List[SetupDocInfo] = [
         {
             'namespace': LINKEDIN_SCRAPING_NAMESPACE, 
-            'docname': LINKEDIN_PROFILE_DOCNAME_PATTERN.format(item=entity_username),
+            'docname': LINKEDIN_PROFILE_DOCNAME.format(item=entity_username),
             'initial_data': {
                 "profile_info": {
                     "name": "John Doe",
@@ -668,7 +668,7 @@ async def main_test_idea_to_brief_workflow():
 
     # Define cleanup docs
     cleanup_docs: List[CleanupDocInfo] = [
-        {'namespace': LINKEDIN_SCRAPING_NAMESPACE, 'docname': LINKEDIN_PROFILE_DOCNAME_PATTERN.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': LINKEDIN_SCRAPING_NAMESPACE, 'docname': LINKEDIN_PROFILE_DOCNAME.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
         {'namespace': ANALYSIS_OUTPUT_NAMESPACE, 'docname': ANALYSIS_OUTPUT_DOCNAME_PATTERN.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
         {'namespace': USER_PROFILES_NAMESPACE, 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
         {'namespace': CONTENT_PILLARS_NAMESPACE, 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': False, 'is_shared': True, 'is_system_entity': True},

@@ -93,7 +93,7 @@ Edges define how nodes are connected and how data flows between them. They are d
 -   **`dst_node_id`**: The `node_id` of the node that will receive the data.
 -   **`mappings`**: This optional list is crucial for controlling data flow. Each item (`EdgeMapping`) specifies:
     *   **`src_field`**: The name of a field in the `src_node_id`'s output data. You can use dot notation (`.`) for nested fields (e.g., `user_profile.email`).
-    *   **`dst_field`**: The name that this data should have when it arrives as input for the `dst_node_id`. This is how you connect the output of one node to the expected input of another. This can also include the template-specific mapping syntax (`TEMPLATE_ID::VARIABLE_NAME`) for nodes like `PromptConstructorNode`.
+    *   **`dst_field`**: The name that this data should have when it arrives as input for the `dst_node_id`. This is how you connect the output of one node to the expected input of another. This can also include the template-specific mapping syntax (`TEMPLATE_ID.VARIABLE_NAME`) for nodes like `PromptConstructorNode`.
 
 **What if `mappings` is empty or omitted?**
 

@@ -260,7 +260,7 @@ Here are examples of key nodes found in the codebase:
     *   **Input**: Schema is inferred from incoming edges (e.g., receiving `content_to_review: str` from an AI node and `full_history: List[AnyMessage]` from central state).
     *   **Output**: Schema defines the expected feedback format (e.g., `approved: bool`, `comments: Optional[str]`). This can be defined explicitly in the HITL node subclass or via `dynamic_output_schema` in `NodeConfig`.
 *   **Mechanism**: Relies on the workflow execution engine's interrupt handling. The node prepares data for the human (often including the data received and the expected feedback schema) and triggers an interrupt. The external system (e.g., UI) presents this data, collects user input conforming to the requested schema, and resumes the workflow with the provided feedback. (See `test_AI_loop.py's `human_review_handler` for a simulated example).
-*   **Example (`test_AI_loop.py::HumanReviewNode`)**: A specific implementation defining `UserInputSchema` (with `approved: Approved` enum and `review_comments: Optional[str]`) as its output. Its input schema is dynamic, inferred from edges connected to it.
+*   **Example (`test_AI_loop.py.HumanReviewNode`)**: A specific implementation defining `UserInputSchema` (with `approved: Approved` enum and `review_comments: Optional[str]`) as its output. Its input schema is dynamic, inferred from edges connected to it.
 
 ### 5.5. `DynamicRouterNode` (`dynamic_nodes.py`)
 
@@ -268,7 +268,7 @@ Here are examples of key nodes found in the codebase:
 *   **Input Schema**: Typically dynamic (`DynamicSchema`), inferred from edges providing the data needed for the routing decision (e.g., `approval_status: str`).
 *   **Output Schema**: Also often dynamic (`DynamicSchema` or a subclass). It might need to pass through different subsets of data depending on the chosen route. It must *also* include the routing choice itself (often via the `TEMP_STATE_UPDATE_KEY` and `ROUTER_CHOICE_KEY` convention used by the runtime). Can be hybrid (some fields defined, others inferred).
 *   **Configuration (`RouterSchema` / Subclasses)**: Defines the possible destination node IDs (`choices: List[str]`) and the logic for selecting the route (implemented in the `process` method of specific router node subclasses).
-*   **Example (`test_AI_loop.py::ApprovalRouterNode`)**: A subclass that routes based on comparing a specific input field (`approved`) against a configured value (`"yes"`). Its config (`ApprovalRouterConfigSchema`) specifies the `field_name`, `field_value`, and target nodes (`route_if_true`, `route_if_false`). Its output schema (`ApprovalRouterChoiceOutputDynamicSchema`) explicitly defines `choices: List[str]` but dynamically inherits the `approved` field from its input to pass it through.
+*   **Example (`test_AI_loop.py.ApprovalRouterNode`)**: A subclass that routes based on comparing a specific input field (`approved`) against a configured value (`"yes"`). Its config (`ApprovalRouterConfigSchema`) specifies the `field_name`, `field_value`, and target nodes (`route_if_true`, `route_if_false`). Its output schema (`ApprovalRouterChoiceOutputDynamicSchema`) explicitly defines `choices: List[str]` but dynamically inherits the `approved` field from its input to pass it through.
 
 ## 6. Node Registration (`db_node_register.py`)
 

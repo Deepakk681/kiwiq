@@ -282,7 +282,7 @@ workflow_graph_schema = {
             "choices_with_conditions": [
                 {
                     "choice_id": "interpret_feedback", # Continue loop
-                    "input_path": "if_else_condition_tag_results::iteration_limit_check", # Path WITHIN the node's input data
+                    "input_path": "if_else_condition_tag_results.iteration_limit_check", # Path WITHIN the node's input data
                     "target_value": True # Value output by check_iteration_limit
                 },
                 {

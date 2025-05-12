@@ -25,7 +25,7 @@ class RouterChoiceCondition(BaseSchema):
         choice_id (str): The ID of the node to route to if the condition matches.
                          This ID must be present in the parent RouterConfigSchema's `choices` list.
         input_path (str): The path to the field within the input data to evaluate.
-                          Uses OBJECT_PATH_REFERENCE_DELIMITER for nesting (e.g., "field_a::nested_field").
+                          Uses OBJECT_PATH_REFERENCE_DELIMITER for nesting (e.g., "field_a.nested_field").
         target_value (Any): The value to compare the input field's value against.
                             Equality comparison is performed.
     """
@@ -35,7 +35,7 @@ class RouterChoiceCondition(BaseSchema):
     )
     input_path: str = Field(
         ...,
-        description=f"Path to the input field using '{OBJECT_PATH_REFERENCE_DELIMITER}' as delimiter (e.g., 'data::user::id')."
+        description=f"Path to the input field using '{OBJECT_PATH_REFERENCE_DELIMITER}' as delimiter (e.g., 'data.user.id')."
     )
     target_value: Any = Field(
         ...,
@@ -109,7 +109,7 @@ def _get_nested_value(data: Dict[str, Any], path: str) -> Tuple[Any, bool]:
         for key in keys:
             if isinstance(current_value, dict):
                 current_value = current_value[key]
-            # TODO: Consider adding list index access if needed, e.g., "data::list_field::0"
+            # TODO: Consider adding list index access if needed, e.g., "data.list_field.0"
             else:
                 # Cannot navigate further if not a dictionary
                 return None, False

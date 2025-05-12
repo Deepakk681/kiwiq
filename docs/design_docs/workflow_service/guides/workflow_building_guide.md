@@ -119,7 +119,7 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
       // --- Mapping to a template-specific variable (for PromptConstructorNode) ---
       {
          "src_field": "specific_tone_setting",
-         "dst_field": "my_prompt_id::tone" // Sets 'tone' variable only for template with id 'my_prompt_id'
+         "dst_field": "my_prompt_id.tone" // Sets 'tone' variable only for template with id 'my_prompt_id'
       }
     ]
   },
@@ -139,7 +139,7 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
 -   **`mappings` (List[`EdgeMapping`], Optional):** This list defines *which* data fields flow from the source to the destination and what they should be called.
     *   Each object in the `mappings` list requires:
         *   **`src_field` (String):** The name of the field in the output of the `src_node_id`. Use dot notation (`.`) to access nested data (e.g., `customer.address.zip_code`).
-        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`. Can use dot notation. Can also use `TEMPLATE_ID::VARIABLE_NAME` format for template-specific inputs (e.g., for `PromptConstructorNode`).
+        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`. Can use dot notation. Can also use `TEMPLATE_ID.VARIABLE_NAME` format for template-specific inputs (e.g., for `PromptConstructorNode`).
 
 **Why are Mappings Important?**
 
@@ -318,8 +318,8 @@ Some nodes don't have fixed input/output structures but adapt based on connectio
     // This means the workflow will output a field named "final_answer".
     ```
 -   **`HITLNode`:** Its input (data shown) and output (data provided) schemas are often defined by incoming/outgoing edge mappings.
--   **`LLMNode` with `output_schema`:** While the base `LLMNode` has static I/O fields (`user_prompt`, `content`, `metadata`, etc.), configuring `output_schema` in its `node_config` causes it to produce an additional `structured_output` field whose *content* structure matches your definition. You may map in the future *from* this structured data using `structured_output::field_name`. NOTE: currently mapping is only possible with first level fields in edges, so this type of notation can go in some node's configs to access subfields, but not directly via edges as of now!
--   **`PromptConstructorNode`:** Its input schema is dynamic, derived from several sources: fields needed for `construct_options` path lookups (e.g., if a path is `user.profile.name`, it needs the `user` field mapped), fields needed for dynamic template loading (`input_name_field_path`, `input_version_field_path`), fields mapped directly via edges (globally like `variable_name` or template-specific like `template_id::variable_name`), and variables marked `null` in its config. Its output dictionary *always* contains fields matching the `id` of each successfully constructed template, plus a `prompt_template_errors` list (empty if no errors). The structure of the final *validated output object* passed downstream is determined by the `dynamic_output_schema` defined for the node in the `GraphSchema`. This schema should list the expected template `id` fields and can optionally include `prompt_template_errors`. **It is highly recommended to explicitly define `dynamic_input_schema` and `dynamic_output_schema` for this node in the `GraphSchema` for clarity and validation.**
+-   **`LLMNode` with `output_schema`:** While the base `LLMNode` has static I/O fields (`user_prompt`, `content`, `metadata`, etc.), configuring `output_schema` in its `node_config` causes it to produce an additional `structured_output` field whose *content* structure matches your definition. You may map in the future *from* this structured data using `structured_output.field_name`. NOTE: currently mapping is only possible with first level fields in edges, so this type of notation can go in some node's configs to access subfields, but not directly via edges as of now!
+-   **`PromptConstructorNode`:** Its input schema is dynamic, derived from several sources: fields needed for `construct_options` path lookups (e.g., if a path is `user.profile.name`, it needs the `user` field mapped), fields needed for dynamic template loading (`input_name_field_path`, `input_version_field_path`), fields mapped directly via edges (globally like `variable_name` or template-specific like `template_id.variable_name`), and variables marked `null` in its config. Its output dictionary *always* contains fields matching the `id` of each successfully constructed template, plus a `prompt_template_errors` list (empty if no errors). The structure of the final *validated output object* passed downstream is determined by the `dynamic_output_schema` defined for the node in the `GraphSchema`. This schema should list the expected template `id` fields and can optionally include `prompt_template_errors`. **It is highly recommended to explicitly define `dynamic_input_schema` and `dynamic_output_schema` for this node in the `GraphSchema` for clarity and validation.**
 -   *Deprecated:* `PromptTemplateLoaderNode` (Functionality merged into `prompt_constructor`).
 -   **Other Config-Driven Nodes:** Nodes like `FilterNode`, `IfElseConditionNode`, `RouterNode`, `Load/StoreCustomerDataNode`, `DataJoinNode`, `TransformerNode`, `MergeAggregateNode`, and `LinkedInScrapingNode` determine required inputs and/or shape their outputs based on values within their `node_config`. Ensure data for necessary input paths (e.g., `field`, `input_path`, `source_path`, `input_field_path`, `select_paths`) is available via edges or central state. For `LinkedInScrapingNode`, the output structure under `scraping_results` is determined by the `output_field_name` in each configured `job`. For `MergeAggregateNode`, the output structure under `merged_data` is determined by the `output_field_name` in each configured `operation`. Many of these nodes (especially `Load/StoreCustomerDataNode`) also rely on the **runtime context** (see Section 6) for permissions and service access.
 
@@ -418,7 +418,7 @@ To process each item in a list independently (and potentially in parallel), use 
         "choices": ["billing_queue", "tech_queue", "account_queue", "general_queue"],
         "allow_multiple": false,
         "choices_with_conditions": [
-          // NOTE: Using structured_output::topic notation requires adapter/node support
+          // NOTE: Using structured_output.topic notation requires adapter/node support
           { "choice_id": "billing_queue", "input_path": "topic_from_llm.topic", "target_value": "Billing" },
           { "choice_id": "tech_queue", "input_path": "topic_from_llm.topic", "target_value": "Technical" },
           { "choice_id": "account_queue", "input_path": "topic_from_llm.topic", "target_value": "Account" },

@@ -20,13 +20,14 @@ batch ID -> 10 posts
 """
 
 from kiwi_client.workflows.document_models.customer_docs import (
-    LINKEDIN_SCRAPING_NAMESPACE,
-    LINKEDIN_PROFILE_DOCNAME_PATTERN,
-    LINKEDIN_POST_DOCNAME_PATTERN,
+    LINKEDIN_PROFILE_DOCNAME,
+    LINKEDIN_POST_DOCNAME,
     # Namespace and docname for storing the final analysis result
-    ANALYSIS_OUTPUT_NAMESPACE,
-    ANALYSIS_OUTPUT_DOCNAME_PATTERN
+    LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE,
 )
+
+ANALYSIS_OUTPUT_NAMESPACE = "linkedin_analysis"
+ANALYSIS_OUTPUT_DOCNAME_PATTERN = "content_analysis_{item}"
 
 import json
 import asyncio
@@ -124,13 +125,13 @@ workflow_graph_schema = {
           "load_paths": [
               {
                   "filename_config": {
-                      "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
-                      # Use entity_name from node input (mapped from input_node)
-                      "input_docname_field": "entity_name", # Field in *this node's* input
-                      "input_docname_field_pattern": LINKEDIN_POST_DOCNAME_PATTERN # "posts_{item}"
+                      "input_namespace_field_pattern": LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE, 
+                      "input_namespace_field": "entity_name",
+                      "static_docname": LINKEDIN_POST_DOCNAME,
                   },
-                  "output_field_name": "raw_posts_data" # Expect output: {"raw_posts_data": [{"urn": "...", "text": "..."}, ...]}
-              }
+                  "output_field_name": "raw_posts_data" # Expect output containing LinkedIn posts
+              },
+              
           ]
       },
       "dynamic_output_schema": {
@@ -377,7 +378,7 @@ workflow_graph_schema = {
                 {
                     # Path to the list of themes (which now contain mapped_posts)
                     # from the output of the previous join node.
-                    "source_path": "mapped_data::extracted_themes::themes", # Adjust based on group_posts_under_themes output key
+                    "source_path": "mapped_data.extracted_themes.themes", # Adjust based on group_posts_under_themes output key
                     "destinations": ["construct_analysis_prompt"],
                     "batch_size": 1, # Process one theme group at a time
                     "batch_field_name": "theme_group_data" # Wraps output: {"theme_group_data": {theme_info + mapped_posts}}
@@ -723,7 +724,7 @@ logger = logging.getLogger(__name__)
 
 # Example Input
 TEST_INPUTS = {
-    "entity_name": "Talal Syed" # Replace with a real entity name for testing
+    "entity_name": "sytalal" # Replace with a real entity name for testing
 }
 
 async def validate_output(outputs: Optional[Dict[str, Any]]) -> bool:

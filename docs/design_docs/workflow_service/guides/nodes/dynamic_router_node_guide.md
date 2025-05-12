@@ -33,12 +33,12 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
         "choices_with_conditions": [
           {
             "choice_id": "node_A", // Destination if this condition is met
-            "input_path": "data::status", // Field to check in the input data (use "::" for nesting)
+            "input_path": "data.status", // Field to check in the input data (use "." for nesting)
             "target_value": "approved" // Value to compare against (must be equal)
           },
           {
             "choice_id": "node_B",
-            "input_path": "user_data::needs_review",
+            "input_path": "user_data.needs_review",
             "target_value": true
           }
           // Add more conditions as needed
@@ -68,7 +68,7 @@ The core logic of the `RouterNode` is defined within its `node_config`, using th
     *   This is a list defining the actual routing logic. Conditions are evaluated in the order they appear.
     *   Each item in the list is a `RouterChoiceCondition` object with:
         *   **`choice_id`** (str, required): The `node_id` of the destination node to route to if this specific condition is met. Must be one of the nodes listed in the main `choices` list.
-        *   **`input_path`** (str, required): The path to the field within the incoming data that you want to check. Use `::` as a delimiter for nested fields (e.g., `user::address::city`, `results::0::status`).
+        *   **`input_path`** (str, required): The path to the field within the incoming data that you want to check. Use `.` as a delimiter for nested fields (e.g., `user.address.city`, `results.0.status`).
         *   **`target_value`** (any, required): The value that the data at the `input_path` must be *equal to* for this condition to match. The type of `target_value` should match the expected type of the data field (e.g., use `true`/`false` for booleans, numbers for numeric fields, strings for text fields).
 
 ## Input & Output
@@ -164,7 +164,7 @@ Let's route based on a `status` field.
     -   Setting a `default_choice` to specify where to go if none of the conditions match (recommended).
     -   Setting up rules in `choices_with_conditions`:
         -   `choice_id`: Where to go if the rule matches.
-        -   `input_path`: What piece of information to look at (use `::` to look inside data, like `order::details::item_name`).
+        -   `input_path`: What piece of information to look at (use `.` to look inside data, like `order.details.item_name`).
         -   `target_value`: What the information must be *exactly equal to* for the rule to match.
 -   Rules are checked in the order you list them.
 -   Connect the `RouterNode` *to* all the possible next steps listed in `choices` using edges (these edges usually don't need data mappings). 

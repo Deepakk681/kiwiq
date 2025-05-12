@@ -392,7 +392,7 @@ workflow_graph_schema = {
                 {
                     # Path to the list of themes (which now contain mapped_posts)
                     # from the output of the previous join node.
-                    "source_path": "mapped_data::extracted_themes::themes", # Adjust based on group_posts_under_themes output key
+                    "source_path": "mapped_data.extracted_themes.themes", # Adjust based on group_posts_under_themes output key
                     "destinations": ["construct_analysis_prompt"],
                     "batch_size": 1, # Process one theme group at a time
                     "batch_field_name": "theme_group_data" # Wraps output: {"theme_group_data": {theme_info + mapped_posts}}

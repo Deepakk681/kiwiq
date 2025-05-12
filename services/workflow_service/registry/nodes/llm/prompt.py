@@ -325,7 +325,7 @@ class PromptConstructorNode(BaseDynamicNode):
     from the Prompt Template database.
 
     It supports global variable replacement across all templates or template-specific
-    variable replacement using the '::' delimiter in the variable name (e.g., `template_id::variable_name`).
+    variable replacement using the '.' delimiter in the variable name (e.g., `template_id.variable_name`).
     
     The node can construct multiple prompts simultaneously based on the `prompt_templates`
     configuration. The constructed prompts are output as fields matching the `id`
@@ -498,7 +498,7 @@ class PromptConstructorNode(BaseDynamicNode):
         using construct options and input data, and construct prompts.
 
         Variable Resolution Priority:
-        1. Template-specific input key (e.g., `template_id::variable_name` in input_data).
+        1. Template-specific input key (e.g., `template_id.variable_name` in input_data).
         2. Template-specific `construct_options` path lookup in `input_data`.
         3. Global `construct_options` path lookup in `input_data`.
         4. Global input key (e.g., `variable_name` in `input_data`).
@@ -608,7 +608,7 @@ class PromptConstructorNode(BaseDynamicNode):
                     else:
                         self.debug(f"Var '{var_name}' for template '{template_id}': Global construct_options path '{path}' not found in node input.")
 
-                # Priority 3: Template-specific input key (template_id::var_name)
+                # Priority 3: Template-specific input key (template_id.var_name)
                 # Check directly in the input_dict (which contains validated/mapped inputs)
                 if not found_value and specific_input_key in input_dict and input_dict[specific_input_key] is not None:
                     resolved_value = input_dict[specific_input_key]
