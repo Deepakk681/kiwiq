@@ -998,7 +998,7 @@ async def run_workflow_test(
                     
                     if logs_data:
                         log_count = len(logs_data.get("logs", []))
-                        print(f"   ✓ Saved {log_count} log entries to data directory \nPATH: {logs_path}\n")
+                        print(f"   ✓ Saved {log_count} log entries to data directory \n\n\n\n*****PATH*****: {logs_path}\n\n\n\n")
                     else:
                         print(f"   ✗ Failed to retrieve logs")
                         
@@ -1011,7 +1011,7 @@ async def run_workflow_test(
                     )
                     
                     if state_data:
-                        print(f"   ✓ Saved state data to data directory \nPATH: {state_path}\n")
+                        print(f"   ✓ Saved state data to data directory \n\n\n\n*****PATH*****: {state_path}\n\n\n\n")
                     else:
                         print(f"   ✗ Failed to retrieve state data (possibly not a superuser)")
                         
