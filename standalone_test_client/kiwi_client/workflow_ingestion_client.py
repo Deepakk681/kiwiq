@@ -189,7 +189,7 @@ class WorkflowIngestionClient:
                 
             # Delete each matching workflow (usually just one)
             for workflow in search_results:
-                if workflow.owner_org_id != self._auth_client.active_org_id or (not workflow.is_public):
+                if workflow.owner_org_id != self._auth_client.active_org_id:
                     logger.info(f"Skipping workflow: ID={workflow.id}, Name={workflow.name}, Version={workflow.version_tag} because it is not owned by the active organization")
                     continue
                 logger.info(f"Found existing workflow: ID={workflow.id}, Name={workflow.name}, Version={workflow.version_tag}")

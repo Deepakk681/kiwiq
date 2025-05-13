@@ -63,7 +63,7 @@ class WorkflowBase(BaseModel):
 class WorkflowCreate(WorkflowBase):
     """Schema for creating a new Workflow."""
     parent_base_id: Optional[uuid.UUID] = None
-    is_system_entity: Optional[bool] = Field(default=False, description="Indicates if this workflow is a system entity. Only admins can create system workflows.")
+    # is_system_entity: Optional[bool] = Field(default=False, description="Indicates if this workflow is a system entity. Only admins can create system workflows.")
 
 class WorkflowUpdate(WorkflowBase):
     """Schema for updating an existing Workflow. Allows partial updates."""
