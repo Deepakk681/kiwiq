@@ -367,7 +367,8 @@ class WorkflowRunTestClient:
                          run_id: Union[str, uuid.UUID], 
                          save_to_file: bool = True,
                          output_filename: Optional[str] = None,
-                         test_name: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:
+                         test_name: Optional[str] = None,
+                         output_format: str = "markdown") -> Optional[Tuple[Dict[str, Any], str]]:
         """
         Gets the logs of a specific workflow run via GET /runs/{run_id}/logs.
 
@@ -378,6 +379,7 @@ class WorkflowRunTestClient:
             save_to_file (bool): Whether to save logs to a file.
             output_filename (Optional[str]): Filename to save logs to. If None, a default name is used.
             test_name (Optional[str]): Test name to include in the default filename if output_filename is None.
+            output_format (str): Format to save logs in - "markdown" or "json".
             
         Returns:
             Optional[Tuple[Dict[str, Any], str]]: The logs response and output path, or None on failure.
@@ -400,13 +402,192 @@ class WorkflowRunTestClient:
                     # Include test_name in filename if provided
                     if test_name:
                         test_name_safe = test_name.replace(" ", "_").replace("/", "_").lower()
-                        output_filename = f"{test_name_safe}_run_{run_id_str}_logs.json"
+                        output_filename = f"{test_name_safe}_run_{run_id_str}_logs"
                     else:
-                        output_filename = f"run_{run_id_str}_logs.json"
+                        output_filename = f"run_{run_id_str}_logs"
+                
+                # Determine file extension based on output format
+                if output_format.lower() == "markdown":
+                    output_filename = f"{output_filename}.md"
+                else:  # default to json
+                    output_filename = f"{output_filename}.json"
+                
                 output_path = os.path.join(DATA_DIR, output_filename)
                 
-                with open(output_path, 'w') as f:
-                    json.dump(logs_data, f, indent=2)
+                if output_format.lower() == "markdown":
+                    logs = logs_data.get('logs', [])
+                    
+                    # Prepare log level counts and extract error/critical logs
+                    level_counts = {"DEBUG": 0, "INFO": 0, "WARNING": 0, "ERROR": 0, "CRITICAL": 0, "OTHER": 0}
+                    error_logs = []
+                    critical_logs = []
+                    warning_logs = []
+                    
+                    # Process all logs first to collect stats and important messages
+                    for idx, log in enumerate(logs):
+                        level = log.get('level', 'INFO').upper()
+                        
+                        # Count by level
+                        if level in level_counts:
+                            level_counts[level] += 1
+                        else:
+                            level_counts["OTHER"] += 1
+                            
+                        # Collect important logs
+                        if level == "ERROR":
+                            error_logs.append((idx, log))
+                        elif level == "CRITICAL":
+                            critical_logs.append((idx, log))
+                        elif level == "WARNING":
+                            warning_logs.append((idx, log))
+                    
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(f"# Workflow Run Logs - Run ID: {run_id_str}\n\n")
+                        
+                        if not logs:
+                            f.write("*No logs found for this run.*\n")
+                        else:
+                            # Write summary section
+                            f.write("## Log Summary\n\n")
+                            
+                            # Write log level counts as a table
+                            f.write("| Log Level | Count |\n")
+                            f.write("|-----------|-------|\n")
+                            for level, count in level_counts.items():
+                                if count > 0 or level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+                                    f.write(f"| {level} | {count} |\n")
+                            f.write("\n")
+                            
+                            # Write important logs sections if they exist
+                            if critical_logs or error_logs:
+                                f.write("## ⚠️ Critical Messages and Errors\n\n")
+                                
+                                if critical_logs:
+                                    f.write("### Critical Messages\n\n")
+                                    for idx, log in critical_logs:
+                                        message = log.get('message', 'No message')
+                                        timestamp = log.get('timestamp', 'N/A')
+                                        
+                                        # Format critical messages with more emphasis
+                                        f.write(f"**[{timestamp}]** <span style='color:red; font-weight:bold'>CRITICAL</span>\n\n")
+                                        
+                                        # Create a markdown code block for the message
+                                        if "\n" in message:
+                                            f.write("```\n")
+                                            f.write(message)
+                                            f.write("\n```\n\n")
+                                        else:
+                                            f.write(f"`{message}`\n\n")
+                                
+                                if error_logs:
+                                    f.write("### Error Messages\n\n")
+                                    for idx, log in error_logs:
+                                        message = log.get('message', 'No message')
+                                        timestamp = log.get('timestamp', 'N/A')
+                                        
+                                        # Format error messages
+                                        f.write(f"**[{timestamp}]** <span style='color:red'>ERROR</span>\n\n")
+                                        
+                                        # Create a markdown code block for the message
+                                        if "\n" in message:
+                                            f.write("```\n")
+                                            f.write(message)
+                                            f.write("\n```\n\n")
+                                        else:
+                                            f.write(f"`{message}`\n\n")
+                                
+                                f.write("---\n\n")
+                            
+                            # Write warning logs section if they exist
+                            if warning_logs:
+                                f.write("## ⚠️ Warning Messages\n\n")
+                                for idx, log in warning_logs:
+                                    message = log.get('message', 'No message')
+                                    timestamp = log.get('timestamp', 'N/A')
+                                    
+                                    # Format warning messages
+                                    f.write(f"**[{timestamp}]** <span style='color:orange'>WARNING</span>\n\n")
+                                    
+                                    # Create a markdown code block for the message
+                                    if "\n" in message:
+                                        f.write("```\n")
+                                        f.write(message)
+                                        f.write("\n```\n\n")
+                                    else:
+                                        f.write(f"`{message}`\n\n")
+                                
+                                f.write("---\n\n")
+                            
+                            # Write chronological log entries
+                            f.write("## Complete Log (Chronological Order)\n\n")
+                            
+                            # Write each log entry as a formatted markdown section
+                            for idx, log in enumerate(logs):
+                                # Format timestamp
+                                timestamp = log.get('timestamp', 'N/A')
+                                
+                                # Format level with color using HTML span tags
+                                level = log.get('level', 'INFO').upper()
+                                level_format = level
+                                
+                                weight = None
+                                message_color = None
+                                
+                                if level == "ERROR":
+                                    message_color = "red"
+                                    level_format = f"<span style='color:red'>{level}</span>"
+                                elif level == "WARNING":
+                                    message_color = "orange"
+                                    level_format = f"<span style='color:orange'>{level}</span>"
+                                elif level == "INFO":
+                                    message_color = "blue"
+                                    level_format = f"<span style='color:blue'>{level}</span>"
+                                elif level == "CRITICAL":
+                                    message_color = "red"
+                                    weight = "bold"
+                                    level_format = f"<span style='color:red; font-weight:bold'>{level}</span>"
+                                
+                                # Handle message with proper newline preservation
+                                message = log.get('message', 'No message')
+                                
+                                # Create a markdown code block for multi-line messages
+                                if "\n" in message:
+                                    formatted_message = f"```\n{message}\n```"
+                                else:
+                                    formatted_message = f"`{message}`"
+                                
+                                # Prepare style for heading and timestamp based on log level
+                                style = ""
+                                if message_color:
+                                    style = f"color:{message_color}"
+                                    if weight == "bold":
+                                        style += "; font-weight:bold"
+                                
+                                # Write the formatted log entry with colored heading
+                                if style:
+                                    f.write(f"### <span style='{style}'>Log Entry {idx+1}</span>\n\n")
+                                    f.write(f"**<span style='{style}'>Timestamp:</span>** {timestamp}\n\n")
+                                else:
+                                    f.write(f"### Log Entry {idx+1}\n\n")
+                                    f.write(f"**Timestamp:** {timestamp}\n\n")
+                                
+                                f.write(f"**Level:** {level_format}\n\n")
+                                f.write(f"**Message:**\n\n{formatted_message}\n\n")
+                                
+                                # Add flow_run_id if present
+                                flow_run_id = log.get('flow_run_id')
+                                if flow_run_id:
+                                    f.write(f"**Flow Run ID:** {flow_run_id}\n\n")
+                                
+                                # Add separator between log entries
+                                if idx < len(logs) - 1:
+                                    f.write("---\n\n")
+                else:
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        # Use ensure_ascii=False to preserve unicode characters
+                        # Use indent=2 for readability
+                        json.dump(logs_data, f, indent=2, ensure_ascii=False)
+                
                 logger.info(f"Saved logs to {output_path}")
             
             return logs_data, output_path
@@ -423,7 +604,8 @@ class WorkflowRunTestClient:
                            run_id: Union[str, uuid.UUID],
                            save_to_file: bool = True,
                            output_filename: Optional[str] = None,
-                           test_name: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:
+                           test_name: Optional[str] = None,
+                           output_format: str = "markdown") -> Optional[Tuple[Dict[str, Any], str]]:
         """
         Gets the state of a specific workflow run via GET /runs/{run_id}/state.
         
@@ -435,6 +617,7 @@ class WorkflowRunTestClient:
             save_to_file (bool): Whether to save state to a file.
             output_filename (Optional[str]): Filename to save state to. If None, a default name is used.
             test_name (Optional[str]): Test name to include in the default filename if output_filename is None.
+            output_format (str): Format to save state in - "markdown" or "json".
             
         Returns:
             Optional[Tuple[Dict[str, Any], str]]: The state response and output path, or None on failure.
@@ -457,13 +640,62 @@ class WorkflowRunTestClient:
                     # Include test_name in filename if provided
                     if test_name:
                         test_name_safe = test_name.replace(" ", "_").replace("/", "_").lower()
-                        output_filename = f"{test_name_safe}_run_{run_id_str}_state.json"
+                        output_filename = f"{test_name_safe}_run_{run_id_str}_state"
                     else:
-                        output_filename = f"run_{run_id_str}_state.json"
+                        output_filename = f"run_{run_id_str}_state"
+                
+                # Determine file extension based on output format
+                if output_format.lower() == "markdown":
+                    output_filename = f"{output_filename}.md"
+                else:  # default to json
+                    output_filename = f"{output_filename}.json"
+                    
                 output_path = os.path.join(DATA_DIR, output_filename)
                 
-                with open(output_path, 'w') as f:
-                    json.dump(state_data, f, indent=2)
+                if output_format.lower() == "markdown":
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write(f"# Workflow Run State - Run ID: {run_id_str}\n\n")
+                        
+                        # Write run_id and thread_id
+                        f.write("## Run Information\n\n")
+                        f.write(f"**Run ID:** `{state_data.get('run_id', 'N/A')}`\n\n")
+                        f.write(f"**Thread ID:** `{state_data.get('thread_id', 'N/A')}`\n\n")
+                        
+                        # Write central state section
+                        f.write("## Central State\n\n")
+                        central_state = state_data.get('central_state', {})
+                        
+                        if not central_state:
+                            f.write("*No central state data found.*\n\n")
+                        else:
+                            central_state_json = json.dumps(central_state, indent=2, ensure_ascii=False)
+                            f.write("```json\n")
+                            f.write(central_state_json)
+                            f.write("\n```\n\n")
+                        
+                        # Write node outputs section
+                        f.write("## Node Outputs\n\n")
+                        node_outputs = state_data.get('node_outputs', {})
+                        
+                        if not node_outputs:
+                            f.write("*No node outputs data found.*\n\n")
+                        else:
+                            # Process each node output
+                            for node_name, output in node_outputs.items():
+                                f.write(f"### Node: {node_name}\n\n")
+                                
+                                # Format node output as JSON
+                                output_json = json.dumps(output, indent=2, ensure_ascii=False)
+                                f.write("```json\n")
+                                f.write(output_json)
+                                f.write("\n```\n\n")
+                else:
+                    # Save as JSON
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        # Use ensure_ascii=False to preserve unicode characters and newlines
+                        # Use indent=2 for readability
+                        json.dump(state_data, f, indent=2, ensure_ascii=False)
+                
                 logger.info(f"Saved state to {output_path}")
             
             return state_data, output_path

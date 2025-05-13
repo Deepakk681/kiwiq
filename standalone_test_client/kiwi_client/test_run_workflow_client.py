@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone # Import timezone
-from typing import Dict, Any, Optional, List, Tuple, Callable, TypedDict, Awaitable
+from typing import Dict, Any, Optional, List, Tuple, Callable, TypedDict, Awaitable, Union
 
 # Assume these exist based on the reference file\'s structure and project layout
 try:
@@ -20,6 +20,8 @@ try:
     from kiwi_client.schemas import workflow_api_schemas as wf_schemas
     from kiwi_client.schemas import events_schema as event_schemas # Import event schemas
     from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
+    # Import app artifact schemas for workflow key lookups
+    from kiwi_client.schemas import app_artifact_schemas as aa_schemas
 except ImportError as e:
     # Provide a helpful message if imports fail, common in complex project structures
     print(f"Import Error: {e}. Ensure kiwi_client package is correctly installed and accessible.")
@@ -348,9 +350,9 @@ class InteractiveWorkflowRunClient:
 
     async def submit_and_monitor_run(
         self,
-        inputs: Dict[str, Any],
         workflow_id: Optional[uuid.UUID] = None,
         graph_schema: Optional[Dict[str, Any]] = None,
+        inputs: Dict[str, Any] = {},
         hitl_inputs: Optional[List[Dict[str, Any]]] = None,
         poll_interval_sec: int = 3,
         timeout_sec: int = 300,
@@ -366,7 +368,6 @@ class InteractiveWorkflowRunClient:
         Optionally streams intermediate results (node outputs, status changes) to stdout.
 
         Args:
-            inputs: The initial inputs required by the workflow's input node.
             workflow_id: The UUID of an *existing* workflow definition to run.
                          Mutually exclusive with `graph_schema`.
             graph_schema: A dictionary representing the workflow graph schema.
@@ -374,6 +375,7 @@ class InteractiveWorkflowRunClient:
                           schema before the run. The created workflow will be
                           automatically deleted afterwards. Mutually exclusive
                           with `workflow_id`.
+            inputs: The initial inputs required by the workflow's input node.
             hitl_inputs: An optional list of dictionaries. Each dictionary represents
                          the inputs for a sequential HITL step encountered during the run.
                          If this list is provided, the client uses these inputs in order.
@@ -635,8 +637,12 @@ class CleanupSchemaInfo(TypedDict):
 
 async def run_workflow_test(
     test_name: str,
-    workflow_graph_schema: Dict[str, Any],
-    initial_inputs: Dict[str, Any],
+    workflow_graph_schema: Optional[Dict[str, Any]] = None,
+    workflow_id: Optional[Union[str, uuid.UUID]] = None,
+    workflow_name: Optional[str] = None,
+    workflow_version: Optional[str] = None,
+    workflow_key: Optional[str] = None,
+    initial_inputs: Dict[str, Any] = {},
     expected_final_status: WorkflowRunStatus = WorkflowRunStatus.COMPLETED,
     hitl_inputs: Optional[List[Dict[str, Any]]] = None,
     setup_docs: Optional[List[SetupDocInfo]] = None,
@@ -659,7 +665,14 @@ async def run_workflow_test(
 
     Args:
         test_name: A descriptive name for the test, used in logging and print statements.
-        workflow_graph_schema: The workflow graph schema definition to execute.
+        workflow_graph_schema: The workflow graph schema definition to execute. Mutually exclusive with workflow_id, workflow_name, and workflow_key.
+        workflow_id: The ID of an existing workflow to execute. Mutually exclusive with workflow_graph_schema, workflow_name, and workflow_key.
+        workflow_name: The name of an existing workflow to search for and execute. If provided, will search for the workflow and use its ID.
+                      If workflow_version is also provided, will search for that specific version. Mutually exclusive with 
+                      workflow_graph_schema, workflow_id, and workflow_key.
+        workflow_version: Optional version tag to filter workflows when searching by name. Only used when workflow_name is provided.
+        workflow_key: The key of a workflow in app artifacts to fetch and execute. Will retrieve the workflow ID from the app artifacts.
+                     Mutually exclusive with workflow_graph_schema, workflow_id, and workflow_name.
         initial_inputs: A dictionary containing the initial inputs for the workflow run.
         expected_final_status: The WorkflowRunStatus enum value expected at the end
                                of the run. Defaults to COMPLETED.
@@ -706,6 +719,8 @@ async def run_workflow_test(
     Raises:
         AuthenticationError: If authentication with the backend fails.
         RuntimeError: If critical setup steps fail (e.g., cannot create a required document).
+        ValueError: If more than one way of specifying the workflow is provided, or if 
+                   none of the workflow specification methods are provided.
         AssertionError: If the final workflow status does not match `expected_final_status`,
                         or if `validate_output_func` is provided and returns False or raises
                         an exception.
@@ -728,7 +743,17 @@ async def run_workflow_test(
       to fail the test. Cleanup errors are logged as warnings.
     - **TypedDicts:** `SetupDocInfo` and `CleanupDocInfo` are used for clarity and type safety
       when defining documents for setup and cleanup.
+    - **Workflow Resolution:** Workflows can be specified by providing a graph schema directly, 
+      by ID, by name (with optional version), or by a workflow key from app artifacts. The function
+      will resolve the appropriate workflow ID before execution.
     """
+    # Validate that exactly one workflow specification method is provided
+    workflow_spec_count = sum(1 for spec in [workflow_graph_schema, workflow_id, workflow_name, workflow_key] if spec is not None)
+    if workflow_spec_count == 0:
+        raise ValueError("At least one of 'workflow_graph_schema', 'workflow_id', 'workflow_name', or 'workflow_key' must be provided.")
+    if workflow_spec_count > 1:
+        raise ValueError("Only one of 'workflow_graph_schema', 'workflow_id', 'workflow_name', or 'workflow_key' can be provided.")
+    
     print(f"\n{'='*20} Starting Test: {test_name} {'='*20}")
     logger.info(f"Starting workflow test: {test_name}")
 
@@ -751,8 +776,85 @@ async def run_workflow_test(
             template_tester = TemplateTestClient(auth_client)
             # Instantiate workflow client for validation
             workflow_tester = WorkflowTestClient(auth_client) # Added for validation
+            # Instantiate app artifact client for workflow key lookup
+            from kiwi_client.app_artifact_client import AppArtifactTestClient
+            artifact_tester = AppArtifactTestClient(auth_client)
 
             # --- 1. Setup Phase --- #
+
+            # --- 1.1 Resolve workflow_id if using workflow_name or workflow_key --- #
+            resolved_workflow_id = workflow_id
+
+            # Helper function to search for workflow by name and version
+            async def search_workflow_by_name(name: str, version: Optional[str] = None) -> Optional[wf_schemas.WorkflowRead]:
+                """Search for a workflow by name and optional version tag."""
+                search_results = await workflow_tester.search_workflows(
+                    name=name,
+                    version_tag=version,
+                    include_public=True,
+                    include_system_entities=True
+                )
+                
+                if not search_results or len(search_results) == 0:
+                    return None
+                
+                if len(search_results) > 1:
+                    # If multiple workflows found, use the most recently updated one but log a warning
+                    logger.warning(f"[{test_name}] Multiple workflows ({len(search_results)}) found with name '{name}'. Using the most recently updated one.")
+                    print(f"   ⚠ Multiple workflows ({len(search_results)}) found with name '{name}'. Using the most recently updated one.")
+                
+                # Return the first (most recently updated) workflow
+                return search_results[0]
+
+            # Resolve workflow by name or key
+            if workflow_name or workflow_key:
+                if workflow_name:
+                    # Search for workflow by name
+                    print(f"\n--- [{test_name}] Setup: Searching for workflow by name: {workflow_name} {f'(version: {workflow_version})' if workflow_version else ''} ---")
+                    found_workflow = await search_workflow_by_name(workflow_name, workflow_version)
+                    
+                    if not found_workflow:
+                        error_msg = f"No workflow found with name '{workflow_name}'{f' and version {workflow_version}' if workflow_version else ''}"
+                        logger.error(f"[{test_name}] {error_msg}")
+                        print(f"   ✗ {error_msg}")
+                        raise RuntimeError(error_msg)
+                    
+                    resolved_workflow_id = found_workflow.id
+                    logger.info(f"[{test_name}] Found workflow: ID={resolved_workflow_id}, Name={found_workflow.name}")
+                    print(f"   ✓ Found workflow: {found_workflow.name} (ID: {resolved_workflow_id})")
+                
+                elif workflow_key:
+                    # Fetch workflow by key from app artifacts
+                    print(f"\n--- [{test_name}] Setup: Fetching workflow by key: {workflow_key} ---")
+                    
+                    # First get workflow processing info to get the name and version
+                    workflow_info_req = aa_schemas.WorkflowInfoRequest(workflow_key=workflow_key)
+                    workflow_info = await artifact_tester.get_workflow_processing_info(workflow_info_req)
+                    
+                    if not workflow_info:
+                        error_msg = f"Failed to get workflow info for key '{workflow_key}'"
+                        logger.error(f"[{test_name}] {error_msg}")
+                        print(f"   ✗ {error_msg}")
+                        raise RuntimeError(error_msg)
+                    
+                    workflow_name_from_key = workflow_info.workflow_name
+                    workflow_version_from_key = workflow_info.workflow_version
+                    
+                    # Now search for the workflow by name and version
+                    logger.info(f"[{test_name}] Searching for workflow named '{workflow_name_from_key}' with version '{workflow_version_from_key}'")
+                    print(f"   Searching for workflow: {workflow_name_from_key} (version: {workflow_version_from_key if workflow_version_from_key else 'any'})")
+                    
+                    found_workflow = await search_workflow_by_name(workflow_name_from_key, workflow_version_from_key)
+                    
+                    if not found_workflow:
+                        error_msg = f"No workflow found with name '{workflow_name_from_key}'{f' and version {workflow_version_from_key}' if workflow_version_from_key else ''} for key '{workflow_key}'"
+                        logger.error(f"[{test_name}] {error_msg}")
+                        print(f"   ✗ {error_msg}")
+                        raise RuntimeError(error_msg)
+                    
+                    resolved_workflow_id = found_workflow.id
+                    logger.info(f"[{test_name}] Found workflow for key '{workflow_key}': ID={resolved_workflow_id}, Name={found_workflow.name}")
+                    print(f"   ✓ Found workflow: {found_workflow.name} (ID: {resolved_workflow_id})")
 
             # --- 1a. Setup Documents --- #
             if setup_docs:
@@ -930,22 +1032,47 @@ async def run_workflow_test(
             else:
                  print(f"\n--- [{test_name}] Setup: No prerequisite schema templates specified ---")
 
-            # --- 1.c Validate Workflow Graph Schema --- #
-            print(f"\n--- [{test_name}] Setup: Validating workflow graph schema ---")
-            validation_result = await workflow_tester.validate_graph_api(workflow_graph_schema)
-            if not validation_result or not validation_result.is_valid:
-                error_details = validation_result.errors if validation_result else {"error": "Validation request failed"}
-                error_msg = f"Workflow graph schema validation failed for test '{test_name}'. Errors: {json.dumps(error_details, indent=2)}"
-                logger.error(f"[{test_name}] {error_msg}")
-                print(f"   ✗ Validation Failed: {json.dumps(error_details, indent=2)}")
-                raise RuntimeError(error_msg) # Fail the test if schema is invalid
+            # --- 1.c Validate Workflow Graph Schema (if provided) or verify workflow ID exists --- #
+            if workflow_graph_schema:
+                print(f"\n--- [{test_name}] Setup: Validating workflow graph schema ---")
+                validation_result = await workflow_tester.validate_graph_api(workflow_graph_schema)
+                if not validation_result or not validation_result.is_valid:
+                    error_details = validation_result.errors if validation_result else {"error": "Validation request failed"}
+                    error_msg = f"Workflow graph schema validation failed for test '{test_name}'. Errors: {json.dumps(error_details, indent=2)}"
+                    logger.error(f"[{test_name}] {error_msg}")
+                    print(f"   ✗ Validation Failed: {json.dumps(error_details, indent=2)}")
+                    raise RuntimeError(error_msg) # Fail the test if schema is invalid
+                else:
+                    logger.info(f"[{test_name}] Workflow graph schema validation passed.")
+                    print("   ✓ Schema validation passed.")
             else:
-                logger.info(f"[{test_name}] Workflow graph schema validation passed.")
-                print("   ✓ Schema validation passed.")
+                # If using workflow_id, verify the workflow exists
+                print(f"\n--- [{test_name}] Setup: Verifying workflow ID exists ---")
+                workflow_exists = False
+                try:
+                    workflow_info = await workflow_tester.get_workflow(resolved_workflow_id)
+                    if workflow_info and workflow_info.id:
+                        workflow_exists = True
+                        logger.info(f"[{test_name}] Verified workflow exists: ID {resolved_workflow_id}, Name: {workflow_info.name}")
+                        print(f"   ✓ Workflow exists: {workflow_info.name} (ID: {resolved_workflow_id})")
+                    else:
+                        logger.error(f"[{test_name}] Workflow ID {resolved_workflow_id} does not exist or is not accessible.")
+                        print(f"   ✗ Workflow ID {resolved_workflow_id} does not exist or is not accessible.")
+                except Exception as workflow_err:
+                    logger.error(f"[{test_name}] Error verifying workflow: {workflow_err}")
+                    print(f"   ✗ Error verifying workflow: {workflow_err}")
+                
+                if not workflow_exists:
+                    error_msg = f"Workflow ID {resolved_workflow_id} does not exist or is not accessible."
+                    raise RuntimeError(error_msg)
 
             # --- 2. Execute Workflow Phase --- #
             print(f"\n--- [{test_name}] Executing Workflow --- ")
-            print(f"   Workflow Schema: Provided (details omitted for brevity)") # Avoid printing large schemas
+            if workflow_graph_schema:
+                print(f"   Workflow Schema: Provided (details omitted for brevity)") # Avoid printing large schemas
+            else:
+                print(f"   Workflow ID: {resolved_workflow_id}")
+                
             try:
                 # Log initial inputs cleanly using JSON serialization
                 print(f"   Initial Inputs: {json.dumps(initial_inputs, indent=2, default=str)}")
@@ -960,7 +1087,8 @@ async def run_workflow_test(
 
             # Execute the workflow and wait for completion
             final_run_status_obj, final_run_outputs = await interactive_client.submit_and_monitor_run(
-                graph_schema=workflow_graph_schema,
+                workflow_id=resolved_workflow_id if resolved_workflow_id else None,
+                graph_schema=workflow_graph_schema if workflow_graph_schema else None,
                 inputs=initial_inputs,
                 hitl_inputs=hitl_inputs,
                 poll_interval_sec=poll_interval_sec,
@@ -998,7 +1126,7 @@ async def run_workflow_test(
                     
                     if logs_data:
                         log_count = len(logs_data.get("logs", []))
-                        print(f"   ✓ Saved {log_count} log entries to data directory \n\n\n\n*****PATH*****: {logs_path}\n\n\n\n")
+                        print(f"   ✓ Saved {log_count} log entries to data directory \n     Path: {logs_path}")
                     else:
                         print(f"   ✗ Failed to retrieve logs")
                         
@@ -1011,7 +1139,7 @@ async def run_workflow_test(
                     )
                     
                     if state_data:
-                        print(f"   ✓ Saved state data to data directory \n\n\n\n*****PATH*****: {state_path}\n\n\n\n")
+                        print(f"   ✓ Saved state data to data directory \n     Path: {state_path}")
                     else:
                         print(f"   ✗ Failed to retrieve state data (possibly not a superuser)")
                         
