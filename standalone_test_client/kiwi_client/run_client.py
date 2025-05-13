@@ -539,9 +539,9 @@ class WorkflowRunTestClient:
                                 elif level == "WARNING":
                                     message_color = "orange"
                                     level_format = f"<span style='color:orange'>{level}</span>"
-                                elif level == "INFO":
-                                    message_color = "blue"
-                                    level_format = f"<span style='color:blue'>{level}</span>"
+                                # elif level == "INFO":
+                                #     message_color = "blue"
+                                #     level_format = f"<span style='color:blue'>{level}</span>"
                                 elif level == "CRITICAL":
                                     message_color = "red"
                                     weight = "bold"
