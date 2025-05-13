@@ -110,7 +110,9 @@ workflow_graph_schema = {
             # Global defaults (can be overridden if needed per doc type via input structure)
             "global_is_shared": False,
             "global_is_system_entity": False,
-            "global_version_config": {"version": "default"},
+            "global_version_config": {
+                # "version": "default"
+            },
             "global_schema_options": {"load_schema": False},
         },
         

@@ -99,6 +99,7 @@ class WorkflowTestClient:
                               is_template: bool = False,
                               version_tag: Optional[str] = None,
                               is_public: bool = False,
+                              is_system_entity: bool = False,
                               launch_status: str = LaunchStatus.DEVELOPMENT) -> Optional[wf_schemas.WorkflowRead]:
         """
         Tests creating a new workflow via POST /workflows/.
@@ -112,6 +113,7 @@ class WorkflowTestClient:
             is_template (bool): Whether the workflow is a template.
             version_tag (Optional[str]): User-defined tag for versioning.
             is_public (bool): Whether the workflow is publicly accessible.
+            is_system_entity (bool): Whether this is a system entity. Only admins can create system workflows.
             launch_status (str): The launch status (e.g., DEVELOPMENT, STAGING).
 
         Returns:
@@ -126,6 +128,7 @@ class WorkflowTestClient:
             "is_template": is_template,
             "version_tag": version_tag,
             "is_public": is_public,
+            "is_system_entity": is_system_entity,
             "launch_status": launch_status
         }
         try:
@@ -546,6 +549,72 @@ class WorkflowTestClient:
         """Returns the UUID of the last successfully created workflow in this session."""
         return self._created_workflow_id
 
+    async def search_workflows(self,
+                              name: str,
+                              version_tag: Optional[str] = None,
+                              include_public: bool = True, 
+                              include_system_entities: bool = False,
+                              include_public_system_entities: bool = False,
+                              sort_by: str = "created_at",
+                              sort_order: str = "desc") -> Optional[List[wf_schemas.WorkflowRead]]:
+        """
+        Searches for workflows by name and optional version tag via POST /workflows/search.
+
+        Corresponds to the `search_workflows` route which expects `schemas.WorkflowSearchQuery`.
+
+        Args:
+            name (str): The name of the workflow to search for.
+            version_tag (Optional[str]): Optional version tag to filter by.
+            include_public (bool): Whether to include public workflows in the results.
+            include_system_entities (bool): Whether to include system entities (superuser only).
+            include_public_system_entities (bool): Whether to include public system entities.
+            sort_by (str): Field to sort by ("created_at", "updated_at", or "self_owned_first").
+            sort_order (str): Sort order ("asc" or "desc").
+
+        Returns:
+            Optional[List[wf_schemas.WorkflowRead]]: A list of parsed and validated workflows matching the search criteria, 
+                                                   or None on failure.
+        """
+        logger.info(f"Searching for workflows with name: {name}, version_tag: {version_tag}")
+        
+        # Prepare payload according to schemas.WorkflowSearchQuery
+        payload = {
+            "name": name,
+            "version_tag": version_tag,
+            "include_public": include_public,
+            "include_system_entities": include_system_entities,
+            "include_public_system_entities": include_public_system_entities,
+            "sort_by": sort_by,
+            "sort_order": sort_order
+        }
+        
+        try:
+            # API uses POST for search to handle complex query params
+            response = await self._client.post(f"{WORKFLOWS_URL}/search", json=payload)
+            response.raise_for_status()
+            response_json = response.json()
+            
+            # Validate the response list against List[WorkflowRead]
+            if WorkflowReadListAdapter:
+                validated_workflows = WorkflowReadListAdapter.validate_python(response_json)
+                logger.info(f"Successfully found and validated {len(validated_workflows)} workflows matching '{name}'.")
+                logger.debug(f"Search workflows response (first item): {validated_workflows[0].model_dump() if validated_workflows else 'None'}")
+                return validated_workflows
+            else:
+                # Fallback if adapter wasn't imported or created
+                logger.warning("Schema validation skipped for search_workflows due to missing adapter.")
+                return response_json
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error searching workflows: {e.response.status_code} - {e.response.text}")
+        except httpx.RequestError as e:
+            logger.error(f"Request error searching workflows: {e}")
+        except ValidationError as e:
+            logger.error(f"Response validation error searching workflows: {e}")
+            logger.debug(f"Invalid response JSON: {response_json}")
+        except Exception as e:
+            logger.exception("Unexpected error during workflow search.")
+        return None
+
 # --- Example Usage --- (for testing this module directly)
 async def main():
     """Demonstrates using the updated WorkflowTestClient with API-based validation."""
@@ -592,7 +661,10 @@ async def main():
 
             # 1. Create Workflow
             print("\n1. Creating Workflow...")
-            created = await workflow_tester.create_workflow(name="My API Test Workflow")
+            created = await workflow_tester.create_workflow(
+                name="My API Test Workflow",
+                is_system_entity=False  # Explicitly set to false for this test
+            )
             if created:
                 temp_workflow_id = created.id  # Access UUID directly from schema
                 print(f"   Workflow Created: ID = {temp_workflow_id}")
@@ -638,8 +710,23 @@ async def main():
             else:
                 print("   Failed to update workflow.")
 
-            # 5. Delete Workflow
-            print(f"\n5. Deleting Workflow {temp_workflow_id}...")
+            # 5. Search Workflows
+            print("\n5. Searching for Workflows...")
+            search_name = "My API Test Workflow"  # Search by the name we gave it
+            search_results = await workflow_tester.search_workflows(name=search_name)
+            if search_results:
+                print(f"   Found {len(search_results)} workflows matching '{search_name}'.")
+                # Verify our workflow is in the results
+                found_workflow = next((wf for wf in search_results if wf.id == temp_workflow_id), None)
+                if found_workflow:
+                    print(f"   Our workflow {temp_workflow_id} was found in search results!")
+                else:
+                    print(f"   WARN: Our workflow {temp_workflow_id} was not found in search results.")
+            else:
+                print(f"   No workflows found matching '{search_name}' or search failed.")
+
+            # 6. Delete Workflow
+            print(f"\n6. Deleting Workflow {temp_workflow_id}...")
             deleted = await workflow_tester.delete_workflow(temp_workflow_id)
             if deleted:
                 if isinstance(deleted, bool):
