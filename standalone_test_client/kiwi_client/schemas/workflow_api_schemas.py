@@ -61,6 +61,7 @@ class WorkflowBase(BaseModel):
     is_template: Optional[bool] = Field(default=False, description="Indicates if this workflow can be used as a template within the org")
     launch_status: Optional[LaunchStatus] = Field(default=LaunchStatus.DEVELOPMENT, description="Deployment status of the workflow")
     is_public: Optional[bool] = Field(default=False, description="Indicates if this workflow is publicly accessible")
+    is_system_entity: Optional[bool] = Field(default=False, description="Indicates if this workflow is a system entity. Only admins can create system workflows.")
 
 class WorkflowCreate(WorkflowBase):
     """Schema for creating a new Workflow."""

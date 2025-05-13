@@ -440,8 +440,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "content_creation_workflow",
       "version": null,
       "inputs": {
-            "post_uuid": "test_post_uuid",
-            "brief_docname": "brief_docname",
+            "post_uuid": null,
+            "brief_docname": null,
             "customer_context_doc_configs": [
                 {
                     "filename_config": {
@@ -460,7 +460,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
                     "output_field_name": "content_brief"
                 }
             ],
-            "entity_username": "example-user"
+            "entity_username": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -469,7 +469,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "initial_brief_to_concepts_workflow",
       "version": null,
       "inputs": {
-        "initial_brief_docname": "test_brief_1",
+        "initial_brief_docname": null,
         "customer_context_doc_configs": [
             {
                 "filename_config": {

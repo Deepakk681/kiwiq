@@ -917,6 +917,7 @@ async def main_test_content_workflow_with_client():
         hitl_inputs=predefined_hitl_inputs,
         setup_docs=setup_docs,
         cleanup_docs=cleanup_docs,
+        cleanup_docs_created_by_setup=True,
         validate_output_func=validate_content_workflow_output,
         stream_intermediate_results=True,
         poll_interval_sec=3,
