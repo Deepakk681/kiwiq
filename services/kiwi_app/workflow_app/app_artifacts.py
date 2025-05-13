@@ -1153,31 +1153,31 @@ async def get_workflow(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred while processing workflow '{request_data.workflow_key}': {str(e)}")
 
-@artifact_router.options(
-    "/get-workflow",
-    response_model=WorkflowInfoResponse,
-    summary="Get information about unresolved inputs and variables for a predefined workflow.",
-    dependencies=[Depends(get_current_active_superuser)],
-    description="Analyzes a predefined workflow (by key) to identify $filename references, "
-                "the document configurations they point to (from defaults), and variables required. Needs `workflow_key` to be set in Body!"
-)
-async def get_workflow_processing_info(
-    request_data: WorkflowInfoRequest = Body(...)
-) -> WorkflowInfoResponse:
-    workflow_definition = DEFAULT_ALL_WORKFLOWS.get(request_data.workflow_key)
-    if not workflow_definition:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workflow key '{request_data.workflow_key}' not found.")
+# @artifact_router.options(
+#     "/get-workflow",
+#     response_model=WorkflowInfoResponse,
+#     summary="Get information about unresolved inputs and variables for a predefined workflow.",
+#     dependencies=[Depends(get_current_active_superuser)],
+#     description="Analyzes a predefined workflow (by key) to identify $filename references, "
+#                 "the document configurations they point to (from defaults), and variables required. Needs `workflow_key` to be set in Body!"
+# )
+# async def get_workflow_processing_info(
+#     request_data: WorkflowInfoRequest = Body(...)
+# ) -> WorkflowInfoResponse:
+#     workflow_definition = DEFAULT_ALL_WORKFLOWS.get(request_data.workflow_key)
+#     if not workflow_definition:
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workflow key '{request_data.workflow_key}' not found.")
     
-    try:
-        # Use the workflow_definition directly as get_unresolved_inputs_info does not modify it
-        analysis = workflow_definition.get_unresolved_inputs_info(DEFAULT_USER_DOCUMENTS_CONFIG)
-        return WorkflowInfoResponse(
-            workflow_name=workflow_definition.name,
-            workflow_version=workflow_definition.version,
-            unresolved_inputs_analysis=analysis
-        )
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during analysis of workflow '{request_data.workflow_key}': {str(e)}")
+#     try:
+#         # Use the workflow_definition directly as get_unresolved_inputs_info does not modify it
+#         analysis = workflow_definition.get_unresolved_inputs_info(DEFAULT_USER_DOCUMENTS_CONFIG)
+#         return WorkflowInfoResponse(
+#             workflow_name=workflow_definition.name,
+#             workflow_version=workflow_definition.version,
+#             unresolved_inputs_analysis=analysis
+#         )
+#     except Exception as e:
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred during analysis of workflow '{request_data.workflow_key}': {str(e)}")
 
 
 @artifact_router.post(
@@ -1241,35 +1241,35 @@ async def get_built_document_configurations(
     return BuiltDocConfigsResponse(results=results, messages=messages)
 
 
-@artifact_router.options(
-    "/doc-configs",
-    response_model=DocConfigsInfoResponse,
-    summary="Get template information for specified document configurations from default config.",
-    dependencies=[Depends(get_current_active_superuser)],
-    description="Retrieves details about document templates, placeholders, and default variables "
-                "for the specified document keys from the default UserDocumentsConfig. Superuser only. Optionally, provide `doc_keys` key with list of documents keys set in Body!"
-)
-async def get_document_configurations_info(
-    request_data: Optional[DocConfigsInfoRequest] = Body(None)
-) -> DocConfigsInfoResponse:
-    docs_config_source = DEFAULT_USER_DOCUMENTS_CONFIG # Use default
-    results: List[DocConfigInfoItem] = []
+# @artifact_router.options(
+#     "/doc-configs",
+#     response_model=DocConfigsInfoResponse,
+#     summary="Get template information for specified document configurations from default config.",
+#     dependencies=[Depends(get_current_active_superuser)],
+#     description="Retrieves details about document templates, placeholders, and default variables "
+#                 "for the specified document keys from the default UserDocumentsConfig. Superuser only. Optionally, provide `doc_keys` key with list of documents keys set in Body!"
+# )
+# async def get_document_configurations_info(
+#     request_data: Optional[DocConfigsInfoRequest] = Body(None)
+# ) -> DocConfigsInfoResponse:
+#     docs_config_source = DEFAULT_USER_DOCUMENTS_CONFIG # Use default
+#     results: List[DocConfigInfoItem] = []
     
-    keys_to_inspect = request_data.doc_keys if request_data and request_data.doc_keys is not None else list(docs_config_source.documents.keys())
+#     keys_to_inspect = request_data.doc_keys if request_data and request_data.doc_keys is not None else list(docs_config_source.documents.keys())
 
-    for key in keys_to_inspect:
-        item_result = DocConfigInfoItem(doc_key=key)
-        doc_config_instance = docs_config_source.get_document_config(key)
-        if doc_config_instance:
-            try:
-                item_result.info = doc_config_instance.get_template_info()
-            except Exception as e:
-                item_result.error = f"Failed to get info for '{key}': {str(e)}"
-        else:
-            item_result.error = f"Document key '{key}' not found in default documents_config."
-        results.append(item_result)
+#     for key in keys_to_inspect:
+#         item_result = DocConfigInfoItem(doc_key=key)
+#         doc_config_instance = docs_config_source.get_document_config(key)
+#         if doc_config_instance:
+#             try:
+#                 item_result.info = doc_config_instance.get_template_info()
+#             except Exception as e:
+#                 item_result.error = f"Failed to get info for '{key}': {str(e)}"
+#         else:
+#             item_result.error = f"Document key '{key}' not found in default documents_config."
+#         results.append(item_result)
         
-    return DocConfigsInfoResponse(results=results)
+#     return DocConfigsInfoResponse(results=results)
 
 # To include this router in your main FastAPI app (e.g., in main.py or app.py):
 # from services.kiwi_app.workflow_app.app_artifacts import artifact_router

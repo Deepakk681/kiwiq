@@ -828,8 +828,8 @@ async def run_workflow_test(
                     print(f"\n--- [{test_name}] Setup: Fetching workflow by key: {workflow_key} ---")
                     
                     # First get workflow processing info to get the name and version
-                    workflow_info_req = aa_schemas.WorkflowInfoRequest(workflow_key=workflow_key)
-                    workflow_info = await artifact_tester.get_workflow_processing_info(workflow_info_req)
+                    workflow_info_req = aa_schemas.GetWorkflowRequest(workflow_key=workflow_key)
+                    workflow_info = await artifact_tester.get_workflow(workflow_info_req)
                     
                     if not workflow_info:
                         error_msg = f"Failed to get workflow info for key '{workflow_key}'"
@@ -837,8 +837,8 @@ async def run_workflow_test(
                         print(f"   ✗ {error_msg}")
                         raise RuntimeError(error_msg)
                     
-                    workflow_name_from_key = workflow_info.workflow_name
-                    workflow_version_from_key = workflow_info.workflow_version
+                    workflow_name_from_key = workflow_info.original_workflow_name
+                    workflow_version_from_key = workflow_info.original_workflow_version
                     
                     # Now search for the workflow by name and version
                     logger.info(f"[{test_name}] Searching for workflow named '{workflow_name_from_key}' with version '{workflow_version_from_key}'")

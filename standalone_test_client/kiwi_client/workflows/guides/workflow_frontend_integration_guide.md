@@ -10,7 +10,7 @@ The ingestion process involves several key steps for properly importing workflow
 
 1. **Preparation and Configuration**
    - Define workflow configurations with required properties:
-     - `workflow_key`: The unique identifier for the workflow (reference the [Workflow Config](https://www.notion.so/Workflow-Config-1ef12cba067e8074b16aeecb3498c4fa))
+     - `workflow_key`: The unique identifier for the workflow (reference the [Workflow Config Document](https://www.notion.so/Workflow-Config-1ef12cba067e8074b16aeecb3498c4fa))
      - `module_path`: Path to the Python module containing the workflow schema
      - `run_test` (optional): Boolean flag to indicate if test should be run after ingestion
      - `test_inputs_override` (optional): Dictionary of input values to override default inputs
@@ -111,7 +111,8 @@ Before executing any workflow, ensure all prerequisite documents are properly in
    - Each workflow may depend on specific documents being available in the system
    - These documents must be ingested before workflow execution can succeed
 
-2. **Document Types**  - TODO: Gaurav --> link to the document schemas??
+2. **Document Types**  - 
+   - [document schemas](https://www.notion.so/All-document-schemas-1f212cba067e80dfb48ed2dd891d7029?pvs=4)
    - **User-specific documents**: Must be ingested in the correct namespace/docname for the user
    - **System documents**: Must be ingested with `is_system_entity=True` and `is_shared=True` flag set
 
@@ -233,7 +234,7 @@ This phase outlines how to integrate workflows into frontends using direct API c
 
 
 
-# ARCHIVE - IGNORE
+# ~~ARCHIVE - IGNORE~~
 
 ###### Phase 3: Frontend integration and testing using APIs directly
 

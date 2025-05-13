@@ -143,15 +143,15 @@ class WorkflowIngestionClient:
         
         try:
             # Create a request to get workflow info
-            workflow_info_req = aa_schemas.WorkflowInfoRequest(workflow_key=workflow_key)
-            workflow_info = await self._artifact_client.get_workflow_processing_info(workflow_info_req)
+            workflow_info_req = aa_schemas.GetWorkflowRequest(workflow_key=workflow_key)
+            workflow_info = await self._artifact_client.get_workflow(workflow_info_req)
             
             if not workflow_info:
                 logger.error(f"Failed to get workflow info for key '{workflow_key}'")
                 return None
                 
-            workflow_name = workflow_info.workflow_name
-            workflow_version = workflow_info.workflow_version
+            workflow_name = workflow_info.original_workflow_name
+            workflow_version = workflow_info.original_workflow_version
             
             logger.info(f"Retrieved workflow info: name='{workflow_name}', version='{workflow_version}'")
             return workflow_name, workflow_version
@@ -547,7 +547,7 @@ async def main():
     workflow_configs = [
         # First workflow - content creation workflow
         {
-            "workflow_key": "content_creation_workflow",
+            "workflow_key": "linkedin_scraping_workflow",
             "module_path": "kiwi_client.workflows.wf_linkedin_scraping",
         },
         # {
