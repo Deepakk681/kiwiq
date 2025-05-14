@@ -1,22 +1,3 @@
-"""
-
-Flow: 
-1. input node -> load_all_context_docs and load_draft_posts
-2. [load_all_context_docs, load_draft_posts] -> construct_initial_concepts_prompt (enable_node_fan_in true)
-3. construct_initial_concepts_prompt -> generate_content
-4. generate_content -> store_customer_data
-5. store_customer_data -> capture_user_choice
-5. capture_user_choice -> route_on_user_choice
-6. route_on_user_choice -> construct_concepts_regeneration_prompt [selection: regenerate concepts]
-7. route_on_user_choice -> output_node [selection: Go back to initial ideas brief generation]
-8. route_on_user_choice -> filter_selected_concepts [selection: select list of concepts]
-9. construct_concepts_regeneration_prompt -> generate_content (concepts regeneration loop, generate_content reads message_history from state)
-10. filter_selected_concepts -> construct_update_content_brief_prompt
-11. construct_update_content_brief_prompt -> generated_updated_content_brief
-12. generated_updated_content_brief -> save_updated_content_brief
-13. save_updated_content_brief -> output_node
-"""
-
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List, Union, ClassVar, Type
@@ -33,169 +14,113 @@ from kiwi_client.test_run_workflow_client import (
     CleanupDocInfo
 )
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
+
 from kiwi_client.workflows.document_models.customer_docs import (
-    ANALYSIS_OUTPUT_DOCNAME_PATTERN,
+
+    # Linkedin Content Analysis 
+    CONTENT_ANALYSIS_DOCNAME,
+    CONTENT_ANALYSIS_NAMESPACE_TEMPLATE,
+
+    # Linkedin Scraping
+    LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE,
     LINKEDIN_PROFILE_DOCNAME,
-    LINKEDIN_SCRAPING_NAMESPACE,
-    ANALYSIS_OUTPUT_NAMESPACE,
+
+    # Content Strategy
+    CONTENT_STRATEGY_DOCNAME,
+    CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+    CONTENT_STRATEGY_IS_VERSIONED,
+    # User Preferences
+    USER_PREFERENCES_DOCNAME,
+    USER_PREFERENCES_NAMESPACE_TEMPLATE,
+    USER_PREFERENCES_IS_VERSIONED,
+    # Source Analysis
+    USER_SOURCE_ANALYSIS_DOCNAME,
+    USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+    USER_SOURCE_ANALYSIS_IS_VERSIONED,
+    # Core Beliefs and Perspectives
+    CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+    CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+    CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+    # Content Pillars
+    CONTENT_PILLARS_DOCNAME,
+    CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+    CONTENT_PILLARS_IS_VERSIONED,
+
+    # System Strategy Documents
+    
+    # Methodology Implementation
+    METHODOLOGY_IMPLEMENTATION_DOCNAME,
+    METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+    METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+    METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY,
+
+    # Build Blocks
+    BUILDING_BLOCKS_DOCNAME,
+    BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+    BUILDING_BLOCKS_IS_SHARED,
+    BUILDING_BLOCKS_IS_SYSTEM_ENTITY,
 )
 
-# --- Workflow Configuration Constants ---
-# Namespaces and storage
-USER_PROFILES_NAMESPACE = "user_profiles"
-LINKEDIN_SCRAPING_NAMESPACE = "linkedin_scraping"
-CONTENT_PILLARS_NAMESPACE = "content_pillars"
-USER_DNA_NAMESPACE = "user_dna"
 
-# Document name patterns
-USER_PREFERENCES_DOCNAME = "user_preferences_doc"
-CONTENT_PILLARS_DOCNAME = "content_pillars_doc"
-USER_DNA_DOCNAME_PATTERN = "user_dna_{item}"
+from kiwi_client.workflows.llm_inputs.user_understanding import (
+    GENERATION_SCHEMA,
+    USER_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_TEMPLATE,
+)
+
+
+# --- Workflow Configuration Constants ---
 
 # LLM Configuration
 LLM_PROVIDER = "openai"
 GENERATION_MODEL = "gpt-4.1"
-LLM_TEMPERATURE = 0.7
+LLM_TEMPERATURE = 1
 LLM_MAX_TOKENS = 4000
 
+
 ### SAVE DOCUMENT CONFIG ###
-SAVE_DOC_NAMESPACE = USER_DNA_NAMESPACE
-SAVE_DOC_DOCNAME_PATTERN = USER_DNA_DOCNAME_PATTERN
-SAVE_DOCNAME_INPUT_FIELD = "entity_username"
 SAVE_DOC_FILENAME_CONFIG = {
     "filename_config": {
-        "static_namespace": SAVE_DOC_NAMESPACE,
-        "input_docname_field": SAVE_DOCNAME_INPUT_FIELD, # Field in node's input containing the value
-        "input_docname_field_pattern": SAVE_DOC_DOCNAME_PATTERN  # 'item' here will be the value of entity_name
+        "input_namespace_field_pattern": CONTENT_STRATEGY_NAMESPACE_TEMPLATE, 
+        "input_namespace_field": "entity_username",
+        "static_docname": CONTENT_STRATEGY_DOCNAME,
     }
 }
 SAVE_DOC_GLOBAL_VERSIONING = {
-    "is_versioned": True,
-    "operation": "upsert_versioned",
-    "version": "generated_dna_v1"
+    "is_versioned": CONTENT_STRATEGY_IS_VERSIONED,
+    "operation": "upsert_versioned", # Must not exist yet
+    # "version": "generated_draft" # Name the initial version
 }
 ########################
 
-### GENERATION SCHEMA ###
-# --- Pydantic Schemas for LLM Outputs ---
-class ProfessionalIdentity(BaseModel):
-    """Professional background, experience, and expertise."""
-    background: str = Field(..., description="Professional background and career history.")
-    experience: str = Field(..., description="Key professional experiences and achievements.")
-    expertise: List[str] = Field(..., description="Core areas of professional expertise.")
 
-class LinkedInMetrics(BaseModel):
-    """Key LinkedIn metrics and engagement data."""
-    likes_per_post: Optional[float] = Field(None, description="Average likes per post.")
-    comments_per_post: Optional[float] = Field(None, description="Average comments per post.")
-    shares_per_post: Optional[float] = Field(None, description="Average shares per post.")
-    top_performing_content_types: List[str] = Field(default_factory=list, description="Types of content with highest engagement.")
-    audience_demographics: Optional[str] = Field(None, description="Summary of audience demographics if available.")
-
-class LinkedInProfileAnalysis(BaseModel):
-    """Analysis of LinkedIn profile metrics and engagement data."""
-    follower_count: Optional[int] = Field(None, description="Number of LinkedIn followers.")
-    engagement_rate: Optional[float] = Field(None, description="Average engagement rate on LinkedIn content.")
-    post_frequency: Optional[str] = Field(None, description="Typical posting frequency.")
-    key_metrics: LinkedInMetrics = Field(..., description="Other relevant LinkedIn metrics and engagement data.")
-
-class BrandVoiceStyle(BaseModel):
-    """Brand voice, tone, and communication preferences."""
-    voice: str = Field(..., description="Overall voice characteristics (e.g., authoritative, conversational).")
-    tone: str = Field(..., description="Tone preferences (e.g., professional, inspirational).")
-    communication_style: str = Field(..., description="Preferred communication style and patterns.")
-    content_preferences: List[str] = Field(..., description="Content format and style preferences.")
-
-class ContentStrategyGoals(BaseModel):
-    """Content strategy objectives, audience, and topics."""
-    objectives: List[str] = Field(..., description="Primary content strategy objectives.")
-    target_audience: List[str] = Field(..., description="Target audience segments and personas.")
-    core_topics: List[str] = Field(..., description="Core content topics and themes.")
-    ideal_outcomes: List[str] = Field(..., description="Desired outcomes from content strategy.")
-
-class PersonalContext(BaseModel):
-    """Personal values, influences, and narrative elements."""
-    values: List[str] = Field(..., description="Core personal and professional values.")
-    influences: List[str] = Field(..., description="Key influences on professional perspective.")
-    story_elements: List[str] = Field(..., description="Narrative elements that could be incorporated into content.")
-
-class EngagementPatterns(BaseModel):
-    """Patterns in audience engagement."""
-    best_times: List[str] = Field(default_factory=list, description="Best times for posting based on engagement.")
-    best_days: List[str] = Field(default_factory=list, description="Best days for posting based on engagement.")
-    content_types: List[str] = Field(default_factory=list, description="Content types with highest engagement.")
-    engagement_triggers: List[str] = Field(default_factory=list, description="Topics or approaches that trigger engagement.")
-
-class AnalyticsInsights(BaseModel):
-    """Performance data and engagement patterns."""
-    best_performing_content: List[str] = Field(..., description="Types or examples of best-performing content.")
-    engagement_patterns: EngagementPatterns = Field(..., description="Patterns in audience engagement.")
-    improvement_areas: List[str] = Field(..., description="Areas for potential improvement in content strategy.")
-
-class SuccessMetrics(BaseModel):
-    """KPIs, timeline, and benchmarks."""
-    kpis: List[str] = Field(..., description="Key performance indicators for content strategy.")
-    timeline: str = Field(..., description="Expected timeline for achieving goals.")
-    benchmarks: List[str] = Field(..., description="Specific benchmarks to measure success against.")
-
-class UserDNA(BaseModel):
-    """
-    Complete user DNA profile based on LinkedIn data analysis.
-    """
-    professional_identity: ProfessionalIdentity = Field(..., description="Professional background, experience, and expertise.")
-    linkedin_profile_analysis: LinkedInProfileAnalysis = Field(..., description="Analysis of LinkedIn profile metrics and engagement data.")
-    brand_voice_style: BrandVoiceStyle = Field(..., description="Brand voice, tone, and communication preferences.")
-    content_strategy_goals: ContentStrategyGoals = Field(..., description="Content strategy objectives, audience, and topics.")
-    personal_context: PersonalContext = Field(..., description="Personal values, influences, and narrative elements.")
-    analytics_insights: AnalyticsInsights = Field(..., description="Performance data and engagement patterns.")
-    success_metrics: SuccessMetrics = Field(..., description="KPIs, timeline, and benchmarks.")
-
-GENERATION_SCHEMA = UserDNA.model_json_schema()
-########################
-
-### USER PROMPT TEMPLATE ###
-USER_PROMPT_TEMPLATE = """Gather and analyze the following information about the user to build their User DNA.
-
-LinkedIn Profile for: {entity_username}
-
-**Available Data to Analyze:**
-- LinkedIn Profile Data: {linkedin_profile}
-- Content Analysis Results: {content_analysis}
-- User Preferences: {user_preferences}
-- Content Pillars: {content_pillars}
-
-**Task:**
-Create a comprehensive User DNA profile based on the provided data. Include all required sections:
-1. Professional Identity (background, experience, expertise)
-2. LinkedIn Profile Analysis (metrics, engagement data)
-3. Brand Voice & Style (communication preferences)
-4. Content Strategy Goals (objectives, audience, topics)
-5. Personal Context (values, influences, story elements)
-6. Analytics Insights (performance data, patterns)
-7. Success Metrics (KPIs, timeline, benchmarks)
-
-Respond ONLY with the JSON object matching the specified schema.
-"""
 
 USER_PROMPT_TEMPLATE_VARIABLES = {
-    "linkedin_profile": None,
-    "content_analysis": None,
     "user_preferences": None,
+    "methodology_implementation": None,
+    # "entity_username": None,
+    "core_beliefs_perspectives": None,
     "content_pillars": None,
-    "entity_username": None
+    "content_analysis": None,
+    "linkedin_profile": None,
+    "user_source_analysis": None,
+    "building_blocks": None
 }
 
 USER_PROMPT_TEMPLATE_CONSTRUCT_OPTIONS = {
-    "linkedin_profile": "linkedin_profile",
-    "content_analysis": "content_analysis",
+    "methodology_implementation": "methodology_implementation",
     "user_preferences": "user_preferences",
+    # "entity_username": "entity_username",
+    "core_beliefs_perspectives": "core_beliefs_perspectives",
     "content_pillars": "content_pillars",
-    "entity_username": "entity_username"
+    "content_analysis": "content_analysis",
+    "linkedin_profile": "linkedin_profile",
+    "user_source_analysis": "user_source_analysis",
+    "building_blocks": "building_blocks"
 }
 ##############################
 
-### SYSTEM PROMPT TEMPLATE ###
-SYSTEM_PROMPT_TEMPLATE = "You are an expert in professional branding and LinkedIn strategy. Gather and analyze information about the user to build their User DNA profile. Use the provided LinkedIn profile, content analysis, and additional materials to complete the User DNA Template. Focus on extracting meaningful insights that can inform an effective content strategy. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```"
+
 
 SYSTEM_PROMPT_TEMPLATE_VARIABLES = {
     "schema": GENERATION_SCHEMA
@@ -206,11 +131,15 @@ SYSTEM_PROMPT_TEMPLATE_CONSTRUCT_OPTIONS = {}
 
 ### EDGES CONFIG ###
 field_mappings_from_state_to_prompt_constructor = [
+    { "src_field": "user_preferences", "dst_field": "user_preferences"},
+    { "src_field": "methodology_implementation", "dst_field": "methodology_implementation" },
+    # { "src_field": "entity_username", "dst_field": "entity_username" },
+    { "src_field": "core_beliefs_perspectives", "dst_field": "core_beliefs_perspectives"},
+    { "src_field": "content_pillars", "dst_field": "content_pillars"},
+    { "src_field": "content_analysis", "dst_field": "content_analysis"},
     { "src_field": "linkedin_profile", "dst_field": "linkedin_profile"},
-    { "src_field": "content_analysis", "dst_field": "content_analysis" },
-    { "src_field": "user_preferences", "dst_field": "user_preferences" },
-    { "src_field": "content_pillars", "dst_field": "content_pillars" },
-    { "src_field": "entity_username", "dst_field": "entity_username" },
+    { "src_field": "user_source_analysis", "dst_field": "user_source_analysis"},
+    { "src_field": "building_blocks", "dst_field": "building_blocks"},
 ]
 
 field_mappings_from_input_to_state = [
@@ -224,10 +153,14 @@ field_mappings_from_input_to_load_all_context_docs = [
 ]
 
 field_mappings_from_load_all_context_docs_to_state = [
-    { "src_field": "linkedin_profile", "dst_field": "linkedin_profile"},
-    { "src_field": "content_analysis", "dst_field": "content_analysis"},
     { "src_field": "user_preferences", "dst_field": "user_preferences"},
+    { "src_field": "methodology_implementation", "dst_field": "methodology_implementation"},
+    { "src_field": "core_beliefs_perspectives", "dst_field": "core_beliefs_perspectives"},
     { "src_field": "content_pillars", "dst_field": "content_pillars"},
+    { "src_field": "content_analysis", "dst_field": "content_analysis"},
+    { "src_field": "linkedin_profile", "dst_field": "linkedin_profile"},
+    { "src_field": "user_source_analysis", "dst_field": "user_source_analysis"},
+    { "src_field": "building_blocks", "dst_field": "building_blocks"},
 ]
 
 field_mappings_from_state_to_store_customer_data = [
@@ -242,51 +175,11 @@ INPUT_FIELDS = {
     "customer_context_doc_configs": {
         "type": "list",
         "required": True,
-        "description": "List of document identifiers (namespace/docname pairs) for customer context like LinkedIn profile, content analysis, etc."
+        "description": "List of document identifiers (namespace/docname pairs) for customer context like DNA, strategy docs."
     },
-    "entity_username": { "type": "str", "required": True, "description": "LinkedIn username to generate User DNA for."},
+    "entity_username": { "type": "str", "required": True, "description": "Name of the entity to generate strategy for."},
+    # "entity_name": {"type": "str", "required": True},
 }
-
-INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW = [
-    {
-        "filename_config": {
-            "static_namespace": LINKEDIN_SCRAPING_NAMESPACE,
-            "input_docname_field": "entity_username", 
-            "input_docname_field_pattern": LINKEDIN_PROFILE_DOCNAME
-        },
-        "output_field_name": "linkedin_profile",
-        "is_shared": False,
-        "is_system_entity": False
-    },
-    {
-        "filename_config": {
-            "static_namespace": ANALYSIS_OUTPUT_NAMESPACE,
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": ANALYSIS_OUTPUT_DOCNAME_PATTERN
-        },
-        "output_field_name": "content_analysis",
-        "is_shared": False,
-        "is_system_entity": False
-    },
-    {
-        "filename_config": {
-            "static_namespace": USER_PROFILES_NAMESPACE, 
-            "static_docname": USER_PREFERENCES_DOCNAME,
-        },
-        "output_field_name": "user_preferences",
-        "is_shared": False,
-        "is_system_entity": False
-    },
-    {
-        "filename_config": {
-            "static_namespace": CONTENT_PILLARS_NAMESPACE,
-            "static_docname": CONTENT_PILLARS_DOCNAME,
-        },
-        "output_field_name": "content_pillars",
-        "is_shared": True,
-        "is_system_entity": True
-    },
-]
 
 ##############
 
@@ -479,15 +372,91 @@ workflow_graph_schema = {
 # --- Test Execution Logic ---
 async def main_test_idea_to_brief_workflow():
     """
-    Test for User DNA Generation Workflow.
+    Test for Idea to Brief Workflow.
     """
-    test_name = "User DNA Generation Workflow Test"
+    test_name = "Idea to Brief Workflow Test"
     print(f"--- Starting {test_name} --- ")
 
     # Example Inputs
+    INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW = [
+        {
+            "filename_config": {
+                 "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE, 
+                  "input_namespace_field": "entity_username",
+                  "static_docname": USER_PREFERENCES_DOCNAME,
+            },
+            "output_field_name": "user_preferences",  # Field for user preferences
+        },
+        # Source Analysis
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
+            },
+            "output_field_name": "user_source_analysis",  # Field for source analysis
+        },
+        # Core Beliefs and Perspectives
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            },
+            "output_field_name": "core_beliefs_perspectives",  # Field for core beliefs
+        },
+        # Content Pillars
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CONTENT_PILLARS_DOCNAME,
+            },
+            "output_field_name": "content_pillars",  # Field for content pillars
+        },
+        # LinkedIn Content Analysis
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CONTENT_ANALYSIS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CONTENT_ANALYSIS_DOCNAME,
+            },
+            "output_field_name": "content_analysis",  # Field for LinkedIn content analysis
+        },
+        # LinkedIn Profile
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": LINKEDIN_PROFILE_DOCNAME,
+            },
+            "output_field_name": "linkedin_profile",  # Field for LinkedIn profile data
+        },
+        # Methodology Implementation
+        {
+            "filename_config": {
+                "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+                "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
+            },
+            "output_field_name": "methodology_implementation",  # Field for methodology implementation
+            "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+            "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        },
+        # Building Blocks
+        {
+            "filename_config": {
+                "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+                "static_docname": BUILDING_BLOCKS_DOCNAME,
+            },
+            "output_field_name": "building_blocks",  # Field for building blocks
+            "is_shared": BUILDING_BLOCKS_IS_SHARED,
+            "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+        }
+    ]
+
     test_context_docs = INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW
     
-    entity_username = "johndoe123"
+    entity_username = "test_entity"
     
     test_inputs = {
         "customer_context_doc_configs": test_context_docs,
@@ -496,192 +465,238 @@ async def main_test_idea_to_brief_workflow():
 
     # Define setup documents
     setup_docs: List[SetupDocInfo] = [
+        # User Preferences
         {
-            'namespace': LINKEDIN_SCRAPING_NAMESPACE, 
-            'docname': LINKEDIN_PROFILE_DOCNAME.format(item=entity_username),
-            'initial_data': {
-                "profile_info": {
-                    "name": "John Doe",
-                    "headline": "Digital Marketing Director | Brand Strategy | Content Marketing",
-                    "location": "San Francisco, CA",
-                    "connections": 1450,
-                    "followers": 2300
-                },
-                "about": "Digital marketing professional with 10+ years of experience driving growth and engagement for B2B tech companies. Passionate about leveraging data-driven strategies to connect brands with their ideal audience.",
-                "experience": [
-                    {
-                        "title": "Marketing Director",
-                        "company": "TechSolutions Inc.",
-                        "duration": "2018 - Present",
-                        "description": "Leading digital marketing strategy across channels."
-                    },
-                    {
-                        "title": "Senior Marketing Manager",
-                        "company": "InnovateX",
-                        "duration": "2015 - 2018",
-                        "description": "Managed content strategy and marketing campaigns."
-                    }
-                ],
-                "education": [
-                    {
-                        "school": "Stanford University",
-                        "degree": "MBA, Marketing",
-                        "year": "2013 - 2015"
-                    }
-                ],
-                "skills": ["Digital Marketing", "Content Strategy", "Brand Development", "Marketing Analytics", "Team Leadership"]
-            }, 
-            'is_versioned': False, 
-            'is_shared': False,
-            'initial_version': None,
-            'is_system_entity': False
-        },
-        {
-            'namespace': ANALYSIS_OUTPUT_NAMESPACE, 
-            'docname': ANALYSIS_OUTPUT_DOCNAME_PATTERN.format(item=entity_username),
-            'initial_data': {
-                "post_analysis": {
-                    "post_frequency": "2-3 times per week",
-                    "average_engagement": {
-                        "likes": 45,
-                        "comments": 12,
-                        "shares": 8
-                    },
-                    "top_performing_content": [
-                        "Thought leadership articles on industry trends",
-                        "Case studies with measurable results",
-                        "Behind-the-scenes content about team culture"
-                    ]
-                },
-                "content_themes": [
-                    "Digital marketing strategy",
-                    "Marketing technology adoption",
-                    "Team management and leadership",
-                    "Data-driven decision making"
-                ],
-                "audience_insights": {
-                    "most_engaged_segments": ["Marketing Professionals", "Tech Industry Leaders", "Startup Founders"],
-                    "common_industries": ["Technology", "Marketing & Advertising", "SaaS"]
-                },
-                "content_format_analysis": {
-                    "text_posts": "40% (average engagement: medium)",
-                    "image_posts": "35% (average engagement: high)",
-                    "video_content": "15% (average engagement: very high)",
-                    "document_shares": "10% (average engagement: medium-low)"
-                }
-            }, 
-            'is_versioned': False, 
-            'is_shared': False,
-            'initial_version': None,
-            'is_system_entity': False
-        },
-        {
-            'namespace': USER_PROFILES_NAMESPACE, 
+            'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 
             'docname': USER_PREFERENCES_DOCNAME,
             'initial_data': {
-                "preferred_posting_schedule": {
-                    "frequency": "3 times per week",
-                    "best_days": ["Monday", "Wednesday", "Friday"],
-                    "best_times": ["8:30 AM", "12:00 PM"]
-                },
-                "content_preferences": {
-                    "tone": "Professional with occasional humor",
-                    "length": "Medium to long-form content",
-                    "media_types": ["Images", "Infographics", "Short videos"]
-                },
-                "strategy_goals": [
-                    "Establish thought leadership in digital marketing",
-                    "Grow LinkedIn following to 5,000 within 6 months",
-                    "Generate more speaking opportunities at industry events",
-                    "Connect with potential clients and partners"
-                ],
-                "content_topics": [
-                    "Marketing strategy trends",
-                    "Team leadership in creative fields",
-                    "Marketing technology tools and adoption",
-                    "Case studies and success stories"
-                ]
+                "posts_per_week": 2,
+                "preferred_posting_days": ["Monday", "Thursday"],
+                "preferred_topics": ["Leadership", "Marketing Trends"],
+                "content_tone": "Professional"
             }, 
-            'is_versioned': False, 
+            'is_versioned': USER_PREFERENCES_IS_VERSIONED, 
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Source Analysis
+        {
+            'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': USER_SOURCE_ANALYSIS_DOCNAME,
+            'initial_data': {
+                "primary_sources": ["Industry reports", "Competitor analysis"],
+                "content_gaps": ["Technical deep dives", "Case studies"],
+                "audience_interests": ["Innovation", "Best practices", "Industry trends"],
+                "engagement_patterns": {
+                    "high_engagement": ["How-to content", "Industry insights"],
+                    "low_engagement": ["Company news", "Generic updates"]
+                }
+            },
+            'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Core Beliefs and Perspectives
+        {
+            'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            'initial_data': {
+                "core_beliefs": [
+                    "Marketing should drive measurable business outcomes",
+                    "Authenticity creates stronger customer relationships",
+                    "Data-driven decisions lead to better marketing performance"
+                ],
+                "key_perspectives": [
+                    "Digital transformation is essential for modern marketing",
+                    "Content should educate and provide value before selling",
+                    "Brand consistency builds trust across all touchpoints"
+                ],
+                "unique_viewpoints": [
+                    "Marketing ROI can be precisely measured with the right attribution models",
+                    "Community building is more valuable than traditional advertising"
+                ]
+            },
+            'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Content Pillars
+        {
+            'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': CONTENT_PILLARS_DOCNAME,
+            'initial_data': {
+                "pillars": [
+                    {
+                        "name": "Digital Marketing Strategies",
+                        "topics": ["SEO best practices", "Social media marketing", "Email automation"],
+                        "audience_pain_points": ["Low conversion rates", "Poor engagement", "Unclear ROI"]
+                    },
+                    {
+                        "name": "Brand Development",
+                        "topics": ["Brand positioning", "Visual identity", "Brand messaging"],
+                        "audience_pain_points": ["Brand inconsistency", "Market differentiation", "Customer perception"]
+                    },
+                    {
+                        "name": "Marketing Analytics",
+                        "topics": ["KPI development", "Attribution modeling", "Performance tracking"],
+                        "audience_pain_points": ["Data silos", "Measuring impact", "Actionable insights"]
+                    }
+                ]
+            },
+            'is_versioned': CONTENT_PILLARS_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # LinkedIn Content Analysis
+        {
+            'namespace': CONTENT_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': CONTENT_ANALYSIS_DOCNAME,
+            'initial_data': {
+                "theme_reports": [
+                    {
+                        "theme": "Leadership",
+                        "key_insights": ["Focuses on team empowerment", "Emphasizes strategic thinking"],
+                        "engagement_metrics": {"avg_likes": 45, "avg_comments": 12}
+                    },
+                    {
+                        "theme": "Industry Trends",
+                        "key_insights": ["Regularly discusses digital transformation", "Highlights emerging technologies"],
+                        "engagement_metrics": {"avg_likes": 38, "avg_comments": 8}
+                    }
+                ],
+                "overall_analysis": {
+                    "content_strengths": ["Thought leadership", "Educational content"],
+                    "content_gaps": ["Case studies", "Personal stories"]
+                }
+            },
+            'is_versioned': False,
             'is_shared': False,
             'initial_version': None,
             'is_system_entity': False
         },
+        # LinkedIn Profile
         {
-            # NOTE: this can only be created by a superuser!
-            'namespace': CONTENT_PILLARS_NAMESPACE,
-            'docname': CONTENT_PILLARS_DOCNAME,
+            'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': LINKEDIN_PROFILE_DOCNAME,
             'initial_data': {
-                "recommended_pillars": [
-                    {
-                        "pillar_name": "Thought Leadership",
-                        "description": "Content that establishes authority and unique perspective in your industry",
-                        "suggested_formats": ["Long-form articles", "Industry analysis", "Prediction posts"],
-                        "recommended_frequency": "25-30% of content"
-                    },
-                    {
-                        "pillar_name": "Educational Content",
-                        "description": "Content that teaches your audience valuable skills or knowledge",
-                        "suggested_formats": ["How-to guides", "Tips and tricks", "Tutorials"],
-                        "recommended_frequency": "30-35% of content"
-                    },
-                    {
-                        "pillar_name": "Community Engagement",
-                        "description": "Content that builds connections with your audience",
-                        "suggested_formats": ["Questions", "Polls", "Discussion starters"],
-                        "recommended_frequency": "15-20% of content"
-                    },
-                    {
-                        "pillar_name": "Personal Brand",
-                        "description": "Content that humanizes your brand and shares your story",
-                        "suggested_formats": ["Behind-the-scenes", "Career journey posts", "Values-focused content"],
-                        "recommended_frequency": "10-15% of content"
-                    },
-                    {
-                        "pillar_name": "Social Proof",
-                        "description": "Content that demonstrates credibility through results and testimonials",
-                        "suggested_formats": ["Case studies", "Testimonials", "Results showcases"],
-                        "recommended_frequency": "10-15% of content"
-                    }
-                ],
-                "implementation_framework": {
-                    "step_1": "Identify your unique value proposition",
-                    "step_2": "Analyze audience needs and pain points",
-                    "step_3": "Map content pillars to audience needs",
-                    "step_4": "Create content calendar based on pillars",
-                    "step_5": "Track performance and adjust strategy"
+                "profile_info": {
+                    "headline": "Marketing Director | Digital Strategy | Brand Development",
+                    "summary": "Experienced marketing professional with 10+ years in digital strategy and brand development.",
+                    "experience": [
+                        {
+                            "title": "Marketing Director",
+                            "company": "Tech Solutions Inc.",
+                            "duration": "2018-Present"
+                        },
+                        {
+                            "title": "Senior Marketing Manager",
+                            "company": "Digital Innovations Co.",
+                            "duration": "2015-2018"
+                        }
+                    ]
                 },
-                "success_indicators": [
-                    "Engagement growth over time",
-                    "Follower growth rate",
-                    "Conversion to website visits",
-                    "Lead generation",
-                    "Network quality improvement"
+                "skills": ["Digital Marketing", "Brand Strategy", "Content Marketing", "Analytics"]
+            },
+            'is_versioned': False,
+            'is_shared': False,
+            'initial_version': None,
+            'is_system_entity': False
+        },
+        # Methodology Implementation (System document)
+        {
+            'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+            'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
+            'initial_data': {
+                "methodology_name": "AI Copilot Content Strategy",
+                "implementation_steps": [
+                    "Analyze user DNA and preferences",
+                    "Generate content strategy aligned with user goals",
+                    "Create content briefs based on strategy",
+                    "Develop multiple content concepts for review"
+                ],
+                "best_practices": [
+                    "Maintain consistent brand voice",
+                    "Focus on audience pain points",
+                    "Incorporate industry trends",
+                    "Balance educational and promotional content"
                 ]
             },
             'is_versioned': False,
-            'is_shared': True,
+            'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
             'initial_version': None,
-            'is_system_entity': True
+            'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        },
+        # Building Blocks (System document)
+        {
+            'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+            'docname': BUILDING_BLOCKS_DOCNAME,
+            'initial_data': {
+                "core_building_blocks": [
+                    "Audience analysis",
+                    "Content pillars",
+                    "Content formats",
+                    "Distribution channels",
+                    "Performance metrics"
+                ],
+                "implementation_framework": {
+                    "phase_1": "Discovery and analysis",
+                    "phase_2": "Strategy development",
+                    "phase_3": "Content creation",
+                    "phase_4": "Distribution and promotion",
+                    "phase_5": "Measurement and optimization"
+                },
+                "success_indicators": [
+                    "Engagement rate",
+                    "Conversion metrics",
+                    "Audience growth",
+                    "Content consistency"
+                ]
+            },
+            'is_versioned': False,
+            'is_shared': BUILDING_BLOCKS_IS_SHARED,
+            'initial_version': None,
+            'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
         }
     ]
 
     # Define cleanup docs
     cleanup_docs: List[CleanupDocInfo] = [
-        {'namespace': LINKEDIN_SCRAPING_NAMESPACE, 'docname': LINKEDIN_PROFILE_DOCNAME.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': ANALYSIS_OUTPUT_NAMESPACE, 'docname': ANALYSIS_OUTPUT_DOCNAME_PATTERN.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': USER_PROFILES_NAMESPACE, 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': CONTENT_PILLARS_NAMESPACE, 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': False, 'is_shared': True, 'is_system_entity': True},
-        {'namespace': USER_DNA_NAMESPACE, 'docname': USER_DNA_DOCNAME_PATTERN.format(item=entity_username), 'is_versioned': True, 'is_shared': False, 'is_system_entity': False},
+        # User-specific documents
+        {'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': USER_PREFERENCES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_SOURCE_ANALYSIS_DOCNAME, 'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME, 'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': CONTENT_PILLARS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': CONTENT_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_ANALYSIS_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': LINKEDIN_PROFILE_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
+        
+        # Output document
+        {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_STRATEGY_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        
+        # System documents
+        {'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE, 'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME, 'is_versioned': False, 'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED, 'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY},
+        {'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE, 'docname': BUILDING_BLOCKS_DOCNAME, 'is_versioned': False, 'is_shared': BUILDING_BLOCKS_IS_SHARED, 'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY},
     ]
 
     # Predefined HITL inputs
-    predefined_hitl_inputs = []
-
+    predefined_hitl_inputs = [
+        # {
+        #     "approval_status": "select_concepts",  # "regenerate", "restart_from_idea_generation"
+        #     "selected_concepts": ["concept_1", "concept_2"],
+        # }
+        # feedback_text  ;  
+    ]
+    # VALID HUMAN INPUTS TYPE TO CONSOLE DIRECTLY, ENSURE SELECTED ID IS EXACT MATCH TO GENERATED!
+    # {"approval_status": "select_concepts", "selected_concepts": ["concept_004"]}
+    # {"approval_status": "regenerate"}
+    # {"approval_status": "restart_from_idea_generation"}
     # Output validation function
-    async def validate_user_dna_output(outputs):
+    async def validate_content_strategy_output(outputs) -> bool:
         """
-        Validates the output from the User DNA generation workflow against expected schema.
+        Validates the output from the user understanding workflow against expected schema.
         
         Args:
             outputs: The workflow output dictionary to validate
@@ -689,36 +704,70 @@ async def main_test_idea_to_brief_workflow():
         Returns:
             bool: True if validation passes, raises AssertionError otherwise
         """
+        from typing import List, Dict, Any
+        
         assert outputs is not None, "Validation Failed: Workflow returned no outputs."
         assert 'generated_output' in outputs, "Validation Failed: 'generated_output' missing."
         assert 'paths_processed' in outputs, "Validation Failed: 'paths_processed' missing."
         
-        # Validate the User DNA structure
+        # Validate the user DNA structure
         if 'generated_output' in outputs:
             user_dna = outputs['generated_output']
             
-            # Validate the top-level sections
-            assert 'professional_identity' in user_dna, "User DNA is missing 'professional_identity' section"
-            assert 'linkedin_profile_analysis' in user_dna, "User DNA is missing 'linkedin_profile_analysis' section"
-            assert 'brand_voice_style' in user_dna, "User DNA is missing 'brand_voice_style' section"
-            assert 'content_strategy_goals' in user_dna, "User DNA is missing 'content_strategy_goals' section"
-            assert 'personal_context' in user_dna, "User DNA is missing 'personal_context' section"
-            assert 'analytics_insights' in user_dna, "User DNA is missing 'analytics_insights' section"
-            assert 'success_metrics' in user_dna, "User DNA is missing 'success_metrics' section"
+            # Validate professional identity
+            assert 'professional_identity' in user_dna, "User DNA missing 'professional_identity' field"
+            prof_identity = user_dna['professional_identity']
+            assert 'full_name' in prof_identity, "Professional identity missing 'full_name' field"
+            assert 'job_title' in prof_identity, "Professional identity missing 'job_title' field"
+            assert 'industry_sector' in prof_identity, "Professional identity missing 'industry_sector' field"
+            assert 'areas_of_expertise' in prof_identity, "Professional identity missing 'areas_of_expertise' field"
+            assert isinstance(prof_identity['areas_of_expertise'], list), "'areas_of_expertise' should be a list"
             
-            # Validate a few key fields in each section
-            prof_id = user_dna['professional_identity']
-            assert 'background' in prof_id, "Professional identity missing 'background'"
-            assert 'expertise' in prof_id, "Professional identity missing 'expertise'"
+            # Validate LinkedIn profile analysis
+            assert 'linkedin_profile_analysis' in user_dna, "User DNA missing 'linkedin_profile_analysis' field"
+            linkedin_analysis = user_dna['linkedin_profile_analysis']
+            assert 'engagement_metrics' in linkedin_analysis, "LinkedIn analysis missing 'engagement_metrics' field"
+            assert 'top_performing_content_pillars' in linkedin_analysis, "LinkedIn analysis missing 'top_performing_content_pillars' field"
+            assert isinstance(linkedin_analysis['top_performing_content_pillars'], list), "'top_performing_content_pillars' should be a list"
             
-            brand_voice = user_dna['brand_voice_style']
-            assert 'voice' in brand_voice, "Brand voice & style missing 'voice'"
-            assert 'content_preferences' in brand_voice, "Brand voice & style missing 'content_preferences'"
+            # Validate brand voice and style
+            assert 'brand_voice_and_style' in user_dna, "User DNA missing 'brand_voice_and_style' field"
+            brand_voice = user_dna['brand_voice_and_style']
+            assert 'communication_style' in brand_voice, "Brand voice missing 'communication_style' field"
+            assert 'tone_preferences' in brand_voice, "Brand voice missing 'tone_preferences' field"
+            assert isinstance(brand_voice['tone_preferences'], list), "'tone_preferences' should be a list"
+            
+            # Validate content strategy goals
+            assert 'content_strategy_goals' in user_dna, "User DNA missing 'content_strategy_goals' field"
+            strategy_goals = user_dna['content_strategy_goals']
+            assert 'primary_goal' in strategy_goals, "Content strategy goals missing 'primary_goal' field"
+            assert 'secondary_goals' in strategy_goals, "Content strategy goals missing 'secondary_goals' field"
+            assert isinstance(strategy_goals['secondary_goals'], list), "'secondary_goals' should be a list"
+            assert 'content_pillar_themes' in strategy_goals, "Content strategy goals missing 'content_pillar_themes' field"
+            assert isinstance(strategy_goals['content_pillar_themes'], list), "'content_pillar_themes' should be a list"
+            
+            # Validate personal context
+            assert 'personal_context' in user_dna, "User DNA missing 'personal_context' field"
+            personal_context = user_dna['personal_context']
+            assert 'personal_values' in personal_context, "Personal context missing 'personal_values' field"
+            assert isinstance(personal_context['personal_values'], list), "'personal_values' should be a list"
+            
+            # Validate analytics insights
+            assert 'analytics_insights' in user_dna, "User DNA missing 'analytics_insights' field"
+            
+            # Validate success metrics
+            assert 'success_metrics' in user_dna, "User DNA missing 'success_metrics' field"
+            success_metrics = user_dna['success_metrics']
+            assert 'content_performance_kpis' in success_metrics, "Success metrics missing 'content_performance_kpis' field"
+            assert isinstance(success_metrics['content_performance_kpis'], list), "'content_performance_kpis' should be a list"
             
             # Log success message
             print(f"✓ User DNA validated successfully")
-            print(f"✓ Professional background: {prof_id.get('background', 'unknown')[:100]}...")
-            print(f"✓ Brand voice: {brand_voice.get('voice', 'unknown')}")
+            print(f"✓ User: {prof_identity.get('full_name', 'unknown')}")
+            print(f"✓ Job Title: {prof_identity.get('job_title', 'unknown')}")
+            print(f"✓ Industry: {prof_identity.get('industry_sector', 'unknown')}")
+            print(f"✓ Primary Goal: {strategy_goals.get('primary_goal', 'unknown')}")
+            print(f"✓ Communication Style: {brand_voice.get('communication_style', 'unknown')}")
         
         return True
 
@@ -730,8 +779,9 @@ async def main_test_idea_to_brief_workflow():
         expected_final_status=WorkflowRunStatus.COMPLETED,
         hitl_inputs=predefined_hitl_inputs,
         setup_docs=setup_docs,
+        cleanup_docs_created_by_setup=True,
         cleanup_docs=cleanup_docs,
-        validate_output_func=validate_user_dna_output,
+        validate_output_func=validate_content_strategy_output,
         stream_intermediate_results=True,
         poll_interval_sec=5,
         timeout_sec=600
@@ -739,11 +789,13 @@ async def main_test_idea_to_brief_workflow():
 
     print(f"--- {test_name} Finished --- ")
     if final_run_outputs and 'generated_output' in final_run_outputs:
-        user_dna = final_run_outputs['generated_output']
-        print(f"Professional Identity: {user_dna.get('professional_identity', {}).get('background', 'unknown')[:100]}...")
-        print(f"Brand Voice: {user_dna.get('brand_voice_style', {}).get('voice', 'unknown')}")
-        print(f"Top Content Strategy Goal: {user_dna.get('content_strategy_goals', {}).get('objectives', ['unknown'])[0]}")
-        print(f"Key Success Metric: {user_dna.get('success_metrics', {}).get('kpis', ['unknown'])[0]}")
+        strategy = final_run_outputs['generated_output']
+        print(f"Target Audience: {strategy.get('target_audience', 'unknown')}")
+        print(f"Content Purpose: {strategy.get('content_purpose', 'unknown')}")
+        print(f"Content Format: {strategy.get('content_format', 'unknown')}")
+        print(f"Tone and Style: {strategy.get('tone_and_style', 'unknown')}")
+        print(f"Relevant Trends: {', '.join(strategy.get('relevant_trends', []))}")
+        print(f"Posting Frequency: {strategy.get('posting_schedule', {}).get('frequency', 'unknown')}")
 
 if __name__ == "__main__":
     try:

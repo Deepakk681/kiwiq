@@ -1,22 +1,3 @@
-"""
-
-Flow: 
-1. input node -> load_all_context_docs and load_draft_posts
-2. [load_all_context_docs, load_draft_posts] -> construct_initial_concepts_prompt (enable_node_fan_in true)
-3. construct_initial_concepts_prompt -> generate_content
-4. generate_content -> store_customer_data
-5. store_customer_data -> capture_user_choice
-5. capture_user_choice -> route_on_user_choice
-6. route_on_user_choice -> construct_concepts_regeneration_prompt [selection: regenerate concepts]
-7. route_on_user_choice -> output_node [selection: Go back to initial ideas brief generation]
-8. route_on_user_choice -> filter_selected_concepts [selection: select list of concepts]
-9. construct_concepts_regeneration_prompt -> generate_content (concepts regeneration loop, generate_content reads message_history from state)
-10. filter_selected_concepts -> construct_update_content_brief_prompt
-11. construct_update_content_brief_prompt -> generated_updated_content_brief
-12. generated_updated_content_brief -> save_updated_content_brief
-13. save_updated_content_brief -> output_node
-"""
-
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List, Union, ClassVar, Type
@@ -34,15 +15,50 @@ from kiwi_client.test_run_workflow_client import (
 )
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
+from kiwi_client.workflows.document_models.customer_docs import (
+    # Content Strategy
+    CONTENT_STRATEGY_DOCNAME,
+    CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+    CONTENT_STRATEGY_IS_VERSIONED,
+    # User Preferences
+    USER_PREFERENCES_DOCNAME,
+    USER_PREFERENCES_NAMESPACE_TEMPLATE,
+    USER_PREFERENCES_IS_VERSIONED,
+    # Source Analysis
+    USER_SOURCE_ANALYSIS_DOCNAME,
+    USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+    USER_SOURCE_ANALYSIS_IS_VERSIONED,
+    # Core Beliefs and Perspectives
+    CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+    CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+    CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+    # Content Pillars
+    CONTENT_PILLARS_DOCNAME,
+    CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+    CONTENT_PILLARS_IS_VERSIONED,
+
+    # System Strategy Documents
+    
+    # Methodology Implementation
+    METHODOLOGY_IMPLEMENTATION_DOCNAME,
+    METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+    METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+    METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY,
+
+    # Build Blocks
+    BUILDING_BLOCKS_DOCNAME,
+    BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+    BUILDING_BLOCKS_IS_SHARED,
+    BUILDING_BLOCKS_IS_SYSTEM_ENTITY,
+)
+
+from kiwi_client.workflows.llm_inputs.content_strategy import (
+    GENERATION_SCHEMA,
+    USER_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT_TEMPLATE,
+)
+
 # --- Workflow Configuration Constants ---
-# Namespaces and storage
-USER_PROFILES_NAMESPACE = "user_profiles"
-USER_DNA_DOCNAME = "user_dna_doc"
-USER_PREFERENCES_DOCNAME = "user_preferences_doc"
-GENERATED_STRATEGY_NAMESPACE = "generated_strategy"
-STRATEGY_DOCS_NAMESPACE = "strategy_docs"
-CONTENT_STRATEGY_DOCNAME = "content_strategy_doc_{item}"
-GENERATED_STRATEGY_DOCNAME_PATTERN = "content_strategy_{item}"
 
 # LLM Configuration
 LLM_PROVIDER = "openai"
@@ -52,122 +68,41 @@ LLM_MAX_TOKENS = 4000
 
 
 ### SAVE DOCUMENT CONFIG ###
-SAVE_DOC_NAMESPACE = GENERATED_STRATEGY_NAMESPACE
-SAVE_DOC_DOCNAME_PATTERN = GENERATED_STRATEGY_DOCNAME_PATTERN
-SAVE_DOCNAME_INPUT_FIELD = "entity_username"
 SAVE_DOC_FILENAME_CONFIG = {
     "filename_config": {
-        "static_namespace": SAVE_DOC_NAMESPACE,
-        "input_docname_field": SAVE_DOCNAME_INPUT_FIELD, # Field in node's input containing the value
-        "input_docname_field_pattern": SAVE_DOC_DOCNAME_PATTERN  # 'item' here will be the value of entity_name
+        "input_namespace_field_pattern": CONTENT_STRATEGY_NAMESPACE_TEMPLATE, 
+        "input_namespace_field": "entity_username",
+        "static_docname": CONTENT_STRATEGY_DOCNAME,
     }
 }
 SAVE_DOC_GLOBAL_VERSIONING = {
-    "is_versioned": True,
+    "is_versioned": CONTENT_STRATEGY_IS_VERSIONED,
     "operation": "upsert_versioned", # Must not exist yet
     # "version": "generated_draft" # Name the initial version
 }
 ########################
 
 
-### GENERATION SCHEMA ###
-# --- Pydantic Schemas for LLM Outputs ---
-class ContentTopicMixItem(BaseModel):
-    """
-    Represents a single content topic with its recommended percentage.
-    """
-    topic_name: str = Field(..., description="Name of the content topic (e.g., 'thought leadership', 'industry news').")
-    percentage: float = Field(..., description="Recommended percentage for this topic (e.g., 40.0).")
-
-class ContentFormatMixItem(BaseModel):
-    """
-    Represents a single content format with its recommended percentage.
-    """
-    format_name: str = Field(..., description="Name of the content format (e.g., 'text posts', 'carousels', 'videos').")
-    percentage: float = Field(..., description="Recommended percentage for this format (e.g., 30.0).")
-
-class ContentMixSchema(BaseModel):
-    """
-    Defines the structure for content distribution recommendations by topic and format.
-    """
-    topic_mix: List[ContentTopicMixItem] = Field(
-        ..., 
-        description="Distribution of content by topic type with percentages."
-    )
-    format_mix: List[ContentFormatMixItem] = Field(
-        ..., 
-        description="Distribution of content by format type with percentages."
-    )
-    
-class PostingScheduleSchema(BaseModel):
-    """
-    Defines the structure for a posting schedule recommendation.
-    """
-    frequency: str = Field(..., description="How often to post (e.g., 'daily', 'twice weekly', 'weekly').")
-    best_days: List[str] = Field(..., description="Best days of the week to post (e.g., ['Monday', 'Thursday']).")
-    best_times: List[str] = Field(..., description="Best times of day to post (e.g., ['8:00 AM', '5:30 PM']).")
-    content_mix: ContentMixSchema = Field(
-        ..., 
-        description="Recommended mix of content by topics and formats with percentages."
-    )
-    consistency_notes: str = Field(..., description="Notes on maintaining posting consistency and audience expectations.")
-
-class ContentStrategySchema(BaseModel):
-    """
-    Defines the structure for a single content strategy generated by the LLM.
-    """
-    target_audience: str = Field(..., description="The intended audience for this content.")
-    content_purpose: str = Field(..., description="The goal or objective of the content (educational, inspirational, etc.).")
-    content_format: str = Field(..., description="The format of the content (article, post, carousel, etc.).")
-    tone_and_style: str = Field(..., description="The tone and writing style for the content.")
-    relevant_trends: List[str] = Field(..., description="Current industry trends relevant to the content.")
-    key_statistics: List[str] = Field(..., description="Important statistics to support the content.")
-    posting_schedule: PostingScheduleSchema = Field(..., description="Detailed posting schedule recommendations.")
-
-GENERATION_SCHEMA = ContentStrategySchema.model_json_schema()
-########################
-
-### USER PROMPT TEMPLATE ###
-USER_PROMPT_TEMPLATE = """Develop a comprehensive LinkedIn content strategy.
-
-LinkedIn Profile to create strategy for: {entity_username}
-
-**Strategic Framework:**
-- Content Methodology: {content_methodology}
-- Implementation Guidelines: {methodology_implementation}
-
-**User Information:**
-- Professional Profile: {user_dna}
-- Content Preferences: {user_preferences}
-
-**Task:**
-Create 3 distinct content strategy concepts for this LinkedIn profile.
-Each strategy should include target audience, content purpose, format recommendations, 
-tone guidelines, relevant industry trends, and key statistics to leverage.
-Provide diverse strategies that align with the user's professional goals and audience.
-
-Respond ONLY with the JSON object matching the specified schema.
-"""
-
 USER_PROMPT_TEMPLATE_VARIABLES = {
-    "user_dna": None,
-    "content_methodology": None,
     "user_preferences": None,
     "methodology_implementation": None,
-    "entity_username": None
+    # "entity_username": None,
+    "core_beliefs_perspectives": None,
+    "content_pillars": None,
+    "user_source_analysis": None,
+    "building_blocks": None
 }
 
 USER_PROMPT_TEMPLATE_CONSTRUCT_OPTIONS = {
-    "user_dna": "user_dna",
-    "content_methodology": "content_methodology",
     "methodology_implementation": "methodology_implementation",
     "user_preferences": "user_preferences",
-    "entity_username": "entity_username"
+    # "entity_username": "entity_username",
+    "core_beliefs_perspectives": "core_beliefs_perspectives",
+    "content_pillars": "content_pillars",
+    "user_source_analysis": "user_source_analysis",
+    "building_blocks": "building_blocks"
 }
 ##############################
-
-### SYSTEM PROMPT TEMPLATE ###
-SYSTEM_PROMPT_TEMPLATE = "You are a strategic LinkedIn content consultant specializing in professional branding and audience growth. Develop 3-4 comprehensive content strategy options tailored to the user's professional background and goals. Each strategy should maximize engagement and thought leadership positioning. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```"
 
 SYSTEM_PROMPT_TEMPLATE_VARIABLES = {
     "schema": GENERATION_SCHEMA
@@ -180,9 +115,11 @@ SYSTEM_PROMPT_TEMPLATE_CONSTRUCT_OPTIONS = {}
 field_mappings_from_state_to_prompt_constructor = [
     { "src_field": "user_preferences", "dst_field": "user_preferences"},
     { "src_field": "methodology_implementation", "dst_field": "methodology_implementation" },
-    { "src_field": "content_methodology", "dst_field": "content_methodology" },
-    { "src_field": "user_dna", "dst_field": "user_dna" },
-    { "src_field": "entity_username", "dst_field": "entity_username" },
+    # { "src_field": "entity_username", "dst_field": "entity_username" },
+    { "src_field": "core_beliefs_perspectives", "dst_field": "core_beliefs_perspectives"},
+    { "src_field": "content_pillars", "dst_field": "content_pillars"},
+    { "src_field": "user_source_analysis", "dst_field": "user_source_analysis"},
+    { "src_field": "building_blocks", "dst_field": "building_blocks"},
 ]
 
 field_mappings_from_input_to_state = [
@@ -196,10 +133,12 @@ field_mappings_from_input_to_load_all_context_docs = [
 ]
 
 field_mappings_from_load_all_context_docs_to_state = [
-    { "src_field": "user_dna", "dst_field": "user_dna"},
     { "src_field": "user_preferences", "dst_field": "user_preferences"},
     { "src_field": "methodology_implementation", "dst_field": "methodology_implementation"},
-    { "src_field": "content_methodology", "dst_field": "content_methodology"},
+    { "src_field": "core_beliefs_perspectives", "dst_field": "core_beliefs_perspectives"},
+    { "src_field": "content_pillars", "dst_field": "content_pillars"},
+    { "src_field": "user_source_analysis", "dst_field": "user_source_analysis"},
+    { "src_field": "building_blocks", "dst_field": "building_blocks"},
 ]
 
 field_mappings_from_state_to_store_customer_data = [
@@ -219,45 +158,6 @@ INPUT_FIELDS = {
     "entity_username": { "type": "str", "required": True, "description": "Name of the entity to generate strategy for."},
     # "entity_name": {"type": "str", "required": True},
 }
-
-INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW = [
-    {
-        "filename_config": {
-            "static_namespace": USER_PROFILES_NAMESPACE, 
-            "static_docname": USER_DNA_DOCNAME,
-        },
-        "output_field_name": "user_dna",
-        "is_shared": False,
-        "is_system_entity": False
-    },
-    {
-        "filename_config": {
-            "static_namespace": USER_PROFILES_NAMESPACE, 
-            "static_docname": USER_PREFERENCES_DOCNAME,
-        },
-        "output_field_name": "user_preferences",
-        "is_shared": False,
-        "is_system_entity": False
-    },
-    {
-        "filename_config": {
-            "static_namespace": STRATEGY_DOCS_NAMESPACE,
-            "static_docname": "methodology_implementation_ai_copilot",
-        },
-        "output_field_name": "methodology_implementation",
-        "is_shared": True,
-        "is_system_entity": True
-    },
-    {
-        "filename_config": {
-            "static_namespace": STRATEGY_DOCS_NAMESPACE,
-            "static_docname": "building_blocks_content_methodology",
-        },
-        "output_field_name": "content_methodology",
-        "is_shared": False,
-        "is_system_entity": True
-    },
-]
 
 ##############
 
@@ -456,6 +356,65 @@ async def main_test_idea_to_brief_workflow():
     print(f"--- Starting {test_name} --- ")
 
     # Example Inputs
+
+    INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW = [
+        {
+            "filename_config": {
+                 "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE, 
+                  "input_namespace_field": "entity_username",
+                  "static_docname": USER_PREFERENCES_DOCNAME,
+            },
+            "output_field_name": "user_preferences",  # Field for user preferences
+        },
+        # Source Analysis
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
+            },
+            "output_field_name": "user_source_analysis",  # Field for source analysis
+        },
+        # Core Beliefs and Perspectives
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            },
+            "output_field_name": "core_beliefs_perspectives",  # Field for core beliefs
+        },
+        # Content Pillars
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CONTENT_PILLARS_DOCNAME,
+            },
+            "output_field_name": "content_pillars",  # Field for content pillars
+        },
+        # Methodology Implementation
+        {
+            "filename_config": {
+                "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+                "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
+            },
+            "output_field_name": "methodology_implementation",  # Field for methodology implementation
+            "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+            "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        },
+        # Building Blocks
+        {
+            "filename_config": {
+                "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+                "static_docname": BUILDING_BLOCKS_DOCNAME,
+            },
+            "output_field_name": "building_blocks",  # Field for building blocks
+            "is_shared": BUILDING_BLOCKS_IS_SHARED,
+            "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+        }
+    ]
+
     test_context_docs = INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW
     
     entity_username = "test_entity"
@@ -467,22 +426,9 @@ async def main_test_idea_to_brief_workflow():
 
     # Define setup documents
     setup_docs: List[SetupDocInfo] = [
+        # User Preferences
         {
-            'namespace': USER_PROFILES_NAMESPACE, 
-            'docname': USER_DNA_DOCNAME,
-            'initial_data': {
-                "professional_background": "Marketing executive",
-                "expertise_areas": ["Digital Marketing", "Brand Strategy"],
-                "target_audience": "Marketing professionals",
-                "personal_style": "Conversational but authoritative"
-            }, 
-            'is_versioned': False, 
-            'is_shared': False,
-            'initial_version': None,
-            'is_system_entity': False
-        },
-        {
-            'namespace': USER_PROFILES_NAMESPACE, 
+            'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 
             'docname': USER_PREFERENCES_DOCNAME,
             'initial_data': {
                 "posts_per_week": 2,
@@ -490,15 +436,86 @@ async def main_test_idea_to_brief_workflow():
                 "preferred_topics": ["Leadership", "Marketing Trends"],
                 "content_tone": "Professional"
             }, 
-            'is_versioned': False, 
+            'is_versioned': USER_PREFERENCES_IS_VERSIONED, 
             'is_shared': False,
-            'initial_version': None,
+            'initial_version': "default",
             'is_system_entity': False
         },
+        # Source Analysis
         {
-            # NOTE: this can only be created by a superuser!
-            'namespace': STRATEGY_DOCS_NAMESPACE,
-            'docname': "methodology_implementation_ai_copilot",
+            'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': USER_SOURCE_ANALYSIS_DOCNAME,
+            'initial_data': {
+                "primary_sources": ["Industry reports", "Competitor analysis"],
+                "content_gaps": ["Technical deep dives", "Case studies"],
+                "audience_interests": ["Innovation", "Best practices", "Industry trends"],
+                "engagement_patterns": {
+                    "high_engagement": ["How-to content", "Industry insights"],
+                    "low_engagement": ["Company news", "Generic updates"]
+                }
+            },
+            'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Core Beliefs and Perspectives
+        {
+            'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            'initial_data': {
+                "core_beliefs": [
+                    "Marketing should drive measurable business outcomes",
+                    "Authenticity creates stronger customer relationships",
+                    "Data-driven decisions lead to better marketing performance"
+                ],
+                "key_perspectives": [
+                    "Digital transformation is essential for modern marketing",
+                    "Content should educate and provide value before selling",
+                    "Brand consistency builds trust across all touchpoints"
+                ],
+                "unique_viewpoints": [
+                    "Marketing ROI can be precisely measured with the right attribution models",
+                    "Community building is more valuable than traditional advertising"
+                ]
+            },
+            'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Content Pillars
+        {
+            'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            'docname': CONTENT_PILLARS_DOCNAME,
+            'initial_data': {
+                "pillars": [
+                    {
+                        "name": "Digital Marketing Strategies",
+                        "topics": ["SEO best practices", "Social media marketing", "Email automation"],
+                        "audience_pain_points": ["Low conversion rates", "Poor engagement", "Unclear ROI"]
+                    },
+                    {
+                        "name": "Brand Development",
+                        "topics": ["Brand positioning", "Visual identity", "Brand messaging"],
+                        "audience_pain_points": ["Brand inconsistency", "Market differentiation", "Customer perception"]
+                    },
+                    {
+                        "name": "Marketing Analytics",
+                        "topics": ["KPI development", "Attribution modeling", "Performance tracking"],
+                        "audience_pain_points": ["Data silos", "Measuring impact", "Actionable insights"]
+                    }
+                ]
+            },
+            'is_versioned': CONTENT_PILLARS_IS_VERSIONED,
+            'is_shared': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Methodology Implementation (System document)
+        {
+            'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+            'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
             'initial_data': {
                 "methodology_name": "AI Copilot Content Strategy",
                 "implementation_steps": [
@@ -515,14 +532,14 @@ async def main_test_idea_to_brief_workflow():
                 ]
             },
             'is_versioned': False,
-            'is_shared': True,
+            'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
             'initial_version': None,
-            'is_system_entity': True
+            'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
         },
+        # Building Blocks (System document)
         {
-            # NOTE: this can only be created by a superuser!
-            'namespace': STRATEGY_DOCS_NAMESPACE,
-            'docname': "building_blocks_content_methodology",
+            'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+            'docname': BUILDING_BLOCKS_DOCNAME,
             'initial_data': {
                 "core_building_blocks": [
                     "Audience analysis",
@@ -546,19 +563,26 @@ async def main_test_idea_to_brief_workflow():
                 ]
             },
             'is_versioned': False,
-            'is_shared': True,
+            'is_shared': BUILDING_BLOCKS_IS_SHARED,
             'initial_version': None,
-            'is_system_entity': True
+            'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
         }
     ]
 
     # Define cleanup docs
     cleanup_docs: List[CleanupDocInfo] = [
-        {'namespace': USER_PROFILES_NAMESPACE, 'docname': USER_DNA_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': USER_PROFILES_NAMESPACE, 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': STRATEGY_DOCS_NAMESPACE, 'docname': CONTENT_STRATEGY_DOCNAME.format(item=entity_username), 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
-        {'namespace': STRATEGY_DOCS_NAMESPACE, 'docname': "methodology_implementation_ai_copilot", 'is_versioned': False, 'is_shared': True, 'is_system_entity': True},
-        {'namespace': STRATEGY_DOCS_NAMESPACE, 'docname': "building_blocks_content_methodology", 'is_versioned': False, 'is_shared': True, 'is_system_entity': True},
+        # User-specific documents
+        {'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': USER_PREFERENCES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_SOURCE_ANALYSIS_DOCNAME, 'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME, 'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': CONTENT_PILLARS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        
+        # Output document
+        {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_STRATEGY_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        
+        # System documents
+        {'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE, 'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME, 'is_versioned': False, 'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED, 'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY},
+        {'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE, 'docname': BUILDING_BLOCKS_DOCNAME, 'is_versioned': False, 'is_shared': BUILDING_BLOCKS_IS_SHARED, 'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY},
     ]
 
     # Predefined HITL inputs
@@ -574,7 +598,7 @@ async def main_test_idea_to_brief_workflow():
     # {"approval_status": "regenerate"}
     # {"approval_status": "restart_from_idea_generation"}
     # Output validation function
-    async def validate_content_strategy_output(outputs):
+    async def validate_content_strategy_output(outputs) -> bool:
         """
         Validates the output from the content strategy workflow against expected schema.
         
@@ -584,6 +608,8 @@ async def main_test_idea_to_brief_workflow():
         Returns:
             bool: True if validation passes, raises AssertionError otherwise
         """
+        from typing import List, Dict, Any
+        
         assert outputs is not None, "Validation Failed: Workflow returned no outputs."
         assert 'generated_output' in outputs, "Validation Failed: 'generated_output' missing."
         assert 'paths_processed' in outputs, "Validation Failed: 'paths_processed' missing."
@@ -593,37 +619,54 @@ async def main_test_idea_to_brief_workflow():
             strategy = outputs['generated_output']
             
             # Validate strategy structure based on ContentStrategySchema
-            assert 'target_audience' in strategy, "Strategy is missing 'target_audience' field"
-            assert 'content_purpose' in strategy, "Strategy is missing 'content_purpose' field"
-            assert 'content_format' in strategy, "Strategy is missing 'content_format' field"
-            assert 'tone_and_style' in strategy, "Strategy is missing 'tone_and_style' field"
-            assert 'relevant_trends' in strategy, "Strategy is missing 'relevant_trends' field"
-            assert isinstance(strategy['relevant_trends'], list), "'relevant_trends' should be a list"
-            assert 'key_statistics' in strategy, "Strategy is missing 'key_statistics' field"
-            assert isinstance(strategy['key_statistics'], list), "'key_statistics' should be a list"
+            assert 'title' in strategy, "Strategy is missing 'title' field"
             
-            # Validate posting schedule structure
-            assert 'posting_schedule' in strategy, "Strategy is missing 'posting_schedule' field"
-            posting_schedule = strategy['posting_schedule']
-            assert 'frequency' in posting_schedule, "Posting schedule is missing 'frequency' field"
-            assert 'best_days' in posting_schedule, "Posting schedule is missing 'best_days' field"
-            assert isinstance(posting_schedule['best_days'], list), "'best_days' should be a list"
-            assert 'best_times' in posting_schedule, "Posting schedule is missing 'best_times' field"
-            assert isinstance(posting_schedule['best_times'], list), "'best_times' should be a list"
-            assert 'content_mix' in posting_schedule, "Posting schedule is missing 'content_mix' field"
-            assert 'consistency_notes' in posting_schedule, "Posting schedule is missing 'consistency_notes' field"
+            # Validate foundation elements
+            assert 'foundation_elements' in strategy, "Strategy is missing 'foundation_elements' field"
+            foundation = strategy['foundation_elements']
+            assert 'expertise' in foundation, "Foundation elements missing 'expertise' field"
+            assert isinstance(foundation['expertise'], list), "'expertise' should be a list"
+            assert 'core_beliefs' in foundation, "Foundation elements missing 'core_beliefs' field"
+            assert isinstance(foundation['core_beliefs'], list), "'core_beliefs' should be a list"
+            assert 'objectives' in foundation, "Foundation elements missing 'objectives' field"
+            assert isinstance(foundation['objectives'], list), "'objectives' should be a list"
             
-            # Validate content mix structure
-            content_mix = posting_schedule['content_mix']
-            assert 'topic_mix' in content_mix, "Content mix is missing 'topic_mix' field"
-            assert isinstance(content_mix['topic_mix'], list), "'topic_mix' should be a list"
-            assert 'format_mix' in content_mix, "Content mix is missing 'format_mix' field"
-            assert isinstance(content_mix['format_mix'], list), "'format_mix' should be a list"
+            # Validate core perspectives
+            assert 'core_perspectives' in strategy, "Strategy is missing 'core_perspectives' field"
+            assert isinstance(strategy['core_perspectives'], list), "'core_perspectives' should be a list"
+            
+            # Validate content pillars
+            assert 'content_pillars' in strategy, "Strategy is missing 'content_pillars' field"
+            assert isinstance(strategy['content_pillars'], list), "'content_pillars' should be a list"
+            for pillar in strategy['content_pillars']:
+                assert 'name' in pillar, "Content pillar missing 'name' field"
+                assert 'pillar' in pillar, "Content pillar missing 'pillar' field"
+                assert 'sub_topic' in pillar, "Content pillar missing 'sub_topic' field"
+                assert isinstance(pillar['sub_topic'], list), "Content pillar 'sub_topic' should be a list"
+            
+            # Validate implementation
+            assert 'implementation' in strategy, "Strategy is missing 'implementation' field"
+            implementation = strategy['implementation']
+            
+            # Validate 30-day targets
+            assert 'thirty_day_targets' in implementation, "Implementation missing 'thirty_day_targets' field"
+            thirty_day = implementation['thirty_day_targets']
+            assert 'goal' in thirty_day, "30-day targets missing 'goal' field"
+            assert 'method' in thirty_day, "30-day targets missing 'method' field"
+            assert 'targets' in thirty_day, "30-day targets missing 'targets' field"
+            
+            # Validate 90-day targets
+            assert 'ninety_day_targets' in implementation, "Implementation missing 'ninety_day_targets' field"
+            ninety_day = implementation['ninety_day_targets']
+            assert 'goal' in ninety_day, "90-day targets missing 'goal' field"
+            assert 'method' in ninety_day, "90-day targets missing 'method' field"
+            assert 'targets' in ninety_day, "90-day targets missing 'targets' field"
             
             # Log success message
             print(f"✓ Content strategy validated successfully")
-            print(f"✓ Target audience: {strategy.get('target_audience', 'unknown')}")
-            print(f"✓ Content purpose: {strategy.get('content_purpose', 'unknown')}")
+            print(f"✓ Strategy title: {strategy.get('title', 'unknown')}")
+            print(f"✓ Core beliefs: {', '.join(foundation.get('core_beliefs', []))[:100]}...")
+            print(f"✓ Content pillars: {len(strategy.get('content_pillars', []))} defined")
         
         return True
 

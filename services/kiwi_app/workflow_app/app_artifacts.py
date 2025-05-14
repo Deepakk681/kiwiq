@@ -290,31 +290,60 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "version": null,
       "inputs": {
         "customer_context_doc_configs": [
-          {
-            "namespace": "$filename:content_analysis_doc.namespace.built",
-            "docname": "$filename:content_analysis_doc.docname.built"
-          },
-          {
-            "namespace": "$filename:user_preferences_doc.namespace.built",
-            "docname": "$filename:user_preferences_doc.docname.built"
-          },
-          {
-            "namespace": "$filename:content_pillars_doc.namespace.built",
-            "docname": "$filename:content_pillars_doc.docname.built"
-          },
-          {
-            "namespace": "$filename:core_beliefs_perspectives_doc.namespace.built",
-            "docname": "$filename:core_beliefs_perspectives_doc.docname.built"
-          },
-          {
-            "namespace": "$filename:user_source_analysis.namespace.built",
-            "docname": "$filename:user_source_analysis.docname.built"
-          }
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_preferences_doc"
+                },
+                "output_field_name": "user_preferences"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_analysis_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_source_analysis"
+                },
+                "output_field_name": "user_source_analysis"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "core_beliefs_perspectives_doc"
+                },
+                "output_field_name": "core_beliefs_perspectives"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "content_pillars_doc"
+                },
+                "output_field_name": "content_pillars"
+            },
+            {
+                "filename_config": {
+                    "static_namespace": "system_strategy_docs_namespace",
+                    "static_docname": "methodology_implementation_ai_copilot"
+                },
+                "output_field_name": "methodology_implementation",
+                "is_shared": true,
+                "is_system_entity": true
+            },
+            {
+                "filename_config": {
+                    "static_namespace": "system_strategy_docs_namespace",
+                    "static_docname": "building_blocks_content_methodology"
+                },
+                "output_field_name": "building_blocks",
+                "is_shared": true,
+                "is_system_entity": true
+            }
         ],
         "entity_username": null
-      },
+    },
       "user_documents_config_variables": {
-        "entity_username": null
       },
       "template_specific": false
     },
@@ -322,69 +351,77 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "name": "user_dna_workflow",
       "version": null,
       "inputs": {
-        "analysis_doc": {
-          "filename_config": {
-            "static_namespace": "user_analysis",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "content_analysis_doc_{item}"
-          },
-          "output_field_name": "analysis_results",
-          "is_shared": "$filename:content_analysis_doc.is_shared",
-          "is_system_entity": "$filename:content_analysis_doc.is_system_entity"
-        },
-        "preferences_doc": {
-          "filename_config": {
-            "static_namespace": "user_insights",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "user_preferences_doc_{item}"
-          },
-          "output_field_name": "user_preferences",
-          "is_shared": "$filename:user_preferences_doc.is_shared",
-          "is_system_entity": "$filename:user_preferences_doc.is_system_entity"
-        },
-        "pillars_doc": {
-          "filename_config": {
-            "static_namespace": "user_insights",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "content_pillars_doc_{item}"
-          },
-          "output_field_name": "content_pillars",
-          "is_shared": "$filename:content_pillars_doc.is_shared",
-          "is_system_entity": "$filename:content_pillars_doc.is_system_entity"
-        },
-        "beliefs_doc": {
-          "filename_config": {
-            "static_namespace": "user_insights",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "core_beliefs_perspectives_doc_{item}"
-          },
-          "output_field_name": "core_beliefs",
-          "is_shared": "$filename:core_beliefs_perspectives_doc.is_shared",
-          "is_system_entity": "$filename:core_beliefs_perspectives_doc.is_system_entity"
-        },
-        "source_analysis_doc": {
-          "filename_config": {
-            "static_namespace": "user_analysis",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "user_source_analysis_{item}"
-          },
-          "output_field_name": "source_analysis",
-          "is_shared": "$filename:user_source_analysis.is_shared",
-          "is_system_entity": "$filename:user_source_analysis.is_system_entity"
-        },
-        "profile_doc": {
-          "filename_config": {
-            "static_namespace": "user_identity",
-            "input_docname_field": "entity_username",
-            "input_docname_field_pattern": "linkedin_scraped_profile_doc_{item}"
-          },
-          "output_field_name": "linkedin_profile",
-          "is_shared": "$filename:linkedin_scraped_profile_doc.is_shared",
-          "is_system_entity": "$filename:linkedin_scraped_profile_doc.is_system_entity"
-        }
-      },
-      "user_documents_config_variables": {
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_preferences_doc"
+                },
+                "output_field_name": "user_preferences"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_analysis_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_source_analysis"
+                },
+                "output_field_name": "user_source_analysis"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "core_beliefs_perspectives_doc"
+                },
+                "output_field_name": "core_beliefs_perspectives"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_inputs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "content_pillars_doc"
+                },
+                "output_field_name": "content_pillars"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_analysis_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "content_analysis_doc"
+                },
+                "output_field_name": "content_analysis"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "scraping_results_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "linkedin_scraped_profile_doc"
+                },
+                "output_field_name": "linkedin_profile"
+            },
+            {
+                "filename_config": {
+                    "static_namespace": "system_strategy_docs_namespace",
+                    "static_docname": "methodology_implementation_ai_copilot"
+                },
+                "output_field_name": "methodology_implementation",
+                "is_shared": true,
+                "is_system_entity": true
+            },
+            {
+                "filename_config": {
+                    "static_namespace": "system_strategy_docs_namespace",
+                    "static_docname": "building_blocks_content_methodology"
+                },
+                "output_field_name": "building_blocks",
+                "is_shared": true,
+                "is_system_entity": true
+            }
+        ],
         "entity_username": null
+    },
+      "user_documents_config_variables": {
       },
       "template_specific": false
     },
