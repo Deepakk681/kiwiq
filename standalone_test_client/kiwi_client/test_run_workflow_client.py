@@ -166,7 +166,8 @@ class InteractiveWorkflowRunClient:
         self,
         run_id: uuid.UUID,
         hitl_input_iterator: int,
-        provided_hitl_inputs: Optional[List[Dict[str, Any]]]
+        provided_hitl_inputs: Optional[List[Dict[str, Any]]],
+        on_behalf_of_user_id: Optional[uuid.UUID] = None
     ) -> Tuple[bool, int]:
         """Internal helper to fetch HITL job details and submit response."""
         logger.info(f"Run {run_id} is WAITING_HITL. Fetching job details for step {hitl_input_iterator + 1}...")
@@ -205,7 +206,8 @@ class InteractiveWorkflowRunClient:
 
             resumed_run_status = await self._run_client.submit_run(
                 resume_run_id=run_id,
-                inputs=hitl_response_inputs
+                inputs=hitl_response_inputs,
+                on_behalf_of_user_id=on_behalf_of_user_id
             )
 
             if resumed_run_status:
@@ -356,7 +358,8 @@ class InteractiveWorkflowRunClient:
         hitl_inputs: Optional[List[Dict[str, Any]]] = None,
         poll_interval_sec: int = 3,
         timeout_sec: int = 300,
-        stream_intermediate_results: bool = False
+        stream_intermediate_results: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None
     ) -> Tuple[Optional[wf_schemas.WorkflowRunRead], Optional[Dict[str, Any]]]:
         """
         Submits a workflow run and monitors its execution until completion,
@@ -386,6 +389,9 @@ class InteractiveWorkflowRunClient:
                          terminal state (COMPLETED, FAILED, CANCELLED).
             stream_intermediate_results: If True, polls the event stream in the background
                                          and prints new events to stdout.
+            on_behalf_of_user_id: Optional user ID to act on behalf of. This is typically
+                                 used by superusers/admins to perform operations as if they
+                                 were another user.
 
         Returns:
             A tuple containing:
@@ -459,7 +465,9 @@ class InteractiveWorkflowRunClient:
             # 2. Submit the initial workflow run request
             logger.info(f"Attempting to submit run for workflow ID: {workflow_id_to_run}...")
             submitted_run = await self._run_client.submit_run(
-                workflow_id=workflow_id_to_run, inputs=inputs
+                workflow_id=workflow_id_to_run, 
+                inputs=inputs,
+                on_behalf_of_user_id=on_behalf_of_user_id
             )
             if not submitted_run:
                 logger.error(f"Failed to submit initial workflow run for workflow {workflow_id_to_run}.")
@@ -537,7 +545,7 @@ class InteractiveWorkflowRunClient:
                     # Signal streaming task to pause/stop printing potentially confusing intermediate states during HITL prompt
                     # (Optional enhancement: could pause the task instead of just letting it run) 
                     handled, next_iterator_index = await self._handle_hitl_step(
-                        created_run_id, hitl_input_iterator, hitl_inputs
+                        created_run_id, hitl_input_iterator, hitl_inputs, on_behalf_of_user_id
                     )
                     hitl_input_iterator = next_iterator_index
 
@@ -655,6 +663,7 @@ async def run_workflow_test(
     dump_artifacts: bool = True,
     poll_interval_sec: int = 3,
     timeout_sec: int = 600,
+    on_behalf_of_user_id: Optional[uuid.UUID] = None
 ) -> Tuple[Optional[wf_schemas.WorkflowRunRead], Optional[Dict[str, Any]]]:
     """
     Runs a complete workflow test, including setup, execution, validation, and cleanup.
@@ -708,6 +717,9 @@ async def run_workflow_test(
                            for workflow status updates.
         timeout_sec: The maximum time in seconds to wait for the workflow run to reach
                      a terminal state.
+        on_behalf_of_user_id: Optional user ID to act on behalf of. This is typically
+                             used by superusers/admins to perform operations as if they
+                             were another user.
 
     Returns:
         A tuple containing:
@@ -886,7 +898,8 @@ async def run_workflow_test(
                                 is_shared=is_shared,
                                 initial_data=initial_data,
                                 initial_version=initial_version,
-                                is_system_entity=is_system
+                                is_system_entity=is_system,
+                                on_behalf_of_user_id=on_behalf_of_user_id
                             )
                             # Attempt to initialize the versioned document
                             # This might return False if the document already exists 
@@ -899,7 +912,12 @@ async def run_workflow_test(
                                 # If initialization failed, check if it's because it already exists
                                 # This helps distinguish between 'already exists' and other setup failures.
                                 logger.warning(f"[{test_name}] Initialization returned False for {doc_id_str}. Checking existence...")
-                                metadata = await data_tester.get_document_metadata(ns, dn, is_shared=is_shared, is_system_entity=is_system)
+                                metadata = await data_tester.get_document_metadata(
+                                    ns, dn, 
+                                    is_shared=is_shared, 
+                                    is_system_entity=is_system,
+                                    on_behalf_of_user_id=on_behalf_of_user_id
+                                )
                                 if metadata and metadata.is_versioned:
                                     logger.info(f"   ✓ [{test_name}] Versioned document {doc_id_str} already exists.")
                                     print(f"     ✓ Already exists.")
@@ -914,7 +932,8 @@ async def run_workflow_test(
                             create_payload = wf_schemas.CustomerDataUnversionedCreateUpdate(
                                 is_shared=is_shared,
                                 data=initial_data,
-                                is_system_entity=is_system
+                                is_system_entity=is_system,
+                                on_behalf_of_user_id=on_behalf_of_user_id
                             )
                             # Attempt to create or update the unversioned document
                             # This returns True on success (create or update)
@@ -930,7 +949,12 @@ async def run_workflow_test(
                                 # If create/update fails, this indicates a potential issue.
                                 # Double-check existence just in case.
                                 logger.warning(f"[{test_name}] Create/Update returned False for {doc_id_str}. Checking existence...")
-                                metadata = await data_tester.get_document_metadata(ns, dn, is_shared=is_shared, is_system_entity=is_system)
+                                metadata = await data_tester.get_document_metadata(
+                                    ns, dn, 
+                                    is_shared=is_shared, 
+                                    is_system_entity=is_system,
+                                    on_behalf_of_user_id=on_behalf_of_user_id
+                                )
                                 if metadata and not metadata.is_versioned:
                                     logger.info(f"   ✓ [{test_name}] Unversioned document {doc_id_str} exists despite create/update failure (unexpected). ")
                                     print(f"     ✓ Exists (despite reported C/U failure).")
@@ -1093,7 +1117,8 @@ async def run_workflow_test(
                 hitl_inputs=hitl_inputs,
                 poll_interval_sec=poll_interval_sec,
                 timeout_sec=timeout_sec,
-                stream_intermediate_results=stream_intermediate_results
+                stream_intermediate_results=stream_intermediate_results,
+                on_behalf_of_user_id=on_behalf_of_user_id
             )
 
             # --- 3. Validation Phase --- #
@@ -1269,11 +1294,19 @@ async def run_workflow_test(
                             # Call the appropriate deletion method based on whether it's versioned
                             if is_versioned:
                                 deleted = await cleanup_data_tester.delete_versioned_document(
-                                    namespace=ns, docname=dn, is_shared=is_shared, is_system_entity=is_system
+                                    namespace=ns, 
+                                    docname=dn, 
+                                    is_shared=is_shared, 
+                                    is_system_entity=is_system,
+                                    on_behalf_of_user_id=on_behalf_of_user_id
                                 )
                             else:
                                 deleted = await cleanup_data_tester.delete_unversioned_document(
-                                    namespace=ns, docname=dn, is_shared=is_shared, is_system_entity=is_system
+                                    namespace=ns, 
+                                    docname=dn, 
+                                    is_shared=is_shared, 
+                                    is_system_entity=is_system,
+                                    on_behalf_of_user_id=on_behalf_of_user_id
                                 )
                             # Log success or failure of the individual deletion attempt
                             if deleted:
