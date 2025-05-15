@@ -255,6 +255,46 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       },
       "template_specific": false
     },
+
+    "automatic_concept_selection_workflow": {
+      "name": "automatic_concept_selection_workflow",
+      "version": null,
+      "inputs": {
+        "initial_brief_docname": null,
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_dna_doc"
+                },
+                "output_field_name": "user_dna"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "content_briefs_{item}",
+                    "input_namespace_field": "entity_username",
+                    "input_docname_field": "initial_brief_docname"
+                },
+                "output_field_name": "initial_brief"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "scraping_results_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "linkedin_scraped_posts_doc"
+                },
+                "output_field_name": "scraped_posts"
+            }
+        ],
+        "past_context_posts_limit": 20,
+        "entity_username": null
+      },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
+
     "linkedin_content_analysis_workflow": {
       "name": "linkedin_content_analysis_workflow",
       "version": null,
