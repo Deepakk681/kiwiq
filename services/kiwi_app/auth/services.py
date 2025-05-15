@@ -789,6 +789,41 @@ class AuthService:
             auth_logger.error(f"Database error during password reset for user {user.email}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to reset password due to a database error.")
 
+    async def invalidate_refresh_token(self, db: AsyncSession, token_uuid: uuid.UUID) -> bool:
+        """
+        Invalidates a specific refresh token by marking it as revoked.
+        
+        Args:
+            db: Database session
+            token_uuid: UUID of the refresh token to invalidate
+            
+        Returns:
+            bool: True if token was successfully invalidated, False if token not found/already revoked
+            
+        Raises:
+            HTTPException: If there's a database error during update
+        """
+        try:
+            # Find the token
+            token_obj = await self.refresh_token_dao.get_valid_token(db, token=token_uuid)
+            
+            # If token exists and is valid, revoke it
+            if token_obj:
+                await self.refresh_token_dao.revoke_token(db, token_obj=token_obj)
+                auth_logger.info(f"Refresh token {token_uuid} invalidated for user {token_obj.user.email}")
+                return True
+            else:
+                # Token not found or already invalid - this is not an error
+                auth_logger.debug(f"Attempted to invalidate non-existent or already invalid token: {token_uuid}")
+                return False
+                
+        except Exception as e:
+            auth_logger.error(f"Database error invalidating refresh token {token_uuid}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to invalidate refresh token due to a database error"
+            )
+
     async def update_organization(
         self,
         db: AsyncSession,

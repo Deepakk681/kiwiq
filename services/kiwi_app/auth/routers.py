@@ -130,6 +130,8 @@ async def login_for_access_token_endpoint(
         auth_logger.exception(f"Unexpected error during login for user: {form_data.username}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred during login.")
 
+
+
 # --- NEW: Refresh Token Endpoint --- #
 # NOTE: change `kiwi_app.settings.AUTH_REFRESH_URL` if changing this path!
 @router.post("/refresh", response_model=schemas.AccessTokenResponse, tags=["auth"])
@@ -175,6 +177,53 @@ async def refresh_token_endpoint(
         # Clear potentially compromised/invalid cookie on error
         response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
         raise HTTPException(status_code=500, detail="An internal error occurred during token refresh.")
+
+# --- Logout Endpoint --- #
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
+async def logout_endpoint(
+    response: Response,  # Inject Response to clear cookie
+    refresh_token_from_cookie: Optional[str] = Cookie(None, alias=settings.REFRESH_COOKIE_NAME),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: models.User = Depends(dependencies.get_current_user),  # Verify user is authenticated
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    Logout the current user by invalidating their refresh token and clearing the cookie.
+    
+    This endpoint:
+    1. Invalidates the current refresh token in the database (if it exists)
+    2. Clears the refresh token cookie from the client
+    
+    Returns:
+        204 No Content on successful logout
+    """
+    try:
+        # If there's a refresh token in the cookie, try to invalidate it
+        if refresh_token_from_cookie:
+            try:
+                token_uuid = uuid.UUID(refresh_token_from_cookie)
+                # Invalidate the token in the database (service handles this)
+                await auth_service.invalidate_refresh_token(db=db, token_uuid=token_uuid)
+                auth_logger.info(f"Refresh token invalidated during logout for user: {current_user.email}")
+            except ValueError:
+                # Invalid UUID format in cookie - just log and continue with logout
+                auth_logger.warning(f"Invalid refresh token format in cookie during logout: {current_user.email}")
+            except Exception as e:
+                # Log but continue with logout process even if token invalidation fails
+                auth_logger.exception(f"Error invalidating refresh token during logout: {current_user.email}", exc_info=e)
+        
+        # Always clear the cookie, even if token invalidation had an issue
+        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
+        
+        auth_logger.info(f"User successfully logged out: {current_user.email}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        
+    except Exception as e:
+        # Log unexpected errors
+        auth_logger.exception(f"Unexpected error during logout for user: {current_user.email}", exc_info=e)
+        # Still try to clear cookie on error
+        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # --- Optional: Email Verification Endpoints ---
 @router.post("/request-verify-email", status_code=status.HTTP_202_ACCEPTED, tags=["auth"])
