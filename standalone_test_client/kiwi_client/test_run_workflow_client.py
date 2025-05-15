@@ -888,6 +888,21 @@ async def run_workflow_test(
 
                     created_this_run = False # Flag to track if we performed a creation/initialization action
                     try:
+                        # First check if the document already exists
+                        metadata = await data_tester.get_document_metadata(
+                            ns, dn, 
+                            is_shared=is_shared, 
+                            is_system_entity=is_system,
+                            on_behalf_of_user_id=on_behalf_of_user_id
+                        )
+                        
+                        if metadata:
+                            # Document already exists
+                            logger.info(f"[{test_name}] Document {doc_id_str} already exists, skipping creation.")
+                            print(f"     ✓ Already exists.")
+                            continue
+                            
+                        # Document doesn't exist, proceed with creation
                         if is_versioned:
                             # --- Setup for Versioned Document --- # 
                             if initial_version is None:
