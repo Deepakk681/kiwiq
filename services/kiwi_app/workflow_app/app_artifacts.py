@@ -688,6 +688,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "version": null,
       "inputs": {
         "user_input": null,
+        "post_uuid": null,
         "customer_context_doc_configs": [
             {
                 "filename_config": {
