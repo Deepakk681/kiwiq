@@ -39,7 +39,8 @@ The main configuration happens within the `node_config` field, specifically usin
             },
             "construct_options": { // P1: Highest priority source for 'location' in THIS template
               "location": "user_profile.address.city" // Path within node's input data
-            }
+            },
+            "user_custom_instructions": "Focus on being friendly and personable in your response.", // Optional: Additional instructions appended to the template
             // template_load_config: null (Not used for static)
           },
           // --- Example 2: Dynamic Loading from DB ---
@@ -55,7 +56,8 @@ The main configuration happens within the `node_config` field, specifically usin
               "tone": "professional", // P5: Override potential loaded default (P6) for 'tone'
               "max_length": 500,    // P5: Provide a variable not defined in the loaded template
               "customer_history": null // Must be provided by input (P1-P4)
-            }
+            },
+            "user_custom_instructions": "Ensure the summary is comprehensive yet concise." // Optional additional instructions
             // template: null (Not used for dynamic loading)
           },
           // --- Example 3: Dynamic Loading using Input Data ---
@@ -105,6 +107,7 @@ The main configuration happens within the `node_config` field, specifically usin
             *   `null`: Variable *must* be provided via input (Priorities 1-4).
             *   Value (e.g., string, number): Default value (Priority 5), potentially overriding a loaded template's default (Priority 6).
         *   **`construct_options`** (Optional[Dict[str, str]]): **Priority 1**. Template-specific mapping from a `{variable_name}` to a dot-notation path within the node's input data (e.g., `"user_name": "user_context.name"`). Overrides all other sources for this variable *in this template only*.
+        *   **`user_custom_instructions`** (Optional[str]): Additional instructions or guidance that will be appended to the template content. This is useful for adding context-specific directions for LLM processing without modifying the base template. The instructions are appended with a clear header: `\n\n# Additional User Instructions\n{instructions}`.
 2.  **`global_construct_options`** (Optional[Dict[str, str]]): **Priority 2**. Global mapping from `{variable_name}` to a dot-notation path within the node's input data. Used as a fallback if `template_specific_construct_options` (P1) is not defined for a variable.
 
 ## 3. Input (Dynamic Schema)
@@ -186,6 +189,7 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
             "template": "Hi {user_name}, Thanks for contacting us from {city}.",
             "variables": { "user_name": null, "city": "Unknown" }, // city has P5 default
             "construct_options": { "user_name": "user_profile.name" }, // P1 for user_name
+            "user_custom_instructions": "Maintain a professional tone, but be friendly. Avoid excessive formality." // Additional instructions for LLM
             // city will use P2 (global option)
           }
         },
@@ -253,6 +257,7 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
     *   List all `{variable}` names needed.
     *   Use `null` if the value *must* come from input.
     *   Provide a default value (like `"professional"`) if needed.
+-   **Add Custom Instructions:** Use `user_custom_instructions` to append specialized guidance for the LLM without changing the base template. These appear after your template with a clear "Additional User Instructions" section.
 -   **Tell it *Where* to Find Input Values (Highest Priority):**
     *   `construct_options`: Inside a specific task (`id`), map a `{variable}` to a specific location in the input data (e.g., tell it `{user_name}` is found at `user_profile.name`). This wins over everything else for *that task*.
     *   `global_construct_options`: Map variables to input locations as a fallback for *all* tasks if they don't have a specific `construct_options` for that variable.
@@ -263,4 +268,4 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
     *   **Important:** These direct mappings are *lower* priority than `construct_options`.
 -   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the default value from `variables` (P5), then the default from a loaded template (P6).
 -   **Connect Inputs:** Use edges to feed the *data structures* needed for `construct_options` lookups (e.g., map the whole `user_profile` object) and any direct inputs (P3/P4). Define the expected inputs in `dynamic_input_schema`.
--   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`. 
+-   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`.

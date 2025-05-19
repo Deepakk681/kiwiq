@@ -428,6 +428,41 @@ class TestPromptConstructorNode(unittest.IsolatedAsyncioTestCase):
         self.assertIn(today, result['system_prompt'])
         self.assertIn(today, result['user_prompt'])
 
+    async def test_user_custom_instructions(self):
+        """
+        Tests that user_custom_instructions are properly appended to the template content.
+        """
+        # Define custom config with user_custom_instructions
+        custom_instructions = "Please provide a detailed explanation with examples."
+        custom_config = {
+            "prompt_templates": {
+                "template1": {
+                    "id": "template1",
+                    "template": "This is a template with {variable1}",
+                    "variables": {"variable1": "DEFAULT_VALUE_1"},
+                    "user_custom_instructions": custom_instructions
+                },
+                "template2": {
+                    "id": "template2", 
+                    "template": "Another template with {variable1}",
+                    "variables": {"variable1": "DEFAULT_VALUE_1_T2"}
+                    # No custom instructions for template2
+                }
+            }
+        }
+        
+        input_data = {}  # Empty input is fine for this test
+        
+        result = await build_and_run_prompt_constructor_graph(input_data, custom_node_config=custom_config)
+        
+        # Verify template1 has the custom instructions appended
+        expected_template1 = f"This is a template with DEFAULT_VALUE_1\n\n# Additional User Instructions\n{custom_instructions}"
+        expected_template2 = "Another template with DEFAULT_VALUE_1_T2"  # No custom instructions
+        
+        self.assertEqual(result['system_prompt'], expected_template1)
+        self.assertEqual(result['user_prompt'], expected_template2)
+        self.assertEqual(result['prompt_template_errors'], [])
+
 
 # Keep the main execution block
 if __name__ == "__main__":

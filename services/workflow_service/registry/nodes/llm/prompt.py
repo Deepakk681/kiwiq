@@ -269,6 +269,10 @@ class PromptTemplateDefinition(BaseNodeConfig):
         None,
         description="Optional mapping of variable names to specific dot-notation paths in the input data. Overrides global construct options."
     )
+    user_custom_instructions: Optional[str] = Field(
+        None,
+        description="Optional user-provided instructions to guide the LLM's response. This will be appended to the template."
+    )
 
     # Option 2: Load template dynamically
     template_load_config: Optional[PromptTemplateLoadEntryConfig] = Field(
@@ -561,6 +565,9 @@ class PromptConstructorNode(BaseDynamicNode):
                  load_errors.append({"template_id": template_id, "error": "Template content missing after load/static check."})
                  continue
 
+            if template_def.user_custom_instructions:
+                current_template_content = f"{current_template_content}\n\n# Additional User Instructions\n{template_def.user_custom_instructions}"
+            
             final_templates[template_id] = current_template_content
             initial_variables[template_id] = current_variables_defaults
             self.debug(f"Prepared template '{template_id}' with initial variables: {current_variables_defaults}")

@@ -931,3 +931,36 @@ class WorkflowEffectiveConfigResponse(BaseModel):
     effective_graph_schema: GraphSchema = Field(..., description="The final effective graph schema after applying all relevant overrides.")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- ChatThread Schemas --- #
+class ChatThreadBase(BaseModel):
+    """Base schema for ChatThread."""
+    workflow_name: Optional[str] = Field(None, description="Name of the workflow this chat thread is associated with")
+    workflow_version: Optional[str] = Field(None, description="Version of the workflow this chat thread is associated with")
+    thread_name: Optional[str] = Field(None, description="Optional name/title for this chat thread")
+
+class ChatThreadCreate(ChatThreadBase):
+    """Schema for creating a new ChatThread."""
+    user_id: Optional[uuid.UUID] = Field(None, description="User ID of the thread owner. Only superusers can specify this field. Non-superusers will always use their own user ID.")
+
+class ChatThreadUpdate(BaseModel):
+    """Schema for updating an existing ChatThread."""
+    workflow_name: Optional[str] = None
+    workflow_version: Optional[str] = None
+    thread_name: Optional[str] = None
+
+class ChatThreadRead(ChatThreadBase):
+    """Schema for reading a ChatThread."""
+    id: uuid.UUID
+    user_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ChatThreadListQuery(CommonListQuery):
+    """Query parameters for listing chat threads."""
+    workflow_name: Optional[str] = Field(None, description="Filter threads by workflow name")
+    workflow_version: Optional[str] = Field(None, description="Filter threads by workflow version")
+    user_id: Optional[uuid.UUID] = Field(None, description="Filter threads by owner (superuser only, others can only see their own threads)")

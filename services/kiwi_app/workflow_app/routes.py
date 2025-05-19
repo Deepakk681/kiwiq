@@ -71,7 +71,10 @@ template_router = APIRouter(prefix="/templates", tags=["Templates"])
 notification_router = APIRouter(prefix="/notifications", tags=["User Notifications"])
 hitl_router = APIRouter(prefix="/hitl", tags=["HITL Jobs"])
 workflow_config_override_router = APIRouter(prefix="/workflow-config-overrides", tags=["Workflow Config Overrides"])
-# notification_router.include_router(websocket_router, tags=["WebSocket Stream & Notifications"])
+chat_thread_router = APIRouter(
+    prefix="/chat-threads",
+    tags=["Chat Threads"],
+)
 
 # === Template Endpoints ===
 
@@ -1901,3 +1904,268 @@ async def get_all_workflow_config_overrides(
         requesting_user=current_user
     )
     return overrides
+
+# --- Chat Thread Router --- #
+
+
+
+@chat_thread_router.post(
+    "",
+    response_model=schemas.ChatThreadRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new chat thread"
+)
+async def create_chat_thread(
+    thread_data: schemas.ChatThreadCreate,
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency)
+):
+    """
+    Create a new chat thread.
+    
+    The chat thread can be associated with a workflow by providing the workflow_name
+    and optionally the workflow_version.
+    
+    Only superusers can create threads owned by other users by providing user_id.
+    Non-superusers will always create threads with themselves as the owner.
+    """
+    try:
+        # Check permission for non-superusers trying to create threads for others
+        if not current_user.is_superuser and thread_data.user_id is not None and thread_data.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can create threads for other users"
+            )
+        
+        # Create the thread
+        return await workflow_service.create_chat_thread(
+            db=db, 
+            thread_data=thread_data,
+            user=current_user
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating chat thread: {str(e)}"
+        )
+
+@chat_thread_router.get(
+    "",
+    response_model=List[schemas.ChatThreadRead],
+    summary="List chat threads"
+)
+async def list_chat_threads(
+    query_params: Annotated[schemas.ChatThreadListQuery, Query()],
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency)
+):
+    """
+    List chat threads with optional filtering by workflow name and version.
+    
+    Regular users can only see their own threads.
+    Superusers can see all threads or filter by user_id.
+    
+    Results are paginated using skip and limit parameters.
+    """
+    try:
+        # Non-superusers can only see their own threads
+        if not current_user.is_superuser and query_params.user_id is not None and query_params.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own chat threads"
+            )
+        
+        # Get threads
+        return await workflow_service.list_chat_threads(
+            db=db,
+            user=current_user,
+            workflow_name=query_params.workflow_name,
+            workflow_version=query_params.workflow_version,
+            user_id=query_params.user_id,
+            skip=query_params.skip,
+            limit=query_params.limit
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error listing chat threads: {str(e)}"
+        )
+
+@chat_thread_router.get(
+    "/{thread_id}",
+    response_model=schemas.ChatThreadRead,
+    summary="Get a chat thread by ID"
+)
+async def get_chat_thread(
+    thread_id: uuid.UUID = Path(..., description="The ID of the chat thread"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency)
+):
+    """
+    Get a chat thread by its ID.
+    
+    Users can only access their own threads, unless they are superusers.
+    Superusers can access any thread.
+    
+    Returns a 404 error if the thread doesn't exist or the user doesn't have access.
+    """
+    try:
+        # Get the thread first to check access
+        thread = await workflow_service.get_chat_thread(
+            db=db, 
+            thread_id=thread_id,
+            user=current_user
+        )
+        
+        if not thread:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat thread not found"
+            )
+        
+        # Check permission for non-superusers trying to access others' threads
+        if not current_user.is_superuser and thread.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this chat thread"
+            )
+        
+        return thread
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving chat thread: {str(e)}"
+        )
+
+@chat_thread_router.put(
+    "/{thread_id}",
+    response_model=schemas.ChatThreadRead,
+    summary="Update a chat thread"
+)
+async def update_chat_thread(
+    thread_data: schemas.ChatThreadUpdate,
+    thread_id: uuid.UUID = Path(..., description="The ID of the chat thread"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency)
+):
+    """
+    Update a chat thread.
+    
+    Users can only update their own threads, unless they are superusers.
+    Superusers can update any thread.
+    
+    Returns a 404 error if the thread doesn't exist or the user doesn't have access.
+    """
+    try:
+        # Get the thread first to check permissions
+        thread = await workflow_service.get_chat_thread(
+            db=db, 
+            thread_id=thread_id,
+            user=current_user
+        )
+        
+        if not thread:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat thread not found"
+            )
+        
+        # Check permission for non-superusers trying to update others' threads
+        if not current_user.is_superuser and thread.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to update this chat thread"
+            )
+        
+        # Update the thread
+        updated_thread = await workflow_service.update_chat_thread(
+            db=db, 
+            thread_id=thread_id, 
+            thread_data=thread_data,
+            user=current_user
+        )
+        
+        return updated_thread
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating chat thread: {str(e)}"
+        )
+
+@chat_thread_router.delete(
+    "/{thread_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a chat thread"
+)
+async def delete_chat_thread(
+    thread_id: uuid.UUID = Path(..., description="The ID of the chat thread"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency)
+):
+    """
+    Delete a chat thread.
+    
+    Users can only delete their own threads, unless they are superusers.
+    Superusers can delete any thread.
+    
+    Returns a 404 error if the thread doesn't exist or the user doesn't have access.
+    """
+    try:
+        # Get the thread first to check permissions
+        thread = await workflow_service.get_chat_thread(
+            db=db, 
+            thread_id=thread_id,
+            user=current_user
+        )
+        
+        if not thread:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat thread not found"
+            )
+        
+        # Check permission for non-superusers trying to delete others' threads
+        if not current_user.is_superuser and thread.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to delete this chat thread"
+            )
+        
+        # Delete the thread
+        success = await workflow_service.delete_chat_thread(
+            db=db, 
+            thread_id=thread_id,
+            user=current_user
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat thread not found"
+            )
+        
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting chat thread: {str(e)}"
+        )
+
+# Don't forget to include the router in the main application
+# In services/kiwi_app/main.py or wherever you include your routers:
+# app.include_router(workflow_app.routes.chat_thread_router, prefix="/api/v1/workflow")

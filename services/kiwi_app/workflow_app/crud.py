@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Type, TypeVar, Generic, Any, Dict, Sequence, Union
 import copy
 
-from sqlalchemy import select, update, delete, func, or_, and_
+from sqlalchemy import select, update, delete, func, or_, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -1191,6 +1191,126 @@ class HITLJobDAO(BaseDAO[models.HITLJob, schemas.HITLJobCreate, PydanticBaseMode
             "exclude_expired_time": True
         }
         return await self.get_multi_filtered(db, filters=filters, order_by="created_at", order_dir="desc")
+
+# --- ChatThread DAO --- #
+
+class ChatThreadDAO(BaseDAO[models.ChatThread, schemas.ChatThreadCreate, schemas.ChatThreadUpdate]):
+    """DAO for ChatThread model."""
+    
+    def __init__(self):
+        super().__init__(models.ChatThread)
+    
+    async def get_by_id(self, db: AsyncSession, *, thread_id: uuid.UUID) -> Optional[models.ChatThread]:
+        """Get a chat thread by ID."""
+        return await self.get(db, thread_id)
+    
+    async def get_by_id_and_owner(self, db: AsyncSession, *, thread_id: uuid.UUID, user_id: uuid.UUID) -> Optional[models.ChatThread]:
+        """Get a chat thread by ID and verify ownership."""
+        query = select(self.model).where(
+            and_(
+                self.model.id == thread_id,
+                self.model.user_id == user_id
+            )
+        )
+        result = await db.execute(query)
+        return result.scalars().first()
+    
+    async def get_by_workflow(
+        self, 
+        db: AsyncSession, 
+        *, 
+        workflow_name: str,
+        workflow_version: Optional[str] = None,
+        user_id: Optional[uuid.UUID] = None,
+        skip: int = 0, 
+        limit: int = 100
+    ) -> Sequence[models.ChatThread]:
+        """Get chat threads for a specific workflow, optionally filtered by owner."""
+        query = select(self.model).where(self.model.workflow_name == workflow_name)
+        
+        if workflow_version is not None:
+            query = query.where(self.model.workflow_version == workflow_version)
+            
+        if user_id is not None:
+            query = query.where(self.model.user_id == user_id)
+            
+        query = query.offset(skip).limit(limit).order_by(desc(self.model.updated_at))
+        result = await db.execute(query)
+        return result.scalars().all()
+    
+    async def get_by_owner(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 100
+    ) -> Sequence[models.ChatThread]:
+        """Get all chat threads for a specific owner."""
+        query = select(self.model).where(self.model.user_id == user_id)
+        query = query.offset(skip).limit(limit).order_by(desc(self.model.updated_at))
+        result = await db.execute(query)
+        return result.scalars().all()
+    
+    async def create_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_in: schemas.ChatThreadCreate,
+        user_id: Optional[uuid.UUID] = None
+    ) -> models.ChatThread:
+        """Create a new chat thread with specified owner."""
+        # Create thread_in dict and overwrite user_id if provided
+        obj_in_data = thread_in.model_dump()
+        if user_id is not None:
+            obj_in_data["user_id"] = str(user_id)
+        
+        obj_in = schemas.ChatThreadCreate(**obj_in_data)
+        return await self.create(db, obj_in=obj_in)
+    
+    async def update_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_id: uuid.UUID,
+        thread_update: schemas.ChatThreadUpdate,
+        user_id: Optional[uuid.UUID] = None
+    ) -> Optional[models.ChatThread]:
+        """Update an existing chat thread, optionally verifying ownership."""
+        if user_id is not None:
+            # Only update if user is the owner
+            db_obj = await self.get_by_id_and_owner(db, thread_id=thread_id, user_id=user_id)
+        else:
+            # No ownership check (for superusers)
+            db_obj = await self.get(db, thread_id)
+            
+        if not db_obj:
+            return None
+        
+        return await self.update(db, db_obj=db_obj, obj_in=thread_update)
+    
+    async def remove_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None
+    ) -> Optional[models.ChatThread]:
+        """
+        Remove a chat thread by ID, optionally verifying ownership.
+        
+        If user_id is provided, the thread will only be deleted if the
+        specified user is the owner.
+        """
+        if user_id is not None:
+            # Only delete if user is the owner
+            db_obj = await self.get_by_id_and_owner(db, thread_id=thread_id, user_id=user_id)
+            if not db_obj:
+                return None
+            return await self.remove_obj(db, obj=db_obj)
+        else:
+            # No ownership check (for superusers)
+            return await self.remove(db, id=thread_id)
 
 # --- WorkflowConfigOverrideDAO --- #
 

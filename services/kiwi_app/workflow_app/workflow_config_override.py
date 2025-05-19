@@ -109,6 +109,7 @@ class GraphOverridePayload(BaseModel):
         "override_graph_schema": {
             "node_configs": [
                 {
+                    "node_id": "generate_content",
                     "node_name": "llm",
                     "node_config": {
                         "llm_config": {

@@ -48,6 +48,8 @@ from workflow_service.services.worker import trigger_workflow_run
 
 logger = get_logger(__name__)
 
+# No custom exception needed - using standard FastAPI HTTPException with appropriate status codes
+
 
 class WorkflowService:
     """Service class containing business logic for workflows."""
@@ -380,6 +382,7 @@ class WorkflowService:
                 tag=run_submit.tag,
                 applied_workflow_config_overrides=",".join([str(override.id) for override in overrides]) if overrides else None
             )
+            # TODO: FIXME: do the above and below in one step by checking thread_id is None!
             if not workflow_run.thread_id:
                 workflow_run.thread_id = workflow_run.id
                 db.add(workflow_run)
@@ -2346,5 +2349,214 @@ class WorkflowService:
         
         return list(overrides)
 
-# --- Helper Functions/Classes (Optional) --- #
+    # --- ChatThread methods --- #
+    
+    async def create_chat_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_data: schemas.ChatThreadCreate,
+        user: User
+    ) -> models.ChatThread:
+        """
+        Create a new chat thread.
+        
+        Args:
+            db: Database session
+            thread_data: Data for creating the thread
+            user: User creating the thread
+            
+        Returns:
+            The created chat thread
+        """
+        chat_thread_dao = crud.ChatThreadDAO()
+        
+        # For non-superusers, always use the current user's ID
+        # Superusers can specify a different user_id
+        if not user.is_superuser:
+            # If user_id is specified and doesn't match current user, raise error
+            if thread_data.user_id is not None and thread_data.user_id != user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only superusers can create threads for other users")
+            
+            # Force use of current user's ID
+            user_id = user.id
+        else:
+            # Superusers can specify user_id or use their own
+            user_id = thread_data.user_id if thread_data.user_id else user.id
+            
+        return await chat_thread_dao.create_thread(db, thread_in=thread_data, user_id=user_id)
+    
+    async def get_chat_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_id: uuid.UUID,
+        user: User
+    ) -> Optional[models.ChatThread]:
+        """
+        Get a chat thread by ID.
+        
+        Args:
+            db: Database session
+            thread_id: ID of the thread to retrieve
+            user: User requesting the thread
+            
+        Returns:
+            The chat thread or None if not found
+            
+        Raises:
+            PermissionDeniedError: If user is not the owner and not a superuser
+        """
+        chat_thread_dao = crud.ChatThreadDAO()
+        thread = await chat_thread_dao.get_by_id(db, thread_id=thread_id)
+        
+        if not thread:
+            return None
+            
+        # Check ownership - allow access if superuser or owner
+        if user.is_superuser or thread.user_id == user.id:
+            return thread
+        else:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to access this chat thread")
+    
+    async def update_chat_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_id: uuid.UUID,
+        thread_data: schemas.ChatThreadUpdate,
+        user: User
+    ) -> Optional[models.ChatThread]:
+        """
+        Update an existing chat thread.
+        
+        Args:
+            db: Database session
+            thread_id: ID of the thread to update
+            thread_data: New data for the thread
+            user: User updating the thread
+            
+        Returns:
+            The updated chat thread or None if not found
+            
+        Raises:
+            PermissionDeniedError: If user is not the owner and not a superuser
+        """
+        chat_thread_dao = crud.ChatThreadDAO()
+        
+        # For superusers, allow update without ownership check
+        if user.is_superuser:
+            return await chat_thread_dao.update_thread(db, thread_id=thread_id, thread_update=thread_data)
+        else:
+            # For regular users, verify ownership
+            return await chat_thread_dao.update_thread(
+                db, 
+                thread_id=thread_id, 
+                thread_update=thread_data,
+                user_id=user.id
+            )
+    
+    async def delete_chat_thread(
+        self,
+        db: AsyncSession,
+        *,
+        thread_id: uuid.UUID,
+        user: User
+    ) -> bool:
+        """
+        Delete a chat thread.
+        
+        Args:
+            db: Database session
+            thread_id: ID of the thread to delete
+            user: User deleting the thread
+            
+        Returns:
+            True if the thread was deleted, False otherwise
+            
+        Raises:
+            PermissionDeniedError: If user is not the owner and not a superuser
+        """
+        chat_thread_dao = crud.ChatThreadDAO()
+        
+        # For superusers, allow deletion without ownership check
+        if user.is_superuser:
+            deleted_thread = await chat_thread_dao.remove_thread(db, thread_id=thread_id)
+        else:
+            # For regular users, verify ownership
+            deleted_thread = await chat_thread_dao.remove_thread(
+                db, 
+                thread_id=thread_id,
+                user_id=user.id
+            )
+            
+        return deleted_thread is not None
+    
+    async def list_chat_threads(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        workflow_name: Optional[str] = None,
+        workflow_version: Optional[str] = None,
+        user_id: Optional[uuid.UUID] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[models.ChatThread]:
+        """
+        List chat threads, optionally filtered by workflow and owner.
+        
+        Args:
+            db: Database session
+            user: User requesting the thread list
+            workflow_name: Optional name of the workflow to filter by
+            workflow_version: Optional version of the workflow to filter by
+            user_id: Optional user ID to filter by owner
+            skip: Number of items to skip for pagination
+            limit: Maximum number of items to return
+            
+        Returns:
+            List of chat threads matching the criteria
+            
+        Raises:
+            PermissionDeniedError: If non-superuser tries to view other users' threads
+        """
+        chat_thread_dao = crud.ChatThreadDAO()
+        # Non-superusers can only see their own threads
+        if not user.is_superuser:
+            if user_id is not None and user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to access this chat thread"
+                )
+            
+            # Force filter by current user
+            user_id = user.id
+        
+        if workflow_name:
+            return await chat_thread_dao.get_by_workflow(
+                db, 
+                workflow_name=workflow_name,
+                workflow_version=workflow_version,
+                user_id=user_id,
+                skip=skip, 
+                limit=limit
+            )
+        elif user_id:
+            return await chat_thread_dao.get_by_owner(
+                db,
+                user_id=user_id,
+                skip=skip,
+                limit=limit
+            )
+        else:
+            # Only superusers can list all threads
+            if not user.is_superuser:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to access this chat thread"
+                )
+                
+            return await chat_thread_dao.get_multi(db, skip=skip, limit=limit)
 
+# --- Helper Functions/Classes (Optional) --- #

@@ -123,6 +123,70 @@ class Workflow(SQLModel, table=True):
     # updated_by: Optional["User"] = Relationship(...)
 
 
+# --- ChatThread Model --- #
+class ChatThread(SQLModel, table=True):
+    """Represents a chat thread associated with a workflow.
+    
+    This model stores chat threads that are created for workflows, allowing
+    conversations to be organized and tracked per workflow instance.
+    """
+    __tablename__ = f"{table_prefix}chat_thread"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, 
+        primary_key=True, 
+        index=True, 
+        description="Unique ID for this chat thread"
+    )
+    
+    workflow_name: str = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Name of the workflow this chat thread is associated with"
+    )
+    
+    workflow_version: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Version of the workflow this chat thread is associated with"
+    )
+    
+    thread_name: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Optional name/title for this chat thread"
+    )
+
+    user_id: uuid.UUID = Field(
+        foreign_key=f"{auth_table_prefix}user.id",
+        index=True,
+        description="User ID of the thread owner"
+    )
+
+    created_at: datetime = Field(
+        default_factory=datetime_now_utc, 
+        nullable=False,
+        description="Timestamp when this chat thread was created"
+    )
+    
+    updated_at: datetime = Field(
+        default_factory=datetime_now_utc, 
+        nullable=False, 
+        sa_column_kwargs={"onupdate": datetime_now_utc},
+        description="Timestamp when this chat thread was last updated"
+    )
+    
+    # TODO: add on-cascade_delete
+    # Relationship to user model
+    user: "User" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[ChatThread.user_id]"
+        }
+    )
+
+
 # --- WorkflowConfigOverride Model --- #
 class WorkflowConfigOverride(SQLModel, table=True):
     """Represents configuration overrides for workflows at different scopes (system, org, user).
