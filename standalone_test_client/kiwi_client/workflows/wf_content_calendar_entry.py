@@ -200,7 +200,7 @@ workflow_graph_schema = {
           # Operation 2: Compute Total Briefs Needed - weeks_to_generate * posts_per_week
           {
             "output_field_name": "total_briefs_needed",
-            "select_paths": ["user_preferences.posting_schedule.posts_per_week"], # Inputs from state
+            "select_paths": ["user_preferences.user_preferences.posting_schedule.posts_per_week"], # Inputs from state
              "merge_strategy": {
                 #  "map_phase": {"unspecified_keys_strategy": "ignore"},
                 #  "reduce_phase": {"default_reducer": ReducerType.REPLACE_RIGHT}, # Values overwrite

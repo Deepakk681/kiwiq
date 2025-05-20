@@ -18,7 +18,7 @@ BRIEF_USER_PROMPT_TEMPLATE = """Generate content brief for a LinkedIn post.
            - Recent User Posts (Drafts/Scraped):(use these to make a unique post that is relevant to the user's audience, make sure you are not repeating the same post and you are not using the same angle/hook) {merged_posts}
            - Posting Schedule: The user prefers to post on days mentioned in user preferences. 
 Try that scheduled_time in your brief falls on one of these days. 
-           - You can use this current data (date of today) to suggest the scheduled date for the post: {current_datetime}
+           Important:- You can use this current data (date of today) to suggest the scheduled date for the post: {current_datetime}. Important: You have to create post brief for upcoming week (week starts from Monday), so provide the date that lies in the upcoming week.
            
 **Task:**
            Create a compelling content brief focusing on a specific topic relevant to the user's expertise and target audience, drawing inspiration from the provided context. Ensure the brief is actionable and aligns with the user's brand voice (implied from context). Define the topic, angle, key points, and optionally a CTA and hashtags. Focus on using the information from the context to create a brief that is relevant to the user's audience.

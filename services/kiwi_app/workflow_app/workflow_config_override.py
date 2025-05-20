@@ -119,6 +119,17 @@ class GraphOverridePayload(BaseModel):
                             }
                         }
                     }
+                },
+                {
+                    "node_id": "construct_prompt",
+                    "node_name": "prompt_constructor",
+                    "node_config": {
+                        "prompt_templates": {
+                            "user_prompt": {
+                                "user_custom_instructions": "Generate a content strategy for the user's business."
+                            }
+                        }
+                    }
                 }
             ]
         }

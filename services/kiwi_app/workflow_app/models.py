@@ -324,6 +324,7 @@ class WorkflowRun(SQLModel, table=True):
     )
     owner_org_id: Optional[uuid.UUID] = Field(
         foreign_key=f"{auth_table_prefix}org.id", # Full path to auth org table
+        default=None,
         nullable=True,
         index=True,
         description="Denormalized Org ID for easier run querying"
@@ -600,11 +601,13 @@ class HITLJob(SQLModel, table=True):
 # would require rebuilding the auth models after workflow models are defined (if not using strings).
 NodeTemplate.model_rebuild()
 Workflow.model_rebuild()
+WorkflowConfigOverride.model_rebuild()
 WorkflowRun.model_rebuild()
 PromptTemplate.model_rebuild()
 SchemaTemplate.model_rebuild()
 UserNotification.model_rebuild()
 HITLJob.model_rebuild()
+ChatThread.model_rebuild()
 
 # TODO: FIXME
 # --- Add back_populates to Auth Models (Requires modifying auth/models.py) --- #

@@ -1,22 +1,3 @@
-"""
-
-Flow: 
-1. input node -> load_all_context_docs and load_draft_posts
-2. [load_all_context_docs, load_draft_posts] -> construct_initial_concepts_prompt (enable_node_fan_in true)
-3. construct_initial_concepts_prompt -> generate_concepts
-4. generate_concepts -> store_concepts
-5. store_concepts -> capture_user_choice
-5. capture_user_choice -> route_on_user_choice
-6. route_on_user_choice -> construct_concepts_regeneration_prompt [selection: regenerate concepts]
-7. route_on_user_choice -> output_node [selection: Go back to initial ideas brief generation]
-8. route_on_user_choice -> filter_selected_concepts [selection: select list of concepts]
-9. construct_concepts_regeneration_prompt -> generate_concepts (concepts regeneration loop, generate_concepts reads message_history from state)
-10. filter_selected_concepts -> construct_update_content_brief_prompt
-11. construct_update_content_brief_prompt -> generated_updated_content_brief
-12. generated_updated_content_brief -> save_updated_content_brief
-13. save_updated_content_brief -> output_node
-"""
-
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List, Union, ClassVar, Type
@@ -52,21 +33,24 @@ from kiwi_client.workflows.document_models.customer_docs import (
     CONTENT_BRIEF_IS_VERSIONED,
     CONTENT_BRIEF_DEFAULT_VERSION,
     CONTENT_BRIEF_FINAL_VERSION,
-    # Content Concept
-    CONCEPT_DOCNAME,
-    CONCEPT_NAMESPACE_TEMPLATE,
-    CONCEPT_IS_VERSIONED
+    # Content Ideas
+    IDEA_DOCNAME,
+    IDEA_NAMESPACE_TEMPLATE,
+    IDEA_IS_VERSIONED
 )
 
 from kiwi_client.workflows.llm_inputs.content_calendar_brief import BRIEF_LLM_OUTPUT_SCHEMA
 
-from kiwi_client.workflows.llm_inputs.initial_brief_to_concept_to_final_brief import (
-    INITIAL_CONCEPTS_USER_PROMPT,
-    INITIAL_CONCEPTS_SYSTEM_PROMPT,
-    CONCEPTS_SCHEMA,
-    ADDITIONAL_CONCEPTS_USER_PROMPT,
+from kiwi_client.workflows.llm_inputs.idea_brainstorm_from_scratch import (
+    INITIAL_IDEAS_USER_PROMPT,
+    INITIAL_IDEAS_SYSTEM_PROMPT,
+    IDEAS_SCHEMA,
+    ADDITIONAL_IDEAS_USER_PROMPT,
     BRIEF_USER_PROMPT_TEMPLATE,
     BRIEF_SYSTEM_PROMPT_TEMPLATE,
+    USER_INPUT_INTERPRETATION_SYSTEM_PROMPT,
+    USER_INPUT_INTERPRETATION_USER_PROMPT,
+    USER_INPUT_INTERPRETATION_SCHEMA,
 )
 
 
@@ -127,7 +111,7 @@ workflow_graph_schema = {
                         },
                         
                         "past_context_posts_limit": { "type": "int", "required": False, "default": PAST_CONTEXT_POSTS_LIMIT, "description": f"Max number of combined posts (drafts + scraped) to use for context (default: {PAST_CONTEXT_POSTS_LIMIT})."},
-                        "initial_brief_docname": { "type": "str", "required": True, "description": "Name of the initial brief document."},
+                        "user_input": { "type": "str", "required": True, "description": "User's input text describing the content idea or topic."},
                         "entity_username": {"type": "str", "required": True},
                     }
             }
@@ -217,41 +201,9 @@ workflow_graph_schema = {
         # Writes: merged_data containing final_merged_posts_for_prompt and total_briefs_needed -> $graph_state
         },
 
-        # --- 9. Construct Brief Prompt (Inside Map Branch) ---
-        "construct_initial_concepts_prompt": {
-            "node_id": "construct_initial_concepts_prompt",
-            "node_name": "prompt_constructor",
-            "enable_node_fan_in": True,  # Wait for all data loads before proceeding
-            "node_config": {
-                "prompt_templates": {
-                    "initial_concepts_user_prompt": {
-                        "id": "initial_concepts_user_prompt",
-                        "template": INITIAL_CONCEPTS_USER_PROMPT,
-                        "variables": {
-                            "initial_brief": None,
-                            "user_dna": None,
-                            "merged_posts": None,
-                        },
-                        "construct_options": {
-                            "initial_brief": "initial_brief",
-                            "user_dna": "user_dna",
-                            "merged_posts": "merged_posts",
-                        }
-                    },
-                    "concepts_system_prompt": {
-                        "id": "concepts_system_prompt",
-                        "template": INITIAL_CONCEPTS_SYSTEM_PROMPT,
-                        "variables": { "schema": json.dumps(CONCEPTS_SCHEMA, indent=2) },
-                        "construct_options": {}
-                    }
-                }
-            },
-        },
-
-
-        # --- 10. Generate Brief (LLM - Inside Map Branch) ---
-        "generate_concepts": {
-            "node_id": "generate_concepts",
+        # --- 3. Interpret User Input ---
+        "interpret_user_input": {
+            "node_id": "interpret_user_input",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -260,18 +212,91 @@ workflow_graph_schema = {
                     "max_tokens": LLM_MAX_TOKENS
                 },
                 "output_schema": {
-                    "schema_definition": CONCEPTS_SCHEMA
+                    "schema_definition": USER_INPUT_INTERPRETATION_SCHEMA
+                },
+                "default_system_prompt": USER_INPUT_INTERPRETATION_SYSTEM_PROMPT
+            }
+        },
+
+        # --- 4. Construct User Input Interpretation Prompt ---
+        "construct_user_input_interpretation_prompt": {
+            "node_id": "construct_user_input_interpretation_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "interpretation_prompt": {
+                        "id": "interpretation_prompt",
+                        "template": USER_INPUT_INTERPRETATION_USER_PROMPT,
+                        "variables": {
+                            "user_input": None,
+                            "user_dna": None,
+                            "merged_posts": None
+                        },
+                        "construct_options": {
+                            "user_input": "user_input",
+                            "user_dna": "user_dna",
+                            "merged_posts": "merged_posts"
+                        }
+                    }
+                }
+            }
+        },
+
+        # --- 9. Construct Brief Prompt (Inside Map Branch) ---
+        "construct_initial_ideas_prompt": {                                  # Founder A can you check this node? we are not getting input from the previous node in the context - "interpreted_user_input"
+            "node_id": "construct_initial_ideas_prompt",
+            "node_name": "prompt_constructor",
+            "enable_node_fan_in": True,  # Wait for all data loads before proceeding
+            "node_config": {
+                "prompt_templates": {
+                    "initial_ideas_user_prompt": {
+                        "id": "initial_ideas_user_prompt",
+                        "template": INITIAL_IDEAS_USER_PROMPT,
+                        "variables": {
+                            "interpreted_user_input": None,
+                            "user_dna": None,
+                            "merged_posts": None,
+                        },
+                        "construct_options": {
+                            "interpreted_user_input": "interpreted_user_input",
+                            "user_dna": "user_dna",
+                            "merged_posts": "merged_posts",
+                        }
+                    },
+                    "ideas_system_prompt": {
+                        "id": "ideas_system_prompt",
+                        "template": INITIAL_IDEAS_SYSTEM_PROMPT,
+                        "variables": { "schema": json.dumps(IDEAS_SCHEMA, indent=2) },
+                        "construct_options": {}
+                    }
+                }
+            },
+        },
+
+
+        # --- 10. Generate Ideas (LLM - Inside Map Branch) ---
+        "generate_ideas": {
+            "node_id": "generate_ideas",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {"provider": LLM_PROVIDER, "model": GENERATION_MODEL},
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS
+                },
+                "output_schema": {
+                    "schema_definition": IDEAS_SCHEMA
                 },
             }
         },
 
-        # --- 5. Store Concepts ---
-        "store_concepts": {
-            "node_id": "store_concepts",
+        # --- 5. Store Ideas ---
+        "store_ideas": {
+            "node_id": "store_ideas",
             "node_name": "store_customer_data",
             "node_config": {
                     "global_versioning": {
-                        "is_versioned": CONCEPT_IS_VERSIONED,
+                        "is_versioned": IDEA_IS_VERSIONED,
                         "operation": "upsert_versioned", # Must not exist yet
                     },
                     "store_configs": [
@@ -279,9 +304,9 @@ workflow_graph_schema = {
                             "input_field_path": "structured_output", # Field name in node input containing the value to save
                             "target_path": {
                                 "filename_config": {
-                                    "input_namespace_field_pattern": CONCEPT_NAMESPACE_TEMPLATE, 
+                                    "input_namespace_field_pattern": IDEA_NAMESPACE_TEMPLATE, 
                                     "input_namespace_field": "entity_username",
-                                    "static_docname": CONCEPT_DOCNAME, # Field in node's input containing the value
+                                    "static_docname": IDEA_DOCNAME, # Field in node's input containing the value
                                 }
                             },
                             "extra_fields": [
@@ -309,7 +334,7 @@ workflow_graph_schema = {
                 "fields": {
                     "approval_status": { 
                         "type": "enum", 
-                        "enum_values": ["regenerate", "restart_from_idea_generation", "select_concepts"],   # TODO: support select only 1 concept for now
+                        "enum_values": ["regenerate", "restart_from_idea_generation", "select_ideas"],   # TODO: support select only 1 idea for now
                         "required": True, 
                         "description": "User action choice" 
                     },
@@ -318,11 +343,11 @@ workflow_graph_schema = {
                         "required": False, 
                         "description": "Optional feedback for regeneration" 
                     },
-                    "selected_concepts": {
+                    "selected_ideas": {
                         "type": "list",
                         "items_type": "str",
                         "required": False,
-                        "description": "List of concept_ids the user selected if approval_status is 'select_concepts'"
+                        "description": "List of idea_ids the user selected if approval_status is 'select_ideas'"
                     }
                 }
             }
@@ -333,11 +358,11 @@ workflow_graph_schema = {
             "node_id": "route_on_user_choice",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["construct_concepts_regeneration_prompt", "output_node", "filter_selected_concepts"],
+                "choices": ["construct_ideas_regeneration_prompt", "output_node", "filter_selected_ideas"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                 {
-                    "choice_id": "construct_concepts_regeneration_prompt",
+                    "choice_id": "construct_ideas_regeneration_prompt",
                     "input_path": "user_choice_action",
                     "target_value": "regenerate"
                 },
@@ -347,23 +372,23 @@ workflow_graph_schema = {
                     "target_value": "restart_from_idea_generation"
                 },
                 {
-                    "choice_id": "filter_selected_concepts",
+                    "choice_id": "filter_selected_ideas",
                     "input_path": "user_choice_action",
-                    "target_value": "select_concepts"
+                    "target_value": "select_ideas"
                 }
                 ]
             }
         },
 
-        # --- Construct Additional Brief Prompt ---
-        "construct_concepts_regeneration_prompt": {
-            "node_id": "construct_concepts_regeneration_prompt",
+        # --- Construct Additional Ideas Prompt ---
+        "construct_ideas_regeneration_prompt": {
+            "node_id": "construct_ideas_regeneration_prompt",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
-                "additional_brief_prompt": {
-                    "id": "additional_brief_prompt",
-                    "template": ADDITIONAL_CONCEPTS_USER_PROMPT,
+                "additional_ideas_prompt": {
+                    "id": "additional_ideas_prompt",
+                    "template": ADDITIONAL_IDEAS_USER_PROMPT,
                     "variables": {
                         "feedback_text": None
                     },
@@ -373,26 +398,23 @@ workflow_graph_schema = {
                 },
                 }
             }
-            # Reads: updated_brief from state
-            # Writes: additional_brief_prompt, system_prompt
         },
 
-
-        # --- Filter Selected Concepts ---
-        "filter_selected_concepts": {
-            "node_id": "filter_selected_concepts",
+        # --- Filter Selected Ideas ---
+        "filter_selected_ideas": {
+            "node_id": "filter_selected_ideas",
             "node_name": "filter_data",
             "node_config": {
                 "targets": [
                     {
-                        "filter_target": "concepts.concepts",  # Target the concepts list
+                        "filter_target": "ideas.ideas",  # Target the ideas list
                         "condition_groups": [
                             {
                                 "conditions": [
                                     {
-                                        "field": "concepts.concepts.concept_id",
+                                        "field": "ideas.ideas.idea_id",
                                         "operator": "equals_any_of",
-                                        "value_path": "selected_concepts"
+                                        "value_path": "selected_ideas"
                                     }
                                 ]
                             }
@@ -421,8 +443,8 @@ workflow_graph_schema = {
 
 
         # --- 9. Construct Brief Prompt (Inside Map Branch) ---
-        "construct_update_content_brief_prompt": {
-            "node_id": "construct_update_content_brief_prompt",
+        "construct_content_brief_prompt": {
+            "node_id": "construct_content_brief_prompt",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -430,16 +452,16 @@ workflow_graph_schema = {
                         "id": "brief_user_prompt",
                         "template": BRIEF_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "selected_concepts": None,
+                            "selected_ideas": None,
                             "user_dna": None,
                             "merged_posts": None,
-                            "initial_brief": None
+                            "user_input": None
                         },
                         "construct_options": {
-                            "selected_concepts": "selected_concepts.concepts",
+                            "selected_ideas": "selected_ideas.ideas",
                             "user_dna": "user_dna",
                             "merged_posts": "merged_posts",
-                            "initial_brief": "initial_brief"
+                            "user_input": "user_input"
                         }
                     },
                     "brief_system_prompt": {
@@ -453,8 +475,8 @@ workflow_graph_schema = {
         },
 
         # --- 10. Generate Brief (LLM - Inside Map Branch) ---
-        "generated_updated_content_brief": {
-            "node_id": "generated_updated_content_brief",
+        "generated_content_brief": {
+            "node_id": "generated_content_brief",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -469,8 +491,8 @@ workflow_graph_schema = {
         },
 
         # --- 11. Store All Generated Briefs (After Map Completes) ---
-        "save_updated_content_brief": {
-            "node_id": "save_updated_content_brief",
+        "save_content_brief": {
+            "node_id": "save_content_brief",
             "node_name": "store_customer_data", # Store the final list
             "node_config": {
                 "global_versioning": { "is_versioned": CONTENT_BRIEF_IS_VERSIONED, "operation": "upsert_versioned" },
@@ -483,7 +505,7 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": CONTENT_BRIEF_NAMESPACE_TEMPLATE, 
                                 "input_namespace_field": "entity_username",
-                                "input_docname_field": "brief_docname"
+                                "static_docname": CONTENT_BRIEF_DOCNAME, # Use static docname instead of input field
                             }
                         },
                         "versioning": {
@@ -493,13 +515,13 @@ workflow_graph_schema = {
                         }
                     },
                     {
-                        # Also store the selected concepts that were used
-                        "input_field_path": "selected_concepts.concepts", # Mapped from filter_selected_concepts
+                        # Also store the selected ideas that were used
+                        "input_field_path": "selected_ideas.ideas", # Mapped from filter_selected_ideas
                         "target_path": {
                             "filename_config": {
-                                "input_namespace_field_pattern": CONCEPT_NAMESPACE_TEMPLATE, 
+                                "input_namespace_field_pattern": IDEA_NAMESPACE_TEMPLATE, 
                                 "input_namespace_field": "entity_username",
-                                "static_docname": CONCEPT_DOCNAME, # Field in node's input containing the value
+                                "static_docname": IDEA_DOCNAME,
                             }
                         },
                         "extra_fields": [
@@ -513,7 +535,7 @@ workflow_graph_schema = {
                             },
                         ],
                         "versioning": {
-                            "is_versioned": CONCEPT_IS_VERSIONED,
+                            "is_versioned": IDEA_IS_VERSIONED,
                             "operation": "upsert_versioned",
                         }
                     }
@@ -550,7 +572,7 @@ workflow_graph_schema = {
         { "src_node_id": "input_node", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs" },
             { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
-            { "src_field": "initial_brief_docname", "dst_field": "initial_brief_docname" },
+            { "src_field": "user_input", "dst_field": "user_input" },
             { "src_field": "entity_username", "dst_field": "entity_username" },
           ]
         },
@@ -558,7 +580,7 @@ workflow_graph_schema = {
         # Input -> Load operations
         { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "mappings": [
             { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs" },
-            { "src_field": "initial_brief_docname", "dst_field": "initial_brief_docname" },
+            { "src_field": "user_input", "dst_field": "user_input" },
             { "src_field": "entity_username", "dst_field": "entity_username" },
           ], "description": "Trigger context docs loading."
         },
@@ -595,8 +617,43 @@ workflow_graph_schema = {
         ]
         },
 
-            # --- Map Iteration -> Construct Prompt (Private Edge) ---
-        { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_concepts_prompt",
+        # --- User Input Interpretation Path ---
+        { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_user_input_interpretation_prompt",
+            "mappings": [
+                { "src_field": "merged_data", "dst_field": "merged_posts" },
+            ]
+        },
+
+        { "src_node_id": "$graph_state", "dst_node_id": "construct_user_input_interpretation_prompt", "mappings": [
+            { "src_field": "user_input", "dst_field": "user_input" },
+            { "src_field": "user_dna", "dst_field": "user_dna" },
+          ]
+        },
+
+        { "src_node_id": "construct_user_input_interpretation_prompt", "dst_node_id": "interpret_user_input", "mappings": [
+            { "src_field": "interpretation_prompt", "dst_field": "user_prompt" }
+          ]
+        },
+
+        { "src_node_id": "interpret_user_input", "dst_node_id": "$graph_state", "mappings": [
+            { "src_field": "structured_output", "dst_field": "interpreted_user_input" }
+          ]
+        },
+
+        # --- Initial Ideas Prompt Construction (Now depends on interpreted input) ---
+        { "src_node_id": "interpret_user_input", "dst_node_id": "construct_initial_ideas_prompt", "mappings": [
+            { "src_field": "structured_output", "dst_field": "interpreted_user_input" }
+          ]
+        },
+
+        { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_ideas_prompt", "mappings": [
+            { "src_field": "user_dna", "dst_field": "user_dna" },
+            { "src_field": "merged_posts", "dst_field": "merged_posts" },
+          ]
+        },
+
+        # --- Map Iteration -> Construct Prompt (Private Edge) ---
+        { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_ideas_prompt",
             "mappings": [
                 { "src_field": "merged_data", "dst_field": "merged_posts" },
             ]
@@ -608,54 +665,47 @@ workflow_graph_schema = {
             ]
         },
 
-        # --- Mapping State to Initial Concepts Prompt ---
-        { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_concepts_prompt", "mappings": [
-            { "src_field": "user_dna", "dst_field": "user_dna" },
-            { "src_field": "initial_brief", "dst_field": "initial_brief" },
-          ]
+        # --- Construct Prompt → Generate Ideas ---
+        { "src_node_id": "construct_initial_ideas_prompt", "dst_node_id": "generate_ideas", "mappings": [
+            { "src_field": "initial_ideas_user_prompt", "dst_field": "user_prompt"},
+            { "src_field": "ideas_system_prompt", "dst_field": "system_prompt"}
+          ], "description": "Send prompts to LLM for idea generation."
         },
 
-        # --- Construct Prompt → Generate Concepts ---
-        { "src_node_id": "construct_initial_concepts_prompt", "dst_node_id": "generate_concepts", "mappings": [
-            { "src_field": "initial_concepts_user_prompt", "dst_field": "user_prompt"},
-            { "src_field": "concepts_system_prompt", "dst_field": "system_prompt"}
-          ], "description": "Send prompts to LLM for concept generation."
-        },
-
-        # --- State -> Generate Concepts ---
-        { "src_node_id": "$graph_state", "dst_node_id": "generate_concepts", "mappings": [
+        # --- State -> Generate Ideas ---
+        { "src_node_id": "$graph_state", "dst_node_id": "generate_ideas", "mappings": [
             { "src_field": "messages_history", "dst_field": "messages_history"}
           ]
         },
 
-        # --- Generate Concepts -> Store & State ---
-        { "src_node_id": "generate_concepts", "dst_node_id": "$graph_state", "mappings": [
-            { "src_field": "structured_output", "dst_field": "current_generated_concepts"},
+        # --- Generate Ideas -> Store & State ---
+        { "src_node_id": "generate_ideas", "dst_node_id": "$graph_state", "mappings": [
+            { "src_field": "structured_output", "dst_field": "current_generated_ideas"},
             { "src_field": "current_messages", "dst_field": "messages_history"}
           ]
         },
 
-        { "src_node_id": "generate_concepts", "dst_node_id": "store_concepts", "mappings": [
+        { "src_node_id": "generate_ideas", "dst_node_id": "store_ideas", "mappings": [
             { "src_field": "structured_output", "dst_field": "structured_output"}
           ]
         },
 
-        # --- State -> Store Concepts ---
-        { "src_node_id": "$graph_state", "dst_node_id": "store_concepts", "mappings": [
+        # --- State -> Store Ideas ---
+        { "src_node_id": "$graph_state", "dst_node_id": "store_ideas", "mappings": [
             { "src_field": "initial_brief", "dst_field": "initial_brief"},
             { "src_field": "entity_username", "dst_field": "entity_username"},
           ]
         },
 
-        # --- Store Concepts -> User Choice ---
-        { "src_node_id": "store_concepts", "dst_node_id": "capture_user_choice", "mappings": [
+        # --- Store Ideas -> User Choice ---
+        { "src_node_id": "store_ideas", "dst_node_id": "capture_user_choice", "mappings": [
             { "src_field": "paths_processed", "dst_field": "draft_paths_processed"}
           ]
         },
 
         # --- State -> User Choice ---
         { "src_node_id": "$graph_state", "dst_node_id": "capture_user_choice", "mappings": [
-            { "src_field": "current_generated_concepts", "dst_field": "concepts_for_review"}
+            { "src_field": "current_generated_ideas", "dst_field": "ideas_for_review"}
           ]
         },
 
@@ -668,47 +718,47 @@ workflow_graph_schema = {
         # --- User Choice -> State ---
         { "src_node_id": "capture_user_choice", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "feedback_text", "dst_field": "current_feedback_text"},
-            { "src_field": "selected_concepts", "dst_field": "user_selected_concepts"}
+            { "src_field": "selected_ideas", "dst_field": "user_selected_ideas"}
           ]
         },
 
         # --- Route -> Paths ---
-        { "src_node_id": "route_on_user_choice", "dst_node_id": "construct_concepts_regeneration_prompt", "description": "Route to regenerate concepts if requested." },
+        { "src_node_id": "route_on_user_choice", "dst_node_id": "construct_ideas_regeneration_prompt", "description": "Route to regenerate ideas if requested." },
         { "src_node_id": "route_on_user_choice", "dst_node_id": "output_node", "description": "Route to output if going back." },
-        { "src_node_id": "route_on_user_choice", "dst_node_id": "filter_selected_concepts", "description": "Route to filter if concepts selected." },
+        { "src_node_id": "route_on_user_choice", "dst_node_id": "filter_selected_ideas", "description": "Route to filter if ideas selected." },
 
-        # --- Regeneration Prompt -> Generate Concepts ---
-        { "src_node_id": "$graph_state", "dst_node_id": "construct_concepts_regeneration_prompt", "mappings": [
+        # --- Regeneration Prompt -> Generate Ideas ---
+        { "src_node_id": "$graph_state", "dst_node_id": "construct_ideas_regeneration_prompt", "mappings": [
             { "src_field": "current_feedback_text", "dst_field": "current_feedback_text"}
           ]},
 
-        { "src_node_id": "construct_concepts_regeneration_prompt", "dst_node_id": "generate_concepts", "mappings": [
-            { "src_field": "additional_brief_prompt", "dst_field": "user_prompt"}
+        { "src_node_id": "construct_ideas_regeneration_prompt", "dst_node_id": "generate_ideas", "mappings": [
+            { "src_field": "additional_ideas_prompt", "dst_field": "user_prompt"}
           ]
         },
 
         # --- State -> Filter ---
-        { "src_node_id": "$graph_state", "dst_node_id": "filter_selected_concepts", "mappings": [
-            { "src_field": "current_generated_concepts", "dst_field": "concepts"},
-            { "src_field": "user_selected_concepts", "dst_field": "selected_concepts"}
+        { "src_node_id": "$graph_state", "dst_node_id": "filter_selected_ideas", "mappings": [
+            { "src_field": "current_generated_ideas", "dst_field": "ideas"},
+            { "src_field": "user_selected_ideas", "dst_field": "selected_ideas"}
           ]
         },
 
         # --- Filter -> Update Content Brief Prompt ---
-        { "src_node_id": "filter_selected_concepts", "dst_node_id": "construct_update_content_brief_prompt", "mappings": [
-            { "src_field": "filtered_data", "dst_field": "selected_concepts"}
+        { "src_node_id": "filter_selected_ideas", "dst_node_id": "construct_content_brief_prompt", "mappings": [
+            { "src_field": "filtered_data", "dst_field": "selected_ideas"}
           ]
         },
 
-        # --- Filter -> Save Updated Content Brief (to also save selected concepts) ---
-        # NOTE: overwrites user choices with filtered concepts!
-        { "src_node_id": "filter_selected_concepts", "dst_node_id": "$graph_state", "mappings": [
-            { "src_field": "filtered_data", "dst_field": "selected_concepts"}
+        # --- Filter -> Save Updated Content Brief (to also save selected ideas) ---
+        # NOTE: overwrites user choices with filtered ideas!
+        { "src_node_id": "filter_selected_ideas", "dst_node_id": "$graph_state", "mappings": [
+            { "src_field": "filtered_data", "dst_field": "selected_ideas"}
           ]
         },
 
         # --- State -> Update Content Brief Prompt ---
-        { "src_node_id": "$graph_state", "dst_node_id": "construct_update_content_brief_prompt", "mappings": [
+        { "src_node_id": "$graph_state", "dst_node_id": "construct_content_brief_prompt", "mappings": [
             { "src_field": "user_dna", "dst_field": "user_dna" },
             { "src_field": "initial_brief", "dst_field": "initial_brief"},
             { "src_field": "merged_posts", "dst_field": "merged_posts"}
@@ -716,35 +766,34 @@ workflow_graph_schema = {
         },
 
         # --- Update Content Brief Prompt -> Generate Updated Brief ---
-        { "src_node_id": "construct_update_content_brief_prompt", "dst_node_id": "generated_updated_content_brief", "mappings": [
+        { "src_node_id": "construct_content_brief_prompt", "dst_node_id": "generated_content_brief", "mappings": [
             { "src_field": "brief_user_prompt", "dst_field": "user_prompt"},
             { "src_field": "brief_system_prompt", "dst_field": "system_prompt"}
           ]
         },
 
         # --- Generate Updated Brief -> State ---
-        { "src_node_id": "generated_updated_content_brief", "dst_node_id": "$graph_state", "mappings": [
+        { "src_node_id": "generated_content_brief", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "updated_brief"},
             # { "src_field": "current_messages", "dst_field": "brief_messages_history"}
           ]
         },
 
         # --- Generate Updated Brief -> Save ---
-        { "src_node_id": "generated_updated_content_brief", "dst_node_id": "save_updated_content_brief", "mappings": [
+        { "src_node_id": "generated_content_brief", "dst_node_id": "save_content_brief", "mappings": [
             { "src_field": "structured_output", "dst_field": "updated_brief"}
           ]
         },
 
         # --- State -> Save ---
-        { "src_node_id": "$graph_state", "dst_node_id": "save_updated_content_brief", "mappings": [
-            { "src_field": "initial_brief_docname", "dst_field": "brief_docname"},
-            { "src_field": "initial_brief", "dst_field": "initial_brief"},
-            { "src_field": "selected_concepts", "dst_field": "selected_concepts"},
+        { "src_node_id": "$graph_state", "dst_node_id": "save_content_brief", "mappings": [
+            { "src_field": "user_input", "dst_field": "user_input"},
+            { "src_field": "selected_ideas", "dst_field": "selected_ideas"},
             { "src_field": "entity_username", "dst_field": "entity_username"}
         ]},
 
         # --- Save -> Output ---
-        { "src_node_id": "save_updated_content_brief", "dst_node_id": "output_node", "mappings": [
+        { "src_node_id": "save_content_brief", "dst_node_id": "output_node", "mappings": [
             { "src_field": "paths_processed", "dst_field": "brief_paths_processed"}
           ]
         },
@@ -752,7 +801,7 @@ workflow_graph_schema = {
         # --- State -> Output ---
         { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
             { "src_field": "updated_brief", "dst_field": "final_brief_content"},
-            { "src_field": "selected_concepts", "dst_field": "selected_concepts"},
+            { "src_field": "selected_ideas", "dst_field": "selected_ideas"},
           ]
         },
     ],
@@ -780,8 +829,8 @@ async def main_test_idea_to_brief_workflow():
     Test for Idea to Brief Workflow.
     
     This function sets up test data, executes the workflow, and validates the output.
-    The workflow takes an initial brief, generates content concepts, allows for user selection,
-    and then creates a refined content brief based on the selected concepts.
+    The workflow takes an initial brief, generates content ideas, allows for user selection,
+    and then creates a refined content brief based on the selected ideas.
     """
     test_name = "Idea to Brief Workflow Test"
     print(f"--- Starting {test_name} --- ")
@@ -798,14 +847,6 @@ async def main_test_idea_to_brief_workflow():
         },
         {
             "filename_config": {
-                "input_namespace_field_pattern": CONTENT_BRIEF_NAMESPACE_TEMPLATE, 
-                "input_namespace_field": "entity_username",
-                "input_docname_field": "initial_brief_docname",
-            },
-            "output_field_name": "initial_brief"  # Field where the loaded initial brief will be stored
-        },
-        {
-            "filename_config": {
                 "input_namespace_field_pattern": LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE, 
                 "input_namespace_field": "entity_username",
                 "static_docname": LINKEDIN_POST_DOCNAME,
@@ -814,11 +855,10 @@ async def main_test_idea_to_brief_workflow():
         },
     ]
     
-    brief_docname = "test_brief_1"
     test_entity_username = "test_entity"
     
     test_inputs = {
-        "initial_brief_docname": brief_docname,
+        "user_input": "I want to create a post about the impact of AI on digital marketing strategies, focusing on how it's changing the way we approach customer engagement and personalization.",
         "customer_context_doc_configs": test_context_docs,
         "past_context_posts_limit": 20,
         "entity_username": test_entity_username
@@ -844,54 +884,6 @@ async def main_test_idea_to_brief_workflow():
             'is_versioned': USER_DNA_IS_VERSIONED, 
             'is_shared': False,
             'initial_version': 'default'  # Required for versioned documents
-        },
-        # Initial Brief Document
-        {
-            'namespace': CONTENT_BRIEF_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': brief_docname,
-            'initial_data': {
-                "uuid": brief_docname,
-                "title": "Building personal brand in the digital marketing landscape",
-                "core_perspective": "How innovative leadership approaches can disrupt traditional marketing paradigms",
-                "key_messages": [
-                    "The intersection of personal branding and digital marketing strategy",
-                    "Leadership principles that foster innovation in marketing teams",
-                    "Case studies of industry disruption through personal brand leverage",
-                    "Metrics that matter when measuring personal brand impact"
-                ],
-                "target_audience": {
-                    "primary": "Marketing professionals looking to differentiate themselves",
-                    "secondary": "Business leaders seeking marketing innovations"
-                },
-                "content_pillar": "Digital Transformation",
-                "post_objectives": ["Educate audience", "Position as thought leader", "Drive engagement"],
-                "tone_and_style": "Professional with authoritative insights, conversational yet data-backed",
-                "call_to_action": "Connect with me to discuss how we can revolutionize your marketing approach",
-                "hashtags": ["#PersonalBrand", "#MarketingInnovation", "#LeadershipStrategy", "#IndustryDisruption", "#DigitalMarketing"],
-                "evidence_and_examples": ["Case study on Nike's digital transformation", "Insights from McKinsey's latest marketing report"],
-                "structure_outline": {
-                    "opening_hook": "In a digital landscape where everyone has a platform, how do you make your voice count?",
-                    "common_misconception": "Many marketers believe personal branding is just about self-promotion",
-                    "core_perspective": "Personal branding is actually about delivering consistent value to your specific audience",
-                    "supporting_evidence": "Leaders who invest in their personal brand see 40% higher engagement rates",
-                    "practical_framework": "The 3P approach: Purpose, Presence, and Persistence",
-                    "strategic_takeaway": "Personal branding requires strategic alignment with broader business goals",
-                    "engagement_question": "What's one aspect of your personal brand that differentiates you in your industry?"
-                },
-                "suggested_hook_options": [
-                    "The digital marketing landscape changes daily, but one principle remains constant...",
-                    "What if I told you most personal branding advice is fundamentally flawed?",
-                    "Three years ago, I made a strategic personal branding decision that transformed my business..."
-                ],
-                "post_length": {
-                    "min": 500,
-                    "max": 800
-                },
-                "scheduled_date": "2023-07-01"
-            }, 
-            'initial_version': CONTENT_BRIEF_DEFAULT_VERSION,
-            'is_versioned': CONTENT_BRIEF_IS_VERSIONED, 
-            'is_shared': False
         },
         # Mock LinkedIn Scraped Posts
         {
@@ -964,8 +956,7 @@ async def main_test_idea_to_brief_workflow():
     # Define cleanup docs
     cleanup_docs = [
         {'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': USER_DNA_DOCNAME, 'is_versioned': USER_DNA_IS_VERSIONED, 'is_shared': False},
-        {'namespace': CONTENT_BRIEF_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': brief_docname, 'is_versioned': CONTENT_BRIEF_IS_VERSIONED, 'is_shared': False},
-        {'namespace': CONCEPT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONCEPT_DOCNAME.replace('{_uuid_}', '*'), 'is_versioned': CONCEPT_IS_VERSIONED, 'is_shared': False},
+        {'namespace': IDEA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': IDEA_DOCNAME.replace('{_uuid_}', '*'), 'is_versioned': IDEA_IS_VERSIONED, 'is_shared': False},
         {'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-1'), 'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 'is_shared': False},
         {'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-2'), 'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 'is_shared': False},
         {'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': LINKEDIN_POST_DOCNAME, 'is_versioned': False, 'is_shared': False},

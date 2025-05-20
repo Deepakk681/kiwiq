@@ -61,6 +61,11 @@ CONCEPT_DOCNAME = "concept_{_uuid_}"
 CONCEPT_NAMESPACE_TEMPLATE = "content_concepts_{item}"
 CONCEPT_IS_VERSIONED = True
 
+# Content Ideas
+IDEA_DOCNAME = "idea_{_uuid_}"
+IDEA_NAMESPACE_TEMPLATE = "content_ideas_{item}"
+IDEA_IS_VERSIONED = True
+
 # System Strategy Documents
 METHODOLOGY_IMPLEMENTATION_DOCNAME = "methodology_implementation_ai_copilot"
 METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE = "system_strategy_docs_namespace"

@@ -350,9 +350,9 @@ workflow_graph_schema = {
 # --- Test Execution Logic ---
 async def main_test_idea_to_brief_workflow():
     """
-    Test for Idea to Brief Workflow.
+    Test for Content Strategy Workflow.
     """
-    test_name = "Idea to Brief Workflow Test"
+    test_name = "Content Strategy Workflow Test"
     print(f"--- Starting {test_name} --- ")
 
     # Example Inputs
