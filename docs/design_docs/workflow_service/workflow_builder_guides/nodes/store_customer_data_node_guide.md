@@ -528,10 +528,15 @@ The `StoreCustomerDataNode` requires input data containing the document(s) or va
 
 ## Output (`StoreCustomerDataOutput`)
 
-The node primarily performs a write operation and then passes through the original input data.
+The node primarily performs a write operation and then passes through the original input data, potentially modified.
 
--   **`passthrough_data`** (Dict[str, Any]): A copy of the complete input data that was received by the node.
--   **`paths_processed`** (List[List[str]]): A list indicating which documents were successfully processed. Each inner list contains `[namespace, docname, operation_string]`. Example: `[["analysis_reports", "report_final", "upsert_unversioned"], ["user_settings", "user_123", "update_versioned_default"], ["project_drafts", "proj_abc", "upsert_versioned_updated_latest_auto_save"]]`. The operation string provides detail on what action occurred (e.g., `upsert_versioned_initialized_...`, `upsert_versioned_updated_...`).
+-   **`passthrough_data`** (Dict[str, Any]): A copy of the complete input data that was received by the node. **Important:** If the store operation involved modifying the data being stored (e.g., by adding a generated UUID via `generate_uuid: true` or by adding `extra_fields`), these modifications **will be reflected** in the corresponding items within `passthrough_data`. This allows downstream nodes to access the stored object along with any enrichments or generated IDs.
+-   **`paths_processed`** (List[List[Union[str, Dict[str, Any]]]]): A list indicating which documents were successfully processed. Each inner list contains four elements: `[namespace, docname, operation_string, operation_parameters_dict]`.
+    *   `namespace` (str): The namespace of the stored document.
+    *   `docname` (str): The document name of the stored document.
+    *   `operation_string` (str): A string describing the specific operation performed (e.g., `"upsert_unversioned (created: True)"`, `"update_versioned_default"`, `"upsert_versioned_initialized_latest_draft"`).
+    *   `operation_parameters_dict` (Dict[str, Any]): A dictionary containing the parameters used for the storage operation, such as `org_id`, `is_shared`, `on_behalf_of_user_id`, `is_system_entity`, `namespace`, `docname`, and `version_info`.
+    *   Example: `[["analysis_reports", "report_final", "upsert_unversioned (created: True)", {"org_id": "...", "is_shared": false, ...}], ["user_settings", "user_123", "update_versioned_default", {"org_id": "...", ...}]]`.
 
 ## Example `GraphSchema` Snippet
 
@@ -596,10 +601,12 @@ The node primarily performs a write operation and then passes through the origin
       "src_node_id": "store_report",
       "dst_node_id": "notify_user",
       "mappings": [
-        // Pass through the original data if needed
-        { "src_field": "passthrough_data", "dst_field": "original_input" }
-        // Or map specific fields from the passthrough data
-        // { "src_field": "passthrough_data.report_metadata.report_id", "dst_field": "processed_report_id" }
+        // Pass through the entire modified input data if needed
+        { "src_field": "passthrough_data", "dst_field": "original_input_with_stored_item_modifications" }
+        // Or map specific fields from the passthrough data.
+        // If 'report_data' was modified (e.g., UUID added), that change is here:
+        // { "src_field": "passthrough_data.report_data.uuid", "dst_field": "stored_report_uuid" },
+        // { "src_field": "passthrough_data.report_data.source.workflow_run_id", "dst_field": "workflow_run_id_in_report" }
       ]
     }
   ],
@@ -616,8 +623,8 @@ The node primarily performs a write operation and then passes through the origin
 -   Inside each save instruction:
     *   `input_field_path`: Which piece of data from the previous step should be saved? (e.g., `"customer_summary"`, `"list_of_names"`, `"final_score"`).
     *   `process_list_items_separately` (usually default/`null` which means `false`): If the data is a list, should each item be saved individually (`true`) or should the whole list be saved as one file (`false`)?
-    *   `generate_uuid`: Should a unique ID be automatically added to each stored object? This ID can also be used in the filename using the `{_uuid_}` placeholder.
-    *   `extra_fields`: A list of additional fields to add to the stored data, taken from other parts of the input. For example, add a timestamp or workflow ID to everything you save.
+    *   `generate_uuid`: Should a unique ID be automatically added to each stored object? This ID can also be used in the filename using the `{_uuid_}` placeholder. **If a UUID is added, the saved data in `passthrough_data` will include this UUID.**
+    *   `extra_fields`: A list of additional fields to add to the stored data, taken from other parts of the input. For example, add a timestamp or workflow ID to everything you save. **If extra fields are added, the saved data in `passthrough_data` will include these fields.**
     *   `create_only_fields`: A list of field names that should never be overwritten after initial creation. For example, "created_at" timestamps or "created_by" values are preserved during updates.
     *   `keep_create_fields_if_missing`: If set to `true`, adds creation fields to existing documents if they're missing those fields. Useful when retrofitting metadata to existing objects.
     *   `target_path.filename_config`: Where should it be saved?
@@ -634,7 +641,8 @@ The node primarily performs a write operation and then passes through the origin
     -   `schema_options`: Optionally link the saved data to a predefined structure (schema) for consistency.
     -   `is_shared`: Set to `true` to save data accessible by everyone in the org.
     -   `on_behalf_of_user_id`: (Superusers only) Provide a user ID here to save the data as if you *were* that user (only applies when `is_shared` is false). The data gets saved under their specific path.
--   The node mostly passes through the data it received. You can use the `paths_processed` output to see a list of what was successfully saved. 
+-   The node passes through the data it received in the `passthrough_data` field. **Crucially, any modifications made to the data before storing it (like adding a UUID or extra fields) will be present in this `passthrough_data`.** This is useful if later steps in your workflow need to know the UUID that was generated or use the enriched data.
+-   The `paths_processed` output gives a detailed list of what was saved, including the exact location, the operation performed, and the parameters used for the save.
 
 ## Common Use Cases for Extra Fields and UUID Generation
 
