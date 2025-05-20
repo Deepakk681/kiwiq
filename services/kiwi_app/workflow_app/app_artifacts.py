@@ -683,6 +683,29 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "user_documents_config_variables": {},
       "template_specific": false
     },
+    "alternate_text_suggestion_workflow": {
+      "name": "alternate_text_suggestion_workflow",
+      "version": null,
+      "inputs": {
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_dna_doc"
+                },
+                "output_field_name": "user_dna"
+            }
+        ],
+        "entity_username": null,
+        "selected_text": null,
+        "complete_content_doc": null,
+        "user_feedback": null
+    },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
     "post_creation_from_scratch_workflow": {
       "name": "post_creation_from_scratch_workflow", 
       "version": null,
