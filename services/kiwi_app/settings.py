@@ -31,7 +31,7 @@ class Settings(GlobalSettings):
     GMAIL_SMTP_PASSWORD: Optional[str] = None # Your Gmail App Password (NOT your regular password)
     GMAIL_SMTP_FROM: Optional[str] = None     # The email address emails should be sent from
     GMAIL_SMTP_PORT: int = 587                # Default SMTP TLS port
-    GMAIL_SMTP_SERVER: str = "smtp.gmail.com"
+    GMAIL_SMTP_SERVER: str = "smtp-relay.gmail.com"  # smtp-relay.gmail.com  smtp.gmail.com
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
     USE_CREDENTIALS: bool = True

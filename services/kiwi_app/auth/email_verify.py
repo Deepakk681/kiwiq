@@ -10,6 +10,8 @@ from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select # Keep select for user lookup by ID
 
+from bs4 import BeautifulSoup
+
 # from global_config.settings import LOG_ROOT
 from kiwi_app.settings import settings
 
@@ -42,6 +44,18 @@ from kiwi_app.auth.schemas import TokenData
 #     return str(uuid.uuid4())
 
 # TODO: CRITICAL: FIXME: change URLs to not redirect customers to API but the SPA and SPA can call backend for verification!
+
+
+
+def html_to_text(html_content):
+    # Create a BeautifulSoup object
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Get text content
+    text = soup.get_text(separator=' ', strip=True)
+    
+    return text
+
 
 def send_verification_email_sync(
     email_to: EmailStr,
@@ -91,7 +105,9 @@ def send_verification_email_sync(
       </body>
     </html>
     """
-    message.set_content("Please enable HTML emails to view this message.") # Plain text fallback
+
+    text_body = html_to_text(html_body)
+    message.set_content(text_body) # Plain text fallback
     message.add_alternative(html_body, subtype="html")
 
     # Connect to SMTP server and send
@@ -320,7 +336,8 @@ def send_password_reset_email_sync(
       </body>
     </html>
     """
-    message.set_content("Please enable HTML emails to view this message.") # Plain text fallback
+    text_body = html_to_text(html_body)
+    message.set_content(text_body) # Plain text fallback
     message.add_alternative(html_body, subtype="html")
 
     # Connect and send (identical logic to send_verification_email_sync)
