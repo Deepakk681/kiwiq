@@ -300,6 +300,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "past_context_posts_limit": 20,
+        "user_instruction": null,
         "entity_username": null
       },
       "user_documents_config_variables": {
@@ -583,6 +584,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "past_context_posts_limit": 20,
+        "user_instruction": null,
         "entity_username": null
       },
       "user_documents_config_variables": {},
