@@ -823,7 +823,7 @@ def _get_nested_obj(data: Any, field_path: str) -> Tuple[Any, bool]:
         return data, True
     
     # Navigate through the path
-    for part in parts:
+    for i, part in enumerate(parts):
         if isinstance(current, dict):
             if part in current:
                 current = current[part]
@@ -837,7 +837,12 @@ def _get_nested_obj(data: Any, field_path: str) -> Tuple[Any, bool]:
                 else:
                     return None, False
             except (ValueError, TypeError):
-                return None, False
+                data = [_get_nested_obj(obj, '.'.join(parts[i:])) for obj in current]
+                data = [subdata for subdata, found in data if found]
+                if data:
+                    return data, True
+                else:
+                    return None, False
         else:
             return None, False
     
