@@ -547,8 +547,8 @@ async def main():
     workflow_configs = [
         # First workflow - content creation workflow
         {
-            "workflow_key": "linkedin_scraping_workflow",
-            "module_path": "kiwi_client.workflows.wf_linkedin_scraping",
+            "workflow_key": "post_creation_from_scratch_workflow",
+            "module_path": "kiwi_client.workflows.wf_post_brainstorm_from_scratch",
         },
         # {
         #     "workflow_key": "content_creation_workflow",

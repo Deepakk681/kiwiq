@@ -231,16 +231,6 @@ workflow_graph_schema = {
                         "input_docname_field": "post_uuid",
                     }
                 },
-                "extra_fields": [
-                    {
-                        # Required: Path to value in input data
-                        "src_path": "content_brief.uuid",
-                        
-                        # Optional: Path where value should be placed in stored object
-                        # If not provided, defaults to last segment of src_path
-                        "dst_path": "brief_id"
-                    },
-                ],
                 "versioning": {
                     "is_versioned": CONTENT_DRAFT_IS_VERSIONED,
                     "operation": "upsert_versioned",
@@ -475,6 +465,7 @@ workflow_graph_schema = {
                 # "original_post": None, # Required from $graph_state.original_draft_content
                 "current_feedback_text": None, # Required from transform_feedback_output
                 "rewrite_instructions": None, # Required from transform_feedback_output
+                "current_post_draft": None, # Required from transform_feedback_output
                 # "user_style": "default", # Default if not found via construct_options
                 # "schema_definition": None # Required via construct_options
                 # "schema_definition": f"{LinkedInPostSchemaDefinition}" # Required (placeholder for actual schema JSON string or loaded value)
@@ -482,6 +473,7 @@ workflow_graph_schema = {
             "construct_options": { # P1 Sourcing: Map variables to paths within node's input fields
                 "rewrite_instructions": "rewrite_instructions", # Look inside the mapped 'feedback_directives' input field
                 "current_feedback_text": "current_feedback_text", # Look inside the mapped 'feedback_directives' input field
+                "current_post_draft": "current_post_draft", # Look inside the mapped 'feedback_directives' input field
                 # NOTE: user_style, brief not required here probably since they wil be available from previous `message_history`!
                 # "user_style": "user_dna_doc.style_preference", # Look inside the mapped 'user_dna_doc' input field
                 # "brief": "brief_docname", # Look inside the mapped 'brief_docname' input field
@@ -545,6 +537,9 @@ workflow_graph_schema = {
       ]
     },
 
+    # Add direct connections from load nodes
+    { "src_node_id": "load_all_context_docs", "dst_node_id": "prepare_generation_context"},
+    { "src_node_id": "load_draft_posts", "dst_node_id": "prepare_generation_context"},
     # --- Context Preparation ---
     # State -> Prepare Generation Context
     { "src_node_id": "$graph_state", "dst_node_id": "prepare_generation_context", "mappings": [
@@ -553,7 +548,13 @@ workflow_graph_schema = {
         { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
     ]},
 
-    # Prepare Generation Context -> State
+    { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_prompt",
+            "mappings": [
+                { "src_field": "merged_data", "dst_field": "merged_posts" },
+            ]
+    },
+
+    # Add output edge to store merged data
     { "src_node_id": "prepare_generation_context", "dst_node_id": "$graph_state",
         "mappings": [
             { "src_field": "merged_data", "dst_field": "merged_posts", "description": "Store the merged and limited posts for context."},
@@ -565,7 +566,7 @@ workflow_graph_schema = {
     { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_prompt", "mappings": [
         { "src_field": "user_dna", "dst_field": "user_dna", "description": "Pass user DNA for extracting style preference."},
         { "src_field": "user_input", "dst_field": "user_input", "description": "Pass the user input for prompt construction."},
-        { "src_field": "merged_posts", "dst_field": "merged_posts", "description": "Pass the merged posts for context."},
+        # { "src_field": "merged_posts", "dst_field": "merged_posts", "description": "Pass the merged posts for context."},
       ]
     },
 
@@ -573,7 +574,12 @@ workflow_graph_schema = {
     { "src_node_id": "construct_initial_prompt", "dst_node_id": "generate_content", "mappings": [
         { "src_field": "initial_generation_prompt", "dst_field": "user_prompt", "description": "Pass the main generation prompt to the LLM."},
         { "src_field": "system_prompt", "dst_field": "system_prompt", "description": "Pass the system prompt/instructions to the LLM."}
-      ]
+    ]},
+
+    # State -> Generate Content (for message history)
+    { "src_node_id": "$graph_state", "dst_node_id": "generate_content", "mappings": [
+            { "src_field": "messages_history", "dst_field": "messages_history"}
+          ]
     },
 
     # --- Parallel Branches Post-Generation ---
@@ -601,6 +607,11 @@ workflow_graph_schema = {
       ]
     },
 
+    { "src_node_id": "$graph_state", "dst_node_id": "capture_approval", "mappings": [
+        { "src_field": "paths_processed", "dst_field": "draft_paths_processed"}
+      ]
+    },
+
     # --- Update State Post-Generation ---
     # Generate Content -> State: Update global state with results and context
     { "src_node_id": "generate_content", "dst_node_id": "$graph_state", "mappings": [
@@ -616,9 +627,10 @@ workflow_graph_schema = {
         { "src_field": "approval_status", "dst_field": "approval_status_from_hitl", "description": "Pass the user's decision ('approved' or 'needs_work')."}
       ]
     },
-    # Capture Approval -> State: Store user feedback
+    # Capture Approval -> State: Store user feedback and updated draft
     { "src_node_id": "capture_approval", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "feedback_text", "dst_field": "current_feedback_text", "description": "Store the user's feedback text globally."}
+        { "src_field": "feedback_text", "dst_field": "current_feedback_text", "description": "Store the user's feedback text globally."},
+        { "src_field": "updated_post_draft", "dst_field": "current_post_draft", "description": "Store the updated post draft globally."}
       ]
     },
     # Route on Approval -> Check Iteration Limit: Control flow if 'needs_work'
@@ -708,10 +720,12 @@ workflow_graph_schema = {
         { "src_field": "text_content", "dst_field": "rewrite_instructions", "description": "Pass the structured analysis (summary, instructions) for constructing the rewrite prompt."}
       ]
     },
-     # State -> Additional Prompt Constructor: Provide necessary context
+    # State -> Construct Rewrite Prompt: Provide necessary context
     { "src_node_id": "$graph_state", "dst_node_id": "construct_rewrite_prompt", "mappings": [
         { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
+        { "src_field": "current_post_draft", "dst_field": "current_post_draft",
+          "description": "Pass the current post draft for context."}
       ]
     },
     # Interpret Feedback -> State: Update message history and metadata after analysis LLM call
@@ -1006,16 +1020,28 @@ async def main_test_content_workflow_with_client():
         # Input for the first HITL stop (request revisions)
         {
             "approval_status": "needs_work",
-            "feedback_text": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?"
+            "feedback_text": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?",
+            "updated_post_draft": {
+                "post_text": "73% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
+                "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
+            }
         },
         {
             "approval_status": "needs_work",
-            "feedback_text": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?"
+            "feedback_text": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?",
+            "updated_post_draft": {
+                "post_text": "245% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
+                "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
+            }
         },
         # Input for the second HITL stop (approve)
         {
             "approval_status": "approved",
-            "feedback_text": ""
+            "feedback_text": "",
+            "updated_post_draft": {
+                "post_text": "4567% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
+                "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
+            }
         }
     ]
 

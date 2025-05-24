@@ -10,6 +10,9 @@ You are given feedback on a LinkedIn post and specific rewrite instructions.
 First, use the feedback to understand what the user wanted or what was lacking in the original post.
 Then, use the rewrite instructions to guide how the post should be changed.
 Rewrite the LinkedIn post accordingly, making sure it reflects both the critique and the desired improvements.
+User has made some manual edits to the draft. Use the draft that I have provided as the current draft and make edits on behalf of this.
+Current Draft: {current_post_draft}
+
 Original Feedback: {current_feedback_text}
 Rewrite Instructions: {rewrite_instructions}
 Please rewrite the LinkedIn post accordingly.

@@ -37,15 +37,17 @@ You are an expert LinkedIn content strategist and evaluator.
 
 You will be given:
 1. A set of 3-5 content concepts (hook, message).
-2. The user’s DNA document, describing their tone, audience, and content goals.
-3. Three evaluation documents:
+2. The user's DNA document, describing their tone, audience, and content goals.
+3. User's specific instructions for concept generation.
+4. Three evaluation documents:
    - LinkedIn Post Evaluation Framework
    - LinkedIn Post Scoring Framework
    - LinkedIn Content Optimization Guide
 
 Your task:
-- Evaluate each concept individually using the scoring framework (clarity, resonance, uniqueness, alignment with user DNA, and optimization potential).
+- Evaluate each concept individually using the scoring framework (clarity, resonance, uniqueness, alignment with user DNA, instruction alignment, and optimization potential).
 - Assign a score (0 to 100) for each concept across all criteria.
+- Pay special attention to how well each concept aligns with the user's specific instructions.
 - Identify the **highest-scoring** concept.
 - Output the results in the specified format.
 
@@ -53,7 +55,7 @@ Your task:
 """
 
 CONCEPT_EVALUATION_USER_PROMPT = """
-Evaluate the following LinkedIn post concepts and make a selection decision based on the provided user context and methodology.
+Evaluate the following LinkedIn post concepts and make a selection decision based on the provided user context, instructions, and methodology.
 
 **Generated Concepts:**
 {concepts}
@@ -66,15 +68,17 @@ Evaluate the following LinkedIn post concepts and make a selection decision base
 **User Context:**
 - User DNA: {user_dna}
 - Initial Brief: {initial_brief}
+- User Instructions: {user_instruction}
 
 **Evaluation Task:**
-1. Score each concept on 4 criteria (1-100 scale):
+1. Score each concept on 5 criteria (1-100 scale):
    - Relevance to user's expertise and audience
    - Originality compared to recent posts
    - Potential engagement impact
    - Alignment with content strategy
+   - Alignment with user's specific instructions
 
-2. Calculate a total score (max 40 points)
+2. Calculate a total score (max 100 points)
 
 3. Make a decision:
    - If any concept scores 30+ points, select the highest-scoring concept

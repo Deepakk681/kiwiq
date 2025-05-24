@@ -13,8 +13,8 @@ INITIAL_IDEAS_USER_PROMPT = """Pitch 4 post ideas for LinkedIn posts based on th
 **Task:**
 Generate 4 high-quality, non-repetitive content ideas that align with the user’s professional field, expertise, and recent interests.
 Each idea should include a:
-- **Hook**: [A short, bold, or curiosity-generating statement that connects the user's background to a relevant insight or challenge.]
-- **Angle**: [A 2–3 sentence explanation of the idea’s perspective, how it uses the user’s experience to shed light on a theme, and how it positions them (e.g., expert, innovator, leader).]
+- **hook**: [A short, bold, or curiosity-generating statement that connects the user's background to a relevant insight or challenge.]
+- **message**: [A 1-2 sentence explanation of the idea’s perspective, how it uses the user’s experience to shed light on a theme, and how it positions them (e.g., expert, innovator, leader).]
 
 Ensure:
 - Each idea explores a unique content direction or pillar.

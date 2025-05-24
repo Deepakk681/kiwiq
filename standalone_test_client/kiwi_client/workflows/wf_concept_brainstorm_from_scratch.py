@@ -308,16 +308,6 @@ workflow_graph_schema = {
                                     "static_docname": CONCEPT_DOCNAME, # Field in node's input containing the value
                                 }
                             },
-                            "extra_fields": [
-                                {
-                                    # Required: Path to value in input data
-                                    "src_path": "initial_brief.uuid",
-                                    
-                                    # Optional: Path where value should be placed in stored object
-                                    # If not provided, defaults to last segment of src_path
-                                    "dst_path": "brief_id"
-                                },
-                            ],
                             "generate_uuid": True,
                         }
                     ]
@@ -472,7 +462,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 11. Store All Generated Briefs (After Map Completes) ---
+        # --- 11. Store Generated Brief (After Map Completes) ---
         "save_content_brief": {
             "node_id": "save_content_brief",
             "node_name": "store_customer_data", # Store the final list
@@ -494,11 +484,24 @@ workflow_graph_schema = {
                             "is_versioned": CONTENT_BRIEF_IS_VERSIONED,
                             "operation": "upsert_versioned",
                             "version": CONTENT_BRIEF_DEFAULT_VERSION
-                        }
-                    },
+                        },
+                        "generate_uuid": True, # Generate UUID for the brief - automatically adds to create_only_fields
+                    }
+                ],
+            }
+        },
+
+        # --- 12. Store Concepts with Brief ID ---
+        "save_concepts_with_brief_id": {
+            "node_id": "save_concepts_with_brief_id",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": { "is_versioned": CONCEPT_IS_VERSIONED, "operation": "upsert_versioned" },
+                "global_is_shared": False,
+                "store_configs": [
                     {
-                        # Also store the selected concepts that were used
-                        "input_field_path": "selected_concepts.concepts", # Mapped from filter_selected_concepts
+                        # Store the concepts with brief_id from first save operation
+                        "input_field_path": "selected_concepts.concepts",
                         "target_path": {
                             "filename_config": {
                                 "input_namespace_field_pattern": CONCEPT_NAMESPACE_TEMPLATE, 
@@ -506,15 +509,13 @@ workflow_graph_schema = {
                                 "static_docname": CONCEPT_DOCNAME,
                             }
                         },
+                        "generate_uuid": True,
                         "extra_fields": [
                             {
-                                # Required: Path to value in input data
-                                "src_path": "initial_brief.uuid",
-                                
-                                # Optional: Path where value should be placed in stored object
-                                # If not provided, defaults to last segment of src_path
+                                # Use the UUID from the first save operation's passthrough_data
+                                "src_path": "first_node_data.updated_brief.uuid",
                                 "dst_path": "brief_id"
-                            },
+                            }
                         ],
                         "versioning": {
                             "is_versioned": CONCEPT_IS_VERSIONED,
@@ -523,12 +524,9 @@ workflow_graph_schema = {
                     }
                 ],
             }
-            # Reads: updated_brief, user_id (from state)
-            # Writes: paths_processed
         },
 
-
-        # --- 12. Output Node ---
+        # --- 13. Output Node ---
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
@@ -766,16 +764,32 @@ workflow_graph_schema = {
           ]
         },
 
-        # --- State -> Save ---
+        # --- State -> Save Brief ---
         { "src_node_id": "$graph_state", "dst_node_id": "save_content_brief", "mappings": [
             { "src_field": "user_input", "dst_field": "user_input"},
+            { "src_field": "entity_username", "dst_field": "entity_username"}
+        ]},
+
+        # --- Save Brief -> Save Concepts ---
+        { "src_node_id": "save_content_brief", "dst_node_id": "save_concepts_with_brief_id", "mappings": [
+            { "src_field": "passthrough_data", "dst_field": "first_node_data"}
+          ]
+        },
+
+        { "src_node_id": "save_content_brief", "dst_node_id": "$graph_state", "mappings": [
+            { "src_field": "paths_processed", "dst_field": "final_brief_paths_processed"}
+          ]
+        },
+
+        # --- State -> Save Concepts ---
+        { "src_node_id": "$graph_state", "dst_node_id": "save_concepts_with_brief_id", "mappings": [
             { "src_field": "selected_concepts", "dst_field": "selected_concepts"},
             { "src_field": "entity_username", "dst_field": "entity_username"}
         ]},
 
-        # --- Save -> Output ---
-        { "src_node_id": "save_content_brief", "dst_node_id": "output_node", "mappings": [
-            { "src_field": "paths_processed", "dst_field": "brief_paths_processed"}
+        # --- Save Concepts -> Output ---
+        { "src_node_id": "save_concepts_with_brief_id", "dst_node_id": "output_node", "mappings": [
+            { "src_field": "paths_processed", "dst_field": "concept_paths_processed"}
           ]
         },
 
@@ -783,6 +797,7 @@ workflow_graph_schema = {
         { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
             { "src_field": "updated_brief", "dst_field": "final_brief_content"},
             { "src_field": "selected_concepts", "dst_field": "selected_concepts"},
+            { "src_field": "final_brief_paths_processed", "dst_field": "final_brief_paths_processed"}
           ]
         },
     ],
@@ -937,9 +952,8 @@ async def main_test_concept_to_brief_workflow():
     # Define cleanup docs
     cleanup_docs = [
         {'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': USER_DNA_DOCNAME, 'is_versioned': USER_DNA_IS_VERSIONED, 'is_shared': False},
-        {'namespace': CONCEPT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONCEPT_DOCNAME.replace('{_uuid_}', '*'), 'is_versioned': CONCEPT_IS_VERSIONED, 'is_shared': False},
-        {'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-1'), 'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 'is_shared': False},
-        {'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-2'), 'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 'is_shared': False},
+        {'namespace': CONCEPT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONCEPT_DOCNAME, 'is_versioned': CONCEPT_IS_VERSIONED, 'is_shared': False},
+        {'namespace': CONTENT_BRIEF_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_BRIEF_DOCNAME, 'is_versioned': CONTENT_BRIEF_IS_VERSIONED, 'is_shared': False},
         {'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': LINKEDIN_POST_DOCNAME, 'is_versioned': False, 'is_shared': False},
     ]
 
@@ -958,7 +972,6 @@ async def main_test_concept_to_brief_workflow():
         """Validates the workflow output to ensure it meets expected structure and content requirements."""
         assert outputs is not None, "Validation Failed: Workflow returned no outputs."
         assert 'final_brief_content' in outputs, "Validation Failed: 'final_brief_content' missing."
-        assert 'brief_paths_processed' in outputs, "Validation Failed: 'brief_paths_processed' missing."
         
         # Validate the content brief structure
         if 'final_brief_content' in outputs:

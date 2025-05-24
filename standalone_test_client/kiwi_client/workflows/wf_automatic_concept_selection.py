@@ -152,9 +152,9 @@ workflow_graph_schema = {
                         "past_context_posts_limit": { "type": "int", "required": False, "default": PAST_CONTEXT_POSTS_LIMIT, "description": f"Max number of combined posts (drafts + scraped) to use for context (default: {PAST_CONTEXT_POSTS_LIMIT})."},
                         "initial_brief_docname": { "type": "str", "required": True, "description": "Name of the initial brief document."},
                         "entity_username": {"type": "str", "required": True},
+                        "user_instruction": {"type": "str", "required": False, "description": "Optional user instructions for concept generation."},
                     }
             }
-                # Outputs: user_id, weeks_to_generate, customer_context_doc_configs, past_context_posts_limit -> $graph_state
         },
 
         # --- NEW: Load Methodology Documents ---
@@ -281,11 +281,13 @@ workflow_graph_schema = {
                             "initial_brief": None,
                             "user_dna": None,
                             "merged_posts": None,
+                            "user_instruction": None,
                         },
                         "construct_options": {
                             "initial_brief": "initial_brief",
                             "user_dna": "user_dna",
                             "merged_posts": "merged_posts",
+                            "user_instruction": "user_instruction",
                         }
                     },
                     "concepts_system_prompt": {
@@ -365,7 +367,8 @@ workflow_graph_schema = {
                             "post_scoring_methodology": None,
                             "content_optimization_methodology": None,
                             "user_dna": None,
-                            "initial_brief": None
+                            "initial_brief": None,
+                            "user_instruction": None
                         },
                         "construct_options": {
                             "concepts": "current_generated_concepts",
@@ -373,7 +376,8 @@ workflow_graph_schema = {
                             "post_scoring_methodology": "post_scoring_methodology",
                             "content_optimization_methodology": "content_optimization_methodology",
                             "user_dna": "user_dna",
-                            "initial_brief": "initial_brief"
+                            "initial_brief": "initial_brief",
+                            "user_instruction": "user_instruction"
                         }
                     },
                     "concept_evaluation_system_prompt": {
@@ -601,6 +605,7 @@ workflow_graph_schema = {
             { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
             { "src_field": "initial_brief_docname", "dst_field": "initial_brief_docname" },
             { "src_field": "entity_username", "dst_field": "entity_username" },
+            { "src_field": "user_instruction", "dst_field": "user_instruction" },
           ]
         },
 
@@ -675,6 +680,7 @@ workflow_graph_schema = {
         { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_concepts_prompt", "mappings": [
             { "src_field": "user_dna", "dst_field": "user_dna" },
             { "src_field": "initial_brief", "dst_field": "initial_brief" },
+            { "src_field": "user_instruction", "dst_field": "user_instruction" },
           ]
         },
 
@@ -721,6 +727,7 @@ workflow_graph_schema = {
             { "src_field": "post_evaluation_methodology", "dst_field": "post_evaluation_methodology"},
             { "src_field": "post_scoring_methodology", "dst_field": "post_scoring_methodology"},
             { "src_field": "content_optimization_methodology", "dst_field": "content_optimization_methodology"},
+            { "src_field": "user_instruction", "dst_field": "user_instruction"}
           ]
         },
 
@@ -899,7 +906,8 @@ async def main_test_idea_to_brief_workflow():
         "initial_brief_docname": brief_docname,
         "customer_context_doc_configs": test_context_docs,
         "past_context_posts_limit": 20,
-        "entity_username": test_entity_username
+        "entity_username": test_entity_username,
+        "user_instruction": "Please generate concepts that focus on practical implementation and real-world examples, avoiding theoretical discussions."
     }
 
     # Define setup documents
