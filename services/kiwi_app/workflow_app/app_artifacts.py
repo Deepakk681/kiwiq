@@ -745,9 +745,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "entity_username": null
-    },
-      "user_documents_config_variables": {
       },
+      "user_documents_config_variables": {},
       "template_specific": false
     },
     "core_beliefs_perspectives_extraction_workflow": {
@@ -781,11 +780,11 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "entity_username": null
-    },
+      },
       "user_documents_config_variables": {
       },
       "template_specific": false
-    }
+    },
     "post_creation_from_scratch_workflow": {
       "name": "post_creation_from_scratch_workflow", 
       "version": null,
