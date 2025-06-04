@@ -745,8 +745,9 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "entity_username": null
+    },
+      "user_documents_config_variables": {
       },
-      "user_documents_config_variables": {},
       "template_specific": false
     },
     "core_beliefs_perspectives_extraction_workflow": {
@@ -780,9 +781,36 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
             }
         ],
         "entity_username": null
-      },
+    },
       "user_documents_config_variables": {
       },
+      "template_specific": false
+    },
+    "style_test_workflow": {
+      "name": "style_test_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "customer_context_doc_configs": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "user_dna_doc"
+                },
+                "output_field_name": "user_dna"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "user_strategy_{item}",
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "content_strategy_doc"
+                },
+                "output_field_name": "strategy_doc"
+            }
+        ]
+    },
+      "user_documents_config_variables": {},
       "template_specific": false
     },
     "post_creation_from_scratch_workflow": {
@@ -815,7 +843,6 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "user_documents_config_variables": {},
       "template_specific": false
     }
-    
   }
 }
 """
