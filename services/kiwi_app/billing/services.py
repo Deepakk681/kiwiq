@@ -15,6 +15,12 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
+# from kiwi_app.auth import crud as auth_crud
+from kiwi_app.auth.models import Organization, User
+from kiwi_app.auth.utils import datetime_now_utc
+from kiwi_app.settings import settings
+from kiwi_app.utils import get_kiwi_logger
+
 from kiwi_app.billing import crud, models, schemas
 from kiwi_app.billing.models import CreditType, SubscriptionStatus, CreditSourceType, PaymentStatus
 from kiwi_app.billing.exceptions import (
@@ -35,10 +41,6 @@ from kiwi_app.billing.exceptions import (
     BillingConfigurationException,
     BillingException
 )
-from kiwi_app.auth.models import Organization, User
-from kiwi_app.auth.utils import datetime_now_utc
-from kiwi_app.settings import settings
-from kiwi_app.utils import get_kiwi_logger
 
 # Get logger for billing operations
 billing_logger = get_kiwi_logger(name="kiwi_app.billing")
@@ -60,7 +62,8 @@ class BillingService:
         usage_event_dao: crud.UsageEventDAO,
         credit_purchase_dao: crud.CreditPurchaseDAO,
         promotion_code_dao: crud.PromotionCodeDAO,
-        promotion_code_usage_dao: crud.PromotionCodeUsageDAO
+        promotion_code_usage_dao: crud.PromotionCodeUsageDAO,
+        org_dao,  # : auth_crud.OrganizationDAO
     ):
         """Initialize service with DAO instances."""
         self.subscription_plan_dao = subscription_plan_dao
@@ -71,261 +74,7 @@ class BillingService:
         self.credit_purchase_dao = credit_purchase_dao
         self.promotion_code_dao = promotion_code_dao
         self.promotion_code_usage_dao = promotion_code_usage_dao
-    
-    # --- Subscription Plan Management --- #
-    
-    async def create_subscription_plan(
-        self,
-        db: AsyncSession,
-        plan_data: schemas.SubscriptionPlanCreate
-    ) -> models.SubscriptionPlan:
-        """
-        Create a new subscription plan with Stripe integration.
-        
-        This method creates both the database record and the corresponding
-        Stripe product and price objects for billing integration.
-        """
-        try:
-            # Create Stripe product if not provided
-            if not plan_data.stripe_product_id:
-                stripe_product = stripe.Product.create(
-                    name=plan_data.name,
-                    description=plan_data.description,
-                    metadata={
-                        "kiwiq_plan": "true",
-                        "max_seats": str(plan_data.max_seats),
-                        "trial_days": str(plan_data.trial_days)
-                    }
-                )
-                plan_data.stripe_product_id = stripe_product.id
-            
-            # Create the plan in database
-            plan = await self.subscription_plan_dao.create(db, obj_in=plan_data)
-            
-            # Create Stripe prices for monthly and annual billing
-            # Convert dollars to cents for Stripe
-            monthly_price = stripe.Price.create(
-                product=plan.stripe_product_id,
-                unit_amount=int(plan.monthly_price * 100),  # Convert dollars to cents
-                currency="usd",
-                recurring={"interval": "month"},
-                metadata={"kiwiq_plan_id": str(plan.id), "billing_period": "monthly"}
-            )
-            
-            annual_price = stripe.Price.create(
-                product=plan.stripe_product_id,
-                unit_amount=int(plan.annual_price * 100),  # Convert dollars to cents
-                currency="usd",
-                recurring={"interval": "year"},
-                metadata={"kiwiq_plan_id": str(plan.id), "billing_period": "annual"}
-            )
-            
-            # Update plan with Stripe price IDs
-            plan_update = schemas.SubscriptionPlanUpdate(
-                stripe_price_id_monthly=monthly_price.id,
-                stripe_price_id_annual=annual_price.id
-            )
-            plan = await self.subscription_plan_dao.update(db, db_obj=plan, obj_in=plan_update)
-            
-            billing_logger.info(f"Created subscription plan: {plan.name} (ID: {plan.id})")
-            return plan
-            
-        except stripe.StripeError as e:
-            billing_logger.error(f"Stripe error creating plan: {e}")
-            raise StripeIntegrationException(
-                detail="Failed to create subscription plan",
-                stripe_error_code=e.code,
-                stripe_error_message=str(e)
-            )
-    
-    async def get_subscription_plans(
-        self,
-        db: AsyncSession,
-        active_only: bool = True
-    ) -> List[models.SubscriptionPlan]:
-        """Get available subscription plans."""
-        if active_only:
-            return await self.subscription_plan_dao.get_active_plans(db)
-        else:
-            return await self.subscription_plan_dao.get_multi(db)
-    
-    # --- Subscription Management --- #
-    
-    async def create_subscription(
-        self,
-        db: AsyncSession,
-        org_id: uuid.UUID,
-        subscription_data: schemas.SubscriptionCreate,
-        user: User
-    ) -> models.OrganizationSubscription:
-        """
-        Create a new subscription for an organization.
-        
-        This method handles the complete subscription creation process including
-        Stripe customer creation, subscription setup, and initial credit allocation.
-        """
-        # Get the subscription plan
-        plan = await self.subscription_plan_dao.get(db, subscription_data.plan_id)
-        if not plan:
-            raise SubscriptionPlanNotFoundException()
-        
-        # Check if organization already has a subscription
-        existing_subscription = await self.org_subscription_dao.get_by_org_id(db, org_id)
-        if existing_subscription:
-            raise InvalidSubscriptionStateException("Organization already has an active subscription")
-        
-        try:
-            # Create or get Stripe customer
-            stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
-            
-            # Attach payment method if provided
-            if subscription_data.payment_method_id:
-                stripe.PaymentMethod.attach(
-                    subscription_data.payment_method_id,
-                    customer=stripe_customer.id
-                )
-                
-                # Set as default payment method
-                stripe.Customer.modify(
-                    stripe_customer.id,
-                    invoice_settings={"default_payment_method": subscription_data.payment_method_id}
-                )
-            
-            # Determine trial period
-            trial_days = subscription_data.trial_days or plan.trial_days
-            trial_end = None
-            if trial_days > 0 and plan.is_trial_eligible:
-                trial_end = datetime_now_utc() + timedelta(days=trial_days)
-            
-            # Create Stripe subscription
-            stripe_price_id = plan.stripe_price_id_annual if subscription_data.is_annual else plan.stripe_price_id_monthly
-            
-            stripe_subscription_params = {
-                "customer": stripe_customer.id,
-                "items": [{"price": stripe_price_id, "quantity": subscription_data.seats_count}],
-                "metadata": {
-                    "kiwiq_org_id": str(org_id),
-                    "kiwiq_plan_id": str(plan.id),
-                    "kiwiq_user_id": str(user.id)
-                }
-            }
-            
-            if trial_end:
-                stripe_subscription_params["trial_end"] = int(trial_end.timestamp())
-            
-            stripe_subscription = stripe.Subscription.create(**stripe_subscription_params)
-            
-            # Create subscription record in database
-            now = datetime_now_utc()
-            subscription = models.OrganizationSubscription(
-                org_id=org_id,
-                plan_id=plan.id,
-                stripe_subscription_id=stripe_subscription.id,
-                stripe_subscription_item_id=stripe_subscription.items.data[0].id,
-                stripe_customer_id=stripe_customer.id,
-                status=SubscriptionStatus.TRIAL if trial_end else SubscriptionStatus.ACTIVE,
-                current_period_start=datetime.fromtimestamp(stripe_subscription.current_period_start),
-                current_period_end=datetime.fromtimestamp(stripe_subscription.current_period_end),
-                seats_count=subscription_data.seats_count,
-                is_annual=subscription_data.is_annual,
-                trial_start=now if trial_end else None,
-                trial_end=trial_end,
-                is_trial_active=bool(trial_end),
-                created_at=now,
-                updated_at=now
-            )
-            
-            subscription = await self.org_subscription_dao.create(db, obj_in=subscription)
-            
-            # Allocate initial credits
-            await self._allocate_subscription_credits(db, subscription, plan)
-            
-            billing_logger.info(f"Created subscription for org {org_id}: {subscription.id}")
-            return subscription
-            
-        except stripe.StripeError as e:
-            billing_logger.error(f"Stripe error creating subscription: {e}")
-            raise StripeIntegrationException(
-                detail="Failed to create subscription",
-                stripe_error_code=e.code,
-                stripe_error_message=str(e)
-            )
-    
-    async def get_organization_subscription(
-        self,
-        db: AsyncSession,
-        org_id: uuid.UUID
-    ) -> Optional[models.OrganizationSubscription]:
-        """Get the active subscription for an organization."""
-        return await self.org_subscription_dao.get_by_org_id(db, org_id)
-    
-    async def update_subscription(
-        self,
-        db: AsyncSession,
-        org_id: uuid.UUID,
-        subscription_update: schemas.SubscriptionUpdate
-    ) -> models.OrganizationSubscription:
-        """Update an existing subscription."""
-        subscription = await self.org_subscription_dao.get_by_org_id(db, org_id)
-        if not subscription:
-            raise SubscriptionNotFoundException()
-        
-        try:
-            # Handle plan changes
-            if subscription_update.plan_id and subscription_update.plan_id != subscription.plan_id:
-                new_plan = await self.subscription_plan_dao.get(db, subscription_update.plan_id)
-                if not new_plan:
-                    raise SubscriptionPlanNotFoundException()
-                
-                # Update Stripe subscription
-                stripe_price_id = new_plan.stripe_price_id_annual if subscription.is_annual else new_plan.stripe_price_id_monthly
-                stripe.SubscriptionItem.modify(
-                    subscription.stripe_subscription_item_id,
-                    price=stripe_price_id,
-                    proration_behavior="create_prorations"
-                )
-                
-                subscription.plan_id = new_plan.id
-                
-                # Allocate credits for new plan
-                await self._allocate_subscription_credits(db, subscription, new_plan)
-            
-            # Handle seat count changes
-            if subscription_update.seats_count and subscription_update.seats_count != subscription.seats_count:
-                stripe.SubscriptionItem.modify(
-                    subscription.stripe_subscription_item_id,
-                    quantity=subscription_update.seats_count,
-                    proration_behavior="create_prorations"
-                )
-                subscription.seats_count = subscription_update.seats_count
-            
-            # Handle cancellation
-            if subscription_update.cancel_at_period_end is not None:
-                if subscription_update.cancel_at_period_end:
-                    stripe.Subscription.modify(
-                        subscription.stripe_subscription_id,
-                        cancel_at_period_end=True
-                    )
-                else:
-                    stripe.Subscription.modify(
-                        subscription.stripe_subscription_id,
-                        cancel_at_period_end=False
-                    )
-                subscription.cancel_at_period_end = subscription_update.cancel_at_period_end
-            
-            subscription.updated_at = datetime_now_utc()
-            subscription = await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=subscription_update)
-            
-            billing_logger.info(f"Updated subscription for org {org_id}: {subscription.id}")
-            return subscription
-            
-        except stripe.StripeError as e:
-            billing_logger.error(f"Stripe error updating subscription: {e}")
-            raise StripeIntegrationException(
-                detail="Failed to update subscription",
-                stripe_error_code=e.code,
-                stripe_error_message=str(e)
-            )
+        self.org_dao = org_dao
     
     # --- Credit Management --- #
     
@@ -335,10 +84,10 @@ class BillingService:
         org_id: uuid.UUID
     ) -> List[schemas.CreditBalance]:
         """
-        Get current credit balances with optimized net credits query.
+        Get credit balances for an organization.
         
-        This method uses the OrganizationNetCredits table for fast balance
-        retrieval without complex aggregations.
+        This method aggregates credits from all sources and provides current
+        available balances with overage information for each credit type.
         
         Args:
             db: Database session
@@ -350,36 +99,30 @@ class BillingService:
         try:
             balances = []
             
-            # Get net credits for all credit types
+            # Check each credit type
             for credit_type in CreditType:
-                net_credits = await self.org_net_credits_dao.get_net_credits_by_org_and_type(
-                    db=db,
-                    org_id=org_id,
-                    credit_type=credit_type
+                net_credits = await self.org_net_credits_dao.get_net_credits_read(
+                    db, org_id, credit_type
                 )
                 
                 if net_credits:
-                    current_balance = max(0, net_credits.credits_granted - net_credits.credits_consumed)
-                    is_overage = net_credits.credits_consumed > net_credits.credits_granted
-                    overage_amount = max(0, net_credits.credits_consumed - net_credits.credits_granted)
-                    
                     balance = schemas.CreditBalance(
                         credit_type=credit_type,
-                        credits_balance=current_balance,
+                        credits_balance=net_credits.current_balance,
                         credits_granted=net_credits.credits_granted,
                         credits_consumed=net_credits.credits_consumed,
-                        is_overage=is_overage,
-                        overage_amount=overage_amount
+                        is_overage=net_credits.is_overage,
+                        overage_amount=net_credits.overage_amount
                     )
                 else:
-                    # No credits allocated yet
+                    # No credits allocated yet for this type
                     balance = schemas.CreditBalance(
                         credit_type=credit_type,
-                        credits_balance=0,
-                        credits_granted=0,
-                        credits_consumed=0,
+                        credits_balance=0.0,
+                        credits_granted=0.0,
+                        credits_consumed=0.0,
                         is_overage=False,
-                        overage_amount=0
+                        overage_amount=0.0
                     )
                 
                 balances.append(balance)
@@ -387,10 +130,100 @@ class BillingService:
             return balances
             
         except Exception as e:
-            billing_logger.error(f"Error getting credit balances: {e}", exc_info=True)
+            billing_logger.error(f"Error getting credit balances for org {org_id}: {e}", exc_info=True)
+            raise
+    
+    async def get_organization_credits_by_type(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        credit_type: Optional[CreditType] = None,
+        include_expired: bool = False
+    ) -> List[schemas.OrganizationCreditsRead]:
+        """
+        Get detailed credit records for an organization by credit type.
+        
+        This method returns individual credit allocation records showing
+        the source, expiration, and detailed information for each credit
+        allocation. Unlike get_credit_balances which provides aggregated
+        totals, this shows the itemized breakdown.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            credit_type: Type of credits to retrieve (None for all types)
+            include_expired: Whether to include expired credits
+            
+        Returns:
+            List of detailed credit records
+            
+        Raises:
+            BillingException: If there's an error retrieving credit records
+        """
+        try:
+            credit_list = []
+            
+            # Determine which credit types to query
+            credit_types_to_query = [credit_type] if credit_type else list(CreditType)
+            
+            for current_credit_type in credit_types_to_query:
+                # Use the CRUD method to get detailed credit records for each type
+                credit_records = await self.org_credits_dao.get_by_org_and_type(
+                    db=db,
+                    org_id=org_id,
+                    credit_type=current_credit_type,
+                    include_expired=include_expired
+                )
+                
+                # Convert to response schemas
+                for record in credit_records:
+                    # Calculate remaining balance for this specific record
+                    # Note: This shows the granted amount for this allocation - consumed is tracked globally
+                    credits_balance = max(0.0, record.credits_granted)
+                    
+                    # Calculate period_end - use expires_at if available, otherwise use a default period
+                    period_end = record.expires_at
+                    if not period_end:
+                        # If no expiration, assume a monthly period from period_start
+                        period_end = record.period_start + timedelta(days=30)
+                    
+                    credit_read = schemas.OrganizationCreditsRead(
+                        id=record.id,
+                        org_id=record.org_id,
+                        credit_type=record.credit_type,
+                        credits_balance=credits_balance,  # This record's granted amount
+                        credits_consumed=0.0,  # Consumption is tracked globally, not per allocation
+                        credits_granted=record.credits_granted,
+                        source_type=record.source_type,
+                        source_id=record.source_id,
+                        source_metadata=record.source_metadata,
+                        expires_at=record.expires_at,
+                        is_expired=record.is_expired,
+                        period_start=record.period_start,
+                        period_end=period_end,
+                        created_at=record.created_at,
+                        updated_at=record.updated_at
+                    )
+                    credit_list.append(credit_read)
+            
+            # Sort by credit type and then by creation date for consistent ordering
+            credit_list.sort(key=lambda x: (x.credit_type.value, x.created_at))
+            
+            billing_logger.info(
+                f"Retrieved {len(credit_list)} credit records for org {org_id}, "
+                f"type {credit_type.value if credit_type else 'all'}, include_expired={include_expired}"
+            )
+            
+            return credit_list
+            
+        except Exception as e:
+            billing_logger.error(
+                f"Error getting organization credits for org {org_id}, "
+                f"type {credit_type.value if credit_type else 'all'}: {e}", exc_info=True
+            )
             raise BillingException(
                 status_code=500,
-                detail="Failed to retrieve credit balances"
+                detail=f"Failed to retrieve {credit_type.value if credit_type else 'all'} credit records"
             )
     
     async def consume_credits(
@@ -679,7 +512,8 @@ class BillingService:
                 source_type=source_type,
                 source_id=source_id,
                 source_metadata=metadata,
-                expires_at=expires_at
+                expires_at=expires_at,
+                commit=False,
             )
             
             # Use the optimized credit addition
@@ -804,7 +638,8 @@ class BillingService:
                 source_type=CreditSourceType.PROMOTION,
                 source_id=code_application.code,
                 source_metadata={"promo_code_id": str(promo_code.id)},
-                expires_at=expires_at
+                expires_at=expires_at,
+                commit=False,
             )
             
             # Add to net credits
@@ -944,343 +779,6 @@ class BillingService:
             overage_warnings=overage_warnings
         )
     
-    # --- Webhook Processing --- #
-    
-    async def process_stripe_webhook(
-        self,
-        db: AsyncSession,
-        webhook_event: schemas.StripeWebhookEvent
-    ) -> bool:
-        """
-        Process Stripe webhook events.
-        
-        This method handles various Stripe events to keep the billing system
-        in sync with Stripe's state.
-        """
-        try:
-            event_type = webhook_event.type
-            event_data = webhook_event.data
-            
-            billing_logger.info(f"Processing Stripe webhook: {event_type} (ID: {webhook_event.id})")
-            
-            if event_type == "customer.subscription.updated":
-                await self._handle_subscription_updated(db, event_data)
-            elif event_type == "customer.subscription.deleted":
-                await self._handle_subscription_deleted(db, event_data)
-            elif event_type == "invoice.payment_succeeded":
-                await self._handle_payment_succeeded(db, event_data)
-            elif event_type == "invoice.payment_failed":
-                await self._handle_payment_failed(db, event_data)
-            elif event_type == "payment_intent.succeeded":
-                await self._handle_payment_intent_succeeded(db, event_data)
-            elif event_type == "payment_intent.payment_failed":
-                await self._handle_payment_intent_failed(db, event_data)
-            else:
-                billing_logger.info(f"Unhandled webhook event type: {event_type}")
-            
-            return True
-            
-        except Exception as e:
-            billing_logger.error(f"Error processing webhook {webhook_event.id}: {e}", exc_info=True)
-            return False
-    
-    # --- Private Helper Methods --- #
-    
-    async def _get_or_create_stripe_customer(self, db: AsyncSession, org_id: uuid.UUID, user: User) -> stripe.Customer:
-        """Get or create a Stripe customer for an organization."""
-        # Check if customer already exists
-        existing_subscription = await self.org_subscription_dao.get_by_org_id(db, org_id)
-        if existing_subscription and existing_subscription.stripe_customer_id:
-            return stripe.Customer.retrieve(existing_subscription.stripe_customer_id)
-        
-        # Create new customer
-        customer = stripe.Customer.create(
-            email=user.email,
-            name=user.full_name or user.email,
-            metadata={
-                "kiwiq_org_id": str(org_id),
-                "kiwiq_user_id": str(user.id)
-            }
-        )
-        
-        return customer
-    
-    async def _allocate_subscription_credits(
-        self,
-        db: AsyncSession,
-        subscription: models.OrganizationSubscription,
-        plan: models.SubscriptionPlan,
-        is_renewal: bool = False
-    ) -> None:
-        """Allocate monthly credits for a subscription, with optional credit rotation for renewals."""
-        now = datetime_now_utc()
-        period_end = subscription.current_period_end
-        
-        # Determine expiration based on subscription type
-        if subscription.is_trial_active:
-            expires_at = now + timedelta(days=settings.TRIAL_CREDITS_EXPIRE_DAYS)
-        else:
-            expires_at = period_end + timedelta(days=settings.SUBSCRIPTION_CREDITS_EXPIRE_DAYS)
-        
-        # If this is a renewal and not a trial, use credit rotation
-        if is_renewal and not subscription.is_trial_active:
-            # Use credit rotation for subscription renewals
-            new_credits = {CreditType(credit_type): amount for credit_type, amount in plan.monthly_credits.items()}
-            
-            rotation_result = await self.rotate_subscription_credits(
-                db=db,
-                subscription_id=subscription.id,
-                new_credits=new_credits,
-                new_expires_at=expires_at
-            )
-            
-            billing_logger.info(
-                f"Rotated subscription credits for subscription {subscription.id}: "
-                f"expired {rotation_result['total_expired_credits']}, "
-                f"added {rotation_result['total_added_credits']} credits"
-            )
-        else:
-            # For new subscriptions or trial-to-paid transitions, allocate fresh credits
-            for credit_type_str, amount in plan.monthly_credits.items():
-                credit_type = CreditType(credit_type_str)
-                
-                # Create audit record
-                await self.org_credits_dao.allocate_credits(
-                    db=db,
-                    org_id=subscription.org_id,
-                    credit_type=credit_type,
-                    amount=amount,
-                    source_type=CreditSourceType.SUBSCRIPTION,
-                    source_id=str(subscription.id),
-                    source_metadata={
-                        "subscription_id": str(subscription.id),
-                        "stripe_subscription_id": subscription.stripe_subscription_id,
-                        "plan_id": str(subscription.plan_id),
-                        "billing_period": "trial" if subscription.is_trial_active else "monthly",
-                        "period_start": now.isoformat(),
-                        "period_end": period_end.isoformat(),
-                        "is_renewal": is_renewal
-                    },
-                    expires_at=expires_at
-                )
-                
-                # Add to net credits
-                await self.org_net_credits_dao.add_credits(
-                    db=db,
-                    org_id=subscription.org_id,
-                    credit_type=credit_type,
-                    credits_to_add=amount,
-                    source_type=CreditSourceType.SUBSCRIPTION,
-                    source_id=str(subscription.id),
-                    expires_at=expires_at,
-                    commit=False
-                )
-                
-                billing_logger.info(
-                    f"Allocated {amount} {credit_type.value} credits to org {subscription.org_id} "
-                    f"from subscription {subscription.id} (expires: {expires_at})"
-                )
-    
-    async def _allocate_purchased_credits(
-        self,
-        db: AsyncSession,
-        purchase: models.CreditPurchase
-    ) -> None:
-        """Allocate credits from a successful purchase."""
-        # Create audit record
-        await self.org_credits_dao.allocate_credits(
-            db=db,
-            org_id=purchase.org_id,
-            credit_type=purchase.credit_type,
-            amount=purchase.credits_amount,
-            source_type=CreditSourceType.PURCHASE,
-            source_id=purchase.stripe_payment_intent_id,
-            source_metadata={"purchase_id": str(purchase.id)},
-            expires_at=purchase.expires_at
-        )
-        
-        # Add to net credits
-        await self.org_net_credits_dao.add_credits(
-            db=db,
-            org_id=purchase.org_id,
-            credit_type=purchase.credit_type,
-            credits_to_add=purchase.credits_amount,
-            source_type=CreditSourceType.PURCHASE,
-            source_id=purchase.stripe_payment_intent_id,
-            expires_at=purchase.expires_at,
-            commit=False
-        )
-    
-    def _calculate_credit_price(self, credit_type: CreditType, amount: float) -> float:
-        """Calculate the price in dollars for purchasing credits."""
-        if credit_type == CreditType.WORKFLOWS:
-            return amount * settings.CREDIT_PRICE_WORKFLOWS_DOLLARS
-        elif credit_type == CreditType.WEB_SEARCHES:
-            return amount * settings.CREDIT_PRICE_WEB_SEARCHES_DOLLARS
-        elif credit_type == CreditType.DOLLAR_CREDITS:
-            # Dollar credits are priced with a markup ratio
-            return amount * settings.CREDIT_PRICE_DOLLAR_CREDITS_RATIO
-        else:
-            raise BillingConfigurationException(f"No pricing configured for credit type: {credit_type}")
-    
-    # --- Webhook Event Handlers --- #
-    
-    async def _handle_subscription_updated(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle subscription updated webhook."""
-        stripe_subscription = event_data["object"]
-        subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(
-            db, stripe_subscription["id"]
-        )
-        
-        if subscription:
-            # Update subscription status and period
-            subscription.status = SubscriptionStatus(stripe_subscription["status"])
-            subscription.current_period_start = datetime.fromtimestamp(stripe_subscription["current_period_start"])
-            subscription.current_period_end = datetime.fromtimestamp(stripe_subscription["current_period_end"])
-            subscription.cancel_at_period_end = stripe_subscription.get("cancel_at_period_end", False)
-            subscription.updated_at = datetime_now_utc()
-            
-            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
-    
-    async def _handle_subscription_deleted(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle subscription deleted webhook."""
-        stripe_subscription = event_data["object"]
-        subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(
-            db, stripe_subscription["id"]
-        )
-        
-        if subscription:
-            subscription.status = SubscriptionStatus.CANCELED
-            subscription.canceled_at = datetime_now_utc()
-            subscription.updated_at = datetime_now_utc()
-            
-            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
-    
-    async def _handle_payment_succeeded(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle successful payment webhook."""
-        invoice = event_data["object"]
-        subscription_id = invoice.get("subscription")
-        
-        if subscription_id:
-            subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(db, subscription_id)
-            if subscription and subscription.plan:
-                # Allocate credits for the new billing period
-                await self._allocate_subscription_credits(db, subscription, subscription.plan)
-    
-    async def _handle_payment_failed(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle failed payment webhook."""
-        invoice = event_data["object"]
-        subscription_id = invoice.get("subscription")
-        
-        if subscription_id:
-            subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(db, subscription_id)
-            if subscription:
-                subscription.status = SubscriptionStatus.PAST_DUE
-                subscription.updated_at = datetime_now_utc()
-                
-                await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
-    
-    async def _handle_payment_intent_succeeded(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle successful payment intent webhook (for credit purchases)."""
-        payment_intent = event_data["object"]
-        purchase = await self.credit_purchase_dao.get_by_stripe_payment_intent_id(
-            db, payment_intent["id"]
-        )
-        
-        if purchase and purchase.status == PaymentStatus.PENDING:
-            # Update purchase status and allocate credits
-            purchase = await self.credit_purchase_dao.update_payment_status(
-                db, purchase, PaymentStatus.SUCCEEDED
-            )
-            await self._allocate_purchased_credits(db, purchase)
-    
-    async def _handle_payment_intent_failed(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
-        """Handle failed payment intent webhook."""
-        payment_intent = event_data["object"]
-        purchase = await self.credit_purchase_dao.get_by_stripe_payment_intent_id(
-            db, payment_intent["id"]
-        )
-        
-        if purchase and purchase.status == PaymentStatus.PENDING:
-            await self.credit_purchase_dao.update_payment_status(
-                db, purchase, PaymentStatus.FAILED
-            )
-    
-    async def _create_usage_event(
-        self,
-        db: AsyncSession,
-        org_id: uuid.UUID,
-        user_id: uuid.UUID,
-        consumption_request: schemas.CreditConsumptionRequest,
-        is_overage: bool
-    ) -> None:
-        """Create a usage event for the given consumption request."""
-        await self.usage_event_dao.create_usage_event(
-            db=db,
-            org_id=org_id,
-            user_id=user_id,
-            event_type=consumption_request.event_type,
-            credit_type=consumption_request.credit_type,
-            credits_consumed=consumption_request.credits_consumed,
-            usage_metadata=consumption_request.metadata,
-            is_overage=is_overage
-        )
-    
-    async def process_subscription_renewal(
-        self,
-        db: AsyncSession,
-        subscription: models.OrganizationSubscription
-    ) -> Dict[str, Any]:
-        """
-        Process subscription renewal by rotating credits.
-        
-        This method handles both trial-to-paid transitions and regular renewals.
-        """
-        try:
-            # Get the subscription plan
-            plan = subscription.plan
-            if not plan:
-                raise SubscriptionPlanNotFoundException()
-            
-            # Update subscription period info (this would typically come from Stripe webhook)
-            old_period_end = subscription.current_period_end
-            subscription.current_period_start = old_period_end
-            
-            if subscription.is_annual:
-                subscription.current_period_end = old_period_end + timedelta(days=365)
-            else:
-                subscription.current_period_end = old_period_end + timedelta(days=30)
-            
-            # Handle trial-to-paid transition
-            was_trial_active = subscription.is_trial_active and datetime_now_utc() >= subscription.trial_end
-            
-            if was_trial_active:
-                subscription.is_trial_active = False
-                subscription.status = SubscriptionStatus.ACTIVE
-                billing_logger.info(f"Trial ended for subscription {subscription.id}, transitioning to paid")
-            
-            subscription.updated_at = datetime_now_utc()
-            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
-            
-            # Allocate new credits using rotation
-            await self._allocate_subscription_credits(db, subscription, plan, is_renewal=True)
-            
-            return {
-                "success": True,
-                "subscription_id": subscription.id,
-                "org_id": subscription.org_id,
-                "renewal_type": "trial_to_paid" if was_trial_active else "regular",
-                "new_period_start": subscription.current_period_start,
-                "new_period_end": subscription.current_period_end
-            }
-            
-        except Exception as e:
-            billing_logger.error(f"Error processing subscription renewal: {e}", exc_info=True)
-            raise BillingException(
-                status_code=500,
-                detail=f"Failed to process subscription renewal: {str(e)}"
-            )
-    
     # --- New Credit Management Methods --- #
     
     async def expire_organization_credits(
@@ -1400,6 +898,519 @@ class BillingService:
                 detail=f"Failed to expire organization credits: {str(e)}"
             )
     
+    async def create_flexible_dollar_credit_checkout_session(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user: User,
+        dollar_amount: int,
+        success_url: str,
+        cancel_url: str
+    ) -> Dict[str, Any]:
+        """
+        Create a Stripe Checkout session for flexible dollar credit purchase.
+        
+        This method allows users to purchase any amount of dollar credits
+        using Stripe's dynamic pricing with line_items. It creates a purchase
+        record with PENDING status immediately for tracking.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            user: User initiating the checkout
+            dollar_amount: Dollar amount to spend on credits
+            success_url: URL to redirect after successful payment
+            cancel_url: URL to redirect after cancelled payment
+            
+        Returns:
+            Dict containing checkout session URL and ID
+        """
+        try:
+            # Get or create Stripe customer
+            stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
+            
+            # Calculate the amount of credits the user will receive
+            credits_amount = dollar_amount
+            
+            # Convert dollar amount to cents for Stripe
+            amount_cents = int(dollar_amount * 100)
+            
+            # Calculate expiration for purchased credits
+            expires_at = None
+            if settings.PURCHASED_CREDITS_EXPIRE_DAYS:
+                expires_at = datetime_now_utc() + timedelta(days=settings.PURCHASED_CREDITS_EXPIRE_DAYS)
+            
+            # Create purchase record with PENDING status BEFORE creating checkout session
+            purchase = await self.credit_purchase_dao.create_purchase(
+                db=db,
+                org_id=org_id,
+                user_id=user.id,
+                stripe_checkout_id="",  # Will be updated with actual session ID
+                credit_type=CreditType.DOLLAR_CREDITS,
+                credits_amount=credits_amount,
+                amount_paid=dollar_amount,
+                currency="usd",
+                expires_at=expires_at
+            )
+            
+            # Prepare checkout session parameters with dynamic pricing
+            checkout_params = {
+                "customer": stripe_customer.id,
+                "success_url": success_url,
+                "cancel_url": cancel_url,
+                "mode": "payment",
+                "line_items": [{
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": f"${credits_amount:.2f} Dollar Credits",
+                            "description": f"Purchase ${credits_amount:.2f} in dollar credits for ${dollar_amount:.2f}",
+                            "metadata": {
+                                "kiwiq_type": "dollar_credits"
+                            }
+                        },
+                        "unit_amount": amount_cents,
+                    },
+                    "quantity": 1,
+                }],
+                "payment_intent_data": {
+                    "metadata": {
+                        "kiwiq_org_id": str(org_id),
+                        "kiwiq_user_id": str(user.id),
+                        "kiwiq_type": "flexible_dollar_credit_purchase",
+                        "kiwiq_purchase_id": str(purchase.id),
+                        "credit_type": CreditType.DOLLAR_CREDITS.value,
+                        "credits_amount": str(credits_amount),
+                        "dollar_amount": str(dollar_amount)
+                    }
+                },
+                "metadata": {
+                    "kiwiq_org_id": str(org_id),
+                    "kiwiq_user_id": str(user.id),
+                    "kiwiq_type": "flexible_dollar_credit_purchase",
+                    "kiwiq_purchase_id": str(purchase.id)
+                }
+            }
+            
+            # Create checkout session
+            session = stripe.checkout.Session.create(**checkout_params)
+            
+            # Update purchase record with actual checkout session ID and add session ID to payment intent metadata
+            purchase.stripe_checkout_id = session.id
+            purchase.updated_at = datetime_now_utc()
+            db.add(purchase)
+            
+            # # Update the payment intent with the checkout session ID for easier lookup in webhooks
+            # if session.payment_intent:
+            #     try:
+            #         stripe.PaymentIntent.modify(
+            #             session.payment_intent,
+            #             metadata={
+            #                 "checkout_session_id": session.id,
+            #                 "kiwiq_org_id": str(org_id),
+            #                 "kiwiq_user_id": str(user.id),
+            #                 "kiwiq_type": "flexible_dollar_credit_purchase",
+            #                 "kiwiq_purchase_id": str(purchase.id),
+            #                 "credit_type": CreditType.DOLLAR_CREDITS.value,
+            #                 "credits_amount": str(credits_amount),
+            #                 "dollar_amount": str(dollar_amount)
+            #             }
+            #         )
+            #     except stripe.StripeError as e:
+            #         billing_logger.warning(f"Failed to update payment intent metadata: {e}")
+            
+            await db.commit()
+            await db.refresh(purchase)
+            
+            billing_logger.info(
+                f"Created flexible dollar credit checkout session {session.id} for org {org_id}: "
+                f"${dollar_amount} for {credits_amount:.2f} credits (purchase ID: {purchase.id})"
+            )
+            
+            return {
+                "checkout_url": session.url,
+                "session_id": session.id,
+                "purchase_id": str(purchase.id),
+                "expires_at": datetime.fromtimestamp(session.expires_at)
+            }
+            
+        except stripe.StripeError as e:
+            # If Stripe fails after we created the purchase record, mark it as failed
+            if 'purchase' in locals():
+                purchase.status = PaymentStatus.FAILED
+                purchase.updated_at = datetime_now_utc()
+                db.add(purchase)
+                await db.commit()
+            
+            billing_logger.error(f"Stripe error creating flexible dollar credit checkout session: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to create checkout session",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+        except Exception as e:
+            # If any other error occurs after creating purchase record, mark it as failed
+            if 'purchase' in locals():
+                purchase.status = PaymentStatus.FAILED
+                purchase.updated_at = datetime_now_utc()
+                db.add(purchase)
+                await db.commit()
+            
+            billing_logger.error(f"Error creating flexible dollar credit checkout session: {e}")
+            raise BillingException(
+                status_code=500,
+                detail=f"Failed to create checkout session: {str(e)}"
+            )
+
+    # --- Webhook Processing --- #
+    
+    async def process_stripe_webhook(
+        self,
+        db: AsyncSession,
+        webhook_event: schemas.StripeWebhookEvent
+    ) -> bool:
+        """
+        Process Stripe webhook events.
+        
+        This method handles various Stripe events to keep the billing system
+        in sync with Stripe's state.
+        """
+        try:
+            event_type = webhook_event.type
+            event_data = webhook_event.data
+            session = event_data["object"]
+            mode = session.get("mode")
+            
+            billing_logger.info(f"Processing Stripe webhook: {event_type} (ID: {webhook_event.id})")
+            
+            if mode == "payment":
+                if event_type in ["checkout.session.completed", "checkout.session.async_payment_succeeded"]:
+                    await self._handle_payment_session_succeeded(db, event_data)
+                elif event_type in ["checkout.session.async_payment_failed", "checkout.session.expired"]:
+                    await self._handle_payment_session_failed(db, event_data)
+            elif mode == "subscription":
+                if event_type == "customer.subscription.created":
+                    await self._handle_subscription_created(db, event_data)
+                elif event_type == "customer.subscription.updated":
+                    await self._handle_subscription_updated(db, event_data)
+                elif event_type == "customer.subscription.deleted":
+                    await self._handle_subscription_deleted(db, event_data)
+            elif event_type == "charge.succeeded":
+                await self._handle_charge_succeeded(db, event_data)
+            # elif event_type == "invoice.payment_succeeded":
+            #     await self._handle_payment_succeeded(db, event_data)
+            # elif event_type == "invoice.payment_failed":
+            #     await self._handle_payment_failed(db, event_data)
+            # elif event_type == "payment_intent.succeeded":
+            #     await self._handle_payment_session_succeeded(db, event_data)
+            # elif event_type == "payment_intent.payment_failed":
+            #     await self._handle_payment_intent_failed(db, event_data)
+            else:
+                billing_logger.info(f"Unhandled webhook event type: {event_type}")
+            
+            return True
+            
+        except Exception as e:
+            billing_logger.error(f"Error processing webhook {webhook_event.id}: {e}", exc_info=True)
+            return False
+    
+    # --- Webhook Event Handlers --- #
+    
+    
+    
+    async def _handle_payment_session_succeeded(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle successful payment intent webhook (for credit purchases)."""
+        checkout_session_object = event_data["object"]
+        
+        # Check payment status for checkout.session.completed events
+        payment_status = checkout_session_object.get("payment_status")
+        if payment_status == "unpaid":
+            # Session completed but payment failed - delegate to failure handler
+            await self._handle_payment_session_failed(db, event_data)
+            return
+        
+        # Check if this is a flexible dollar credit purchase from metadata
+        kiwiq_type = checkout_session_object.get("metadata", {}).get("kiwiq_type")
+        
+        if kiwiq_type == "flexible_dollar_credit_purchase":
+            # Handle flexible dollar credit purchase by updating existing purchase record
+            metadata = checkout_session_object.get("metadata", {})
+            purchase_id = metadata.get("kiwiq_purchase_id")
+            
+            if not purchase_id:
+                billing_logger.error(f"Missing purchase_id in metadata for flexible dollar credit purchase: {checkout_session_object['id']}")
+                return
+            
+            # Get existing purchase record
+            try:
+                purchase = await self.credit_purchase_dao.get(db, uuid.UUID(purchase_id))
+                if not purchase:
+                    billing_logger.error(f"Purchase record not found for ID {purchase_id} (checkout session: {checkout_session_object['id']})")
+                    return
+                
+                # Update status to succeeded
+                purchase = await self.credit_purchase_dao.update_payment_status(
+                    db, purchase, PaymentStatus.SUCCEEDED
+                )
+                
+                # Allocate credits
+                await self._allocate_purchased_credits(db, purchase)
+                
+                billing_logger.info(
+                    f"Processed flexible dollar credit purchase: ${purchase.amount_paid} for {purchase.credits_amount} credits "
+                    f"(org: {purchase.org_id}, purchase ID: {purchase.id}, checkout_session: {checkout_session_object['id']})"
+                )
+                
+            except Exception as e:
+                billing_logger.error(f"Error processing flexible dollar credit purchase success: {e}", exc_info=True)
+                return
+        else:
+            # Handle regular credit purchase (existing logic)
+            purchase = await self.credit_purchase_dao.get_by_stripe_checkout_id(
+                db, checkout_session_object["id"]
+            )
+            
+            if purchase and purchase.status == PaymentStatus.PENDING:
+                # Update purchase status and allocate credits
+                purchase = await self.credit_purchase_dao.update_payment_status(
+                    db, purchase, PaymentStatus.SUCCEEDED
+                )
+                await self._allocate_purchased_credits(db, purchase)
+    
+    async def _handle_payment_session_failed(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle failed payment session webhook (for credit purchases)."""
+        checkout_session_object = event_data["object"]
+        
+        # Check if this is a flexible dollar credit purchase from metadata
+        kiwiq_type = checkout_session_object.get("metadata", {}).get("kiwiq_type")
+        
+        if kiwiq_type == "flexible_dollar_credit_purchase":
+            # Handle flexible dollar credit purchase failure by updating existing purchase record
+            metadata = checkout_session_object.get("metadata", {})
+            purchase_id = metadata.get("kiwiq_purchase_id")
+            
+            if not purchase_id:
+                billing_logger.error(f"Missing purchase_id in metadata for failed flexible dollar credit purchase: {checkout_session_object['id']}")
+                return
+            
+            # Get existing purchase record
+            try:
+                purchase = await self.credit_purchase_dao.get(db, uuid.UUID(purchase_id))
+                if not purchase:
+                    billing_logger.error(f"Purchase record not found for ID {purchase_id} (failed checkout session: {checkout_session_object['id']})")
+                    return
+                
+                # Update status to failed
+                purchase = await self.credit_purchase_dao.update_payment_status(
+                    db, purchase, PaymentStatus.FAILED
+                )
+                
+                billing_logger.info(
+                    f"Marked flexible dollar credit purchase as failed: ${purchase.amount_paid} for {purchase.credits_amount} credits "
+                    f"(org: {purchase.org_id}, purchase ID: {purchase.id}, checkout_session: {checkout_session_object['id']})"
+                )
+                
+            except Exception as e:
+                billing_logger.error(f"Error processing flexible dollar credit purchase failure: {e}", exc_info=True)
+                return
+        else:
+            # Handle regular credit purchase failure (existing logic)
+            purchase = await self.credit_purchase_dao.get_by_stripe_checkout_id(
+                db, checkout_session_object["id"]
+            )
+            
+            if purchase and purchase.status == PaymentStatus.PENDING:
+                await self.credit_purchase_dao.update_payment_status(
+                    db, purchase, PaymentStatus.FAILED
+                )
+                
+                billing_logger.info(f"Marked credit purchase as failed (checkout session: {checkout_session_object['id']})")
+    
+    async def _handle_charge_succeeded(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle charge succeeded webhook to update receipt URL for credit purchases."""
+        try:
+            charge_object = event_data["object"]
+            
+            # Extract key information from the charge
+            metadata = charge_object.get("metadata", {})
+            kiwiq_purchase_id = metadata.get("kiwiq_purchase_id")
+            receipt_url = charge_object.get("receipt_url")
+            
+            if not receipt_url:
+                billing_logger.warning(f"No receipt URL found in charge.succeeded event")
+                return
+            
+            # Get payment intent to find the checkout session
+            if kiwiq_purchase_id:
+                try:
+                    if kiwiq_purchase_id:
+                        # Find the purchase record
+                        purchase = await self.credit_purchase_dao.get(db, uuid.UUID(kiwiq_purchase_id))
+                        if purchase:
+                            # Update receipt URL
+                            await self.credit_purchase_dao.update_receipt_url(
+                                db=db,
+                                purchase=purchase,
+                                receipt_url=receipt_url
+                            )
+                            
+                            billing_logger.info(
+                                f"Updated receipt URL for purchase {purchase.id} "
+                                f"from charge {charge_object['id']}"
+                            )
+                        else:
+                            billing_logger.warning(
+                                f"No purchase found for purchase ID {kiwiq_purchase_id} "
+                                f"from charge {charge_object['id']}"
+                            )
+                    else:
+                        billing_logger.warning(
+                            f"No purchase ID found for charge {charge_object['id']}"
+                        )
+                        
+                except stripe.StripeError as e:
+                    billing_logger.error(f"Error retrieving purchase {kiwiq_purchase_id}: {e}")
+            else:
+                billing_logger.warning(f"No purchase ID found in charge.succeeded event")
+                
+        except Exception as e:
+            billing_logger.error(f"Error handling charge.succeeded event: {e}", exc_info=True)
+    
+    async def _create_usage_event(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        consumption_request: schemas.CreditConsumptionRequest,
+        is_overage: bool
+    ) -> None:
+        """Create a usage event for the given consumption request."""
+        await self.usage_event_dao.create_usage_event(
+            db=db,
+            org_id=org_id,
+            user_id=user_id,
+            event_type=consumption_request.event_type,
+            credit_type=consumption_request.credit_type,
+            credits_consumed=consumption_request.credits_consumed,
+            usage_metadata=consumption_request.metadata,
+            is_overage=is_overage
+        )
+
+    # --- Private Helper Methods --- #
+    
+    async def _get_or_create_stripe_customer(self, db: AsyncSession, org_id: uuid.UUID, user: User) -> stripe.Customer:
+        """Get or create a Stripe customer for an organization using external_billing_id."""
+        # Get the organization 
+        organization = await self.org_dao.get(db, org_id)
+        if not organization:
+            raise BillingException(
+                status_code=404,
+                detail="Organization not found"
+            )
+        
+        # Check if customer already exists using external_billing_id
+        if organization.external_billing_id:
+            try:
+                customer = stripe.Customer.retrieve(organization.external_billing_id)
+                modify_kwargs = {}
+                if customer.email != user.email:
+                    modify_kwargs["email"] = user.email
+                if customer.name != organization.name:
+                    modify_kwargs["name"] = organization.name
+                if modify_kwargs:
+                    modify_kwargs["id"] = customer.id
+                    customer.modify(**modify_kwargs)
+                return customer
+            except stripe.StripeError as e:
+                billing_logger.warning(f"Failed to retrieve Stripe customer {organization.external_billing_id}: {e}")
+                # Continue to create new customer if retrieval fails
+        
+        # Create new customer
+        customer = stripe.Customer.create(
+            email=user.email,
+            name=organization.name,
+            metadata={
+                "kiwiq_org_id": str(org_id),
+                "kiwiq_user_id": str(user.id)
+            }
+        )
+        
+        # Update organization with Stripe customer ID
+        organization.external_billing_id = customer.id
+        db.add(organization)
+        await db.commit()
+        
+        billing_logger.info(f"Created and linked Stripe customer {customer.id} for org {org_id}")
+        
+        return customer
+    
+    async def _allocate_purchased_credits(
+        self,
+        db: AsyncSession,
+        purchase: models.CreditPurchase
+    ) -> None:
+        """Allocate credits from a successful purchase."""
+        # Create audit record
+        try:
+            await self.org_credits_dao.allocate_credits(
+                db=db,
+                org_id=purchase.org_id,
+                credit_type=purchase.credit_type,
+                amount=purchase.credits_amount,
+                source_type=CreditSourceType.PURCHASE,
+                source_id=purchase.stripe_checkout_id,
+                source_metadata={"purchase_id": str(purchase.id)},
+                expires_at=purchase.expires_at,
+                commit=False,
+            )
+            
+            # Add to net credits
+            await self.org_net_credits_dao.add_credits(
+                db=db,
+                org_id=purchase.org_id,
+                credit_type=purchase.credit_type,
+                credits_to_add=purchase.credits_amount,
+                source_type=CreditSourceType.PURCHASE,
+                source_id=purchase.stripe_checkout_id,
+                expires_at=purchase.expires_at,
+                commit=False,
+            )
+
+            await db.commit()
+            
+        except Exception as e:
+            await db.rollback()
+            billing_logger.error(f"Error allocating purchased credits: {e}", exc_info=True)
+            raise
+    
+    
+    
+    async def _create_usage_event(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        consumption_request: schemas.CreditConsumptionRequest,
+        is_overage: bool
+    ) -> None:
+        """Create a usage event for the given consumption request."""
+        await self.usage_event_dao.create_usage_event(
+            db=db,
+            org_id=org_id,
+            user_id=user_id,
+            event_type=consumption_request.event_type,
+            credit_type=consumption_request.credit_type,
+            credits_consumed=consumption_request.credits_consumed,
+            usage_metadata=consumption_request.metadata,
+            is_overage=is_overage
+        ) 
+
+    
+    ### TODO ###
+    ################################################
+    # --- Subscription Management --- #
+    ################################################
+    
     async def rotate_subscription_credits(
         self,
         db: AsyncSession,
@@ -1485,15 +1496,18 @@ class BillingService:
                     credit_type=credit_type,
                     amount=amount,
                     source_type=CreditSourceType.SUBSCRIPTION,
-                    source_id=str(subscription_id),
+                    source_id=str(subscription.id),
                     source_metadata={
-                        "subscription_id": str(subscription_id),
-                        "rotation": True,
+                        "subscription_id": str(subscription.id),
+                        "stripe_subscription_id": subscription.stripe_subscription_id,
+                        "plan_id": str(subscription.plan_id),
+                        "billing_period": "trial" if subscription.is_trial_active else "monthly",
                         "period_start": subscription.current_period_start.isoformat(),
-                        "period_end": subscription.current_period_end.isoformat()
+                        "period_end": subscription.current_period_end.isoformat(),
+                        "is_renewal": False
                     },
                     expires_at=new_expires_at,
-                    period_start=subscription.current_period_start
+                    commit=False,
                 )
                 
                 # Add to net credits
@@ -1503,9 +1517,9 @@ class BillingService:
                     credit_type=credit_type,
                     credits_to_add=amount,
                     source_type=CreditSourceType.SUBSCRIPTION,
-                    source_id=str(subscription_id),
+                    source_id=str(subscription.id),
                     expires_at=new_expires_at,
-                    commit=False
+                    commit=False,
                 )
                 addition_results.append(addition_result)
             
@@ -1518,7 +1532,7 @@ class BillingService:
             
             summary = {
                 "success": True,
-                "subscription_id": subscription_id,
+                "subscription_id": subscription.id,
                 "org_id": subscription.org_id,
                 "total_expired_credits": total_expired,
                 "total_added_credits": total_added,
@@ -1543,4 +1557,859 @@ class BillingService:
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to rotate subscription credits: {str(e)}"
+            )
+
+
+
+    async def _handle_checkout_session_completed(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle checkout session completed webhook."""
+        session = event_data["object"]
+        mode = session.get("mode")
+        
+        if mode == "subscription":
+            # Subscription checkout completed - the subscription will be created by Stripe
+            # and we'll handle it in the customer.subscription.created webhook
+            billing_logger.info(f"Subscription checkout completed: {session['id']}")
+        elif mode == "payment":
+            # One-time payment checkout completed
+            payment_intent_id = session.get("payment_intent")
+            if payment_intent_id:
+                # The payment will be handled by payment_intent.succeeded webhook
+                billing_logger.info(f"Payment checkout completed: {session['id']}")
+
+    async def _handle_subscription_created(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle subscription created webhook."""
+        stripe_subscription = event_data["object"]
+        
+        # Extract metadata
+        org_id = stripe_subscription["metadata"].get("kiwiq_org_id")
+        plan_id = stripe_subscription["metadata"].get("kiwiq_plan_id")
+        
+        if not org_id or not plan_id:
+            billing_logger.error(f"Missing metadata in subscription: {stripe_subscription['id']}")
+            return
+        
+        # Check if subscription already exists
+        existing_subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(
+            db, stripe_subscription["id"]
+        )
+        
+        if existing_subscription:
+            billing_logger.info(f"Subscription already exists: {stripe_subscription['id']}")
+            return
+        
+        # Get the plan
+        plan = await self.subscription_plan_dao.get(db, uuid.UUID(plan_id))
+        if not plan:
+            billing_logger.error(f"Plan not found: {plan_id}")
+            return
+        
+        # Ensure organization has the correct external_billing_id
+        organization = await self.org_dao.get(db, uuid.UUID(org_id))
+        if organization and not organization.external_billing_id:
+            organization.external_billing_id = stripe_subscription["customer"]
+            db.add(organization)
+            billing_logger.info(f"Updated organization {org_id} with Stripe customer ID {stripe_subscription['customer']}")
+        
+        # Create subscription record
+        now = datetime_now_utc()
+        trial_end = None
+        is_trial_active = False
+        
+        if stripe_subscription.get("trial_end"):
+            trial_end = datetime.fromtimestamp(stripe_subscription["trial_end"])
+            is_trial_active = trial_end > now
+        
+        subscription = models.OrganizationSubscription(
+            org_id=uuid.UUID(org_id),
+            plan_id=uuid.UUID(plan_id),
+            stripe_subscription_id=stripe_subscription["id"],
+            status=SubscriptionStatus(stripe_subscription["status"]),
+            current_period_start=datetime.fromtimestamp(stripe_subscription["current_period_start"]),
+            current_period_end=datetime.fromtimestamp(stripe_subscription["current_period_end"]),
+            seats_count=stripe_subscription["items"]["data"][0]["quantity"],
+            is_annual=stripe_subscription["items"]["data"][0]["price"]["recurring"]["interval"] == "year",
+            trial_start=now if is_trial_active else None,
+            trial_end=trial_end,
+            is_trial_active=is_trial_active,
+            created_at=now,
+            updated_at=now
+        )
+        
+        subscription = await self.org_subscription_dao.create(db, obj_in=subscription)
+        
+        # Allocate initial credits
+        await self._allocate_subscription_credits(db, subscription, plan)
+        
+        billing_logger.info(f"Created subscription from webhook: {subscription.id}")
+    
+    async def _handle_subscription_updated(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle subscription updated webhook."""
+        stripe_subscription = event_data["object"]
+        subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(
+            db, stripe_subscription["id"]
+        )
+        
+        if subscription:
+            # Update subscription status and period
+            subscription.status = SubscriptionStatus(stripe_subscription["status"])
+            subscription.current_period_start = datetime.fromtimestamp(stripe_subscription["current_period_start"])
+            subscription.current_period_end = datetime.fromtimestamp(stripe_subscription["current_period_end"])
+            subscription.cancel_at_period_end = stripe_subscription.get("cancel_at_period_end", False)
+            subscription.updated_at = datetime_now_utc()
+            
+            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
+    
+    async def _handle_subscription_deleted(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle subscription deleted webhook."""
+        stripe_subscription = event_data["object"]
+        subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(
+            db, stripe_subscription["id"]
+        )
+        
+        if subscription:
+            subscription.status = SubscriptionStatus.CANCELED
+            subscription.canceled_at = datetime_now_utc()
+            subscription.updated_at = datetime_now_utc()
+            
+            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
+    
+    async def _handle_payment_succeeded(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle successful payment webhook."""
+        invoice = event_data["object"]
+        subscription_id = invoice.get("subscription")
+        
+        if subscription_id:
+            subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(db, subscription_id)
+            if subscription and subscription.plan:
+                # Allocate credits for the new billing period
+                await self._allocate_subscription_credits(db, subscription, subscription.plan)
+    
+    async def _handle_payment_failed(self, db: AsyncSession, event_data: Dict[str, Any]) -> None:
+        """Handle failed payment webhook."""
+        invoice = event_data["object"]
+        subscription_id = invoice.get("subscription")
+        
+        if subscription_id:
+            subscription = await self.org_subscription_dao.get_by_stripe_subscription_id(db, subscription_id)
+            if subscription:
+                subscription.status = SubscriptionStatus.PAST_DUE
+                subscription.updated_at = datetime_now_utc()
+                
+                await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
+    
+    async def process_subscription_renewal(
+        self,
+        db: AsyncSession,
+        subscription: models.OrganizationSubscription
+    ) -> Dict[str, Any]:
+        """
+        Process subscription renewal by rotating credits.
+        
+        This method handles both trial-to-paid transitions and regular renewals.
+        """
+        try:
+            # Get the subscription plan
+            plan = subscription.plan
+            if not plan:
+                raise SubscriptionPlanNotFoundException()
+            
+            # Update subscription period info (this would typically come from Stripe webhook)
+            old_period_end = subscription.current_period_end
+            subscription.current_period_start = old_period_end
+            
+            if subscription.is_annual:
+                subscription.current_period_end = old_period_end + timedelta(days=365)
+            else:
+                subscription.current_period_end = old_period_end + timedelta(days=30)
+            
+            # Handle trial-to-paid transition
+            was_trial_active = subscription.is_trial_active and datetime_now_utc() >= subscription.trial_end
+            
+            if was_trial_active:
+                subscription.is_trial_active = False
+                subscription.status = SubscriptionStatus.ACTIVE
+                billing_logger.info(f"Trial ended for subscription {subscription.id}, transitioning to paid")
+            
+            subscription.updated_at = datetime_now_utc()
+            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
+            
+            # Allocate new credits using rotation
+            await self._allocate_subscription_credits(db, subscription, plan, is_renewal=True)
+            
+            return {
+                "success": True,
+                "subscription_id": subscription.id,
+                "org_id": subscription.org_id,
+                "renewal_type": "trial_to_paid" if was_trial_active else "regular",
+                "new_period_start": subscription.current_period_start,
+                "new_period_end": subscription.current_period_end
+            }
+            
+        except Exception as e:
+            billing_logger.error(f"Error processing subscription renewal: {e}", exc_info=True)
+            raise BillingException(
+                status_code=500,
+                detail=f"Failed to process subscription renewal: {str(e)}"
+            )
+    
+    
+    
+    async def _allocate_subscription_credits(
+        self,
+        db: AsyncSession,
+        subscription: models.OrganizationSubscription,
+        plan: models.SubscriptionPlan,
+        is_renewal: bool = False
+    ) -> None:
+        """Allocate monthly credits for a subscription, with optional credit rotation for renewals."""
+        now = datetime_now_utc()
+        period_end = subscription.current_period_end
+        
+        # Determine expiration based on subscription type
+        if subscription.is_trial_active:
+            expires_at = now + timedelta(days=settings.TRIAL_CREDITS_EXPIRE_DAYS)
+        else:
+            expires_at = period_end + timedelta(days=settings.SUBSCRIPTION_CREDITS_EXPIRE_DAYS)
+        
+        # If this is a renewal and not a trial, use credit rotation
+        if is_renewal and not subscription.is_trial_active:
+            # Use credit rotation for subscription renewals
+            new_credits = {CreditType(credit_type): amount for credit_type, amount in plan.monthly_credits.items()}
+            
+            rotation_result = await self.rotate_subscription_credits(
+                db=db,
+                subscription_id=subscription.id,
+                new_credits=new_credits,
+                new_expires_at=expires_at
+            )
+            
+            billing_logger.info(
+                f"Rotated subscription credits for subscription {subscription.id}: "
+                f"expired {rotation_result['total_expired_credits']}, "
+                f"added {rotation_result['total_added_credits']} credits"
+            )
+        else:
+            # For new subscriptions or trial-to-paid transitions, allocate fresh credits
+            try:
+                for credit_type_str, amount in plan.monthly_credits.items():
+                    credit_type = CreditType(credit_type_str)
+                    
+                    # Create audit record
+                    await self.org_credits_dao.allocate_credits(
+                        db=db,
+                        org_id=subscription.org_id,
+                        credit_type=credit_type,
+                        amount=amount,
+                        source_type=CreditSourceType.SUBSCRIPTION,
+                        source_id=str(subscription.id),
+                        source_metadata={
+                            "subscription_id": str(subscription.id),
+                            "stripe_subscription_id": subscription.stripe_subscription_id,
+                            "plan_id": str(subscription.plan_id),
+                            "billing_period": "trial" if subscription.is_trial_active else "monthly",
+                            "period_start": now.isoformat(),
+                            "period_end": period_end.isoformat(),
+                            "is_renewal": is_renewal
+                        },
+                        expires_at=expires_at,
+                        commit=False,
+                    )
+                    
+                    # Add to net credits
+                    await self.org_net_credits_dao.add_credits(
+                        db=db,
+                        org_id=subscription.org_id,
+                        credit_type=credit_type,
+                        credits_to_add=amount,
+                        source_type=CreditSourceType.SUBSCRIPTION,
+                        source_id=str(subscription.id),
+                        expires_at=expires_at,
+                        commit=False,
+                    )
+                    
+                    billing_logger.info(
+                        f"Allocated {amount} {credit_type.value} credits to org {subscription.org_id} "
+                        f"from subscription {subscription.id} (expires: {expires_at})"
+                    )
+                
+                await db.commit()
+
+            except Exception as e:
+                await db.rollback()
+                billing_logger.error(f"Error allocating subscription credits: {e}", exc_info=True)
+                raise
+    
+
+#################################
+    # --- Subscription Plan Management --- #
+    
+    async def create_subscription_plan(
+        self,
+        db: AsyncSession,
+        plan_data: schemas.SubscriptionPlanCreate
+    ) -> models.SubscriptionPlan:
+        """
+        Create a new subscription plan with Stripe integration.
+        
+        This method creates both the database record and the corresponding
+        Stripe product and price objects for billing integration.
+        """
+        try:
+            # Create Stripe product if not provided
+            if not plan_data.stripe_product_id:
+                stripe_product = stripe.Product.create(
+                    name=plan_data.name,
+                    description=plan_data.description,
+                    metadata={
+                        "kiwiq_plan": "true",
+                        "max_seats": str(plan_data.max_seats),
+                        "trial_days": str(plan_data.trial_days)
+                    }
+                )
+                plan_data.stripe_product_id = stripe_product.id
+            
+            # Create the plan in database
+            plan = await self.subscription_plan_dao.create(db, obj_in=plan_data)
+            
+            # Create Stripe prices for monthly and annual billing
+            # Convert dollars to cents for Stripe
+            monthly_price = stripe.Price.create(
+                product=plan.stripe_product_id,
+                unit_amount=int(plan.monthly_price * 100),  # Convert dollars to cents
+                currency="usd",
+                recurring={"interval": "month"},
+                metadata={"kiwiq_plan_id": str(plan.id), "billing_period": "monthly"}
+            )
+            
+            annual_price = stripe.Price.create(
+                product=plan.stripe_product_id,
+                unit_amount=int(plan.annual_price * 100),  # Convert dollars to cents
+                currency="usd",
+                recurring={"interval": "year"},
+                metadata={"kiwiq_plan_id": str(plan.id), "billing_period": "annual"}
+            )
+            
+            # Update plan with Stripe price IDs
+            plan_update = schemas.SubscriptionPlanUpdate(
+                stripe_price_id_monthly=monthly_price.id,
+                stripe_price_id_annual=annual_price.id
+            )
+            plan = await self.subscription_plan_dao.update(db, db_obj=plan, obj_in=plan_update)
+            
+            billing_logger.info(f"Created subscription plan: {plan.name} (ID: {plan.id})")
+            return plan
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error creating plan: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to create subscription plan",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+    
+    async def process_subscription_renewal(
+        self,
+        db: AsyncSession,
+        subscription: models.OrganizationSubscription
+    ) -> Dict[str, Any]:
+        """
+        Process subscription renewal by rotating credits.
+        
+        This method handles both trial-to-paid transitions and regular renewals.
+        """
+        try:
+            # Get the subscription plan
+            plan = subscription.plan
+            if not plan:
+                raise SubscriptionPlanNotFoundException()
+            
+            # Update subscription period info (this would typically come from Stripe webhook)
+            old_period_end = subscription.current_period_end
+            subscription.current_period_start = old_period_end
+            
+            if subscription.is_annual:
+                subscription.current_period_end = old_period_end + timedelta(days=365)
+            else:
+                subscription.current_period_end = old_period_end + timedelta(days=30)
+            
+            # Handle trial-to-paid transition
+            was_trial_active = subscription.is_trial_active and datetime_now_utc() >= subscription.trial_end
+            
+            if was_trial_active:
+                subscription.is_trial_active = False
+                subscription.status = SubscriptionStatus.ACTIVE
+                billing_logger.info(f"Trial ended for subscription {subscription.id}, transitioning to paid")
+            
+            subscription.updated_at = datetime_now_utc()
+            await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=schemas.SubscriptionUpdate())
+            
+            # Allocate new credits using rotation
+            await self._allocate_subscription_credits(db, subscription, plan, is_renewal=True)
+            
+            return {
+                "success": True,
+                "subscription_id": subscription.id,
+                "org_id": subscription.org_id,
+                "renewal_type": "trial_to_paid" if was_trial_active else "regular",
+                "new_period_start": subscription.current_period_start,
+                "new_period_end": subscription.current_period_end
+            }
+            
+        except Exception as e:
+            billing_logger.error(f"Error processing subscription renewal: {e}", exc_info=True)
+            raise BillingException(
+                status_code=500,
+                detail=f"Failed to process subscription renewal: {str(e)}"
             ) 
+    
+    async def get_subscription_plans(
+        self,
+        db: AsyncSession,
+        active_only: bool = True
+    ) -> List[models.SubscriptionPlan]:
+        """Get available subscription plans."""
+        if active_only:
+            return await self.subscription_plan_dao.get_active_plans(db)
+        else:
+            return await self.subscription_plan_dao.get_multi(db)
+    
+    # --- Subscription Management --- #
+    
+    async def create_subscription(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        subscription_data: schemas.SubscriptionCreate,
+        user: User
+    ) -> models.OrganizationSubscription:
+        """
+        Create a new subscription for an organization.
+        
+        This method handles the complete subscription creation process including
+        Stripe customer creation, subscription setup, and initial credit allocation.
+        """
+        # Get the subscription plan
+        plan = await self.subscription_plan_dao.get(db, subscription_data.plan_id)
+        if not plan:
+            raise SubscriptionPlanNotFoundException()
+        
+        # Check if organization already has a subscription
+        existing_subscription = await self.org_subscription_dao.get_by_org_id(db, org_id)
+        if existing_subscription:
+            raise InvalidSubscriptionStateException("Organization already has an active subscription")
+        
+        try:
+            # Create or get Stripe customer
+            stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
+            
+            # Attach payment method if provided
+            if subscription_data.payment_method_id:
+                stripe.PaymentMethod.attach(
+                    subscription_data.payment_method_id,
+                    customer=stripe_customer.id
+                )
+                
+                # Set as default payment method
+                stripe.Customer.modify(
+                    stripe_customer.id,
+                    invoice_settings={"default_payment_method": subscription_data.payment_method_id}
+                )
+            
+            # Determine trial period
+            trial_days = subscription_data.trial_days or plan.trial_days
+            trial_end = None
+            if trial_days > 0 and plan.is_trial_eligible:
+                trial_end = datetime_now_utc() + timedelta(days=trial_days)
+            
+            # Create Stripe subscription
+            stripe_price_id = plan.stripe_price_id_annual if subscription_data.is_annual else plan.stripe_price_id_monthly
+            
+            stripe_subscription_params = {
+                "customer": stripe_customer.id,
+                "items": [{"price": stripe_price_id, "quantity": subscription_data.seats_count}],
+                "metadata": {
+                    "kiwiq_org_id": str(org_id),
+                    "kiwiq_plan_id": str(plan.id),
+                    "kiwiq_user_id": str(user.id)
+                }
+            }
+            
+            if trial_end:
+                stripe_subscription_params["trial_end"] = int(trial_end.timestamp())
+            
+            stripe_subscription = stripe.Subscription.create(**stripe_subscription_params)
+            
+            # Create subscription record in database
+            now = datetime_now_utc()
+            subscription = models.OrganizationSubscription(
+                org_id=org_id,
+                plan_id=plan.id,
+                stripe_subscription_id=stripe_subscription.id,
+                status=SubscriptionStatus.TRIAL if trial_end else SubscriptionStatus.ACTIVE,
+                current_period_start=datetime.fromtimestamp(stripe_subscription.current_period_start),
+                current_period_end=datetime.fromtimestamp(stripe_subscription.current_period_end),
+                seats_count=subscription_data.seats_count,
+                is_annual=subscription_data.is_annual,
+                trial_start=now if trial_end else None,
+                trial_end=trial_end,
+                is_trial_active=bool(trial_end),
+                created_at=now,
+                updated_at=now
+            )
+            
+            subscription = await self.org_subscription_dao.create(db, obj_in=subscription)
+            
+            # Allocate initial credits
+            await self._allocate_subscription_credits(db, subscription, plan)
+            
+            billing_logger.info(f"Created subscription for org {org_id}: {subscription.id}")
+            return subscription
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error creating subscription: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to create subscription",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+    
+    async def get_organization_subscription(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID
+    ) -> Optional[models.OrganizationSubscription]:
+        """Get the active subscription for an organization."""
+        return await self.org_subscription_dao.get_by_org_id(db, org_id)
+    
+    async def update_subscription(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        subscription_update: schemas.SubscriptionUpdate
+    ) -> models.OrganizationSubscription:
+        """Update an existing subscription."""
+        subscription = await self.org_subscription_dao.get_by_org_id(db, org_id)
+        if not subscription:
+            raise SubscriptionNotFoundException()
+        
+        try:
+            # Handle plan changes
+            if subscription_update.plan_id and subscription_update.plan_id != subscription.plan_id:
+                new_plan = await self.subscription_plan_dao.get(db, subscription_update.plan_id)
+                if not new_plan:
+                    raise SubscriptionPlanNotFoundException()
+                
+                # Update Stripe subscription
+                stripe_price_id = new_plan.stripe_price_id_annual if subscription.is_annual else new_plan.stripe_price_id_monthly
+                stripe.SubscriptionItem.modify(
+                    subscription.stripe_subscription_id,
+                    price=stripe_price_id,
+                    proration_behavior="create_prorations"
+                )
+                
+                subscription.plan_id = new_plan.id
+                
+                # Allocate credits for new plan
+                await self._allocate_subscription_credits(db, subscription, new_plan)
+            
+            # Handle seat count changes
+            if subscription_update.seats_count and subscription_update.seats_count != subscription.seats_count:
+                stripe.SubscriptionItem.modify(
+                    subscription.stripe_subscription_id,
+                    quantity=subscription_update.seats_count,
+                    proration_behavior="create_prorations"
+                )
+                subscription.seats_count = subscription_update.seats_count
+            
+            # Handle cancellation
+            if subscription_update.cancel_at_period_end is not None:
+                if subscription_update.cancel_at_period_end:
+                    stripe.Subscription.modify(
+                        subscription.stripe_subscription_id,
+                        cancel_at_period_end=True
+                    )
+                else:
+                    stripe.Subscription.modify(
+                        subscription.stripe_subscription_id,
+                        cancel_at_period_end=False
+                    )
+                subscription.cancel_at_period_end = subscription_update.cancel_at_period_end
+            
+            subscription.updated_at = datetime_now_utc()
+            subscription = await self.org_subscription_dao.update(db, db_obj=subscription, obj_in=subscription_update)
+            
+            billing_logger.info(f"Updated subscription for org {org_id}: {subscription.id}")
+            return subscription
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error updating subscription: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to update subscription",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+    
+    async def create_checkout_session(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user: User,
+        plan_id: Optional[uuid.UUID] = None,
+        is_annual: bool = False,
+        price_id: Optional[str] = None,
+        success_url: str = None,
+        cancel_url: str = None
+    ) -> Dict[str, Any]:
+        """
+        Create a Stripe Checkout session for subscription or one-time purchase.
+        
+        This method handles both subscription creation and one-time credit purchases
+        through Stripe Checkout, providing a consistent payment flow.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            user: User initiating the checkout
+            plan_id: Subscription plan ID (for subscriptions)
+            is_annual: Whether to use annual billing (for subscriptions)
+            price_id: Stripe price ID (for one-time purchases)
+            success_url: URL to redirect after successful payment
+            cancel_url: URL to redirect after cancelled payment
+            
+        Returns:
+            Dict containing checkout session URL and ID
+        """
+        try:
+            # Get or create Stripe customer
+            stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
+            
+            # Prepare checkout session parameters
+            checkout_params = {
+                "customer": stripe_customer.id,
+                "success_url": success_url,
+                "cancel_url": cancel_url,
+                "metadata": {
+                    "kiwiq_org_id": str(org_id),
+                    "kiwiq_user_id": str(user.id)
+                }
+            }
+            
+            if plan_id:
+                # Subscription checkout
+                plan = await self.subscription_plan_dao.get(db, plan_id)
+                if not plan:
+                    raise SubscriptionPlanNotFoundException()
+                
+                stripe_price_id = plan.stripe_price_id_annual if is_annual else plan.stripe_price_id_monthly
+                
+                checkout_params.update({
+                    "mode": "subscription",
+                    "line_items": [{
+                        "price": stripe_price_id,
+                        "quantity": 1
+                    }],
+                    "subscription_data": {
+                        "metadata": {
+                            "kiwiq_org_id": str(org_id),
+                            "kiwiq_plan_id": str(plan_id)
+                        }
+                    }
+                })
+                
+                # Add trial period if eligible
+                if plan.is_trial_eligible and plan.trial_days > 0:
+                    checkout_params["subscription_data"]["trial_period_days"] = plan.trial_days
+                
+            elif price_id:
+                # One-time purchase checkout
+                checkout_params.update({
+                    "mode": "payment",
+                    "line_items": [{
+                        "price": price_id,
+                        "quantity": 1
+                    }],
+                    "payment_intent_data": {
+                        "metadata": {
+                            "kiwiq_org_id": str(org_id),
+                            "kiwiq_user_id": str(user.id),
+                            "kiwiq_type": "credit_purchase"
+                        }
+                    }
+                })
+            else:
+                raise BillingConfigurationException("Either plan_id or price_id must be provided")
+            
+            # Create checkout session
+            session = stripe.checkout.Session.create(**checkout_params)
+            
+            billing_logger.info(f"Created checkout session {session.id} for org {org_id}")
+            
+            return {
+                "checkout_url": session.url,
+                "session_id": session.id,
+                "expires_at": datetime.fromtimestamp(session.expires_at)
+            }
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error creating checkout session: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to create checkout session",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+    
+    
+    def _calculate_credit_price(self, credit_type: CreditType, amount: float) -> float:
+        """Calculate the price in dollars for purchasing credits."""
+        if credit_type == CreditType.WORKFLOWS:
+            return amount * settings.CREDIT_PRICE_WORKFLOWS_DOLLARS
+        elif credit_type == CreditType.WEB_SEARCHES:
+            return amount * settings.CREDIT_PRICE_WEB_SEARCHES_DOLLARS
+        elif credit_type == CreditType.DOLLAR_CREDITS:
+            # Dollar credits are priced with a markup ratio
+            return amount * settings.CREDIT_PRICE_DOLLAR_CREDITS_RATIO
+        else:
+            raise BillingConfigurationException(f"No pricing configured for credit type: {credit_type}")
+
+    async def purchase_credits(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        purchase_request: schemas.CreditPurchaseRequest
+    ) -> models.CreditPurchase:
+        """
+        Purchase additional credits through Stripe.
+        
+        This method creates a payment intent for one-time credit purchases,
+        allowing organizations to buy credits outside of their subscription.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            user_id: User ID initiating the purchase
+            purchase_request: Credit purchase details
+            
+        Returns:
+            CreditPurchase record with payment intent details
+        """
+        try:
+            # Get or create Stripe customer
+            user = await db.get(User, user_id)
+            if not user:
+                raise BillingException(
+                    status_code=404,
+                    detail="User not found"
+                )
+            
+            stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
+            
+            # Calculate price for the credits
+            amount_dollars = self._calculate_credit_price(
+                purchase_request.credit_type,
+                purchase_request.credits_amount
+            )
+            amount_cents = int(amount_dollars * 100)
+            
+            # Create payment intent
+            payment_intent = stripe.PaymentIntent.create(
+                amount=amount_cents,
+                currency="usd",
+                customer=stripe_customer.id,
+                payment_method=purchase_request.payment_method_id,
+                confirm=True,
+                metadata={
+                    "kiwiq_org_id": str(org_id),
+                    "kiwiq_user_id": str(user_id),
+                    "kiwiq_type": "credit_purchase",
+                    "credit_type": purchase_request.credit_type.value,
+                    "credits_amount": str(purchase_request.credits_amount)
+                }
+            )
+            
+            # Calculate expiration (purchased credits expire after configured days)
+            expires_at = None
+            if settings.PURCHASED_CREDITS_EXPIRE_DAYS:
+                expires_at = datetime_now_utc() + timedelta(days=settings.PURCHASED_CREDITS_EXPIRE_DAYS)
+            
+            # Create purchase record
+            purchase = await self.credit_purchase_dao.create_purchase(
+                db=db,
+                org_id=org_id,
+                user_id=user_id,
+                stripe_checkout_id=payment_intent.id,
+                credit_type=purchase_request.credit_type,
+                credits_amount=purchase_request.credits_amount,
+                amount_paid=amount_dollars,
+                currency="usd",
+                expires_at=expires_at
+            )
+            
+            # If payment is immediately successful, allocate credits
+            if payment_intent.status == "succeeded":
+                await self._allocate_purchased_credits(db, purchase)
+                purchase = await self.credit_purchase_dao.update_payment_status(
+                    db, purchase, PaymentStatus.SUCCEEDED
+                )
+            
+            billing_logger.info(
+                f"Created credit purchase for org {org_id}: "
+                f"{purchase_request.credits_amount} {purchase_request.credit_type.value} credits"
+            )
+            
+            return purchase
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error purchasing credits: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to process credit purchase",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )
+    
+    async def create_customer_portal_session(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        return_url: str
+    ) -> Dict[str, str]:
+        """
+        Create a Stripe Customer Portal session.
+        
+        This allows customers to manage their subscription, update payment methods,
+        and view invoices through Stripe's hosted portal.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            return_url: URL to return to after portal session
+            
+        Returns:
+            Dict with portal URL
+        """
+        try:
+            # Get organization to find customer ID
+            organization = await self.org_dao.get(db, org_id)
+            if not organization or not organization.external_billing_id:
+                raise SubscriptionNotFoundException("No Stripe customer found for organization")
+            
+            # Create portal session
+            session = stripe.billing_portal.Session.create(
+                customer=organization.external_billing_id,
+                return_url=return_url
+            )
+            
+            billing_logger.info(f"Created customer portal session for org {org_id}")
+            
+            return {
+                "portal_url": session.url
+            }
+            
+        except stripe.StripeError as e:
+            billing_logger.error(f"Stripe error creating portal session: {e}")
+            raise StripeIntegrationException(
+                detail="Failed to create customer portal session",
+                stripe_error_code=e.code,
+                stripe_error_message=str(e)
+            )

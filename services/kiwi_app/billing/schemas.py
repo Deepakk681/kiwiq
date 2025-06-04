@@ -11,7 +11,7 @@ from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Union
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from kiwi_app.billing.models import (
     CreditType, 
@@ -48,7 +48,7 @@ class SubscriptionPlanCreate(SubscriptionPlanBase):
     stripe_product_id: Optional[str] = Field(None, description="Stripe Product ID (auto-generated if not provided)")
     is_active: bool = Field(True, description="Whether this plan is available for new subscriptions")
     
-    @validator('monthly_credits')
+    @field_validator('monthly_credits')
     def validate_monthly_credits(cls, v):
         """Validate that monthly_credits contains valid credit types."""
         valid_types = {ct.value for ct in CreditType}
@@ -105,7 +105,6 @@ class SubscriptionRead(SubscriptionBase):
     org_id: uuid.UUID
     plan_id: uuid.UUID
     stripe_subscription_id: str
-    stripe_customer_id: str
     status: SubscriptionStatus
     current_period_start: datetime
     current_period_end: datetime
@@ -191,18 +190,41 @@ class CreditPurchaseRequest(BillingBaseSchema):
     credits_amount: float = Field(..., gt=0, description="Number of credits to purchase")
     payment_method_id: str = Field(..., description="Stripe Payment Method ID")
 
+class FlexibleDollarCreditPurchaseRequest(BillingBaseSchema):
+    """
+    Schema for requesting flexible dollar credit purchase.
+    
+    Allows users to specify any dollar amount (with minimum) to purchase dollar credits.
+    The actual credit amount is calculated based on the dollar amount and pricing ratio.
+    """
+    dollar_amount: int = Field(
+        ..., 
+        gt=0, 
+        description="Dollar amount to spend on credits (minimum $5)"
+    )
+    
+    @field_validator('dollar_amount')
+    def validate_minimum_amount(cls, v):
+        """Validate that the dollar amount meets the minimum requirement."""
+        from kiwi_app.settings import settings
+        if v < settings.MINIMUM_DOLLAR_CREDITS_PURCHASE:
+            raise ValueError(
+                f"Minimum purchase amount is ${settings.MINIMUM_DOLLAR_CREDITS_PURCHASE:.2f}"
+            )
+        return v
+
 class CreditPurchaseRead(BillingBaseSchema):
     """Schema for reading credit purchase data."""
     id: uuid.UUID
     org_id: uuid.UUID
     user_id: uuid.UUID
-    stripe_payment_intent_id: str
-    stripe_invoice_id: Optional[str]
+    stripe_checkout_id: str
     credit_type: CreditType
     credits_amount: float
     amount_paid: float
     currency: str
     status: PaymentStatus
+    receipt_url: Optional[str] = Field(None, description="Stripe receipt URL")
     expires_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
@@ -363,6 +385,26 @@ class StripePaymentMethodAttach(BillingBaseSchema):
     """Schema for attaching payment methods."""
     payment_method_id: str = Field(..., description="Stripe Payment Method ID")
     set_as_default: bool = Field(True, description="Set as default payment method")
+
+class CheckoutSessionResponse(BillingBaseSchema):
+    """Schema for checkout session response."""
+    checkout_url: str = Field(..., description="URL to redirect user to Stripe Checkout")
+    session_id: str = Field(..., description="Stripe Checkout Session ID")
+    purchase_id: Optional[str] = Field(None, description="Purchase record ID for tracking (if applicable)")
+    expires_at: datetime = Field(..., description="When the checkout session expires")
+
+class CustomerPortalResponse(BillingBaseSchema):
+    """Schema for customer portal session response."""
+    portal_url: str = Field(..., description="URL to redirect user to Stripe Customer Portal")
+
+class CheckoutResultResponse(BillingBaseSchema):
+    """Schema for checkout result response."""
+    success: bool = Field(..., description="Whether the checkout was successful")
+    message: str = Field(..., description="Human-readable message about the result")
+    session_id: Optional[str] = Field(None, description="Stripe checkout session ID")
+    session_status: Optional[str] = Field(None, description="Stripe session status")
+    customer_email: Optional[str] = Field(None, description="Customer email from session")
+    payment_status: Optional[str] = Field(None, description="Payment status from session")
 
 # --- Admin Schemas --- #
 

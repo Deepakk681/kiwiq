@@ -16,15 +16,15 @@ from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import SQLModel
 
-from kiwi_app.auth.crud import BaseDAO
-from kiwi_app.billing import models, schemas
+from global_utils import datetime_now_utc
+from kiwi_app.utils import get_kiwi_logger
+from kiwi_app.auth.base_crud import BaseDAO
 from kiwi_app.billing.models import CreditType, SubscriptionStatus, CreditSourceType, PaymentStatus
 from kiwi_app.billing.exceptions import InsufficientCreditsException
-from kiwi_app.auth.utils import datetime_now_utc
-from kiwi_app.utils import get_kiwi_logger
+from kiwi_app.billing import models, schemas
 
 # Get logger for billing operations
-billing_logger = get_kiwi_logger(name="kiwi_app.billing")
+billing_logger = get_kiwi_logger(name="kiwi_app.billing.crud")
 
 
 class SubscriptionPlanDAO(BaseDAO[models.SubscriptionPlan, schemas.SubscriptionPlanCreate, schemas.SubscriptionPlanUpdate]):
@@ -109,13 +109,15 @@ class OrganizationSubscriptionDAO(BaseDAO[models.OrganizationSubscription, schem
         result = await db.exec(statement)
         return result.scalars().first()
     
-    async def get_by_stripe_customer_id(self, db: AsyncSession, stripe_customer_id: str) -> Optional[models.OrganizationSubscription]:
-        """Get subscription by Stripe customer ID."""
-        statement = select(self.model).options(
-            selectinload(self.model.plan)
-        ).where(self.model.stripe_customer_id == stripe_customer_id)
-        result = await db.exec(statement)
-        return result.scalars().first()
+    # async def get_by_stripe_customer_id(self, db: AsyncSession, stripe_customer_id: str) -> Optional[models.OrganizationSubscription]:
+    #     """Get subscription by Stripe customer ID using organization's external_billing_id."""
+    #     from kiwi_app.auth.models import Organization
+        
+    #     statement = select(self.model).options(
+    #         selectinload(self.model.plan)
+    #     ).join(Organization).where(Organization.external_billing_id == stripe_customer_id)
+    #     result = await db.exec(statement)
+    #     return result.scalars().first()
     
     async def get_active_subscriptions(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> Sequence[models.OrganizationSubscription]:
         """Get all active subscriptions."""
@@ -393,7 +395,8 @@ class OrganizationCreditsDAO(BaseDAO[models.OrganizationCredits, SQLModel, SQLMo
         source_id: Optional[str] = None,
         source_metadata: Optional[Dict[str, Any]] = None,
         expires_at: Optional[datetime] = None,
-        period_start: Optional[datetime] = None
+        period_start: Optional[datetime] = None,
+        commit: bool = True,
     ) -> models.OrganizationCredits:
         """
         Create an audit record for credit allocation.
@@ -420,8 +423,9 @@ class OrganizationCreditsDAO(BaseDAO[models.OrganizationCredits, SQLModel, SQLMo
             )
             
             db.add(credit_record)
-            await db.commit()
-            await db.refresh(credit_record)
+            if commit:
+                await db.commit()
+                await db.refresh(credit_record)
             
             billing_logger.info(
                 f"Created audit record for {amount} {credit_type.value} credits "
@@ -1242,7 +1246,7 @@ class CreditPurchaseDAO(BaseDAO[models.CreditPurchase, schemas.CreditPurchaseReq
         db: AsyncSession,
         org_id: uuid.UUID,
         user_id: uuid.UUID,
-        stripe_payment_intent_id: str,
+        stripe_checkout_id: str,
         credit_type: CreditType,
         credits_amount: float,
         amount_paid: float,
@@ -1253,7 +1257,7 @@ class CreditPurchaseDAO(BaseDAO[models.CreditPurchase, schemas.CreditPurchaseReq
         purchase = models.CreditPurchase(
             org_id=org_id,
             user_id=user_id,
-            stripe_payment_intent_id=stripe_payment_intent_id,
+            stripe_checkout_id=stripe_checkout_id,
             credit_type=credit_type,
             credits_amount=credits_amount,
             amount_paid=amount_paid,
@@ -1270,13 +1274,13 @@ class CreditPurchaseDAO(BaseDAO[models.CreditPurchase, schemas.CreditPurchaseReq
         
         return purchase
     
-    async def get_by_stripe_payment_intent_id(
+    async def get_by_stripe_checkout_id(
         self, 
         db: AsyncSession, 
-        stripe_payment_intent_id: str
+        stripe_checkout_id: str
     ) -> Optional[models.CreditPurchase]:
         """Get credit purchase by Stripe payment intent ID."""
-        statement = select(self.model).where(self.model.stripe_payment_intent_id == stripe_payment_intent_id)
+        statement = select(self.model).where(self.model.stripe_checkout_id == stripe_checkout_id)
         result = await db.exec(statement)
         return result.scalars().first()
     
@@ -1313,6 +1317,23 @@ class CreditPurchaseDAO(BaseDAO[models.CreditPurchase, schemas.CreditPurchaseReq
         await db.commit()
         await db.refresh(purchase)
         
+        return purchase
+    
+    async def update_receipt_url(
+        self,
+        db: AsyncSession,
+        purchase: models.CreditPurchase,
+        receipt_url: str
+    ) -> models.CreditPurchase:
+        """Update receipt URL for a credit purchase."""
+        purchase.receipt_url = receipt_url
+        purchase.updated_at = datetime_now_utc()
+        
+        db.add(purchase)
+        await db.commit()
+        await db.refresh(purchase)
+        
+        billing_logger.info(f"Updated receipt URL for purchase {purchase.id}")
         return purchase
 
 

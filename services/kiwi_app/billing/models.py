@@ -17,9 +17,9 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlmodel import Field, Relationship, SQLModel, Column
 
 # Import existing auth models and utilities
-from kiwi_app.auth.models import Organization, User
 from global_utils import datetime_now_utc
 from kiwi_app.settings import settings
+from kiwi_app.auth.models import Organization, User
 
 # Define table prefix following KiwiQ patterns
 table_prefix = f"{settings.DB_TABLE_NAMESPACE_PREFIX}billing_"
@@ -91,7 +91,7 @@ class SubscriptionPlan(SQLModel, table=True):
     monthly_credits: Dict[str, float] = Field(
         sa_column=Column(JSON),
         description="Monthly credit allocations by type",
-        default={CreditType.WORKFLOWS.value: 100.0, CreditType.WEB_SEARCHES.value: 500.0, CreditType.DOLLAR_CREDITS.value: 25.0}
+        # default={CreditType.WORKFLOWS.value: 100.0, CreditType.WEB_SEARCHES.value: 500.0, CreditType.DOLLAR_CREDITS.value: 25.0}
     )
     
     # Pricing in dollars (changed from cents)
@@ -126,6 +126,7 @@ class OrganizationSubscription(SQLModel, table=True):
     
     This model tracks the current subscription state for each organization,
     including Stripe subscription details, billing periods, and seat counts.
+    The Stripe customer ID is stored in the organization's external_billing_id field.
     """
     __tablename__ = f"{table_prefix}org_subscription"
     
@@ -149,15 +150,6 @@ class OrganizationSubscription(SQLModel, table=True):
     stripe_subscription_id: str = Field(
         sa_column=Column(SQLAlchemyString, unique=True, index=True),
         description="Stripe Subscription ID"
-    )
-    stripe_subscription_item_id: Optional[str] = Field(
-        default=None, 
-        sa_column=Column(SQLAlchemyString, nullable=True),
-        description="Stripe Subscription Item ID for seat-based billing"
-    )
-    stripe_customer_id: str = Field(
-        sa_column=Column(SQLAlchemyString, index=True),
-        description="Stripe Customer ID for the organization"
     )
     
     # Subscription status and timing
@@ -220,14 +212,14 @@ class CreditPurchase(SQLModel, table=True):
     )
     
     # Stripe integration
-    stripe_payment_intent_id: str = Field(
+    stripe_checkout_id: str = Field(
         sa_column=Column(SQLAlchemyString, unique=True, index=True),
         description="Stripe Payment Intent ID"
     )
-    stripe_invoice_id: Optional[str] = Field(
+    receipt_url: Optional[str] = Field(
         default=None,
-        sa_column=Column(SQLAlchemyString, nullable=True),
-        description="Stripe Invoice ID if applicable"
+        sa_column=Column(Text, nullable=True),
+        description="Stripe receipt URL from charge.succeeded event"
     )
     
     # Purchase details
