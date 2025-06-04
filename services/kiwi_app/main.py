@@ -8,8 +8,8 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from kiwi_app.utils import get_kiwi_logger
-from kiwi_app import auth
 from kiwi_app.settings import settings # Import settings
+from kiwi_app import auth
 
 from kiwi_app.workflow_app import routes as workflow_routes
 from kiwi_app.workflow_app import customer_data_routes as customer_data_routes
@@ -19,6 +19,7 @@ from scraper_service import scraping_routes
 from kiwi_app.workflow_app import app_state as app_state_routes
 from kiwi_app.workflow_app import app_artifacts as app_artifacts_routes
 from kiwi_app.workflow_app import websockets as websocket_routes
+from kiwi_app.billing import routers as billing_routers
 
 # Get a logger instance for the main application
 
@@ -117,6 +118,11 @@ app = FastAPI(
 
 # Include the authentication routes using the exposed router
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+
+# Include the billing routes using the exposed router
+app.include_router(billing_routers.billing_router, prefix=f"{settings.API_V1_PREFIX}")
+app.include_router(billing_routers.billing_admin_router, prefix=f"{settings.API_V1_PREFIX}")
+app.include_router(billing_routers.billing_webhook_router, prefix=f"{settings.API_V1_PREFIX}")
 
 # Include the workflow routes using the exposed router
 app.include_router(workflow_routes.workflow_router, prefix=settings.API_V1_PREFIX)
