@@ -233,7 +233,8 @@ class BillingService:
         db: AsyncSession,
         org_id: uuid.UUID,
         user_id: uuid.UUID,
-        consumption_request: schemas.CreditConsumptionRequest
+        consumption_request: schemas.CreditConsumptionRequest,
+        allow_dollar_fallback: bool = True,
     ) -> schemas.CreditConsumptionResult:
         """
         Consume credits with optimized atomic updates and overage handling.
@@ -246,6 +247,7 @@ class BillingService:
             org_id: Organization ID
             user_id: User ID consuming credits
             consumption_request: Credit consumption details
+            allow_dollar_fallback: Whether to allow dollar credit fallback
             
         Returns:
             CreditConsumptionResult: Consumption result with balance info
@@ -254,6 +256,10 @@ class BillingService:
             InsufficientCreditsException: If not enough credits available
         """
         try:
+            # Store original request details for result
+            original_credit_type = consumption_request.credit_type
+            original_credits_requested = consumption_request.credits_consumed
+            
             # Get overage policy for this organization and credit type
             overage_settings = await self._get_overage_settings(org_id, consumption_request.credit_type)
             max_overage_allowed_fraction = overage_settings.get("overage_percentage", 10) / 100.0
@@ -265,8 +271,27 @@ class BillingService:
                 credit_type=consumption_request.credit_type,
                 credits_to_consume=consumption_request.credits_consumed,
                 max_overage_allowed_fraction=max_overage_allowed_fraction,
-                commit=False
+                commit=False,
+                allow_dollar_fallback=allow_dollar_fallback,
             )
+
+            dollar_fallback_occurred = False
+            consumed_in_dollar_credits = 0.0
+            
+            if consumption_result.credit_type != consumption_request.credit_type:
+                # Dollar credit fallback occurred
+                dollar_fallback_occurred = True
+                consumed_in_dollar_credits = consumption_result.consumed_in_dollar_credits
+                
+                # Update consumption request for event logging
+                consumption_request.credit_type = consumption_result.credit_type
+                consumption_request.credits_consumed = consumption_result.consumed_in_dollar_credits
+                consumption_request.event_type = f"dollar_credit_fallback_for__{consumption_request.event_type}"
+                if consumption_request.metadata is not None:
+                    consumption_request.metadata["dollar_credit_fallback"] = True
+                    consumption_request.metadata["consumed_in_dollar_credits"] = consumption_result.consumed_in_dollar_credits
+                    consumption_request.metadata["original_credit_type"] = original_credit_type.value
+                    consumption_request.metadata["original_credits_requested"] = original_credits_requested
             
             # Create usage event for audit and analytics
             await self._create_usage_event(
@@ -280,21 +305,24 @@ class BillingService:
             # Commit the transaction
             await db.commit()
             
-            # Prepare result
+            # Prepare result with proper credit type information
             result = schemas.CreditConsumptionResult(
                 success=True,
-                credits_consumed=consumption_result.credits_consumed,
+                credit_type=original_credit_type if not dollar_fallback_occurred else CreditType.DOLLAR_CREDITS,
+                credits_consumed=original_credits_requested if not dollar_fallback_occurred else consumed_in_dollar_credits,
                 remaining_balance=consumption_result.remaining_balance,
                 is_overage=consumption_result.is_overage,
                 grace_credits_used=consumption_result.overage_amount,
-                warning="Using overage grace credits" if consumption_result.is_overage else None
+                warning="Using overage grace credits" if consumption_result.is_overage else None,
+                dollar_credit_fallback=dollar_fallback_occurred,
+                consumed_in_dollar_credits=consumed_in_dollar_credits
             )
             
             # Log consumption for monitoring
             billing_logger.info(
-                f"Consumed {consumption_request.credits_consumed} {consumption_request.credit_type.value} "
+                f"Consumed {original_credits_requested} {original_credit_type.value} "
                 f"credits for org {org_id} (event: {consumption_request.event_type}, "
-                f"overage: {consumption_result.is_overage})"
+                f"overage: {consumption_result.is_overage}, dollar_fallback: {dollar_fallback_occurred})"
             )
             
             return result
@@ -426,6 +454,8 @@ class BillingService:
         try:
             operation_id = str(operation_id)
             # Perform the adjustment using atomic operation
+            overage_settings = await self._get_overage_settings(org_id, credit_type)
+            max_overage_allowed_fraction = overage_settings.get("overage_percentage", 10) / 100.0
             adjustment_result = await self.org_net_credits_dao.adjust_allocation_with_actual(
                 db=db,
                 org_id=org_id,
@@ -433,7 +463,8 @@ class BillingService:
                 operation_id=operation_id,
                 actual_credits=actual_credits,
                 allocated_credits=allocated_credits,
-                commit=False
+                commit=False,
+                max_overage_allowed_fraction=max_overage_allowed_fraction,
             )
             
             # Create usage event for the adjustment

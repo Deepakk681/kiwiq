@@ -109,6 +109,13 @@ class Settings(GlobalSettings):
     
     # Overage policies
     OVERAGE_GRACE_PERCENTAGE: int = Field(10, ge=0, le=100, description="Percentage of monthly allocation allowed as grace")
+    MAX_OVERAGE_ABSOLUTE: Dict[str, float] = Field(
+        {
+            "workflows": 20.0,
+            "web_searches": 10.0,
+            "default": 5.0,
+        }, description="Maximum credits overage per month allowed (absolute value)"
+    )
     # OVERAGE_HARD_LIMIT_MULTIPLIER: float = Field(1.5, description="Hard limit as multiplier of monthly allocation")
     
     # Credit expiration policies (in days)

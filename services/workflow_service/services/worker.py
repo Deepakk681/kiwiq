@@ -25,6 +25,7 @@ from db.session import get_async_pool, get_async_db_as_manager # Assuming this p
 from global_config.settings import global_settings
 from global_config.logger import get_prefect_or_regular_python_logger
 from kiwi_app.billing.models import CreditType
+from kiwi_app.billing import schemas as billing_schemas
 from workflow_service.utils.utils import get_prefect_logger
 # Local workflow service imports
 from workflow_service.graph.graph import GraphSchema
@@ -227,22 +228,22 @@ async def run_graph(
         #     else:
         #         logger.info("No pending HITL jobs found for this run")
         
-        # Check if resuming from FAILED state, then consume workflow credit if that's case, since after workflow fails, the consumed credit is returned!
-        async with get_async_db_as_manager() as db:
-            workflow_run = await external_context.daos.workflow_run.get(
-                db=db,
-                id=run_id,
-            )
-            resume_from_status = workflow_run.status
-            if resume_from_status == wf_schemas.WorkflowRunStatus.FAILED:
-                await external_context.billing_service.allocate_credits_for_operation(
-                    db=db,
-                    org_id=org_id,
-                    user_id=user_id,
-                    operation_id=run_id,
-                    credit_type=CreditType.WORKFLOWS,
-                    estimated_credits=1,
-                )
+        # # Check if resuming from FAILED state, then consume workflow credit if that's case, since after workflow fails, the consumed credit is returned!
+        # async with get_async_db_as_manager() as db:
+        #     workflow_run = await external_context.daos.workflow_run.get(
+        #         db=db,
+        #         id=run_id,
+        #     )
+        #     resume_from_status = workflow_run.status
+        #     if resume_from_status == wf_schemas.WorkflowRunStatus.FAILED:
+        #         await external_context.billing_service.allocate_credits_for_operation(
+        #             db=db,
+        #             org_id=org_id,
+        #             user_id=user_id,
+        #             operation_id=run_id,
+        #             credit_type=CreditType.WORKFLOWS,
+        #             estimated_credits=1,
+        #         )
     else:
         # Create a new workflow run instance if this is not a resume
         # This is needed when run_id is None and we need to create a new run
@@ -264,13 +265,16 @@ async def run_graph(
             #     logger.info(f"Created new workflow run with ID: {run_id}")
 
         async with get_async_db_as_manager() as db:
-            await external_context.billing_service.allocate_credits_for_operation(
+            await external_context.billing_service.consume_credits(
                 db=db,
                 org_id=org_id,
                 user_id=user_id,
-                operation_id=run_id,
-                credit_type=CreditType.WORKFLOWS,
-                estimated_credits=1,
+                consumption_request=billing_schemas.CreditConsumptionRequest(
+                    credit_type=CreditType.WORKFLOWS,
+                    credits_consumed=1,
+                    event_type="workflow_run_start",
+                    metadata={"operation_id": run_id}
+                )
             )
     
     # If thread_id is not provided, use run_id as the thread_id
@@ -615,16 +619,16 @@ async def run_graph(
             # --- After Stream Loop ---
             if current_status == wf_schemas.WorkflowRunStatus.RUNNING: # If it finished without error or HITL
                  current_status = wf_schemas.WorkflowRunStatus.COMPLETED
-                 async with get_async_db_as_manager() as db:
-                    await external_context.billing_service.adjust_allocated_credits(
-                            db=db,
-                            org_id=org_id,
-                            user_id=user_id,
-                            operation_id=run_id,
-                            credit_type=CreditType.WORKFLOWS,
-                            allocated_credits=1,
-                            actual_credits=1,
-                        )
+                #  async with get_async_db_as_manager() as db:
+                #     await external_context.billing_service.adjust_allocated_credits(
+                #             db=db,
+                #             org_id=org_id,
+                #             user_id=user_id,
+                #             operation_id=run_id,
+                #             credit_type=CreditType.WORKFLOWS,
+                #             allocated_credits=1,
+                #             actual_credits=1,
+                #         )
                  logger.info(f"Graph stream execution completed successfully for Run ID: {run_id}")
             # If status is PENDING_HITL, it remains so. If FAILED, it remains so.
 
@@ -632,16 +636,16 @@ async def run_graph(
     except Exception as graph_exec_err:
         logger.error(f"Graph execution failed for Run ID {run_id}: {graph_exec_err}", exc_info=True)
         current_status = wf_schemas.WorkflowRunStatus.FAILED
-        async with get_async_db_as_manager() as db:
-            await external_context.billing_service.adjust_allocated_credits(
-                    db=db,
-                    org_id=org_id,
-                    user_id=user_id,
-                    operation_id=run_id,
-                    credit_type=CreditType.WORKFLOWS,
-                    allocated_credits=1,
-                    actual_credits=0, # No actual credits consumed
-                )
+        # async with get_async_db_as_manager() as db:
+        #     await external_context.billing_service.adjust_allocated_credits(
+        #             db=db,
+        #             org_id=org_id,
+        #             user_id=user_id,
+        #             operation_id=run_id,
+        #             credit_type=CreditType.WORKFLOWS,
+        #             allocated_credits=1,
+        #             actual_credits=0, # No actual credits consumed
+        #         )
         error_message = str(graph_exec_err)
         # exception_raised = graph_exec_err
         # global external_context_global

@@ -573,6 +573,7 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
         credits_to_consume: float,
         max_overage_allowed_fraction: float = 0.0,
         commit: bool = True,
+        allow_dollar_fallback: bool = True,
         # max_overage_allowed_abs: float = 0
     ) -> schemas.AtomicCreditConsumptionResult:
         """
@@ -588,6 +589,7 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             credits_to_consume: Number of credits to consume
             max_overage_allowed_fraction: Maximum overage as fraction of granted credits (e.g., 0.1 = 10%)
             commit: Whether to commit the transaction
+            allow_dollar_fallback: Whether to allow dollar credit fallback
             # max_overage_allowed_abs: Maximum absolute overage credits allowed
             
         Returns:
@@ -610,10 +612,14 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 models.OrganizationNetCredits.credit_type == credit_type,
             ]
             if credits_to_consume > 0:
+                allowed_overage = func.least(
+                    models.OrganizationNetCredits.credits_granted * max_overage_allowed_fraction,
+                    settings.MAX_OVERAGE_ABSOLUTE.get(credit_type.value, settings.MAX_OVERAGE_ABSOLUTE["default"])
+                )
                 conditions.append(
                     # Race-condition safe check: ensure consumption doesn't exceed limit
                     models.OrganizationNetCredits.credits_consumed + credits_to_consume <= 
-                    models.OrganizationNetCredits.credits_granted * (1 + max_overage_allowed_fraction)
+                        models.OrganizationNetCredits.credits_granted + allowed_overage
                 )
             update_stmt = (
                 update(models.OrganizationNetCredits)
@@ -643,7 +649,7 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 # Update failed - either record doesn't exist or limit exceeded
                 # Get current state to provide detailed error
                 success = False
-                if credit_type != CreditType.DOLLAR_CREDITS:
+                if credit_type != CreditType.DOLLAR_CREDITS and allow_dollar_fallback:
                     try:
                         dollar_credits_alternative_to_consume = self._calculate_credit_price_in_dollars(credit_type, credits_to_consume)
                         consumed_in_dollar_credits = dollar_credits_alternative_to_consume
@@ -656,10 +662,14 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                             commit=commit,
                             # max_overage_allowed_abs: float = 0
                         )
+                        dollar_credits_consumption_result.consumed_in_dollar_credits = consumed_in_dollar_credits
                         success = dollar_credits_consumption_result.success
+                        if success:
+                            return dollar_credits_consumption_result
                     except Exception as e:
                         billing_logger.error(f"Error consuming dollar credits alternative to consume {credit_type.value}: {credits_to_consume} credits: {e}", exc_info=True)
                         consumed_in_dollar_credits = 0
+                        raise
                 
                 if not success:
                     current_state = await self.get_net_credits_by_org_and_type(db, org_id, credit_type)
@@ -698,6 +708,7 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             
             return schemas.AtomicCreditConsumptionResult(
                 success=True,
+                credit_type=credit_type,
                 credits_consumed=credits_to_consume,
                 remaining_balance=current_balance,
                 total_consumed=updated_credits_consumed,
@@ -772,7 +783,9 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 credit_type=credit_type,
                 credits_to_consume=estimated_credits,
                 max_overage_allowed_fraction=max_overage_allowed_fraction,
-                commit=commit
+                commit=commit,
+                # NOTE: no dollar fallback for allocation! Since adjustment and allocation have to be in sync and work with same currency!
+                allow_dollar_fallback=False,
             )
             
             billing_logger.debug(
@@ -780,9 +793,10 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             )
             
             return schemas.CreditAllocationResult(
-                success=True,
+                success=consumption_result.success,
+                credit_type=consumption_result.credit_type,
                 operation_id=operation_id,
-                allocated_credits=estimated_credits,
+                allocated_credits=consumption_result.credits_consumed,
                 remaining_balance=consumption_result.remaining_balance,
                 is_overage=consumption_result.is_overage,
                 allocation_token=f"alloc_{operation_id}_{org_id}"
@@ -800,7 +814,8 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
         operation_id: str,
         actual_credits: float,
         allocated_credits: float,
-        commit: bool = True
+        max_overage_allowed_fraction: float = 0.0,
+        commit: bool = True,
     ) -> schemas.CreditAdjustmentResult:
         """
         Adjust allocated credits with actual consumption using atomic operations.
@@ -829,8 +844,9 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 org_id=org_id,
                 credit_type=credit_type,
                 credits_to_consume=credit_difference,
-                max_overage_allowed_fraction=0.0,  # No additional overage for adjustments
-                commit=commit
+                max_overage_allowed_fraction=max_overage_allowed_fraction,  # No additional overage for adjustments
+                commit=commit,
+                allow_dollar_fallback=False,
             )
             if credit_difference > 0:
                 # Need to consume more credits - use the atomic consumption method

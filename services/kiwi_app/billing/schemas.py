@@ -188,11 +188,14 @@ class CreditConsumptionRequest(BillingBaseSchema):
 class CreditConsumptionResult(BillingBaseSchema):
     """Result of credit consumption operation."""
     success: bool
-    credits_consumed: float
+    credit_type: CreditType = Field(..., description="Type of credits consumed (may differ from requested if fallback occurred)")
+    credits_consumed: float = Field(..., description="Number of credits consumed in the original unit")
     remaining_balance: float
     is_overage: bool = Field(default=False)
     grace_credits_used: float = Field(default=0)
     warning: Optional[str] = Field(default=None)
+    dollar_credit_fallback: bool = Field(default=False, description="Whether dollar credit fallback was used")
+    consumed_in_dollar_credits: float = Field(default=0, description="Amount of dollar credits consumed if fallback occurred")
 
 class UsageEventRead(BillingBaseSchema):
     """Schema for reading usage event data."""
@@ -644,6 +647,7 @@ class AdminUsageMetrics(BillingBaseSchema):
 class CreditAllocationResult(BillingBaseSchema):
     """Result of credit allocation for long-running operations."""
     success: bool
+    credit_type: CreditType = Field(description="Type of credits allocated")
     operation_id: str = Field(description="Unique operation identifier")
     allocated_credits: float = Field(description="Number of credits allocated")
     remaining_balance: float = Field(description="Remaining credit balance after allocation")
@@ -679,6 +683,7 @@ class CreditAdjustmentRequest(BillingBaseSchema):
 class AtomicCreditConsumptionResult(BillingBaseSchema):
     """Result of atomic credit consumption operation."""
     success: bool = Field(description="Whether the consumption was successful")
+    credit_type: CreditType = Field(description="Type of credits consumed")
     credits_consumed: float = Field(description="Number of credits consumed")
     remaining_balance: float = Field(description="Remaining credit balance after consumption")
     total_consumed: float = Field(description="Total credits consumed by organization")
