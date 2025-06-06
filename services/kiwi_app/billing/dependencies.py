@@ -70,6 +70,26 @@ def get_promotion_code_usage_dao() -> crud.PromotionCodeUsageDAO:
     return crud.PromotionCodeUsageDAO()
 
 
+def get_stripe_event_dao() -> crud.StripeEventDAO:
+    """Get StripeEventDAO instance."""
+    return crud.StripeEventDAO()
+
+
+def get_billing_service_no_dependencies() -> services.BillingService:
+    """Get BillingService instance without dependencies."""
+    return services.BillingService(
+        subscription_plan_dao=get_subscription_plan_dao(),
+        org_subscription_dao=get_organization_subscription_dao(),
+        org_credits_dao=get_organization_credits_dao(),
+        org_net_credits_dao=get_organization_net_credits_dao(),
+        usage_event_dao=get_usage_event_dao(),
+        credit_purchase_dao=get_credit_purchase_dao(),
+        promotion_code_dao=get_promotion_code_dao(),
+        promotion_code_usage_dao=get_promotion_code_usage_dao(),
+        stripe_event_dao=get_stripe_event_dao(),
+        org_dao=get_organization_dao(),  # Use the auth dependency function
+    )
+
 # --- Service Dependency Factory --- #
 
 def get_billing_service(
@@ -81,6 +101,7 @@ def get_billing_service(
     credit_purchase_dao: crud.CreditPurchaseDAO = Depends(get_credit_purchase_dao),
     promotion_code_dao: crud.PromotionCodeDAO = Depends(get_promotion_code_dao),
     promotion_code_usage_dao: crud.PromotionCodeUsageDAO = Depends(get_promotion_code_usage_dao),
+    stripe_event_dao: crud.StripeEventDAO = Depends(get_stripe_event_dao),
     org_dao: auth_crud.OrganizationDAO = Depends(get_organization_dao),
 ) -> services.BillingService:
     """
@@ -98,6 +119,7 @@ def get_billing_service(
         credit_purchase_dao=credit_purchase_dao,
         promotion_code_dao=promotion_code_dao,
         promotion_code_usage_dao=promotion_code_usage_dao,
+        stripe_event_dao=stripe_event_dao,
         org_dao=org_dao,
     )
 

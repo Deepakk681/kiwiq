@@ -124,8 +124,8 @@ class GraphSchema(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional metadata")
     # check builder.py for paths of the below keys
     # metadata={
-    #     # GRAPH_STATE_SPECIAL_NODE_NAME: {
-    #     #     CONFIG_REDUCER_KEY: {
+    #     # GRAPH_STATE_SPECIAL_NODE_NAME: {  # $graph_state
+    #     #     CONFIG_REDUCER_KEY: {  # reducer
     #     #         # central state key : reducer name
     #     #         "messages": "collect_values"  # Use collect_values reducer for collecting states not initialized as lists!
     #     #     }

@@ -14,6 +14,43 @@ Common use cases:
 -   Generating system prompts based on workflow state or loaded configurations.
 -   Standardizing prompt structures across different parts of a workflow by loading shared templates.
 
+## 1.1. Image Support
+
+**NEW:** The `PromptConstructorNode` now supports collecting and organizing images alongside prompt construction. This is particularly useful for vision-enabled LLM workflows where you need to send both text prompts and images to models that support multimodal input.
+
+**Image Collection Methods:**
+
+1. **Static Images**: Define image URLs or base64-encoded images directly in the template configuration
+2. **Dynamic Image Collection**: Specify paths in the input data to collect images from
+   - Each path can point to a single image URL/base64 string
+   - Each path can also point to a list of image URLs/base64 strings
+   - Supports nested object navigation using dot notation (e.g., `user_data.uploads.images`)
+
+**Image Output Options:**
+
+- **Template-Specific Images**: Each template gets its own `{template_id}_images` output field (when `separate_images_by_template: true`)
+- **Combined Images**: All images from all templates are combined into an `all_images` output field
+- **Automatic Deduplication**: Duplicate images are automatically removed while preserving order
+- **Validation**: Invalid URLs and malformed base64 data are filtered out with appropriate logging
+
+**Integration with LLM Node:**
+
+To use the collected images with an LLM node that supports vision:
+```json
+{
+  "edges": [
+    {
+      "src_node_id": "prompt_constructor",
+      "dst_node_id": "llm_node", 
+      "mappings": [
+        {"src_field": "my_prompt", "dst_field": "user_prompt"},
+        {"src_field": "all_images", "dst_field": "image_input_url_or_base64"}
+      ]
+    }
+  ]
+}
+```
+
 ## 2. Configuration (`NodeConfig`)
 
 The main configuration happens within the `node_config` field, specifically using the `PromptConstructorConfig` schema.
@@ -41,6 +78,16 @@ The main configuration happens within the `node_config` field, specifically usin
               "location": "user_profile.address.city" // Path within node's input data
             },
             "user_custom_instructions": "Focus on being friendly and personable in your response.", // Optional: Additional instructions appended to the template
+            // Image support - static images
+            "static_images": [
+              "https://example.com/welcome-banner.jpg",
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+            ],
+            // Image support - dynamic image collection
+            "image_collection_paths": [
+              "user_profile.avatar_url",           // Single image from user profile
+              "welcome_data.promotional_images"    // List of promotional images
+            ],
             // template_load_config: null (Not used for static)
           },
           // --- Example 2: Dynamic Loading from DB ---
@@ -81,7 +128,9 @@ The main configuration happens within the `node_config` field, specifically usin
            "customer_history": "session_data.customer.full_history", // Path within node's input data
            "recipient_name": "input.default_recipient" // Path, lower priority than template-specific P1
            // Variables not listed here rely on P3, P4, P5, or P6
-        }
+        },
+        // --- NEW: Image Output Control ---
+        "separate_images_by_template": true // Default: true. Set to false to only output combined "all_images" field
       },
       // Input/Output schemas are DYNAMIC. They MUST be defined in the graph schema
       // to declare expected inputs and outputs.
@@ -108,7 +157,15 @@ The main configuration happens within the `node_config` field, specifically usin
             *   Value (e.g., string, number): Default value (Priority 5), potentially overriding a loaded template's default (Priority 6).
         *   **`construct_options`** (Optional[Dict[str, str]]): **Priority 1**. Template-specific mapping from a `{variable_name}` to a dot-notation path within the node's input data (e.g., `"user_name": "user_context.name"`). Overrides all other sources for this variable *in this template only*.
         *   **`user_custom_instructions`** (Optional[str]): Additional instructions or guidance that will be appended to the template content. This is useful for adding context-specific directions for LLM processing without modifying the base template. The instructions are appended with a clear header: `\n\n# Additional User Instructions\n{instructions}`.
+        *   **`static_images`** (Optional[List[str]]): List of static image URLs or base64 encoded images to include with this template. These images will always be included in the output when this template is processed.
+        *   **`image_collection_paths`** (Optional[List[str]]): List of dot-notation paths in the input data to collect images from. Each path can point to either:
+            *   A single image URL/base64 string
+            *   A list of image URLs/base64 strings
+            *   The node will automatically handle both cases and flatten lists appropriately.
 2.  **`global_construct_options`** (Optional[Dict[str, str]]): **Priority 2**. Global mapping from `{variable_name}` to a dot-notation path within the node's input data. Used as a fallback if `template_specific_construct_options` (P1) is not defined for a variable.
+3.  **`separate_images_by_template`** (bool, default: true): Controls how image outputs are structured:
+    *   `true` (default): Creates both template-specific image fields (`{template_id}_images`) AND a combined `all_images` field
+    *   `false`: Only creates the combined `all_images` field, omitting template-specific fields
 
 ## 3. Input (Dynamic Schema)
 
@@ -164,7 +221,106 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
     *   If defined and no errors occur, this field will contain an empty list (`[]`).
     *   If this field is *not* defined in the `dynamic_output_schema`, any internal errors will still be logged, but they will not be included in the node's output object passed to downstream nodes.
 
+-   **Image Outputs:** The node can output collected images in the following formats:
+    *   **Template-Specific Images** (`{template_id}_images`): When `separate_images_by_template: true` (default), each template that has images gets its own output field named `{template_id}_images` (e.g., `greeting_prompt_images`, `summary_prompt_images`).
+        *   The **value** will be a list of valid image URLs/base64 strings collected for that specific template.
+        *   Mark as `required: false` in the schema since not all templates may have images.
+    *   **Combined Images** (`all_images`): A field containing all unique images collected from all templates.
+        *   The **value** will be a list of unique image URLs/base64 strings (duplicates automatically removed, order preserved).
+        *   Mark as `required: false` in the schema since templates may not have any images.
+        *   This field is always created when any images are collected, regardless of the `separate_images_by_template` setting.
+    *   **Image Validation**: Invalid image URLs and malformed base64 data are automatically filtered out and logged as warnings, but do not cause node execution to fail.
+
 ## 5. Example (`GraphSchema`)
+
+### 5.1. Image Processing Example
+
+Here's an example showing how to use the image collection features with an LLM node for vision processing:
+
+```json
+{
+  "nodes": {
+    "user_input": {
+      /* ... node outputting user data with images ... */
+      // Example Output: { 
+      //   "user_profile": { "name": "Alice", "avatar": "https://example.com/alice.jpg" }, 
+      //   "uploaded_files": ["https://example.com/doc1.png", "https://example.com/doc2.jpg"],
+      //   "analysis_type": "document_analysis"
+      // }
+    },
+    "build_vision_prompt": {
+      "node_id": "build_vision_prompt",
+      "node_name": "prompt_constructor",
+      "node_config": {
+        "prompt_templates": {
+          "analysis_request": {
+            "id": "vision_prompt",
+            "template": "Please analyze these images for {user_name}. Focus on: {analysis_type}",
+            "variables": { "user_name": null, "analysis_type": "general analysis" },
+            "construct_options": { "user_name": "user_profile.name" },
+            "static_images": ["https://example.com/instruction_diagram.png"], // Always include instructions
+            "image_collection_paths": [
+              "user_profile.avatar",     // Single profile image
+              "uploaded_files"           // List of uploaded images
+            ],
+            "user_custom_instructions": "Provide detailed analysis with confidence scores."
+          }
+        },
+        "global_construct_options": {
+          "analysis_type": "analysis_type"
+        },
+        "separate_images_by_template": true
+      },
+      "dynamic_input_schema": {
+        "fields": {
+          "user_profile": { "type": "any", "required": true, "description": "User profile data" },
+          "uploaded_files": { "type": "list", "required": false, "description": "User uploaded images" },
+          "analysis_type": { "type": "str", "required": false, "description": "Type of analysis to perform" }
+        }
+      },
+      "dynamic_output_schema": {
+        "fields": {
+          "vision_prompt": { "type": "str", "required": true },
+          "vision_prompt_images": { "type": "list", "required": false },
+          "all_images": { "type": "list", "required": false },
+          "prompt_template_errors": { "type": "list", "required": false }
+        }
+      }
+    },
+    "vision_llm": {
+      "node_id": "vision_llm",
+      "node_name": "llm",
+      "node_config": {
+        "llm_config": {
+          "model_spec": { "provider": "openai", "model": "gpt-4o" },
+          "max_tokens": 1000
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "src_node_id": "user_input",
+      "dst_node_id": "build_vision_prompt",
+      "mappings": [
+        { "src_field": "user_profile", "dst_field": "user_profile" },
+        { "src_field": "uploaded_files", "dst_field": "uploaded_files" },
+        { "src_field": "analysis_type", "dst_field": "analysis_type" }
+      ]
+    },
+    {
+      "src_node_id": "build_vision_prompt", 
+      "dst_node_id": "vision_llm",
+      "mappings": [
+        { "src_field": "vision_prompt", "dst_field": "user_prompt" },
+        { "src_field": "all_images", "dst_field": "image_input_url_or_base64" }
+      ]
+    }
+  ]
+}
+```
+
+### 5.2. Basic Text Prompt Example
 
 ```json
 {
@@ -208,7 +364,10 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
         "fields": {
           "email_subject": { "type": "str", "required": true }, // This prompt MUST succeed
           "email_body": { "type": "str", "required": true }, // This prompt MUST succeed
-          "prompt_template_errors": { "type": "list", "required": false } // Include errors if they occur
+          "prompt_template_errors": { "type": "list", "required": false }, // Include errors if they occur
+          "greeting_prompt_images": { "type": "list", "required": false }, // Template-specific images
+          "summary_prompt_images": { "type": "list", "required": false }, // Template-specific images
+          "all_images": { "type": "list", "required": false } // Combined images
         }
       }
     },
@@ -252,11 +411,7 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
 -   **Define Tasks:** In `node_config.prompt_templates`, set up each prompt you want to build. Give each a unique `id` (e.g., `"final_greeting"`). This `id` becomes the name of the output field containing the finished prompt.
 -   **Choose Source:**
     *   **Static:** Write the text directly in `template`.
-    *   **Dynamic Load:** Use `template_load_config` to grab a template from the central library.
--   **List Variables:** In `variables` for each task (`id`):
-    *   List all `{variable}` names needed.
-    *   Use `null` if the value *must* come from input.
-    *   Provide a default value (like `"professional"`) if needed.
+    *   **Dynamic Load:** Use `template_load_config` to load templates from the database.
 -   **Add Custom Instructions:** Use `user_custom_instructions` to append specialized guidance for the LLM without changing the base template. These appear after your template with a clear "Additional User Instructions" section.
 -   **Tell it *Where* to Find Input Values (Highest Priority):**
     *   `construct_options`: Inside a specific task (`id`), map a `{variable}` to a specific location in the input data (e.g., tell it `{user_name}` is found at `user_profile.name`). This wins over everything else for *that task*.
@@ -269,3 +424,21 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
 -   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the default value from `variables` (P5), then the default from a loaded template (P6).
 -   **Connect Inputs:** Use edges to feed the *data structures* needed for `construct_options` lookups (e.g., map the whole `user_profile` object) and any direct inputs (P3/P4). Define the expected inputs in `dynamic_input_schema`.
 -   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`.
+
+### Image Support for Non-Coders:
+
+-   **Add Images to Templates:** Each template can include images in two ways:
+    *   **Static Images:** List image URLs or base64 data directly in `static_images` (e.g., company logos, instruction diagrams that are always the same).
+    *   **Dynamic Images:** Use `image_collection_paths` to tell the node where to find images in the input data (e.g., user uploaded photos, profile pictures).
+-   **Image Paths Work Like Variable Paths:** Use dot notation to specify where images are located (e.g., `user_data.profile_photo` for a single image, `uploads.documents` for a list of images).
+-   **Automatic Image Processing:** The node automatically:
+    *   Combines images from static and dynamic sources
+    *   Removes duplicate images 
+    *   Filters out invalid/broken image URLs
+    *   Creates organized output fields for downstream nodes
+-   **Image Output Fields:** The node creates:
+    *   `{template_id}_images`: Images specific to each template (when `separate_images_by_template: true`)
+    *   `all_images`: All images from all templates combined (always created)
+-   **Connect Images to Vision LLMs:** Use edges to map image outputs to LLM nodes that support vision:
+    *   Map `all_images` → `image_input_url_or_base64` for the LLM node
+    *   The LLM will receive both your constructed prompt and all collected images

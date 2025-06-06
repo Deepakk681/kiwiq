@@ -228,7 +228,8 @@ ANTHROPIC_METADATA = ModelMetadata(
 class AnthropicModels(str, EnumWithAttr):
     """Anthropic model options."""
     CLAUDE_OPUS_4 = "claude-opus-4-20250514", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
-        "output_token_limit_thinking": 64000,
+        "output_token_limit_thinking": 32000,
+        "output_token_limit": 32000,
         "rate_limits": {"requests_per_minute": None, "input_tokens_per_minute": 1000000, "output_tokens_per_minute": 400000},
         "reasoning": True,
         # it also has non-reasoning mode!
@@ -237,6 +238,7 @@ class AnthropicModels(str, EnumWithAttr):
     }))
     CLAUDE_SONNET_4 = "claude-sonnet-4-20250514", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "output_token_limit_thinking": 64000,
+        "output_token_limit": 64000,
         "rate_limits": {"requests_per_minute": None, "input_tokens_per_minute": 1000000, "output_tokens_per_minute": 400000},
         "reasoning": True,
         # it also has non-reasoning mode!
@@ -245,6 +247,7 @@ class AnthropicModels(str, EnumWithAttr):
     }))
     CLAUDE_3_7_SONNET = "claude-3-7-sonnet-20250219", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "output_token_limit_thinking": 64000,
+        "output_token_limit": 64000,
         "rate_limits": {"requests_per_minute": None, "input_tokens_per_minute": 1000000, "output_tokens_per_minute": 400000},
         "reasoning": True,
         # it also has non-reasoning mode!

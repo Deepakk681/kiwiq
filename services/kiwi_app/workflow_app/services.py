@@ -32,6 +32,8 @@ from kiwi_app.auth.models import User, Organization # For type hinting and conte
 from kiwi_app.settings import settings # Import settings for Mongo paths etc.
 from workflow_service.registry import registry
 from kiwi_app.workflow_app.workflow_config_override import apply_graph_override # Added import
+from kiwi_app.billing import services as billing_services
+from kiwi_app.billing.models import CreditType
 
 # MongoDB Client and Event Schemas
 from mongo_client import AsyncMongoDBClient
@@ -66,6 +68,7 @@ class WorkflowService:
         workflow_config_override_dao: crud.WorkflowConfigOverrideDAO = None,
         db_registry = None,
         mongo_client: Optional[AsyncMongoDBClient] = None, # Make Mongo optional for now
+        billing_service: billing_services.BillingService = None,
     ) -> None:
         """Initialize the WorkflowService with its DAO and client dependencies."""
         self.node_template_dao = node_template_dao
@@ -78,6 +81,7 @@ class WorkflowService:
         self.workflow_config_override_dao = workflow_config_override_dao
         self.mongo_client = mongo_client
         self.db_registry: registry.DBRegistry = db_registry
+        self.billing_service = billing_service
 
     # --- NodeTemplate Operations --- #
 
@@ -388,6 +392,15 @@ class WorkflowService:
                 db.add(workflow_run)
                 await db.commit()
                 await db.refresh(workflow_run)
+            
+            # await self.billing_service.allocate_credits_for_operation(
+            #     db=db,
+            #     org_id=owner_org_id,
+            #     user_id=user.id,
+            #     operation_id=workflow_run.id,
+            #     credit_type=CreditType.WORKFLOWS,
+            #     estimated_credits=1,
+            # )
 
         # 3. Trigger the actual execution via Prefect worker/helper
         try:

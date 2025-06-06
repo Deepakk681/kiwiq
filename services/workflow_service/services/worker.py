@@ -24,6 +24,7 @@ from langchain_core.load import dumps # Added dumps for logging complex objects
 from db.session import get_async_pool, get_async_db_as_manager # Assuming this provides psycopg pool
 from global_config.settings import global_settings
 from global_config.logger import get_prefect_or_regular_python_logger
+from kiwi_app.billing.models import CreditType
 from workflow_service.utils.utils import get_prefect_logger
 # Local workflow service imports
 from workflow_service.graph.graph import GraphSchema
@@ -48,7 +49,8 @@ from workflow_service.services.events import (
     MessageStreamChunk,
     WorkflowRunNodeOutputEvent,
     WorkflowRunStatusUpdateEvent, # Renamed from Update to UpdateEvent
-    HITLRequestEvent
+    HITLRequestEvent,
+    ToolCallEvent,
 )
 from kiwi_app.workflow_app.schemas import WorkflowRunUpdate, NotificationType # Added NotificationType
 
@@ -224,6 +226,23 @@ async def run_graph(
         #             logger.info(f"Response schema: {job.response_schema}")
         #     else:
         #         logger.info("No pending HITL jobs found for this run")
+        
+        # Check if resuming from FAILED state, then consume workflow credit if that's case, since after workflow fails, the consumed credit is returned!
+        async with get_async_db_as_manager() as db:
+            workflow_run = await external_context.daos.workflow_run.get(
+                db=db,
+                id=run_id,
+            )
+            resume_from_status = workflow_run.status
+            if resume_from_status == wf_schemas.WorkflowRunStatus.FAILED:
+                await external_context.billing_service.allocate_credits_for_operation(
+                    db=db,
+                    org_id=org_id,
+                    user_id=user_id,
+                    operation_id=run_id,
+                    credit_type=CreditType.WORKFLOWS,
+                    estimated_credits=1,
+                )
     else:
         # Create a new workflow run instance if this is not a resume
         # This is needed when run_id is None and we need to create a new run
@@ -243,6 +262,16 @@ async def run_graph(
             #     run_id = new_workflow_run.id
             #     workflow_run_job.run_id = run_id
             #     logger.info(f"Created new workflow run with ID: {run_id}")
+
+        async with get_async_db_as_manager() as db:
+            await external_context.billing_service.allocate_credits_for_operation(
+                db=db,
+                org_id=org_id,
+                user_id=user_id,
+                operation_id=run_id,
+                credit_type=CreditType.WORKFLOWS,
+                estimated_credits=1,
+            )
     
     # If thread_id is not provided, use run_id as the thread_id
     thread_id = workflow_run_job.thread_id or run_id
@@ -366,6 +395,30 @@ async def run_graph(
                             sequence_id_counter += 1
                         else:
                             logger.debug(f"Received non-AnyMessage in 'messages' stream: {type(data)} \n{data}\n")
+
+                    elif stream_mode == "custom":
+                        # Process tool call chunks (e.g., from tools)
+                        if isinstance(data, dict):
+                            if data.get("event_type") == "tool_call":
+                                try:
+                                    tool_call_event = ToolCallEvent(
+                                        **base_event_data,
+                                        node_id=data.get("node_id", ""),
+                                        payload={k:v for k,v in data.items() if k not in ["node_id", *ToolCallEvent.model_fields.keys()]},
+                                    )
+                                    tool_call_event_dump = tool_call_event.model_dump(mode='json', exclude_defaults=False)
+                                    if mongo_path:
+                                        await external_context.mongo.workflow.create_object(
+                                            path=mongo_path,
+                                            data=tool_call_event_dump
+                                        )
+                                        logger.info(f"Persisted event {tool_call_event.event_type} (RunID: {tool_call_event.run_id}, SeqID: {tool_call_event.sequence_i}) to MongoDB.")
+                                    # Publish to RabbitMQ Stream
+                                    await external_context.rabbit.publish_workflow_event(tool_call_event_dump)
+                                    sequence_id_counter += 1
+                                except Exception as e:
+                                    logger.error(f"Error processing tool call event: {e}", exc_info=True)
+                                    continue
 
                     elif stream_mode == "updates":
                         # Process state updates, node outputs, and interrupts
@@ -562,6 +615,16 @@ async def run_graph(
             # --- After Stream Loop ---
             if current_status == wf_schemas.WorkflowRunStatus.RUNNING: # If it finished without error or HITL
                  current_status = wf_schemas.WorkflowRunStatus.COMPLETED
+                 async with get_async_db_as_manager() as db:
+                    await external_context.billing_service.adjust_allocated_credits(
+                            db=db,
+                            org_id=org_id,
+                            user_id=user_id,
+                            operation_id=run_id,
+                            credit_type=CreditType.WORKFLOWS,
+                            allocated_credits=1,
+                            actual_credits=1,
+                        )
                  logger.info(f"Graph stream execution completed successfully for Run ID: {run_id}")
             # If status is PENDING_HITL, it remains so. If FAILED, it remains so.
 
@@ -569,6 +632,16 @@ async def run_graph(
     except Exception as graph_exec_err:
         logger.error(f"Graph execution failed for Run ID {run_id}: {graph_exec_err}", exc_info=True)
         current_status = wf_schemas.WorkflowRunStatus.FAILED
+        async with get_async_db_as_manager() as db:
+            await external_context.billing_service.adjust_allocated_credits(
+                    db=db,
+                    org_id=org_id,
+                    user_id=user_id,
+                    operation_id=run_id,
+                    credit_type=CreditType.WORKFLOWS,
+                    allocated_credits=1,
+                    actual_credits=0, # No actual credits consumed
+                )
         error_message = str(graph_exec_err)
         # exception_raised = graph_exec_err
         # global external_context_global
@@ -792,6 +865,29 @@ async def trigger_workflow_run(
 
 #     return deployment
 
+def start_worker_process(worker_id: int) -> None:
+    """
+    Start a single worker process with a unique deployment name.
+    
+    Args:
+        worker_id: Unique identifier for this worker process (1-based)
+        
+    This function runs the Prefect flow serve method in a separate process,
+    allowing multiple workers to handle workflow executions concurrently.
+    Each worker gets a unique name (prod-1, prod-2, etc.) for identification
+    and monitoring purposes.
+    """
+    workflow_execution_flow.serve(
+        name=f"prod-{worker_id}",
+        tags=["workflow-service", f"worker-{worker_id}"],
+        # parameters={"goodbye": True},
+        pause_on_shutdown=global_settings.APP_ENV != "PROD",
+        # interval=60,
+        # cron="* * * * *",
+        description=f"Production deployment for KiwiQ LangGraph workflows - Worker {worker_id} ({global_settings.APP_ENV})",
+        version="workflow-service/deployments",
+    )
+
 # Entry point for deployment registration
 if __name__ == "__main__":
     """
@@ -813,6 +909,65 @@ if __name__ == "__main__":
         description=f"Production deployment for KiwiQ LangGraph workflows ({global_settings.APP_ENV})",
         version="workflow-service/deployments",
     )
+
+    ############## ############## ############## ############## ############## ############## 
+    ############## ############## EXPERIMENTAL MULTIPROCESSING ############## ##############
+    ############## ############## ############## ############## ############## ############## 
+
+    # import multiprocessing
+    # import os
+    # from typing import List
+    
+    
+    
+    # # Determine number of worker processes
+    # # Use CPU count as default, but allow override via environment variable
+    # num_processes = int(os.getenv("WORKFLOW_WORKER_PROCESSES", multiprocessing.cpu_count()))
+    
+    # # Ensure we have at least 1 process and cap at reasonable maximum
+    # num_processes = max(1, min(num_processes, 16))
+    
+    # print(f"Starting {num_processes} workflow worker processes...")
+    
+    # # Create and start worker processes
+    # processes: List[multiprocessing.Process] = []
+    
+    # try:
+    #     for worker_id in range(1, num_processes + 1):
+    #         # Create process for each worker with unique ID
+    #         process = multiprocessing.Process(
+    #             target=start_worker_process,
+    #             args=(worker_id,),
+    #             name=f"workflow-worker-{worker_id}"
+    #         )
+    #         process.start()
+    #         processes.append(process)
+    #         print(f"Started worker process {worker_id} (PID: {process.pid})")
+        
+    #     # Wait for all processes to complete
+    #     # In production, this will run indefinitely until interrupted
+    #     for process in processes:
+    #         process.join()
+            
+    # except KeyboardInterrupt:
+    #     print("\nShutting down worker processes...")
+    #     # Gracefully terminate all worker processes
+    #     for process in processes:
+    #         if process.is_alive():
+    #             print(f"Terminating worker process {process.name} (PID: {process.pid})")
+    #             process.terminate()
+    #             process.join(timeout=10)  # Wait up to 10 seconds for graceful shutdown
+                
+    #             # Force kill if process doesn't terminate gracefully
+    #             if process.is_alive():
+    #                 print(f"Force killing worker process {process.name}")
+    #                 process.kill()
+    #                 process.join()
+        
+    #     print("All worker processes shut down.")
+    ############## ############## ############## ############## ############## ############## 
+    ############## ############## ############## ############## ############## ############## 
+
     # import sys
     # if len(sys.argv) > 1 and sys.argv[1] == 'apply':
     #     print("Registering Prefect deployment...")

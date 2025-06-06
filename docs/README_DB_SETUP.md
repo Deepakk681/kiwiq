@@ -152,6 +152,36 @@ PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini 
 
 # migration #8
 PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Add tags in chat thread"
+
+# migration #9
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Billing models"
+
+# migration #10
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Make Billing model fields TZ aware"
+
+# migration #11
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Make Billing model user / org fields nullable; add TZ to datetime fields in auth / workflow models"
+
+# migration #12
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Make Billing model plan_id in subscription nullable"
+
+# migration #13
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "change credits to float"
+
+# migration #14
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "Change stripe billing fields"
+
+# migration #15
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "add external billing ID to Orgs"
+
+# migration #16
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "remove stripe_customer_id from OrganizationSubscription"
+
+# migration #17
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "add receipt field to credit purchase"
+
+# migration #18
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini revision --autogenerate -m "add stripe events model"
 ```
 
 7. apply migration script
@@ -160,14 +190,29 @@ PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini 
 PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini upgrade head
 ```
 
+7.b. DOWNGRADE MIGRATION
+
+```bash
+PYTHONPATH=$(pwd):$(pwd)/services poetry run alembic -c libs/src/db/alembic.ini downgrade -1
+```
+
 8. (Only use this to reset Alembic's HEAD)
 
 ```bash
 # <full postgress url>
-psql postgresql://db_admin:db_admin_password@localhost/db_name
+psql postgresql://db_admin:db_admin_password@localhost/workflow_service
 ```
 
 ```sql
 DROP TABLE alembic_version;
+```
+
+9. DB reset DEBUGGING
+
+for errors like below
+```bash
+FATAL:  could not write lock file "postmaster.pid": No space left on device
+
+docker volume rm $(docker volume ls -q)
 ```
 

@@ -739,7 +739,8 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
         input_data: Dict[str, Any],
         config: Dict[str, Any],
         output_node_id: str = None,
-        interrupt_handler: Optional[Callable[[Dict[str, Any]], Awaitable[Any]]] = None
+        interrupt_handler: Optional[Callable[[Dict[str, Any]], Awaitable[Any]]] = None,
+        recursion_limit=50,
     ) -> Dict[str, Any]:
         """
         Asynchronously execute a LangGraph with input data.
@@ -775,6 +776,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
             #     "user_id": config.get("user_id"),
             #     "configurable": config.get("configurable", {})
             # }
+            "recursion_limit": recursion_limit,
         }
         
         # Add callbacks if provided
@@ -895,7 +897,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
         print("\n\n\n\n#### ASYNC INPUT DATA SENT TO GRAPH STREAM", processed_input_data, f" --> RESUME: {resume_with_hitl} \n\n\n\n")
 
         current_input: Union[Dict[str, Any], Command] = processed_input_data
-        stream_modes = ["updates", "messages", 
+        stream_modes = ["updates", "messages", "custom",
                         # "debug"
                         ] # Request multiple stream types
         if resume_with_hitl:

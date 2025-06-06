@@ -33,6 +33,7 @@ from kiwi_app.workflow_app.service_customer_data import CustomerDataService
 from workflow_service.registry import registry
 from workflow_service.services.db_node_register import register_node_templates
 from workflow_service.services.external_context_manager import get_workflow_mongo_client, get_customer_mongo_client, get_customer_versioned_mongo_client
+from kiwi_app.billing import services as billing_services, dependencies as billing_dependencies
 
 # --- DAO Dependency Factories --- #
 
@@ -94,6 +95,7 @@ def get_workflow_service_dependency(
     workflow_config_override_dao: crud.WorkflowConfigOverrideDAO = Depends(get_workflow_config_override_dao),
     mongo_client: AsyncMongoDBClient = Depends(get_workflow_mongo_client),
     db_registry: registry.DBRegistry = Depends(get_node_template_registry),
+    billing_service: billing_services.BillingService = Depends(billing_dependencies.get_billing_service_no_dependencies),
 ) -> services.WorkflowService:
     """Dependency function to instantiate WorkflowService with its DAO dependencies."""
     return services.WorkflowService(
@@ -107,6 +109,7 @@ def get_workflow_service_dependency(
         workflow_config_override_dao=workflow_config_override_dao,
         mongo_client=mongo_client,
         db_registry=db_registry,
+        billing_service=billing_service,
         # Pass NoSQL client here
     )
 

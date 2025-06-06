@@ -110,6 +110,7 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
     credit_purchase_dao: billing_crud.CreditPurchaseDAO
     promotion_code_dao: billing_crud.PromotionCodeDAO
     promotion_code_usage_dao: billing_crud.PromotionCodeUsageDAO
+    stripe_event_dao: billing_crud.StripeEventDAO
 
     async def asyncSetUp(self):
         """Set up test environment with DAOs, services, and test data."""
@@ -160,6 +161,7 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
         self.credit_purchase_dao = billing_crud.CreditPurchaseDAO()
         self.promotion_code_dao = billing_crud.PromotionCodeDAO()
         self.promotion_code_usage_dao = billing_crud.PromotionCodeUsageDAO()
+        self.stripe_event_dao = billing_crud.StripeEventDAO()
 
         # Initialize services
         self.auth_service = AuthService(
@@ -178,7 +180,9 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
             usage_event_dao=self.usage_event_dao,
             credit_purchase_dao=self.credit_purchase_dao,
             promotion_code_dao=self.promotion_code_dao,
-            promotion_code_usage_dao=self.promotion_code_usage_dao
+            promotion_code_usage_dao=self.promotion_code_usage_dao,
+            org_dao=self.org_dao,
+            stripe_event_dao=self.stripe_event_dao
         )
         
         print("Test environment setup completed.")
@@ -1500,25 +1504,36 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(subscription.trial_end)
             self.assertEqual(subscription.seats_count, 2)
 
-            # Test initial credit allocation for trial
-            await self.billing_service._allocate_subscription_credits(db, subscription, plan, is_renewal=False)
+            await self.billing_service.expire_organization_credits(db, org_id=test_org.id, cutoff_datetime=datetime_now_utc() + timedelta(days=366))
 
-            # Verify trial credits were allocated
+            # Test initial credit allocation for trial
+            await self.billing_service.apply_subscription_credits(db, subscription, plan, is_renewal=False)
+
+            # Verify trial credits were allocated (multiplied by seat count: 2 seats)
             credit_balances = await self.billing_service.get_credit_balances(db, test_org.id)
             
             workflow_balance = next(b for b in credit_balances if b.credit_type == CreditType.WORKFLOWS)
             websearch_balance = next(b for b in credit_balances if b.credit_type == CreditType.WEB_SEARCHES)
             dollar_balance = next(b for b in credit_balances if b.credit_type == CreditType.DOLLAR_CREDITS)
 
-            self.assertEqual(workflow_balance.credits_balance, 50)
-            self.assertEqual(websearch_balance.credits_balance, 250)
-            self.assertEqual(dollar_balance.credits_balance, 10.0)
+            max_trial_credits_default = settings.MAX_TRIAL_CREDITS["default"]
+            max_trial_credits_workflows = settings.MAX_TRIAL_CREDITS.get(CreditType.WORKFLOWS.value, max_trial_credits_default)
+            max_trial_credits_websearches = settings.MAX_TRIAL_CREDITS.get(CreditType.WEB_SEARCHES.value, max_trial_credits_default)
+            max_trial_credits_dollar_credits = settings.MAX_TRIAL_CREDITS.get(CreditType.DOLLAR_CREDITS.value, max_trial_credits_default)
+            self.assertEqual(workflow_balance.credits_balance, min(50 * settings.TRIAL_CREDITS_PRORATION_FACTOR, max_trial_credits_workflows))  # 50 × 2 seats
+            self.assertEqual(websearch_balance.credits_balance, min(100 * settings.TRIAL_CREDITS_PRORATION_FACTOR, max_trial_credits_websearches))  # 250 × 2 seats
+            self.assertEqual(dollar_balance.credits_balance, min(10.0 * settings.TRIAL_CREDITS_PRORATION_FACTOR, max_trial_credits_dollar_credits))  # 10.0 × 2 seats
 
             # Test trial-to-paid transition
-            renewal_result = await self.billing_service.process_subscription_renewal(db, subscription)
+            subscription.is_trial_active = False
+            subscription.status = SubscriptionStatus.ACTIVE
+            db.add(subscription)
+            await db.commit()
+
+            renewal_result = await self.billing_service.apply_subscription_credits(db, subscription, plan, is_renewal=True)
             
             self.assertTrue(renewal_result["success"])
-            self.assertEqual(renewal_result["renewal_type"], "trial_to_paid")
+            self.assertEqual(renewal_result["allocation_type"], "renewal_rotation")
 
             # Verify subscription status after renewal
             updated_subscription = await self.org_subscription_dao.get(db, subscription.id)
@@ -1571,7 +1586,7 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
             self.created_entity_ids['organization_subscriptions'].append(subscription.id)
 
             # Initial credit allocation
-            await self.billing_service._allocate_subscription_credits(db, subscription, plan, is_renewal=False)
+            await self.billing_service.apply_subscription_credits(db, subscription, plan, is_renewal=False)
 
             # Consume some credits
             consumption_request = billing_schemas.CreditConsumptionRequest(
@@ -2388,7 +2403,7 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
             empty_dashboard = await self.billing_service.get_billing_dashboard(db, empty_org.id)
 
             self.assertEqual(empty_dashboard.org_id, empty_org.id)
-            self.assertIsNone(empty_dashboard.subscription)
+            self.assertEqual(len(empty_dashboard.subscriptions), 0)  # Should be empty list, not None
             
             # All credit balances should be zero
             for balance in empty_dashboard.credit_balances:
@@ -2607,24 +2622,24 @@ class TestBillingSystem(unittest.IsolatedAsyncioTestCase):
             self.created_entity_ids['organization_subscriptions'].append(subscription.id)
 
             # Test initial credit allocation for paid subscription
-            await self.billing_service._allocate_subscription_credits(db, subscription, plan, is_renewal=False)
+            await self.billing_service.apply_subscription_credits(db, subscription, plan, is_renewal=False)
 
-            # Verify credits were allocated
+            # Verify credits were allocated (multiplied by seat count: 3 seats)
             credit_balances = await self.billing_service.get_credit_balances(db, test_org.id)
             
             workflow_balance = next(b for b in credit_balances if b.credit_type == CreditType.WORKFLOWS)
             websearch_balance = next(b for b in credit_balances if b.credit_type == CreditType.WEB_SEARCHES)
             dollar_balance = next(b for b in credit_balances if b.credit_type == CreditType.DOLLAR_CREDITS)
 
-            self.assertEqual(workflow_balance.credits_balance, 500)
-            self.assertEqual(websearch_balance.credits_balance, 2000)
-            self.assertEqual(dollar_balance.credits_balance, 100)
+            self.assertEqual(workflow_balance.credits_balance, 1500)  # 500 × 3 seats
+            self.assertEqual(websearch_balance.credits_balance, 6000)  # 2000 × 3 seats
+            self.assertEqual(dollar_balance.credits_balance, 300)  # 100 × 3 seats
 
             # Test regular renewal (not trial-to-paid)
-            renewal_result = await self.billing_service.process_subscription_renewal(db, subscription)
+            renewal_result = await self.billing_service.apply_subscription_credits(db, subscription, plan, is_renewal=True)
             
             self.assertTrue(renewal_result["success"])
-            self.assertEqual(renewal_result["renewal_type"], "regular")
+            self.assertEqual(renewal_result["allocation_type"], "renewal_rotation")
 
             # Verify subscription remains active
             updated_subscription = await self.org_subscription_dao.get(db, subscription.id)

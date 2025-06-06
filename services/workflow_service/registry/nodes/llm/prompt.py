@@ -36,7 +36,7 @@ from kiwi_app.workflow_app import crud as wf_crud
 from db.session import get_async_db_as_manager # For database access
 from global_config.logger import get_prefect_or_regular_python_logger
 # Import helper from customer_data for nested object retrieval
-# from workflow_service.registry.nodes.db.customer_data import _get_nested_obj 
+from workflow_service.registry.nodes.core.flow_nodes import _get_nested_obj 
 
 # Base node/schema types
 from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode
@@ -274,6 +274,18 @@ class PromptTemplateDefinition(BaseNodeConfig):
         description="Optional user-provided instructions to guide the LLM's response. This will be appended to the template."
     )
 
+    # Image support - static images
+    static_images: Optional[List[str]] = Field(
+        None,
+        description="Optional list of static image URLs or base64 encoded images to include with this template."
+    )
+    
+    # Image support - dynamic image collection
+    image_collection_paths: Optional[List[str]] = Field(
+        None,
+        description="Optional list of dot-notation paths in the input data to collect images from. Each path can point to a single image URL/base64 string or a list of images."
+    )
+
     # Option 2: Load template dynamically
     template_load_config: Optional[PromptTemplateLoadEntryConfig] = Field(
         None,
@@ -309,6 +321,10 @@ class PromptConstructorConfig(BaseNodeConfig):
         None,
         description="Optional global mapping of variable names to dot-notation paths in the input data. Used as a fallback if template-specific options are not defined or don't contain the variable."
     )
+    separate_images_by_template: bool = Field(
+        False,
+        description="If True, images will be separated by template. If False, images will be combined into a single list."
+    )
 
 class PromptConstructorOutput(DynamicSchema):
     """
@@ -321,7 +337,7 @@ class PromptConstructorOutput(DynamicSchema):
 
 class PromptConstructorNode(BaseDynamicNode):
     """
-    Prompt Constructor Node that fills templates with variables.
+    Prompt Constructor Node that fills templates with variables and collects images.
     
     This node takes input data and configuration to construct prompts based on templates.
     Templates can be defined statically within the configuration or loaded dynamically
@@ -330,10 +346,54 @@ class PromptConstructorNode(BaseDynamicNode):
     It supports global variable replacement across all templates or template-specific
     variable replacement using the '.' delimiter in the variable name (e.g., `template_id.variable_name`).
     
+    **Image Support:**
+    Each template can include images in two ways:
+    1. **Static Images**: Define image URLs/base64 data directly in the template configuration
+    2. **Dynamic Image Collection**: Specify paths in the input data to collect images from
+       - Each path can point to a single image URL/base64 string
+       - Each path can also point to a list of image URLs/base64 strings
+    
+    **Usage Examples:**
+    
+    Static images in config:
+    ```
+    prompt_templates: {
+        "analyze_image": {
+            "id": "analyze_image",
+            "template": "Please analyze this image: {description}",
+            "static_images": [
+                "https://example.com/image1.jpg",
+                "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD..."
+            ]
+        }
+    }
+    ```
+    
+    Dynamic image collection:
+    ```
+    prompt_templates: {
+        "process_user_images": {
+            "id": "process_user_images", 
+            "template": "Process these user-uploaded images",
+            "image_collection_paths": [
+                "user_input.uploaded_images",    # List of URLs
+                "context.profile_image",         # Single URL
+                "data.attachments.0.image_url"   # Nested single URL
+            ]
+        }
+    }
+    ```
+    
+    **Output:**
+    The node outputs:
+    - Constructed prompts as fields matching the template `id`
+    - Template-specific images as `{template_id}_images` fields
+    - Combined images from all templates as an `all_images` field
+    - Potential loading/construction errors in `prompt_template_errors` (if configured)
+    
     The node can construct multiple prompts simultaneously based on the `prompt_templates`
-    configuration. The constructed prompts are output as fields matching the `id`
-    defined in each `PromptTemplateDefinition`. Potential loading errors can also be included
-    in the output if configured in the `dynamic_output_schema`.
+    configuration. The constructed prompts and collected images can then be mapped to
+    downstream nodes like the LLM node for processing.
     """
     node_name: ClassVar[str] = "prompt_constructor"
     node_version: ClassVar[str] = "0.2.0" # Version bump for merged functionality
@@ -349,6 +409,112 @@ class PromptConstructorNode(BaseDynamicNode):
 
     # Instance params
     config: PromptConstructorConfig
+
+    def _validate_image_data(self, image_data: str, template_id: str, source: str) -> bool:
+        """
+        Validate that image data is either a valid URL or base64 encoded image.
+        
+        Args:
+            image_data: The image URL or base64 string to validate
+            template_id: Template ID for logging context
+            source: Source description for logging (e.g., "static", "path: input.images")
+            
+        Returns:
+            True if the image data appears valid, False otherwise
+        """
+        if not image_data or not isinstance(image_data, str):
+            return False
+            
+        image_data = image_data.strip()
+        if not image_data:
+            return False
+        
+        # Check if it's a URL (basic validation)
+        if image_data.startswith(('http://', 'https://', 'ftp://', 'ftps://')):
+            return True
+            
+        # Check if it's a data URL with base64
+        if image_data.startswith('data:image/') and 'base64,' in image_data:
+            return True
+            
+        # Check if it's raw base64 (assume valid if it's long enough and base64-like)
+        try:
+            import base64
+            # Try to decode it - if it fails, it's not valid base64
+            base64.b64decode(image_data, validate=True)
+            # Additional check: should be reasonably long for an image
+            if len(image_data) > 100:  # Arbitrary minimum length for image data
+                return True
+        except Exception:
+            pass
+        
+        self.warning(f"Template '{template_id}': Invalid image data from {source} - not a valid URL or base64")
+        return False
+
+    def _collect_images_for_template(
+        self,
+        template_id: str,
+        template_def: PromptTemplateDefinition,
+        input_dict: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Collect images for a template from both static configuration and dynamic paths.
+        
+        Args:
+            template_id: The template identifier
+            template_def: The template definition containing image configuration
+            input_dict: The input data dictionary to search for images
+            
+        Returns:
+            List of image URLs/base64 strings collected for this template
+        """
+        collected_images: List[str] = []
+        
+        # Add static images first
+        if template_def.static_images:
+            for img in template_def.static_images:
+                is_valid = self._validate_image_data(img, template_id, "static config")
+                if is_valid:
+                    collected_images.append(img)
+            self.debug(f"Template '{template_id}': Added {len(collected_images)} valid static images")
+        
+        # Collect images from dynamic paths
+        if template_def.image_collection_paths:
+            for path in template_def.image_collection_paths:
+                try:
+                    image_data, found = _get_nested_obj(input_dict, path)
+                    if found and image_data is not None:
+                        if isinstance(image_data, str):
+                            # Single image URL/base64
+                            image_data = [image_data]
+                            # List of image URLs/base64
+                        if isinstance(image_data, list):
+                            valid_images = [
+                                img for img in image_data 
+                                if isinstance(img, str) and img.strip() and 
+                                    self._validate_image_data(img, template_id, f"path: {path}")
+                            ]
+                            collected_images.extend(valid_images)
+                            self.debug(f"Template '{template_id}': Collected {len(valid_images)} valid images from list at path '{path}'")
+                        else:
+                            self.warning(f"Template '{template_id}': Image data at path '{path}' is not a string or list (type: {type(image_data)})")
+                    else:
+                        self.info(f"Template '{template_id}': No image data found at path '{path}'")
+                except Exception as e:
+                    self.error(f"Template '{template_id}': Error collecting images from path '{path}': {e}")
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_images = []
+        for img in collected_images:
+            if img not in seen:
+                seen.add(img)
+                unique_images.append(img)
+        
+        if len(unique_images) != len(collected_images):
+            self.debug(f"Template '{template_id}': Removed {len(collected_images) - len(unique_images)} duplicate images")
+        
+        return unique_images
 
     async def _load_dynamic_templates(
         self,
@@ -574,6 +740,7 @@ class PromptConstructorNode(BaseDynamicNode):
 
         # --- 3. Resolve Variables and Construct Prompts ---
         constructed_prompts: Dict[str, str] = {}
+        template_images: Dict[str, List[str]] = {}  # Store images per template
         construction_errors: List[Dict[str, Any]] = []
         global_construct_options = self.config.global_construct_options or {}
 
@@ -584,6 +751,16 @@ class PromptConstructorNode(BaseDynamicNode):
             template_defaults = initial_variables.get(template_id, {})
             placeholders = set(re.findall(r'\{([^{}]+)\}', template_str))
             self.debug(f"Template '{template_id}' requires placeholders: {placeholders}")
+
+            # Collect images for this template
+            try:
+                collected_images = self._collect_images_for_template(template_id, template_def, input_dict)
+                template_images[template_id] = collected_images
+                if collected_images:
+                    self.info(f"Template '{template_id}': Collected {len(collected_images)} images")
+            except Exception as e:
+                self.error(f"Template '{template_id}': Error during image collection: {e}")
+                template_images[template_id] = []
 
             for var_name in placeholders:
                 resolved_value: Any = None
@@ -663,6 +840,26 @@ class PromptConstructorNode(BaseDynamicNode):
 
         # Add successfully constructed prompts
         output_data_for_validation.update(constructed_prompts)
+        
+        # Add images for each template and a combined field
+        all_images: List[str] = []
+        for template_id, images in template_images.items():
+            if images:
+                # Add template-specific images field only if separate_images_by_template is True
+                if self.config.separate_images_by_template:
+                    output_data_for_validation[f"{template_id}_images"] = images
+                all_images.extend(images)
+        
+        # Add combined all_images field (remove duplicates while preserving order)
+        if all_images:
+            seen = set()
+            unique_all_images = []
+            for img in all_images:
+                if img not in seen:
+                    seen.add(img)
+                    unique_all_images.append(img)
+            output_data_for_validation["all_images"] = unique_all_images
+            self.info(f"Collected total of {len(unique_all_images)} unique images across all templates")
 
         # Combine load and construction errors
         all_errors = load_errors + construction_errors

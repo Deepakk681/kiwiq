@@ -123,6 +123,7 @@ app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(billing_routers.billing_router, prefix=f"{settings.API_V1_PREFIX}")
 app.include_router(billing_routers.billing_admin_router, prefix=f"{settings.API_V1_PREFIX}")
 app.include_router(billing_routers.billing_webhook_router, prefix=f"{settings.API_V1_PREFIX}")
+app.include_router(billing_routers.billing_dashboard_router, prefix=f"{settings.API_V1_PREFIX}")
 
 # Include the workflow routes using the exposed router
 app.include_router(workflow_routes.workflow_router, prefix=settings.API_V1_PREFIX)

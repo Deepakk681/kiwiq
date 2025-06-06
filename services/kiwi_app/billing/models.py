@@ -56,6 +56,103 @@ class PaymentStatus(str, Enum):
 
 # --- Models --- #
 
+class StripeEvent(SQLModel, table=True):
+    """
+    Stripe event audit log for comprehensive event tracking.
+    
+    This model stores all Stripe webhook events for auditing and debugging purposes.
+    It includes optional references to organization, user, and plan for filtering,
+    with full event data stored as JSON for detailed analysis.
+    """
+    __tablename__ = f"{table_prefix}stripe_event"
+    
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    
+    # Stripe event identification
+    stripe_event_id: str = Field(
+        sa_column=Column(SQLAlchemyString, unique=True, index=True),
+        description="Stripe Event ID for deduplication"
+    )
+    event_type: str = Field(
+        sa_column=Column(SQLAlchemyString, index=True),
+        description="Stripe event type (e.g., customer.subscription.created)"
+    )
+    
+    # Optional contextual references (all nullable and indexed)
+    org_id: Optional[uuid.UUID] = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Organization ID extracted from event metadata"
+    )
+    user_id: Optional[uuid.UUID] = Field(
+        default=None,
+        nullable=True, 
+        index=True,
+        description="User ID extracted from event metadata"
+    )
+    plan_id: Optional[uuid.UUID] = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Plan ID extracted from event metadata"
+    )
+    
+    # Timing information
+    event_timestamp: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp from Stripe event (when event occurred)",
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True, index=True)
+    )
+    
+    # Full event data for auditing
+    event_data: Dict[str, Any] = Field(
+        sa_column=Column(JSON),
+        description="Complete Stripe event data as JSON"
+    )
+    
+    # Webhook processing metadata
+    livemode: bool = Field(
+        default=True,
+        index=True,
+        description="Whether event is from Stripe live mode"
+    )
+    api_version: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Stripe API version for the event"
+    )
+    
+    # Processing status for debugging
+    processed_successfully: bool = Field(
+        default=True,
+        index=True,
+        description="Whether the event was processed without errors"
+    )
+    processing_error: Optional[str] = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="Error message if processing failed"
+    )
+    
+    # Timestamps
+    created_at: datetime = Field(
+        default_factory=datetime_now_utc, 
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, index=True),
+        description="When we received and logged this event"
+    )
+    
+    # Additional indexes for efficient querying
+    __table_args__ = (
+        Index(f"idx_{table_prefix}stripe_event_type_timestamp", "event_type", "event_timestamp"),
+        Index(f"idx_{table_prefix}stripe_event_org_type", "org_id", "event_type"),
+        Index(f"idx_{table_prefix}stripe_event_user_type", "user_id", "event_type"),
+        Index(f"idx_{table_prefix}stripe_event_plan_type", "plan_id", "event_type"),
+        Index(f"idx_{table_prefix}stripe_event_created_type", "created_at", "event_type"),
+        Index(f"idx_{table_prefix}stripe_event_livemode_type", "livemode", "event_type"),
+        Index(f"idx_{table_prefix}stripe_event_processed", "processed_successfully", "created_at"),
+    )
+
 class SubscriptionPlan(SQLModel, table=True):
     """
     Subscription plan templates with credit allocations and pricing.
@@ -182,7 +279,7 @@ class OrganizationSubscription(SQLModel, table=True):
     
     # Relationships
     organization: Organization = Relationship()
-    plan: SubscriptionPlan = Relationship(back_populates="subscriptions")
+    plan: SubscriptionPlan = Relationship(back_populates="subscriptions", sa_relationship_kwargs={'lazy': 'joined'})  # joined  selectin
 
 
 class CreditPurchase(SQLModel, table=True):
@@ -522,6 +619,7 @@ class UsageEvent(SQLModel, table=True):
 
 
 # Update forward references after all models are defined
+StripeEvent.model_rebuild()
 SubscriptionPlan.model_rebuild()
 OrganizationSubscription.model_rebuild()
 OrganizationCredits.model_rebuild()

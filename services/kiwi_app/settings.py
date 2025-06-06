@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import Field
 
 from global_config.settings import ENV_FILE_PATH, Settings as GlobalSettings, global_settings as global_settings
@@ -93,9 +93,16 @@ class Settings(GlobalSettings):
     # BILLING_GRACE_PERIOD_DAYS: int = Field(3, description="Grace period for failed payments")
     
     # Credit pricing (in dollars to support fractional pricing)
-    CREDIT_PRICE_WORKFLOWS_DOLLARS: float = Field(0.10, description="Price per workflow credit in dollars")
-    CREDIT_PRICE_WEB_SEARCHES_DOLLARS: float = Field(0.02, description="Price per web search credit in dollars")
-    CREDIT_PRICE_DOLLAR_CREDITS_RATIO: float = Field(1.2, description="Markup ratio for dollar credits (1.2 = 20% markup)")
+    # CREDIT_PRICE_WORKFLOWS_DOLLARS: float = Field(0.10, description="Price per workflow credit in dollars")
+    # CREDIT_PRICE_WEB_SEARCHES_DOLLARS: float = Field(0.02, description="Price per web search credit in dollars")
+    # CREDIT_PRICE_DOLLAR_CREDITS_RATIO: float = Field(1.2, description="Markup ratio for dollar credits (1.2 = 20% markup)")
+    CREDIT_PRICE_IN_DOLLARS: Dict[str, float] = Field(
+        {
+            "workflows": 0.05,
+            "web_searches": 0.05,
+            "default": 0.02
+        }, description="Price per credit in dollars"
+    )
     
     # Minimum purchase amounts
     MINIMUM_DOLLAR_CREDITS_PURCHASE: float = Field(5.0, description="Minimum dollar credits purchase amount in dollars")
@@ -106,8 +113,17 @@ class Settings(GlobalSettings):
     
     # Credit expiration policies (in days)
     SUBSCRIPTION_CREDITS_EXPIRE_DAYS: int = Field(31, description="Days until subscription credits expire")
+    SUBSCRIPTION_CREDITS_EXPIRE_DAYS_ANNUAL: int = Field(366, description="Days until subscription credits expire for annual plans")
     PURCHASED_CREDITS_EXPIRE_DAYS: int = Field(365, description="Days until purchased credits expire")
-    TRIAL_CREDITS_EXPIRE_DAYS: int = Field(14, description="Days until trial credits expire")
+    TRIAL_CREDITS_EXPIRE_DAYS: int = Field(7, description="Days until trial credits expire")
+    TRIAL_CREDITS_PRORATION_FACTOR: float = Field(0.25, description="Factor for proration of trial credits")
+    MAX_TRIAL_CREDITS: Dict[str, float] = Field(
+        {
+            "workflows": 20,
+            "web_searches": 20,
+            "default": 10
+        }, description="Maximum number of credits for trial"
+    )
     
     # # Webhook processing
     # WEBHOOK_RETRY_MAX_ATTEMPTS: int = Field(3, description="Maximum webhook retry attempts")

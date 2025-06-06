@@ -5,13 +5,15 @@ This module defines Pydantic schemas for request/response validation
 in the billing API. It follows KiwiQ's established patterns for schema
 definition and validation.
 """
-
+from enum import Enum
 import uuid
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any, Union
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+
+from kiwi_app.auth.utils import datetime_now_utc
 
 from kiwi_app.billing.models import (
     CreditType, 
@@ -61,6 +63,9 @@ class SubscriptionPlanUpdate(BillingBaseSchema):
     """Schema for updating a subscription plan."""
     name: Optional[str] = None
     description: Optional[str] = None
+    stripe_product_id: Optional[str] = None
+    stripe_price_id_monthly: Optional[str] = None
+    stripe_price_id_annual: Optional[str] = None
     max_seats: Optional[int] = Field(None, ge=1)
     monthly_credits: Optional[Dict[str, float]] = None
     monthly_price: Optional[float] = Field(None, ge=0)
@@ -95,9 +100,30 @@ class SubscriptionCreate(SubscriptionBase):
 
 class SubscriptionUpdate(BillingBaseSchema):
     """Schema for updating a subscription."""
+    subscription_id: Optional[uuid.UUID] = Field(None, description="ID of the subscription to update")
     plan_id: Optional[uuid.UUID] = None
     seats_count: Optional[int] = Field(None, ge=1)
     cancel_at_period_end: Optional[bool] = None
+
+class SubscriptionSeatUpdate(BillingBaseSchema):
+    """
+    Schema for updating subscription seats.
+    
+    Seat increases take effect immediately with prorated charges.
+    Seat decreases only take effect at the next billing period.
+    """
+    seats_count: int = Field(..., ge=1, description="New number of seats")
+    effective_immediately: bool = Field(
+        default=True, 
+        description="For increases only. Decreases always apply at period end."
+    )
+    
+    @field_validator('seats_count')
+    def validate_seats(cls, v):
+        """Validate seat count is positive."""
+        if v < 1:
+            raise ValueError("Seat count must be at least 1")
+        return v
 
 class SubscriptionRead(SubscriptionBase):
     """Schema for reading subscription data."""
@@ -277,6 +303,66 @@ class PromotionCodeApplyResult(BillingBaseSchema):
     credit_type: CreditType = Field(..., description="Type of credits granted")
     message: str = Field(..., description="Result message")
 
+class PromotionCodeDeleteResult(BillingBaseSchema):
+    """Schema for promotion code deletion result."""
+    success: bool = Field(..., description="Whether deletion was successful")
+    message: str = Field(..., description="Result message")
+    code: str = Field(..., description="The promotion code that was deleted")
+    promo_code_id: uuid.UUID = Field(..., description="ID of the deleted promotion code")
+
+class PromotionCodeDeactivateRequest(BillingBaseSchema):
+    """Schema for deactivating promotion codes with query support."""
+    # Direct targeting
+    promo_code_ids: Optional[List[uuid.UUID]] = Field(None, description="Specific promotion code IDs to deactivate")
+    codes: Optional[List[str]] = Field(None, description="Specific promotion code strings to deactivate")
+    
+    # Query-based targeting (same as PromotionCodeQuery but without pagination)
+    is_active: Optional[bool] = Field(None, description="Filter by active status")
+    credit_type: Optional[CreditType] = Field(None, description="Filter by credit type")
+    search_text: Optional[str] = Field(None, description="Search in code or description")
+    expires_after: Optional[datetime] = Field(None, description="Filter codes that expire after this date")
+    expires_before: Optional[datetime] = Field(None, description="Filter codes that expire before this date")
+    has_usage_limit: Optional[bool] = Field(None, description="Filter codes with/without usage limits")
+    
+    # Safety flags
+    deactivate_all: bool = Field(False, description="Explicitly confirm deactivating all codes if no filters provided")
+
+class PromotionCodeDeactivateResult(BillingBaseSchema):
+    """Schema for promotion code deactivation result."""
+    success: bool = Field(..., description="Whether deactivation was successful")
+    message: str = Field(..., description="Result message")
+    deactivated_count: int = Field(..., description="Number of promotion codes deactivated")
+    deactivated_codes: List[str] = Field(..., description="List of promotion code strings that were deactivated")
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters")
+
+class PromotionCodeBulkDeleteRequest(BillingBaseSchema):
+    """Schema for bulk deleting promotion codes with query support."""
+    # Direct targeting
+    promo_code_ids: Optional[List[uuid.UUID]] = Field(None, description="Specific promotion code IDs to delete")
+    codes: Optional[List[str]] = Field(None, description="Specific promotion code strings to delete")
+    
+    # Query-based targeting (same as PromotionCodeQuery but without pagination)
+    is_active: Optional[bool] = Field(None, description="Filter by active status")
+    credit_type: Optional[CreditType] = Field(None, description="Filter by credit type")
+    search_text: Optional[str] = Field(None, description="Search in code or description")
+    expires_after: Optional[datetime] = Field(None, description="Filter codes that expire after this date")
+    expires_before: Optional[datetime] = Field(None, description="Filter codes that expire before this date")
+    has_usage_limit: Optional[bool] = Field(None, description="Filter codes with/without usage limits")
+    
+    # Safety flags
+    delete_all: bool = Field(False, description="Explicitly confirm deleting all codes if no filters provided")
+    force_delete_used: bool = Field(False, description="Allow deletion of codes with usage records (dangerous)")
+
+class PromotionCodeBulkDeleteResult(BillingBaseSchema):
+    """Schema for bulk promotion code deletion result."""
+    success: bool = Field(..., description="Whether deletion was successful")
+    message: str = Field(..., description="Result message")
+    deleted_count: int = Field(..., description="Number of promotion codes deleted")
+    skipped_count: int = Field(..., description="Number of promotion codes skipped due to usage records")
+    deleted_codes: List[str] = Field(..., description="List of promotion code strings that were deleted")
+    skipped_codes: List[str] = Field(..., description="List of promotion code strings that were skipped")
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters")
+
 # --- Usage Analytics Schemas --- #
 
 class UsageSummary(BillingBaseSchema):
@@ -303,20 +389,148 @@ class UsageAnalytics(BillingBaseSchema):
 class BillingDashboard(BillingBaseSchema):
     """Schema for billing dashboard data."""
     org_id: uuid.UUID
-    subscription: Optional[SubscriptionReadWithPlan]
+    subscriptions: List[SubscriptionReadWithPlan]
     credit_balances: List[CreditBalance]
     recent_usage: List[UsageEventRead]
     recent_purchases: List[CreditPurchaseRead]
-    upcoming_renewal: Optional[datetime]
+    upcoming_renewals: List[datetime]
     overage_warnings: List[str]
 
 # --- Webhook Schemas --- #
+
+class StripeEventRead(BillingBaseSchema):
+    """Schema for reading Stripe event audit data."""
+    id: uuid.UUID
+    stripe_event_id: str
+    event_type: str
+    org_id: Optional[uuid.UUID] = None
+    user_id: Optional[uuid.UUID] = None
+    plan_id: Optional[uuid.UUID] = None
+    event_timestamp: Optional[datetime] = None
+    event_data: Dict[str, Any]
+    livemode: bool
+    api_version: Optional[str] = None
+    processed_successfully: bool
+    processing_error: Optional[str] = None
+    created_at: datetime
+
+class StripeEventCreate(BillingBaseSchema):
+    """Schema for creating Stripe event audit records."""
+    stripe_event_id: str = Field(..., description="Stripe Event ID")
+    event_type: str = Field(..., description="Stripe event type")
+    org_id: Optional[uuid.UUID] = Field(None, description="Organization ID from event metadata")
+    user_id: Optional[uuid.UUID] = Field(None, description="User ID from event metadata")
+    plan_id: Optional[uuid.UUID] = Field(None, description="Plan ID from event metadata")
+    event_timestamp: Optional[datetime] = Field(None, description="Timestamp from Stripe event")
+    event_data: Dict[str, Any] = Field(..., description="Complete Stripe event data")
+    livemode: bool = Field(True, description="Whether event is from live mode")
+    api_version: Optional[str] = Field(None, description="Stripe API version")
+    processed_successfully: bool = Field(True, description="Processing success status")
+    processing_error: Optional[str] = Field(None, description="Processing error message")
+
+
+class StripeEventSortBy(str, Enum):
+    """Enum for Stripe event sorting fields."""
+    CREATED_AT = "created_at"
+    EVENT_TIMESTAMP = "event_timestamp"
+    EVENT_TYPE = "event_type"
+    STRIPE_EVENT_ID = "stripe_event_id"
+
+
+class SortOrder(str, Enum):
+    """Enum for sort order options."""
+    ASC = "asc"
+    DESC = "desc"
+
+
+class StripeEventQuery(BillingBaseSchema):
+    """Schema for querying Stripe events with extensive filtering."""
+    # Filtering options
+    event_types: Optional[List[str]] = Field(None, description="Filter by event types")
+    org_id: Optional[uuid.UUID] = Field(None, description="Filter by organization ID")
+    user_id: Optional[uuid.UUID] = Field(None, description="Filter by user ID")
+    plan_id: Optional[uuid.UUID] = Field(None, description="Filter by plan ID")
+    livemode: Optional[bool] = Field(None, description="Filter by live mode")
+    processed_successfully: Optional[bool] = Field(None, description="Filter by processing status")
+    
+    # Date range filtering
+    event_timestamp_from: Optional[datetime] = Field(None, description="Event timestamp range start")
+    event_timestamp_to: Optional[datetime] = Field(None, description="Event timestamp range end")
+    created_at_from: Optional[datetime] = Field(None, description="Created timestamp range start")
+    created_at_to: Optional[datetime] = Field(None, description="Created timestamp range end")
+    
+    # Sorting options
+    sort_by: StripeEventSortBy = Field(
+        StripeEventSortBy.CREATED_AT, 
+        description="Field to sort by"
+    )
+    sort_order: SortOrder = Field(
+        SortOrder.DESC, 
+        description="Sort order"
+    )
+    
+    # Pagination
+    skip: int = Field(0, ge=0, description="Number of records to skip")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of records to return")
+    
+    # Search in event data
+    search_text: Optional[str] = Field(None, description="Search text in event data JSON")
+
+class PaginatedStripeEvents(BillingBaseSchema):
+    """Schema for paginated Stripe events response."""
+    items: List[StripeEventRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters")
+
+class StripeEventStats(BillingBaseSchema):
+    """Schema for Stripe event statistics."""
+    total_events: int
+    events_by_type: Dict[str, int]
+    events_by_date: Dict[str, int]  # Date string to count
+    processing_success_rate: float
+    livemode_events: int
+    test_mode_events: int
+    unique_organizations: int
+    unique_users: int
+    time_range: Dict[str, Optional[datetime]]  # earliest and latest events
+
+class StripeEventDeleteResult(BillingBaseSchema):
+    """Schema for Stripe event deletion results."""
+    success: bool = Field(..., description="Whether deletion was successful")
+    deleted_count: int = Field(..., description="Number of events deleted")
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters")
+    deletion_type: str = Field(..., description="Type of deletion performed")
+    timestamp: datetime = Field(default_factory=datetime_now_utc, description="When deletion was performed")
+
+class StripeEventTimeWindowDelete(BillingBaseSchema):
+    """Schema for time-window based Stripe event deletion."""
+    hours_back: Optional[int] = Field(None, ge=1, le=8760, description="Delete events from last N hours (max 1 year)")
+    days_back: Optional[int] = Field(None, ge=1, le=365, description="Delete events from last N days (max 1 year)")
+    org_id: Optional[uuid.UUID] = Field(None, description="Optional organization filter")
+    event_types: Optional[List[str]] = Field(None, description="Optional event types to delete")
+    only_failed: bool = Field(False, description="Only delete failed processing events")
+    
+    @field_validator('hours_back', 'days_back')
+    def validate_time_window(cls, v, info):
+        """Validate that at least one time parameter is provided."""
+        values = info.data
+        hours_back = values.get('hours_back')
+        days_back = values.get('days_back')
+        
+        # If this is the second field being validated, check both are not None
+        if info.field_name == 'days_back' and hours_back is None and v is None:
+            raise ValueError("Either hours_back or days_back must be specified")
+        
+        return v
 
 class StripeWebhookEvent(BillingBaseSchema):
     """Schema for Stripe webhook events."""
     id: str = Field(..., description="Stripe event ID")
     type: str = Field(..., description="Event type")
-    created: int = Field(..., description="Event creation timestamp")
+    created: datetime = Field(..., description="Event creation timestamp")
     data: Dict[str, Any] = Field(..., description="Event data")
     livemode: bool = Field(..., description="Whether event is from live mode")
 
@@ -344,6 +558,7 @@ class PaginatedUsageEvents(BillingBaseSchema):
     page: int
     per_page: int
     pages: int
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters")
 
 class PaginatedCreditPurchases(BillingBaseSchema):
     """Schema for paginated credit purchases."""
@@ -471,6 +686,7 @@ class AtomicCreditConsumptionResult(BillingBaseSchema):
     is_overage: bool = Field(default=False, description="Whether consumption used overage credits")
     overage_amount: float = Field(default=0, description="Amount of overage credits used")
     was_locked: bool = Field(default=True, description="Whether transaction lock was used")
+    consumed_in_dollar_credits: float = Field(default=0, description="Number of dollar credits consumed (Only for non-dollar credits)")
 
 class CreditAdditionResult(BillingBaseSchema):
     """Result of adding credits."""
@@ -516,4 +732,58 @@ class CreditAdditionBatch(BillingBaseSchema):
 class CreditExpirationBatch(BillingBaseSchema):
     """Schema for batch credit expiration operations."""
     credit_type: CreditType = Field(description="Type of credits to expire")
-    expired_credits: float = Field(gt=0, description="Number of credits that expired") 
+    expired_credits: float = Field(gt=0, description="Number of credits that expired")
+
+
+class PromotionCodeQuery(BillingBaseSchema):
+    """Schema for querying promotion codes with filtering."""
+    # Filtering options
+    is_active: Optional[bool] = Field(None, description="Filter by active status")
+    credit_type: Optional[CreditType] = Field(None, description="Filter by credit type")
+    search_text: Optional[str] = Field(None, description="Search in code or description")
+    expires_after: Optional[datetime] = Field(None, description="Filter codes that expire after this date")
+    expires_before: Optional[datetime] = Field(None, description="Filter codes that expire before this date")
+    has_usage_limit: Optional[bool] = Field(None, description="Filter codes with/without usage limits")
+    
+    # Sorting options
+    sort_by: str = Field("created_at", description="Field to sort by")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order")
+    
+    # Pagination
+    skip: int = Field(0, ge=0, description="Number of records to skip")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of records to return")
+
+
+class UsageEventQuery(BillingBaseSchema):
+    """Schema for querying usage events with filtering."""
+    # Filtering options
+    org_id: Optional[uuid.UUID] = Field(None, description="Filter by organization ID")
+    user_id: Optional[uuid.UUID] = Field(None, description="Filter by user ID")
+    event_type: Optional[str] = Field(None, description="Filter by event type")
+    credit_type: Optional[CreditType] = Field(None, description="Filter by credit type")
+    is_overage: Optional[bool] = Field(None, description="Filter by overage status")
+    
+    # Date range filtering
+    created_after: Optional[datetime] = Field(None, description="Filter events created after this date")
+    created_before: Optional[datetime] = Field(None, description="Filter events created before this date")
+    
+    # Metadata search
+    metadata_search: Optional[str] = Field(None, description="Search text in usage metadata JSON")
+    
+    # Sorting options
+    sort_by: str = Field("created_at", description="Field to sort by (created_at, credits_consumed, event_type)")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order")
+    
+    # Pagination
+    skip: int = Field(0, ge=0, description="Number of records to skip")
+    limit: int = Field(100, ge=1, le=1000, description="Maximum number of records to return")
+
+
+class PaginatedPromotionCodes(BillingBaseSchema):
+    """Schema for paginated promotion codes response."""
+    items: List[PromotionCodeRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+    filters_applied: Dict[str, Any] = Field(description="Summary of applied filters") 

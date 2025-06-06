@@ -18,6 +18,7 @@ from workflow_service.registry.registry import DBRegistry
 from workflow_service.services.db_node_register import register_node_templates
 from kiwi_app.workflow_app import crud as wf_crud
 from kiwi_app.auth import crud as auth_crud
+from kiwi_app.billing import services as billing_services, dependencies as billing_dependencies
 from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
 from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
 
@@ -167,6 +168,7 @@ class ExternalContextManager(BaseModel):
     daos: DAOContext = Field(...)
     db_registry: DBRegistry = Field(...)
     customer_data_service: Any = Field(...)  #  CustomerDataService
+    billing_service: billing_services.BillingService = Field(...)
 
     class Config:
         arbitrary_types_allowed = True # Allow non-pydantic types like clients
@@ -234,6 +236,11 @@ class ExternalContextManager(BaseModel):
             await self.customer_data_service.mongo_client.close()
             await self.customer_data_service.versioned_mongo_client.client.close()
             logger.debug("Closed CustomerDataService mongo_client connection")
+        
+        # Note: BillingService doesn't require explicit cleanup as it only contains DAOs
+        # which don't maintain persistent connections
+        if self.billing_service:
+            logger.debug("BillingService cleanup not required (stateless service)")
         
         logger.info("External context manager resources closed successfully")
 
@@ -483,6 +490,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     except Exception as e:
         print(f"Error initializing Prefect client: {e}")
     
+    # Initialize workflow DAOs
     node_template_dao =  wf_crud.NodeTemplateDAO()
     workflow_dao = wf_crud.WorkflowDAO()
     workflow_run_dao = wf_crud.WorkflowRunDAO()
@@ -490,6 +498,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     schema_template_dao = wf_crud.SchemaTemplateDAO()
     user_notification_dao = wf_crud.UserNotificationDAO()
     hitl_job_dao = wf_crud.HITLJobDAO()
+    
+    # Initialize auth DAOs
     user_dao = auth_crud.UserDAO()
 
     db_registry = DBRegistry(
@@ -519,6 +529,10 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         schema_template_dao=schema_template_dao
     )
     
+    # Initialize billing service using the centralized dependency function
+    # This ensures consistent DAO creation patterns across the application
+    billing_service = billing_dependencies.get_billing_service_no_dependencies()
+    
     # Create and return the ExternalContextManager
     external_context = ExternalContextManager(
         redis=RedisContext(
@@ -537,7 +551,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         prefect_client=clients["prefect"],
         daos=dao_context,
         db_registry=db_registry,
-        customer_data_service=customer_data_service
+        customer_data_service=customer_data_service,
+        billing_service=billing_service
     )
     
     return external_context

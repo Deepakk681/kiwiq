@@ -141,7 +141,7 @@ class GraphBuilder:
                                 default=None,
                                 annotation=Any,
                             )
-                field_to_set = (Annotated[annotation_to_set, reducer], field_info_to_set)
+                field_to_set = (Annotated[annotation_to_set, reducer] if reducer else annotation_to_set, field_info_to_set)
                 if central_state_field_key in central_state_fields:
                     assert central_state_fields[central_state_field_key][0] == field_to_set[0], f"Central state field '{central_state_field_key}' has multiple different types of edges to/from it!"
                 central_state_fields[central_state_field_key] = field_to_set
@@ -381,7 +381,7 @@ class GraphBuilder:
                                 annotation=Any,
                             )
                 central_state_fields[central_state_field_key] = (
-                    Annotated[annotation_to_set, reducer], 
+                    Annotated[annotation_to_set, reducer] if reducer else annotation_to_set, 
                     field_info_to_set
                 )
         

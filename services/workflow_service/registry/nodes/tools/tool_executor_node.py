@@ -19,14 +19,16 @@ from workflow_service.config.constants import (
     EXTERNAL_CONTEXT_MANAGER_KEY
 )
 from workflow_service.registry.nodes.core.base import BaseNode
-from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
+from workflow_service.registry.schemas.base import BaseNodeConfig, BaseNodeConfig, BaseSchema
 from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode
 from workflow_service.registry.nodes.llm.llm_node import ToolCall, ToolOutput
+
+from langgraph.config import get_stream_writer
 
 
 # Below commented objects for reference only
 
-# class ToolOutput(BaseSchema):
+# class ToolOutput(BaseNodeConfig):
 #     """Represents the output of a tool execution."""
 #     tool_call_id: str = Field(description="ID of the tool call that generated this output")
 #     content: str = Field(description="The output content from the tool execution")
@@ -35,7 +37,7 @@ from workflow_service.registry.nodes.llm.llm_node import ToolCall, ToolOutput
 #     status: str = Field(description="Status of the execution ('success' or 'error')")
 #     error_message: Optional[str] = Field(None, description="Error message if execution failed")
 
-# class ToolCall(BaseSchema):
+# class ToolCall(BaseNodeConfig):
 #     """Represents a tool call made by the model."""
 #     tool_name: str = Field(description="Name of the tool called")
 #     tool_input: Dict[str, Any] = Field(description="Input provided to the tool")
@@ -74,7 +76,7 @@ class ToolExecutorNodeInputSchema(DynamicSchema):
 ###########################
 
 
-class ToolCallMetadata(BaseSchema):
+class ToolCallMetadata(BaseNodeConfig):
     """Metadata about a tool call execution."""
     tool_call_id: str = Field(description="ID of the tool call")
     tool_name: str = Field(description="Name of the tool that was called")
@@ -84,10 +86,14 @@ class ToolCallMetadata(BaseSchema):
     error_type: Optional[str] = Field(None, description="Type of error that occurred")
 
 
-class ToolExecutorNodeOutputSchema(BaseSchema):
+class ToolExecutorNodeOutputSchema(BaseNodeConfig):
     """Output schema for the ToolExecutor node."""
     tool_outputs: List[ToolOutput] = Field(
         description="List of tool execution outputs"
+    )
+    internal_tool_user_prompt: Optional[str] = Field(
+        "",
+        description="Internal tool user prompt"
     )
     tool_call_metadata: List[ToolCallMetadata] = Field(
         description="Metadata about each tool call execution including success/failure and timing"
@@ -537,6 +543,15 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
         """
         tool_call_id = tool_call.tool_id or str(uuid4())
         start_time = time.time()
+
+        # print(f"\n\nTOOL CALL: {tool_call.tool_name}\n\n")
+        # import ipdb; ipdb.set_trace()
+
+        try:
+            stream_writer = get_stream_writer()
+        except Exception as e:
+            self.warning(f"Failed to get stream writer: {str(e)}")
+            stream_writer = None
         
         try:
             # Check if tool execution is restricted and validate against configured tools
@@ -621,6 +636,9 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
             
             # Determine timeout
             timeout = timeout_override or self.config.default_timeout
+
+            if stream_writer:
+                stream_writer({"event_type": "tool_call", "tool_call_id": tool_call_id, "tool_name": tool_call.tool_name, "input": validated_input, "status": "processing", "node_id": self.node_id})
             
             # Execute the tool with timeout
             if timeout and timeout > 0:
@@ -648,6 +666,9 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
                 name=tool_call.tool_name,
                 status="success"
             )
+
+            if stream_writer:
+                stream_writer({"event_type": "tool_call", "tool_call_id": tool_call_id, "tool_name": tool_call.tool_name, "output": content, "status": "success", "node_id": self.node_id})
             
             tool_metadata = ToolCallMetadata(
                 tool_call_id=tool_call_id,
@@ -666,6 +687,9 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
             error_msg = f"Tool execution timed out after {timeout}s"
             
             self.warning(f"Tool '{tool_call.tool_name}' timed out after {timeout}s")
+
+            if stream_writer:
+                stream_writer({"event_type": "tool_call", "tool_call_id": tool_call_id, "tool_name": tool_call.tool_name, "status": "error", "error_message": error_msg, "node_id": self.node_id})
             
             return self._create_error_output_and_metadata(
                 tool_call_id,
@@ -679,6 +703,9 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
             execution_time = time.time() - start_time
             error_msg = str(e)
             error_type = type(e).__name__
+
+            if stream_writer:
+                stream_writer({"event_type": "tool_call", "tool_call_id": tool_call_id, "tool_name": tool_call.tool_name, "status": "error", "error_message": error_msg, "error_type": error_type, "node_id": self.node_id})
             
             # Include full traceback in logs but not in output unless configured
             if self.config.include_error_details:
@@ -895,7 +922,7 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
     def _prepare_tool_input(
         self,
         tool_call: ToolCall,
-        tool_schema: Type[BaseSchema],
+        tool_schema: Type[BaseNodeConfig],
         tool_mapping_config: Optional[ToolNodeConfig],
         executor_input_data: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:

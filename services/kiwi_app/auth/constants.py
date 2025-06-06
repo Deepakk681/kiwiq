@@ -3,6 +3,7 @@ Constants for the authentication and authorization module.
 """
 from enum import Enum
 from kiwi_app.workflow_app.constants import WorkflowPermissions
+from kiwi_app.billing.constants import BillingPermissions
 
 # --- Default Role Names ---
 class DefaultRoles(str, Enum):
@@ -20,7 +21,7 @@ class Permissions(str, Enum):
     ORG_MANAGE_MEMBERS = "org:manage_members" # Add/remove/change roles within the org
     ORG_VIEW_MEMBERS = "org:view_members" # View members within the org
     ORG_MANAGE_ROLES = "org:manage_roles" # Create/update/delete custom roles within the org
-    ORG_MANAGE_BILLING = "org:manage_billing"
+    # ORG_MANAGE_BILLING = "org:manage_billing"
 
     # # Workflow Management (within the org)
     # WORKFLOW_CREATE = "workflow:create"
@@ -31,7 +32,7 @@ class Permissions(str, Enum):
 
     # Add other org-specific permissions as needed...
 
-ALL_PERMISSIONS = list(Permissions) + list(WorkflowPermissions)
+ALL_PERMISSIONS = list(Permissions) + list(WorkflowPermissions) + list(BillingPermissions)
 
 # --- Helper Function for Enum Description --- #
 def get_permission_description(permission: Permissions) -> str:
@@ -63,10 +64,15 @@ DEFAULT_ROLE_PERMISSIONS = {
 
         WorkflowPermissions.ORG_DATA_READ,
         WorkflowPermissions.ORG_DATA_WRITE,
+
+        # BillingPermissions.BILLING_READ,
+        BillingPermissions.CREDIT_READ,
     ],
     DefaultRoles.BILLING: [
         Permissions.ORG_READ,
-        Permissions.ORG_MANAGE_BILLING,
+        BillingPermissions.CREDIT_READ,
+        BillingPermissions.BILLING_READ,
+        BillingPermissions.BILLING_MANAGE,
     ],
 }
 

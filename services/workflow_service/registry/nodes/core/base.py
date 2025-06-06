@@ -99,6 +99,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     config: Optional[Union[ConfigSchemaT, Dict[str, Any]]] = None
     # Whether to run the node in Prefect mode for logging and tracking flow/tasks
     prefect_mode: bool = True
+    billing_mode: bool = True
     
     # Whether to run the node in private input mode (directly accepting previous node's output)
     #   Useful for map/reduce or branching patterns or maintaining private states
@@ -233,6 +234,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 
                     # Get value from state using the mapped state key
                     # NOTE: this handles the case when a router node creates multiple fan outs and a subsequent node receives multiple fan ins from router nodes at runtime!
+                    node_id = state_key_instance[0]
                     state_key_0 = get_node_output_state_key(state_key_instance[0])
                     # TODO: FIXME: BUG: sometimes this is not an object but a dict! probably due to the way langgraph handles state updates!
                     dict_has_key = (isinstance(state.get(state_key_0, None), dict)) and (state_key_instance[1] in state.get(state_key_0, {}))

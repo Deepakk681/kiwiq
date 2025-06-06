@@ -9,6 +9,7 @@ import uuid
 from typing import Optional, List, Sequence, Dict, Any, Union
 from datetime import datetime, timedelta, date
 
+import sqlalchemy as sa
 from sqlalchemy import delete, update, and_, or_, func, desc, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -22,6 +23,7 @@ from kiwi_app.auth.base_crud import BaseDAO
 from kiwi_app.billing.models import CreditType, SubscriptionStatus, CreditSourceType, PaymentStatus
 from kiwi_app.billing.exceptions import InsufficientCreditsException
 from kiwi_app.billing import models, schemas
+from kiwi_app.settings import settings
 
 # Get logger for billing operations
 billing_logger = get_kiwi_logger(name="kiwi_app.billing.crud")
@@ -93,13 +95,13 @@ class OrganizationSubscriptionDAO(BaseDAO[models.OrganizationSubscription, schem
             await db.refresh(db_obj)
         return db_obj
     
-    async def get_by_org_id(self, db: AsyncSession, org_id: uuid.UUID) -> Optional[models.OrganizationSubscription]:
+    async def get_by_org_id(self, db: AsyncSession, org_id: uuid.UUID) -> List[models.OrganizationSubscription]:
         """Get active subscription for an organization."""
         statement = select(self.model).options(
             selectinload(self.model.plan)
         ).where(self.model.org_id == org_id)
         result = await db.exec(statement)
-        return result.scalars().first()
+        return result.scalars().all()
     
     async def get_by_stripe_subscription_id(self, db: AsyncSession, stripe_subscription_id: str) -> Optional[models.OrganizationSubscription]:
         """Get subscription by Stripe subscription ID."""
@@ -557,6 +559,12 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             updated_at=net_credits.updated_at
         )
     
+    def _calculate_credit_price_in_dollars(self, credit_type: CreditType, amount: float) -> float:
+        """Calculate the price in dollars for purchasing credits."""
+        if credit_type == CreditType.DOLLAR_CREDITS:
+            return amount
+        return amount * settings.CREDIT_PRICE_IN_DOLLARS.get(credit_type.value, settings.CREDIT_PRICE_IN_DOLLARS["default"])
+    
     async def consume_credits_atomic(
         self,
         db: AsyncSession,
@@ -629,30 +637,52 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             # Get the returned row from the update
             updated_row = result.fetchone()
             
+            consumed_in_dollar_credits = 0
             # Check if the update was successful (row returned)
             if updated_row is None:
                 # Update failed - either record doesn't exist or limit exceeded
                 # Get current state to provide detailed error
-                current_state = await self.get_net_credits_by_org_and_type(db, org_id, credit_type)
-                if not current_state:
+                success = False
+                if credit_type != CreditType.DOLLAR_CREDITS:
+                    try:
+                        dollar_credits_alternative_to_consume = self._calculate_credit_price_in_dollars(credit_type, credits_to_consume)
+                        consumed_in_dollar_credits = dollar_credits_alternative_to_consume
+                        dollar_credits_consumption_result = await self.consume_credits_atomic(
+                            db=db,
+                            org_id=org_id,
+                            credit_type=CreditType.DOLLAR_CREDITS,
+                            credits_to_consume=dollar_credits_alternative_to_consume,
+                            max_overage_allowed_fraction=max_overage_allowed_fraction,
+                            commit=commit,
+                            # max_overage_allowed_abs: float = 0
+                        )
+                        success = dollar_credits_consumption_result.success
+                    except Exception as e:
+                        billing_logger.error(f"Error consuming dollar credits alternative to consume {credit_type.value}: {credits_to_consume} credits: {e}", exc_info=True)
+                        consumed_in_dollar_credits = 0
+                
+                if not success:
+                    current_state = await self.get_net_credits_by_org_and_type(db, org_id, credit_type)
+                    if not current_state:
+                        raise InsufficientCreditsException(
+                            credit_type=credit_type,
+                            required=credits_to_consume,
+                            available=0,
+                            detail=f"No credits record found for {credit_type.value}"
+                        )
+                    
+                    
+                    max_allowed = current_state.credits_granted * (1 + max_overage_allowed_fraction)
+                    available = max_allowed - current_state.credits_consumed
+                    
                     raise InsufficientCreditsException(
                         credit_type=credit_type,
                         required=credits_to_consume,
-                        available=0,
-                        detail=f"No credits record found for {credit_type.value}"
+                        available=available,
+                        detail=f"Insufficient {credit_type.value} credits. "
+                        f"Requested: {credits_to_consume}, Available: {available} "
+                        f"(including {max_overage_allowed_fraction*100:.1f}% overage grace)"
                     )
-                
-                max_allowed = current_state.credits_granted * (1 + max_overage_allowed_fraction)
-                available = max_allowed - current_state.credits_consumed
-                
-                raise InsufficientCreditsException(
-                    credit_type=credit_type,
-                    required=credits_to_consume,
-                    available=available,
-                    detail=f"Insufficient {credit_type.value} credits. "
-                    f"Requested: {credits_to_consume}, Available: {available} "
-                    f"(including {max_overage_allowed_fraction*100:.1f}% overage grace)"
-                )
             
             if commit:
                 await db.commit()
@@ -674,7 +704,8 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 total_granted=updated_credits_granted,
                 is_overage=is_overage,
                 overage_amount=overage_amount,
-                was_locked=True
+                was_locked=True,
+                consumed_in_dollar_credits=consumed_in_dollar_credits
             )
             
         except InsufficientCreditsException:
@@ -892,6 +923,7 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
         org_id: uuid.UUID,
         credit_type: CreditType,
         expired_credits: float,
+        modify_granted_only: bool = False,
         commit: bool = True
     ) -> schemas.CreditExpirationResult:
         """
@@ -909,19 +941,27 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                 models.OrganizationNetCredits.org_id == org_id,
                 models.OrganizationNetCredits.credit_type == credit_type
             ]
-            
+            values = {
+                "credits_granted": func.greatest(0, models.OrganizationNetCredits.credits_granted - expired_credits),
+            }
+            if not modify_granted_only:
+                values["credits_consumed"] = func.least(
+                    models.OrganizationNetCredits.credits_consumed,
+                    func.greatest(0, models.OrganizationNetCredits.credits_consumed - expired_credits)
+                )
             update_stmt = (
                 update(models.OrganizationNetCredits)
                 .where(
                     and_(*conditions)
                 )
                 .values(
-                    credits_granted=func.greatest(0, models.OrganizationNetCredits.credits_granted - expired_credits),
-                    credits_consumed=func.least(
-                        models.OrganizationNetCredits.credits_consumed,
-                        func.greatest(0, models.OrganizationNetCredits.credits_consumed - expired_credits)
-                    ),
-                    # updated_at=func.now()
+                    **values,
+                    # credits_granted=func.greatest(0, models.OrganizationNetCredits.credits_granted - expired_credits),
+                    # credits_consumed=func.least(
+                    #     models.OrganizationNetCredits.credits_consumed,
+                    #     func.greatest(0, models.OrganizationNetCredits.credits_consumed - expired_credits)
+                    # ),
+                    # # updated_at=func.now()
                 )
                 .execution_options(synchronize_session=False)
                 .returning(
@@ -959,7 +999,9 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             # Calculate before values from the after values and logic
             # credits_granted_after = max(0, credits_granted_before - expired_credits)
             # So: credits_granted_before = credits_granted_after + min(expired_credits, original_granted)
-            credits_granted_before = expired_credits if credits_granted_after == 0 else credits_granted_after + expired_credits
+            credits_granted_before = credits_granted_after
+            if not modify_granted_only:
+                credits_granted_before = expired_credits if credits_granted_after == 0 else credits_granted_after + expired_credits
             
             # credits_consumed_after = min(credits_consumed_before, credits_granted_after)
             # Since we know the consumed was reduced to not exceed granted_after
@@ -1036,7 +1078,8 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
         db: AsyncSession,
         org_id: uuid.UUID,
         credit_expirations: List[schemas.CreditExpirationBatch],
-        commit: bool = True
+        commit: bool = True,
+        modify_granted_only: bool = False
     ) -> List[schemas.CreditExpirationResult]:
         """
         Batch expire credits for multiple credit types.
@@ -1045,6 +1088,8 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
             db: Database session
             org_id: Organization ID
             credit_expirations: List of credit expirations to process
+            commit: Whether to commit the transaction
+            modify_granted_only: Whether to modify only the granted credits
             
         Returns:
             List of CreditExpirationResult for each expiration
@@ -1058,7 +1103,8 @@ class OrganizationNetCreditsDAO(BaseDAO[models.OrganizationNetCredits, SQLModel,
                     org_id=org_id,
                     credit_type=expiration.credit_type,
                     expired_credits=expiration.expired_credits,
-                    commit=commit
+                    commit=commit,
+                    modify_granted_only=modify_granted_only
                 )
                 results.append(result)
             
@@ -1233,6 +1279,101 @@ class UsageEventDAO(BaseDAO[models.UsageEvent, SQLModel, SQLModel]):
             summary['overage_events'] += overage_event_count
         
         return summary
+    
+    async def query_usage_events(
+        self,
+        db: AsyncSession,
+        query_params: schemas.UsageEventQuery
+    ) -> schemas.PaginatedUsageEvents:
+        """
+        Query usage events with filtering, sorting, and pagination.
+        
+        Args:
+            db: Database session
+            query_params: Query parameters for filtering and pagination
+            
+        Returns:
+            Paginated usage events response
+        """
+        # Build base query
+        query = select(models.UsageEvent)
+        
+        # Apply filters
+        filters = []
+        filters_applied = {}
+        
+        if query_params.org_id is not None:
+            filters.append(models.UsageEvent.org_id == query_params.org_id)
+            filters_applied["org_id"] = str(query_params.org_id)
+            
+        if query_params.user_id is not None:
+            filters.append(models.UsageEvent.user_id == query_params.user_id)
+            filters_applied["user_id"] = str(query_params.user_id)
+            
+        if query_params.event_type is not None:
+            filters.append(models.UsageEvent.event_type == query_params.event_type)
+            filters_applied["event_type"] = query_params.event_type
+            
+        if query_params.credit_type is not None:
+            filters.append(models.UsageEvent.credit_type == query_params.credit_type)
+            filters_applied["credit_type"] = query_params.credit_type.value
+            
+        if query_params.is_overage is not None:
+            filters.append(models.UsageEvent.is_overage == query_params.is_overage)
+            filters_applied["is_overage"] = query_params.is_overage
+            
+        if query_params.created_after:
+            filters.append(models.UsageEvent.created_at >= query_params.created_after)
+            filters_applied["created_after"] = query_params.created_after
+            
+        if query_params.created_before:
+            filters.append(models.UsageEvent.created_at <= query_params.created_before)
+            filters_applied["created_before"] = query_params.created_before
+            
+        if query_params.metadata_search:
+            # Use PostgreSQL's JSONB search capabilities
+            search_condition = func.cast(models.UsageEvent.usage_metadata, sa.String).contains(query_params.metadata_search)
+            filters.append(search_condition)
+            filters_applied["metadata_search"] = query_params.metadata_search
+        
+        if filters:
+            query = query.where(and_(*filters))
+        
+        # Get total count for pagination
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+        
+        # Apply sorting
+        valid_sort_fields = ['created_at', 'credits_consumed', 'event_type']
+        if query_params.sort_by not in valid_sort_fields:
+            query_params.sort_by = 'created_at'
+            
+        sort_column = getattr(models.UsageEvent, query_params.sort_by, models.UsageEvent.created_at)
+        if query_params.sort_order == schemas.SortOrder.DESC:
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+        
+        # Apply pagination
+        query = query.offset(query_params.skip).limit(query_params.limit)
+        
+        # Execute query
+        result = await db.execute(query)
+        usage_events = result.scalars().all()
+        
+        # Calculate pagination info
+        page = (query_params.skip // query_params.limit) + 1
+        pages = (total + query_params.limit - 1) // query_params.limit
+        
+        return schemas.PaginatedUsageEvents(
+            items=[schemas.UsageEventRead.model_validate(event) for event in usage_events],
+            total=total,
+            page=page,
+            per_page=query_params.limit,
+            pages=pages,
+            filters_applied=filters_applied
+        )
 
 
 class CreditPurchaseDAO(BaseDAO[models.CreditPurchase, schemas.CreditPurchaseRequest, SQLModel]):
@@ -1418,6 +1559,369 @@ class PromotionCodeDAO(BaseDAO[models.PromotionCode, schemas.PromotionCodeCreate
         result = await db.exec(statement)
         return result.scalar() or 0
 
+    async def query_promotion_codes(
+        self,
+        db: AsyncSession,
+        query_params: schemas.PromotionCodeQuery
+    ) -> schemas.PaginatedPromotionCodes:
+        """
+        Query promotion codes with filtering, sorting, and pagination.
+        
+        Args:
+            db: Database session
+            query_params: Query parameters for filtering and pagination
+            
+        Returns:
+            Paginated promotion codes response
+        """
+        # Build base query
+        query = select(models.PromotionCode)
+        
+        # Apply filters
+        filters = []
+        filters_applied = {}
+        
+        if query_params.is_active is not None:
+            filters.append(models.PromotionCode.is_active == query_params.is_active)
+            filters_applied["is_active"] = query_params.is_active
+            
+        if query_params.credit_type is not None:
+            filters.append(models.PromotionCode.credit_type == query_params.credit_type)
+            filters_applied["credit_type"] = query_params.credit_type.value
+            
+        if query_params.search_text:
+            search_pattern = f"%{query_params.search_text}%"
+            filters.append(
+                or_(
+                    models.PromotionCode.code.ilike(search_pattern),
+                    models.PromotionCode.description.ilike(search_pattern)
+                )
+            )
+            filters_applied["search_text"] = query_params.search_text
+            
+        if query_params.expires_after:
+            filters.append(models.PromotionCode.expires_at >= query_params.expires_after)
+            filters_applied["expires_after"] = query_params.expires_after
+            
+        if query_params.expires_before:
+            filters.append(models.PromotionCode.expires_at <= query_params.expires_before)
+            filters_applied["expires_before"] = query_params.expires_before
+            
+        if query_params.has_usage_limit is not None:
+            if query_params.has_usage_limit:
+                filters.append(models.PromotionCode.max_uses.is_not(None))
+            else:
+                filters.append(models.PromotionCode.max_uses.is_(None))
+            filters_applied["has_usage_limit"] = query_params.has_usage_limit
+        
+        if filters:
+            query = query.where(and_(*filters))
+        
+        # Get total count for pagination
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+        
+        # Apply sorting
+        sort_column = getattr(models.PromotionCode, query_params.sort_by, models.PromotionCode.created_at)
+        if query_params.sort_order == schemas.SortOrder.DESC:
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+        
+        # Apply pagination
+        query = query.offset(query_params.skip).limit(query_params.limit)
+        
+        # Execute query
+        result = await db.execute(query)
+        promotion_codes = result.scalars().all()
+        
+        # Calculate pagination info
+        page = (query_params.skip // query_params.limit) + 1
+        pages = (total + query_params.limit - 1) // query_params.limit
+        
+        return schemas.PaginatedPromotionCodes(
+            items=[schemas.PromotionCodeRead.model_validate(code) for code in promotion_codes],
+            total=total,
+            page=page,
+            per_page=query_params.limit,
+            pages=pages,
+            filters_applied=filters_applied
+        )
+
+    async def delete_promotion_code(
+        self,
+        db: AsyncSession,
+        promo_code_id: uuid.UUID,
+        commit: bool = True
+    ) -> bool:
+        """
+        Delete a promotion code by ID.
+        
+        Args:
+            db: Database session
+            promo_code_id: ID of the promotion code to delete
+            commit: Whether to commit the transaction
+            
+        Returns:
+            True if deleted, False if not found
+            
+        Raises:
+            ValueError: If there are existing usage records that prevent deletion
+        """
+        # First check if the promotion code exists
+        promo_code = await self.get(db, promo_code_id)
+        if not promo_code:
+            return False
+        
+        # Check if there are any usage records
+        usage_count = await db.scalar(
+            select(func.count(models.PromotionCodeUsage.id))
+            .where(models.PromotionCodeUsage.promotion_code_id == promo_code_id)
+        )
+        
+        if usage_count > 0:
+            raise ValueError(
+                f"Cannot delete promotion code '{promo_code.code}' because it has {usage_count} usage record(s). "
+                "Consider deactivating it instead."
+            )
+        
+        # Delete the promotion code
+        await db.delete(promo_code)
+        
+        if commit:
+            await db.commit()
+            
+        return True
+
+    async def deactivate_promotion_codes(
+        self,
+        db: AsyncSession,
+        deactivate_request: schemas.PromotionCodeDeactivateRequest,
+        commit: bool = True
+    ) -> schemas.PromotionCodeDeactivateResult:
+        """
+        Deactivate promotion codes based on various targeting criteria.
+        
+        Supports deactivation by:
+        - Specific promotion code IDs
+        - Specific promotion code strings
+        - Query filters (same as get_promotion_codes)
+        - Deactivate all (with explicit confirmation)
+        
+        Args:
+            db: Database session
+            deactivate_request: Deactivation targeting criteria
+            commit: Whether to commit the transaction
+            
+        Returns:
+            PromotionCodeDeactivateResult with operation details
+            
+        Raises:
+            ValueError: If no targeting criteria provided without explicit deactivate_all flag
+        """
+        # Build filters based on request
+        filters = []
+        filters_applied = {}
+        
+        # Direct targeting by IDs
+        if deactivate_request.promo_code_ids:
+            filters.append(models.PromotionCode.id.in_(deactivate_request.promo_code_ids))
+            filters_applied["promo_code_ids"] = [str(id) for id in deactivate_request.promo_code_ids]
+        
+        # Direct targeting by codes
+        if deactivate_request.codes:
+            filters.append(models.PromotionCode.code.in_(deactivate_request.codes))
+            filters_applied["codes"] = deactivate_request.codes
+        
+        # Query-based targeting
+        if deactivate_request.is_active is not None:
+            filters.append(models.PromotionCode.is_active == deactivate_request.is_active)
+            filters_applied["is_active"] = deactivate_request.is_active
+            
+        if deactivate_request.credit_type is not None:
+            filters.append(models.PromotionCode.credit_type == deactivate_request.credit_type)
+            filters_applied["credit_type"] = deactivate_request.credit_type.value
+            
+        if deactivate_request.search_text:
+            search_pattern = f"%{deactivate_request.search_text}%"
+            filters.append(
+                or_(
+                    models.PromotionCode.code.ilike(search_pattern),
+                    models.PromotionCode.description.ilike(search_pattern)
+                )
+            )
+            filters_applied["search_text"] = deactivate_request.search_text
+            
+        if deactivate_request.expires_after:
+            filters.append(models.PromotionCode.expires_at >= deactivate_request.expires_after)
+            filters_applied["expires_after"] = deactivate_request.expires_after
+            
+        if deactivate_request.expires_before:
+            filters.append(models.PromotionCode.expires_at <= deactivate_request.expires_before)
+            filters_applied["expires_before"] = deactivate_request.expires_before
+            
+        if deactivate_request.has_usage_limit is not None:
+            if deactivate_request.has_usage_limit:
+                filters.append(models.PromotionCode.max_uses.is_not(None))
+            else:
+                filters.append(models.PromotionCode.max_uses.is_(None))
+            filters_applied["has_usage_limit"] = deactivate_request.has_usage_limit
+        
+        # Safety check: if no filters and deactivate_all not explicitly set
+        if not filters and not deactivate_request.deactivate_all:
+            raise ValueError(
+                "No targeting criteria provided. To deactivate all promotion codes, "
+                "set 'deactivate_all' to true explicitly."
+            )
+        
+        # Build and execute query to find codes to deactivate
+        query = select(models.PromotionCode)
+        if filters:
+            query = query.where(and_(*filters))
+        
+        result = await db.execute(query)
+        promotion_codes = result.scalars().all()
+        
+        # Deactivate the codes
+        deactivated_codes = []
+        for promo_code in promotion_codes:
+            if promo_code.is_active:  # Only deactivate if currently active
+                promo_code.is_active = False
+                deactivated_codes.append(promo_code.code)
+        
+        if commit:
+            await db.commit()
+        
+        return schemas.PromotionCodeDeactivateResult(
+            success=True,
+            message=f"Successfully deactivated {len(deactivated_codes)} promotion codes",
+            deactivated_count=len(deactivated_codes),
+            deactivated_codes=deactivated_codes,
+            filters_applied=filters_applied
+        )
+
+    async def bulk_delete_promotion_codes(
+        self,
+        db: AsyncSession,
+        delete_request: schemas.PromotionCodeBulkDeleteRequest,
+        commit: bool = True
+    ) -> schemas.PromotionCodeBulkDeleteResult:
+        """
+        Bulk delete promotion codes based on various targeting criteria.
+        
+        Supports deletion by:
+        - Specific promotion code IDs
+        - Specific promotion code strings
+        - Query filters (same as get_promotion_codes)
+        - Delete all (with explicit confirmation)
+        
+        Args:
+            db: Database session
+            delete_request: Deletion targeting criteria
+            commit: Whether to commit the transaction
+            
+        Returns:
+            PromotionCodeBulkDeleteResult with operation details
+            
+        Raises:
+            ValueError: If no targeting criteria provided without explicit delete_all flag
+        """
+        # Build filters based on request
+        filters = []
+        filters_applied = {}
+        
+        # Direct targeting by IDs
+        if delete_request.promo_code_ids:
+            filters.append(models.PromotionCode.id.in_(delete_request.promo_code_ids))
+            filters_applied["promo_code_ids"] = [str(id) for id in delete_request.promo_code_ids]
+        
+        # Direct targeting by codes
+        if delete_request.codes:
+            filters.append(models.PromotionCode.code.in_(delete_request.codes))
+            filters_applied["codes"] = delete_request.codes
+        
+        # Query-based targeting
+        if delete_request.is_active is not None:
+            filters.append(models.PromotionCode.is_active == delete_request.is_active)
+            filters_applied["is_active"] = delete_request.is_active
+            
+        if delete_request.credit_type is not None:
+            filters.append(models.PromotionCode.credit_type == delete_request.credit_type)
+            filters_applied["credit_type"] = delete_request.credit_type.value
+            
+        if delete_request.search_text:
+            search_pattern = f"%{delete_request.search_text}%"
+            filters.append(
+                or_(
+                    models.PromotionCode.code.ilike(search_pattern),
+                    models.PromotionCode.description.ilike(search_pattern)
+                )
+            )
+            filters_applied["search_text"] = delete_request.search_text
+            
+        if delete_request.expires_after:
+            filters.append(models.PromotionCode.expires_at >= delete_request.expires_after)
+            filters_applied["expires_after"] = delete_request.expires_after
+            
+        if delete_request.expires_before:
+            filters.append(models.PromotionCode.expires_at <= delete_request.expires_before)
+            filters_applied["expires_before"] = delete_request.expires_before
+            
+        if delete_request.has_usage_limit is not None:
+            if delete_request.has_usage_limit:
+                filters.append(models.PromotionCode.max_uses.is_not(None))
+            else:
+                filters.append(models.PromotionCode.max_uses.is_(None))
+            filters_applied["has_usage_limit"] = delete_request.has_usage_limit
+        
+        # Safety check: if no filters and delete_all not explicitly set
+        if not filters and not delete_request.delete_all:
+            raise ValueError(
+                "No targeting criteria provided. To delete all promotion codes, "
+                "set 'delete_all' to true explicitly."
+            )
+        
+        # Build and execute query to find codes to delete
+        query = select(models.PromotionCode)
+        if filters:
+            query = query.where(and_(*filters))
+        
+        result = await db.execute(query)
+        promotion_codes = result.scalars().all()
+        
+        # Process deletion with usage record checking
+        deleted_codes = []
+        skipped_codes = []
+        
+        for promo_code in promotion_codes:
+            # Check if there are any usage records
+            usage_count = await db.scalar(
+                select(func.count(models.PromotionCodeUsage.id))
+                .where(models.PromotionCodeUsage.promotion_code_id == promo_code.id)
+            )
+            
+            if usage_count > 0 and not delete_request.force_delete_used:
+                # Skip codes with usage records unless force deletion is enabled
+                skipped_codes.append(promo_code.code)
+            else:
+                # Delete the promotion code
+                await db.delete(promo_code)
+                deleted_codes.append(promo_code.code)
+        
+        if commit:
+            await db.commit()
+        
+        return schemas.PromotionCodeBulkDeleteResult(
+            success=True,
+            message=f"Successfully deleted {len(deleted_codes)} promotion codes, skipped {len(skipped_codes)} codes with usage records",
+            deleted_count=len(deleted_codes),
+            skipped_count=len(skipped_codes),
+            deleted_codes=deleted_codes,
+            skipped_codes=skipped_codes,
+            filters_applied=filters_applied
+        )
+
 
 class PromotionCodeUsageDAO(BaseDAO[models.PromotionCodeUsage, SQLModel, SQLModel]):
     """Data Access Object for promotion code usage operations."""
@@ -1463,4 +1967,708 @@ class PromotionCodeUsageDAO(BaseDAO[models.PromotionCodeUsage, SQLModel, SQLMode
         ).order_by(desc(self.model.created_at))
         
         result = await db.exec(statement)
-        return result.scalars().all() 
+        return result.scalars().all()
+
+
+class StripeEventDAO(BaseDAO[models.StripeEvent, schemas.StripeEventCreate, SQLModel]):
+    """
+    Data Access Object for Stripe event audit operations.
+    
+    This DAO provides comprehensive querying, filtering, and sorting capabilities
+    for Stripe event audit logs, primarily intended for admin use.
+    """
+    
+    def __init__(self):
+        super().__init__(models.StripeEvent)
+    
+    async def create_event_log(
+        self,
+        db: AsyncSession,
+        stripe_event_id: str,
+        event_type: str,
+        event_data: Dict[str, Any],
+        org_id: Optional[uuid.UUID] = None,
+        user_id: Optional[uuid.UUID] = None,
+        plan_id: Optional[uuid.UUID] = None,
+        event_timestamp: Optional[datetime] = None,
+        livemode: bool = True,
+        api_version: Optional[str] = None,
+        processed_successfully: bool = True,
+        processing_error: Optional[str] = None,
+        commit: bool = True
+    ) -> models.StripeEvent:
+        """
+        Create a Stripe event audit log entry.
+        
+        This method extracts context from event metadata and creates a comprehensive
+        audit record for later analysis and debugging.
+        
+        Args:
+            db: Database session
+            stripe_event_id: Stripe's unique event ID
+            event_type: Type of Stripe event
+            event_data: Complete Stripe event data
+            org_id: Organization ID (extracted from metadata)
+            user_id: User ID (extracted from metadata)
+            plan_id: Plan ID (extracted from metadata)
+            event_timestamp: When the event occurred (from Stripe)
+            livemode: Whether event is from live mode
+            api_version: Stripe API version
+            processed_successfully: Whether processing succeeded
+            processing_error: Error message if processing failed
+            commit: Whether to commit the transaction
+            
+        Returns:
+            Created StripeEvent record
+        """
+        try:
+            # Check for duplicate events (idempotency)
+            existing_event = await self.get_by_stripe_event_id(db, stripe_event_id)
+            if existing_event:
+                billing_logger.debug(f"Stripe event {stripe_event_id} already logged, skipping duplicate")
+                return existing_event
+            
+            stripe_event = models.StripeEvent(
+                stripe_event_id=stripe_event_id,
+                event_type=event_type,
+                org_id=org_id,
+                user_id=user_id,
+                plan_id=plan_id,
+                event_timestamp=event_timestamp,
+                event_data=event_data,
+                livemode=livemode,
+                api_version=api_version,
+                processed_successfully=processed_successfully,
+                processing_error=processing_error,
+                created_at=datetime_now_utc()
+            )
+            
+            db.add(stripe_event)
+            if commit:
+                await db.commit()
+                await db.refresh(stripe_event)
+            
+            billing_logger.debug(f"Logged Stripe event: {event_type} (ID: {stripe_event_id})")
+            return stripe_event
+            
+        except Exception as e:
+            billing_logger.error(f"Error creating Stripe event log: {e}", exc_info=True)
+            raise
+    
+    async def get_by_stripe_event_id(
+        self, 
+        db: AsyncSession, 
+        stripe_event_id: str
+    ) -> Optional[models.StripeEvent]:
+        """Get Stripe event by Stripe event ID."""
+        try:
+            statement = select(self.model).where(self.model.stripe_event_id == stripe_event_id)
+            result = await db.execute(statement)
+            return result.scalars().first()
+        except Exception as e:
+            billing_logger.error(f"Error getting Stripe event by ID: {e}", exc_info=True)
+            raise
+    
+    async def query_events(
+        self,
+        db: AsyncSession,
+        query_params: schemas.StripeEventQuery
+    ) -> schemas.PaginatedStripeEvents:
+        """
+        Query Stripe events with comprehensive filtering and sorting.
+        
+        This method provides extensive filtering capabilities for admin users
+        to analyze Stripe events across various dimensions.
+        
+        Args:
+            db: Database session
+            query_params: Query parameters with filters and sorting
+            
+        Returns:
+            Paginated Stripe events with applied filters
+        """
+        try:
+            # Build base query
+            query = select(self.model)
+            count_query = select(func.count(self.model.id))
+            
+            # Apply filters
+            conditions = []
+            filters_applied = {}
+            
+            # Event type filtering
+            if query_params.event_types:
+                conditions.append(self.model.event_type.in_(query_params.event_types))
+                filters_applied["event_types"] = query_params.event_types
+            
+            # Organization filtering
+            if query_params.org_id:
+                conditions.append(self.model.org_id == query_params.org_id)
+                filters_applied["org_id"] = str(query_params.org_id)
+            
+            # User filtering
+            if query_params.user_id:
+                conditions.append(self.model.user_id == query_params.user_id)
+                filters_applied["user_id"] = str(query_params.user_id)
+            
+            # Plan filtering
+            if query_params.plan_id:
+                conditions.append(self.model.plan_id == query_params.plan_id)
+                filters_applied["plan_id"] = str(query_params.plan_id)
+            
+            # Livemode filtering
+            if query_params.livemode is not None:
+                conditions.append(self.model.livemode == query_params.livemode)
+                filters_applied["livemode"] = query_params.livemode
+            
+            # Processing status filtering
+            if query_params.processed_successfully is not None:
+                conditions.append(self.model.processed_successfully == query_params.processed_successfully)
+                filters_applied["processed_successfully"] = query_params.processed_successfully
+            
+            # Event timestamp range filtering
+            if query_params.event_timestamp_from:
+                conditions.append(self.model.event_timestamp >= query_params.event_timestamp_from)
+                filters_applied["event_timestamp_from"] = query_params.event_timestamp_from
+            
+            if query_params.event_timestamp_to:
+                conditions.append(self.model.event_timestamp <= query_params.event_timestamp_to)
+                filters_applied["event_timestamp_to"] = query_params.event_timestamp_to
+            
+            # Created timestamp range filtering
+            if query_params.created_at_from:
+                conditions.append(self.model.created_at >= query_params.created_at_from)
+                filters_applied["created_at_from"] = query_params.created_at_from
+            
+            if query_params.created_at_to:
+                conditions.append(self.model.created_at <= query_params.created_at_to)
+                filters_applied["created_at_to"] = query_params.created_at_to
+            
+            # Search text in event data (PostgreSQL JSONB search)
+            if query_params.search_text:
+                # Use PostgreSQL's JSONB search capabilities
+                search_condition = func.cast(self.model.event_data, sa.String).contains(query_params.search_text)
+                conditions.append(search_condition)
+                filters_applied["search_text"] = query_params.search_text
+            
+            # Apply all conditions
+            if conditions:
+                filter_condition = and_(*conditions)
+                query = query.where(filter_condition)
+                count_query = count_query.where(filter_condition)
+            
+            # Get total count
+            count_result = await db.execute(count_query)
+            total = count_result.scalar() or 0
+            
+            # Apply sorting
+            sort_column = getattr(self.model, query_params.sort_by)
+            if query_params.sort_order == "desc":
+                query = query.order_by(desc(sort_column))
+            else:
+                query = query.order_by(sort_column)
+            
+            # Apply pagination
+            query = query.offset(query_params.skip).limit(query_params.limit)
+            
+            # Execute query
+            result = await db.execute(query)
+            events = result.scalars().all()
+            
+            # Calculate pagination info
+            page = (query_params.skip // query_params.limit) + 1
+            per_page = query_params.limit
+            pages = (total + per_page - 1) // per_page
+            
+            # Convert to read schemas
+            event_reads = [schemas.StripeEventRead.model_validate(event) for event in events]
+            
+            billing_logger.debug(
+                f"Queried Stripe events: {len(events)} results, {total} total, "
+                f"filters: {list(filters_applied.keys())}"
+            )
+            
+            return schemas.PaginatedStripeEvents(
+                items=event_reads,
+                total=total,
+                page=page,
+                per_page=per_page,
+                pages=pages,
+                filters_applied=filters_applied
+            )
+            
+        except Exception as e:
+            billing_logger.error(f"Error querying Stripe events: {e}", exc_info=True)
+            raise
+    
+    async def get_event_statistics(
+        self,
+        db: AsyncSession,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        org_id: Optional[uuid.UUID] = None
+    ) -> schemas.StripeEventStats:
+        """
+        Get comprehensive statistics about Stripe events.
+        
+        Args:
+            db: Database session
+            date_from: Start date for analysis
+            date_to: End date for analysis
+            org_id: Optional organization filter
+            
+        Returns:
+            Comprehensive statistics about Stripe events
+        """
+        try:
+            # Build base conditions
+            conditions = []
+            if date_from:
+                conditions.append(self.model.created_at >= date_from)
+            if date_to:
+                conditions.append(self.model.created_at <= date_to)
+            if org_id:
+                conditions.append(self.model.org_id == org_id)
+            
+            base_condition = and_(*conditions) if conditions else True
+            
+            # Total events
+            total_query = select(func.count(self.model.id)).where(base_condition)
+            total_result = await db.execute(total_query)
+            total_events = total_result.scalar() or 0
+            
+            # Events by type
+            type_query = (
+                select(self.model.event_type, func.count(self.model.id).label('count'))
+                .where(base_condition)
+                .group_by(self.model.event_type)
+                .order_by(desc('count'))
+            )
+            type_result = await db.execute(type_query)
+            events_by_type = {row.event_type: row.count for row in type_result}
+            
+            # Events by date (daily aggregation)
+            date_query = (
+                select(
+                    func.date(self.model.created_at).label('event_date'), 
+                    func.count(self.model.id).label('count')
+                )
+                .where(base_condition)
+                .group_by(func.date(self.model.created_at))
+                .order_by('event_date')
+            )
+            date_result = await db.execute(date_query)
+            events_by_date = {str(row.event_date): row.count for row in date_result}
+            
+            # Processing success rate
+            success_query = (
+                select(
+                    func.count(self.model.id).label('total'),
+                    func.sum(case((self.model.processed_successfully == True, 1), else_=0)).label('successful')
+                )
+                .where(base_condition)
+            )
+            success_result = await db.execute(success_query)
+            success_row = success_result.first()
+            processing_success_rate = (
+                (success_row.successful / success_row.total * 100) 
+                if success_row.total > 0 else 100.0
+            )
+            
+            # Livemode vs test mode
+            mode_query = (
+                select(
+                    func.sum(case((self.model.livemode == True, 1), else_=0)).label('livemode'),
+                    func.sum(case((self.model.livemode == False, 1), else_=0)).label('testmode')
+                )
+                .where(base_condition)
+            )
+            mode_result = await db.execute(mode_query)
+            mode_row = mode_result.first()
+            livemode_events = mode_row.livemode or 0
+            test_mode_events = mode_row.testmode or 0
+            
+            # Unique organizations and users
+            org_query = (
+                select(func.count(func.distinct(self.model.org_id)))
+                .where(and_(base_condition, self.model.org_id.is_not(None)))
+            )
+            org_result = await db.execute(org_query)
+            unique_organizations = org_result.scalar() or 0
+            
+            user_query = (
+                select(func.count(func.distinct(self.model.user_id)))
+                .where(and_(base_condition, self.model.user_id.is_not(None)))
+            )
+            user_result = await db.execute(user_query)
+            unique_users = user_result.scalar() or 0
+            
+            # Time range
+            time_range_query = (
+                select(
+                    func.min(self.model.created_at).label('earliest'),
+                    func.max(self.model.created_at).label('latest')
+                )
+                .where(base_condition)
+            )
+            time_result = await db.execute(time_range_query)
+            time_row = time_result.first()
+            time_range = {
+                "earliest": time_row.earliest,
+                "latest": time_row.latest
+            }
+            
+            return schemas.StripeEventStats(
+                total_events=total_events,
+                events_by_type=events_by_type,
+                events_by_date=events_by_date,
+                processing_success_rate=processing_success_rate,
+                livemode_events=livemode_events,
+                test_mode_events=test_mode_events,
+                unique_organizations=unique_organizations,
+                unique_users=unique_users,
+                time_range=time_range
+            )
+            
+        except Exception as e:
+            billing_logger.error(f"Error getting event statistics: {e}", exc_info=True)
+            raise
+    
+    async def get_events_by_org(
+        self,
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        event_types: Optional[List[str]] = None,
+        limit: int = 100,
+        skip: int = 0
+    ) -> List[models.StripeEvent]:
+        """
+        Get Stripe events for a specific organization.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID
+            event_types: Optional list of event types to filter
+            limit: Maximum number of events to return
+            skip: Number of events to skip
+            
+        Returns:
+            List of Stripe events for the organization
+        """
+        try:
+            conditions = [self.model.org_id == org_id]
+            
+            if event_types:
+                conditions.append(self.model.event_type.in_(event_types))
+            
+            query = (
+                select(self.model)
+                .where(and_(*conditions))
+                .order_by(desc(self.model.created_at))
+                .offset(skip)
+                .limit(limit)
+            )
+            
+            result = await db.execute(query)
+            return result.scalars().all()
+            
+        except Exception as e:
+            billing_logger.error(f"Error getting events by organization: {e}", exc_info=True)
+            raise
+    
+    async def get_failed_events(
+        self,
+        db: AsyncSession,
+        hours_back: int = 24,
+        limit: int = 100
+    ) -> List[models.StripeEvent]:
+        """
+        Get recent failed Stripe events for debugging.
+        
+        Args:
+            db: Database session
+            hours_back: How many hours back to look
+            limit: Maximum number of events to return
+            
+        Returns:
+            List of failed Stripe events
+        """
+        try:
+            cutoff_time = datetime_now_utc() - timedelta(hours=hours_back)
+            
+            query = (
+                select(self.model)
+                .where(
+                    and_(
+                        self.model.processed_successfully == False,
+                        self.model.created_at >= cutoff_time
+                    )
+                )
+                .order_by(desc(self.model.created_at))
+                .limit(limit)
+            )
+            
+            result = await db.execute(query)
+            return result.scalars().all()
+            
+        except Exception as e:
+            billing_logger.error(f"Error getting failed events: {e}", exc_info=True)
+            raise
+    
+    async def extract_context_from_event(
+        self,
+        event_data: Dict[str, Any]
+    ) -> Dict[str, Optional[uuid.UUID]]:
+        """
+        Extract organization, user, and plan IDs from Stripe event metadata.
+        
+        This method searches for KiwiQ-specific metadata in various parts of
+        the Stripe event to extract contextual information for indexing.
+        
+        Args:
+            event_data: Complete Stripe event data
+            
+        Returns:
+            Dictionary with extracted org_id, user_id, and plan_id
+        """
+        try:
+            context = {
+                "org_id": None,
+                "user_id": None,
+                "plan_id": None
+            }
+            
+            # Helper function to safely extract UUID from string
+            def safe_uuid(value: Any) -> Optional[uuid.UUID]:
+                if not value:
+                    return None
+                try:
+                    return uuid.UUID(str(value))
+                except (ValueError, TypeError):
+                    return None
+
+            # Check event object metadata first
+            if event_data.get("object", {}).get("metadata"):
+                metadata = event_data["object"]["metadata"]
+                context["org_id"] = safe_uuid(metadata.get("kiwiq_org_id"))
+                context["user_id"] = safe_uuid(metadata.get("kiwiq_user_id"))
+                context["plan_id"] = safe_uuid(metadata.get("kiwiq_plan_id"))
+            
+            subscription_item = event_data.get("object", {}).get("items", {}).get("data", [{}])
+            subscription_item = subscription_item[0] if subscription_item else None
+            plan_id = subscription_item.get("plan", {}).get("metadata", {}).get("kiwiq_plan_id", {}) if subscription_item else None
+            context["plan_id"] = context["plan_id"] or safe_uuid(plan_id)
+            
+            # For subscription events, check subscription metadata
+            if event_data.get("type", "").startswith("customer.subscription"):
+                subscription = event_data.get("object", {})
+                if subscription.get("metadata"):
+                    metadata = subscription["metadata"]
+                    context["org_id"] = context["org_id"] or safe_uuid(metadata.get("kiwiq_org_id"))
+                    context["user_id"] = context["user_id"] or safe_uuid(metadata.get("kiwiq_user_id"))
+                    context["plan_id"] = context["plan_id"] or safe_uuid(metadata.get("kiwiq_plan_id"))
+            
+            # For invoice events, check payment_intent metadata
+            if event_data.get("type", "").startswith("invoice."):
+                invoice = event_data.get("object", {})
+                if invoice.get("payment_intent"):
+                    # Would need to look up payment intent separately if needed
+                    pass
+            
+            # For checkout session events
+            if event_data.get("type", "").startswith("checkout.session"):
+                session = event_data.get("object", {})
+                if session.get("metadata"):
+                    metadata = session["metadata"]
+                    context["org_id"] = context["org_id"] or safe_uuid(metadata.get("kiwiq_org_id"))
+                    context["user_id"] = context["user_id"] or safe_uuid(metadata.get("kiwiq_user_id"))
+                    context["plan_id"] = context["plan_id"] or safe_uuid(metadata.get("kiwiq_plan_id"))
+            
+            return context
+            
+        except Exception as e:
+            billing_logger.warning(f"Error extracting context from event: {e}")
+            return {"org_id": None, "user_id": None, "plan_id": None}
+    
+    async def delete_events_by_query(
+        self,
+        db: AsyncSession,
+        query_params: schemas.StripeEventQuery,
+        commit: bool = True
+    ) -> int:
+        """
+        Delete Stripe events based on comprehensive query filters.
+        
+        This method uses the same filtering logic as query_events but performs
+        bulk deletion instead of retrieval. It's designed for admin cleanup
+        and maintenance operations.
+        
+        Args:
+            db: Database session
+            query_params: Query parameters with filters
+            commit: Whether to commit the transaction
+            
+        Returns:
+            Number of events deleted
+            
+        Raises:
+            Exception: If deletion fails
+        """
+        try:
+            # Build base query for deletion
+            delete_query = delete(self.model)
+            
+            # Apply the same filters as query_events
+            conditions = []
+            
+            # Event type filtering
+            if query_params.event_types:
+                conditions.append(self.model.event_type.in_(query_params.event_types))
+            
+            # Organization filtering
+            if query_params.org_id:
+                conditions.append(self.model.org_id == query_params.org_id)
+            
+            # User filtering
+            if query_params.user_id:
+                conditions.append(self.model.user_id == query_params.user_id)
+            
+            # Plan filtering
+            if query_params.plan_id:
+                conditions.append(self.model.plan_id == query_params.plan_id)
+            
+            # Livemode filtering
+            if query_params.livemode is not None:
+                conditions.append(self.model.livemode == query_params.livemode)
+            
+            # Processing status filtering
+            if query_params.processed_successfully is not None:
+                conditions.append(self.model.processed_successfully == query_params.processed_successfully)
+            
+            # Event timestamp range filtering
+            if query_params.event_timestamp_from:
+                conditions.append(self.model.event_timestamp >= query_params.event_timestamp_from)
+            
+            if query_params.event_timestamp_to:
+                conditions.append(self.model.event_timestamp <= query_params.event_timestamp_to)
+            
+            # Created timestamp range filtering
+            if query_params.created_at_from:
+                conditions.append(self.model.created_at >= query_params.created_at_from)
+            
+            if query_params.created_at_to:
+                conditions.append(self.model.created_at <= query_params.created_at_to)
+            
+            # Search text in event data (PostgreSQL JSONB search)
+            if query_params.search_text:
+                search_condition = func.cast(self.model.event_data, sa.String).contains(query_params.search_text)
+                conditions.append(search_condition)
+            
+            # Apply all conditions
+            if conditions:
+                filter_condition = and_(*conditions)
+                delete_query = delete_query.where(filter_condition)
+            
+            # Execute deletion
+            result = await db.execute(delete_query)
+            deleted_count = result.rowcount
+            
+            if commit:
+                await db.commit()
+            
+            billing_logger.info(
+                f"Bulk deleted {deleted_count} Stripe events with filters: "
+                f"event_types={query_params.event_types}, org_id={query_params.org_id}, "
+                f"date_range={query_params.created_at_from} to {query_params.created_at_to}"
+            )
+            
+            return deleted_count
+            
+        except Exception as e:
+            if commit:
+                await db.rollback()
+            billing_logger.error(f"Error bulk deleting Stripe events: {e}", exc_info=True)
+            raise
+    
+    async def delete_events_by_time_window(
+        self,
+        db: AsyncSession,
+        hours_back: Optional[int] = None,
+        days_back: Optional[int] = None,
+        org_id: Optional[uuid.UUID] = None,
+        event_types: Optional[List[str]] = None,
+        only_failed: bool = False,
+        commit: bool = True
+    ) -> int:
+        """
+        Delete Stripe events within a specified time window.
+        
+        This method provides time-based cleanup functionality for audit logs,
+        allowing deletion of events older than a specified time period.
+        
+        Args:
+            db: Database session
+            hours_back: Delete events from last N hours (takes precedence over days_back)
+            days_back: Delete events from last N days 
+            org_id: Optional organization filter
+            event_types: Optional list of event types to delete
+            only_failed: If True, only delete failed processing events
+            commit: Whether to commit the transaction
+            
+        Returns:
+            Number of events deleted
+            
+        Raises:
+            ValueError: If neither hours_back nor days_back is provided
+            Exception: If deletion fails
+        """
+        try:
+            if hours_back is None and days_back is None:
+                raise ValueError("Either hours_back or days_back must be specified")
+            
+            # Calculate cutoff time
+            now = datetime_now_utc()
+            if hours_back is not None:
+                cutoff_time = now - timedelta(hours=hours_back)
+                time_desc = f"{hours_back} hours"
+            else:
+                cutoff_time = now - timedelta(days=days_back)
+                time_desc = f"{days_back} days"
+            
+            # Build delete query
+            delete_query = delete(self.model)
+            conditions = [self.model.created_at <= cutoff_time]
+            
+            # Optional filters
+            if org_id:
+                conditions.append(self.model.org_id == org_id)
+            
+            if event_types:
+                conditions.append(self.model.event_type.in_(event_types))
+            
+            if only_failed:
+                conditions.append(self.model.processed_successfully == False)
+            
+            # Apply all conditions
+            filter_condition = and_(*conditions)
+            delete_query = delete_query.where(filter_condition)
+            
+            # Execute deletion
+            result = await db.execute(delete_query)
+            deleted_count = result.rowcount
+            
+            if commit:
+                await db.commit()
+            
+            billing_logger.info(
+                f"Time-based deleted {deleted_count} Stripe events older than {time_desc} "
+                f"(org_id={org_id}, event_types={event_types}, only_failed={only_failed})"
+            )
+            
+            return deleted_count
+            
+        except Exception as e:
+            if commit:
+                await db.rollback()
+            billing_logger.error(f"Error time-based deleting Stripe events: {e}", exc_info=True)
+            raise 

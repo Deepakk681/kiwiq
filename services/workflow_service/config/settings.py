@@ -21,6 +21,8 @@ class Settings(Settings):
     GOOGLE_API_KEY: str = ""
     FIREWORKS_API_KEY: str = ""
     PPLX_API_KEY: str = ""
+    WEB_SEARCH_NUM_CITATIONS_PER_CREDIT: int = 2
+    LLM_TOKEN_COST_MARKUP_FACTOR: float = 1.2
     
     # model_config = SettingsConfigDict(
     #     env_file=ENV_FILE_PATH,

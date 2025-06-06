@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 
+import sqlalchemy as sa
 from sqlalchemy import String as SQLAlchemyString, Text, JSON, Boolean, Index, ForeignKey, Enum as SQLAlchemyEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.schema import CheckConstraint
@@ -46,8 +47,8 @@ class NodeTemplate(SQLModel, table=True):
         description="Deployment status of the node template"
     )
 
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
 # --- Workflow Model --- #
 class Workflow(SQLModel, table=True):
@@ -100,8 +101,8 @@ class Workflow(SQLModel, table=True):
         nullable=True
     )
 
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
     # Relationships
     # Use full path string for cross-service relationships initially, SQLModel might need adjustment or explicit Session setup
@@ -175,14 +176,13 @@ class ChatThread(SQLModel, table=True):
 
     created_at: datetime = Field(
         default_factory=datetime_now_utc, 
-        nullable=False,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
         description="Timestamp when this chat thread was created"
     )
     
     updated_at: datetime = Field(
         default_factory=datetime_now_utc, 
-        nullable=False, 
-        sa_column_kwargs={"onupdate": datetime_now_utc},
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc),
         description="Timestamp when this chat thread was last updated"
     )
     
@@ -278,8 +278,8 @@ class WorkflowConfigOverride(SQLModel, table=True):
         description="Description of what this override configuration does"
     )
 
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
     # Add constraints to ensure proper configuration
     __table_args__ = (
@@ -376,10 +376,10 @@ class WorkflowRun(SQLModel, table=True):
         description="Comma-separated list of workflow config override IDs that were applied to this run, in order of application (later ones override previous ones)"
     )
 
-    started_at: Optional[datetime] = Field(default=None, nullable=True)
-    ended_at: Optional[datetime] = Field(default=None, nullable=True)
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    started_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))
+    ended_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
     # Relationships
     workflow: Workflow = Relationship(
@@ -425,8 +425,8 @@ class PromptTemplate(SQLModel, table=True):
     is_system_entity: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a KiwiQ system template, only meant to be used by KiwiQ application.")
     is_public: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a public template, available to all users.")
 
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
     parent_base: Optional["PromptTemplate"] = Relationship(
         sa_relationship_kwargs={
@@ -468,8 +468,8 @@ class SchemaTemplate(SQLModel, table=True):
     is_system_entity: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a KiwiQ system template, only meant to be used by KiwiQ application.")
     is_public: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a public template, available to all users.")
 
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    updated_at: datetime = Field(default_factory=datetime_now_utc, nullable=False, sa_column_kwargs={"onupdate": datetime_now_utc})
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
     # Relationship (Optional loading)
     # owner_org: Optional["Organization"] = Relationship()
@@ -511,8 +511,8 @@ class UserNotification(SQLModel, table=True):
         description="The content of the notification (e.g., summary, link, details)"
     )
     is_read: bool = Field(default=False, index=True, description="Whether the notification has been read by the user")
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    read_at: Optional[datetime] = Field(default=None, nullable=True, description="Timestamp when the notification was marked as read")
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    read_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True), description="Timestamp when the notification was marked as read")
 
     # Relationships (Loaded on demand)
     user: "User" = Relationship(
@@ -580,9 +580,9 @@ class HITLJob(SQLModel, table=True):
         sa_column=Column(JSON, nullable=True),
         description="The data provided by the user in response to the job"
     )
-    created_at: datetime = Field(default_factory=datetime_now_utc, nullable=False)
-    responded_at: Optional[datetime] = Field(default=None, nullable=True, description="Timestamp when the user responded")
-    expires_at: Optional[datetime] = Field(default=None, nullable=True, description="Optional deadline for the response")
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    responded_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True), description="Timestamp when the user responded")
+    expires_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True), description="Optional deadline for the response")
 
     # Relationships
     # Add back_populates if needed on WorkflowRun, User, Organization

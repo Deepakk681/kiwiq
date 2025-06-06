@@ -10,7 +10,7 @@ https://langchain-ai.github.io/langgraph/how-tos/state-reducers/
 """
 import copy
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, Set, Mapping
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union, Set, Mapping, get_args
 import operator
 from collections.abc import Mapping as MappingABC
 from langgraph.graph.message import add_messages
@@ -78,6 +78,8 @@ class DefaultReducers:
         """
         if left is None:
             return right
+        if right is None:
+            return left
         return left + right
     
     @staticmethod
@@ -327,24 +329,26 @@ class ReducerRegistry:
         """
         # Try to determine if this is a message type
         is_message_type = False
-        if value_type is list[AnyMessage]:
+        if value_type is list[AnyMessage] or value_type is list[get_args(AnyMessage)[0]] or value_type is List[AnyMessage] or value_type is List[get_args(AnyMessage)[0]]:
             is_message_type = True
 
         if is_message_type:
             return REDUCER_FUNCTION_MAP[ReducerType.ADD_MESSAGES]
-        elif value_type in (int, float):
-            return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
-        elif value_type == str:
-            return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
-        elif value_type == list:
-            return REDUCER_FUNCTION_MAP[ReducerType.APPEND_LIST]
-        elif value_type == dict:
-            return REDUCER_FUNCTION_MAP[ReducerType.MERGE_DICTS]
-        elif value_type == set:
-            return REDUCER_FUNCTION_MAP[ReducerType.UNION_SETS]
         else:
-            # Default for other types
             return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
+        # elif value_type in (int, float):
+        #     return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
+        # elif value_type == str:
+        #     return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
+        # elif value_type == list:
+        #     return REDUCER_FUNCTION_MAP[ReducerType.APPEND_LIST]  # ReducerType.APPEND_LIST
+        # elif value_type == dict:
+        #     return REDUCER_FUNCTION_MAP[ReducerType.MERGE_DICTS]  # ReducerType.MERGE_DICTS
+        # elif value_type == set:
+        #     return REDUCER_FUNCTION_MAP[ReducerType.UNION_SETS]  # ReducerType.UNION_SETS
+        # else:
+        #     # Default for other types
+        #     return REDUCER_FUNCTION_MAP[ReducerType.REPLACE]
     
     @staticmethod
     def register_custom_reducer(name: str, reducer_function: Callable[[Any, Any], Any]) -> None:

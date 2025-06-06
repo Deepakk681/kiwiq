@@ -5,7 +5,7 @@ This module tests the LLM node in a simple 3-node graph (input -> LLM -> output)
 with different model configurations and output types.
 """
 import json
-from typing import Dict, Any, List, ClassVar, Awaitable, Optional
+from typing import Dict, Any, List, ClassVar, Awaitable, Optional, Union
 import unittest
 import asyncio
 import uuid
@@ -171,6 +171,7 @@ def create_basic_llm_graph(
                 EdgeMapping(src_field="user_prompt", dst_field="user_prompt"),
                 EdgeMapping(src_field="messages_history", dst_field="messages_history"),
                 EdgeMapping(src_field="system_prompt", dst_field="system_prompt"),
+                EdgeMapping(src_field="image_input_url_or_base64", dst_field="image_input_url_or_base64"),
                 # EdgeMapping(src_field="tool_outputs", dst_field="tool_outputs"), # Added for tool testing
             ]
         ),
@@ -183,7 +184,8 @@ def create_basic_llm_graph(
                 EdgeMapping(src_field="current_messages", dst_field="current_messages"),
                 EdgeMapping(src_field="content", dst_field="content"),
                 EdgeMapping(src_field="web_search_result", dst_field="web_search_result"),
-                # EdgeMapping(src_field="tool_calls", dst_field="tool_calls"), # Added for tool testing
+                EdgeMapping(src_field="tool_calls", dst_field="tool_calls"), # Added for tool testing
+                EdgeMapping(src_field="text_content", dst_field="text_content"), # Added for image testing
             ]
         )
     ]
@@ -222,6 +224,7 @@ async def arun_llm_test(
     user_prompt: str = "What is 2+2? Answer in one word.",
     message_history: Optional[List[Dict]] = None,
     input_system_prompt: Optional[str] = None,
+    image_input_url_or_base64: Optional[Union[str, List[str]]] = None,
     **kwargs # Pass other graph creation args like web_search_options etc.
 ) -> Dict[str, Any]:
     """
@@ -237,6 +240,7 @@ async def arun_llm_test(
         user_prompt: The prompt to send to the LLM.
         message_history: Optional message history.
         input_system_prompt: Optional system prompt to override default.
+        image_input_url_or_base64: Optional image URL or base64 encoded image(s) to send to the model.
         **kwargs: Additional arguments passed to create_basic_llm_graph.
 
     Returns:
@@ -250,6 +254,8 @@ async def arun_llm_test(
         input_data["messages_history"] = message_history
     if input_system_prompt:
         input_data["system_prompt"] = input_system_prompt
+    if image_input_url_or_base64:
+        input_data["image_input_url_or_base64"] = image_input_url_or_base64
 
     # Create graph schema using the passed arguments
     graph_schema = create_basic_llm_graph(
@@ -264,6 +270,9 @@ async def arun_llm_test(
 
     builder = GraphBuilder(registry)
     graph_entities = builder.build_graph_entities(graph_schema)
+
+    for node in graph_entities["node_instances"].values():
+        node.billing_mode = False
 
     # Use provided runtime config, but ensure a unique thread_id for isolation
     graph_runtime_config = graph_entities["runtime_config"]
@@ -692,6 +701,129 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result["structured_output"]["item_name"], str)
         self.assertIn("item_count", result["structured_output"])
         self.assertIsInstance(result["structured_output"]["item_count"], int)
+    
+    # --- OpenAI Web Search Tests ---
+
+    async def test_openai_text_output_with_web_search(self):
+        """Test OpenAI GPT-4o Search Preview with text output and web search."""
+        if not hasattr(OpenAIModels, "GPT_4O_SEARCH_PREVIEW"):
+             self.skipTest("OpenAIModels.GPT_4O_SEARCH_PREVIEW not defined in enum.")
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.OPENAI,
+            model_name=OpenAIModels.GPT_4O_SEARCH_PREVIEW.value,
+            output_schema_config=None, # Text output
+            web_search_options={
+                "search_context_size": "medium",
+                "user_location": { # OpenAI specific location format
+                    "type": "approximate",
+                    "approximate": {
+                        "country": "US",
+                        "city": "San Francisco",
+                        "region": "California",
+                    },
+                }
+            },
+            user_prompt="What are the latest climate change policies? Answer briefly top highlights.",
+            max_tokens=500
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("content", result)
+        
+        self.assertIn("metadata", result)
+        self.assertIsInstance(result["content"], str)
+        self.assertGreater(len(result["content"]), 0)
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+        # OpenAI search results might have citations in metadata
+        self.assertIsInstance(result["web_search_result"].get("citations", []), list)
+
+    async def test_openai_structured_output_with_web_search(self):
+        """Test OpenAI GPT-4o Mini Search Preview with structured output and web search."""
+        if not hasattr(OpenAIModels, "GPT_4O_MINI_SEARCH_PREVIEW"):
+             self.skipTest("OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW not defined in enum.")
+
+        dynamic_schema_spec = ConstructDynamicSchema(
+             schema_name="OpenAISearchStructSchema",
+             fields={
+                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+                 "key_statistics": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Important stats"), # Changed to list
+                 "regional_differences": DynamicSchemaFieldConfig(type="str", required=True, description="How adoption varies"),
+                 "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Sources") # Changed to list
+             }
+        )
+        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.OPENAI,
+            model_name=OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW.value,
+            output_schema_config=schema_config, # Structured output
+            web_search_options={
+                "search_context_size": "medium",
+                "user_location": {
+                    "type": "approximate",
+                    "approximate": {
+                        "country": "US",
+                        "city": "Austin",
+                        "region": "Texas",
+                    },
+                }
+            },
+            user_prompt="What is the current state of electric vehicle adoption? Provide summary, key stats list, regional differences, and citations list.",
+            max_tokens=1000
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("structured_output", result)
+        self.assertIn("metadata", result)
+        self.assertIsInstance(result["structured_output"], dict)
+        self.assertIn("summary", result["structured_output"])
+        self.assertIn("key_statistics", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["key_statistics"], list)
+        self.assertIn("regional_differences", result["structured_output"])
+        self.assertIn("citations", result["structured_output"])
+        self.assertIsInstance(result["structured_output"]["citations"], list)
+        self.assertIn("web_search_result", result)
+        self.assertIsNotNone(result["web_search_result"])
+
+    # --- Vision Tests ---
+
+    async def test_openai_vision_text_output(self):
+        """Test OpenAI GPT-4o with image input and text output."""
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.OPENAI,
+            model_name=OpenAIModels.GPT_4o.value,
+            user_prompt="What text do you see in this image? Please describe what you observe.",
+            image_input_url_or_base64="https://upload.wikimedia.org/wikipedia/en/a/a9/Example.jpg",
+            max_tokens=200
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("text_content", result)
+        self.assertIsInstance(result["text_content"], str)
+        self.assertGreater(len(result["text_content"]), 0)
+        # Assert that the response contains the word "example" (case-insensitive)
+        self.assertIn("example", result["text_content"].lower())
+        print(result["text_content"])
+
+    async def test_anthropic_vision_text_output(self):
+        """Test Anthropic Claude 3.5 Sonnet with image input and text output."""
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.ANTHROPIC,
+            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
+            user_prompt="What text do you see in this image? Please describe what you observe.",
+            image_input_url_or_base64="https://upload.wikimedia.org/wikipedia/en/a/a9/Example.jpg",
+            max_tokens=200
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("text_content", result)
+        self.assertIsInstance(result["text_content"], str)
+        self.assertGreater(len(result["text_content"]), 0)
+        # Assert that the response contains the word "example" (case-insensitive)
+        self.assertIn("example", result["text_content"].lower())
+        print(result["text_content"])
 
 
 if __name__ == "__main__":

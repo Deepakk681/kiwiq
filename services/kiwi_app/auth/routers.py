@@ -63,7 +63,7 @@ def _set_refresh_cookie(response: Response, token: str):
 
 def _get_base_url(request: Request, dev_env_suffix: str = ""):
     URL = f"{str(request.base_url).rstrip('/')}{settings.API_V1_PREFIX}{dev_env_suffix}"
-    return f"{settings.AUTH_REDIRECT_BASE_URL}{dev_env_suffix}" if settings.APP_ENV == "PROD" else URL
+    return f"{settings.REDIRECT_BASE_URL}{dev_env_suffix}" if settings.APP_ENV == "PROD" else URL
 
 # === Email/Password Authentication Endpoints ===
 

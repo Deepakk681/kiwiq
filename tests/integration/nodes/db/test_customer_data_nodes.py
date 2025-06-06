@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List, Tuple, Type
 from pydantic import BaseModel, Field, create_model
 
 # Node imports
-from services.workflow_service.registry.nodes.db.customer_data import (
+from workflow_service.registry.nodes.db.customer_data import (
     LoadCustomerDataNode,
     StoreCustomerDataNode,
     LoadCustomerDataConfig,
@@ -23,18 +23,18 @@ from services.workflow_service.registry.nodes.db.customer_data import (
 )
 
 # Context and Service imports
-from services.workflow_service.services.external_context_manager import (
+from workflow_service.services.external_context_manager import (
     ExternalContextManager,
     get_external_context_manager_with_clients
 )
-from services.kiwi_app.workflow_app.service_customer_data import CustomerDataService
-from services.workflow_service.config.constants import (
+from kiwi_app.workflow_app.service_customer_data import CustomerDataService
+from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY
 )
 
 # Schema/Model imports (adjust paths as necessary based on your project structure)
-from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
+from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
 # Assuming User model can be mocked simply or imported
 # Simple Mock User if real one is complex to import/instantiate
 class MockUser(BaseModel):

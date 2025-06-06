@@ -446,6 +446,9 @@ async def arun_llm_test(
     builder = GraphBuilder(registry)
     graph_entities = builder.build_graph_entities(graph_schema)
 
+    for node in graph_entities["node_instances"].values():
+        node.billing_mode = False
+
     # Use provided runtime config, but ensure a unique thread_id for isolation
     graph_runtime_config = graph_entities["runtime_config"]
     graph_runtime_config.update(runtime_config) # type: ignore

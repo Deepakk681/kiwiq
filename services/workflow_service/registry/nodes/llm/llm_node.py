@@ -14,17 +14,46 @@ import time
 from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Literal, cast
 from functools import partial
 from operator import itemgetter
+from uuid import uuid4
 
 # Add jsonschema imports
 import jsonschema
 from jsonschema import Draft202012Validator
 
+# Add tokencost imports
+from tokencost import calculate_prompt_cost, calculate_completion_cost, calculate_cost_by_tokens
+
 from pydantic import Field, field_validator, model_validator, BaseModel, create_model
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
 from pydantic import ConfigDict
 from pydantic.v1 import BaseModel as BaseModelV1
 
-from anthropic import Anthropic
-from openai import OpenAI
+# ######## ######## ######## ######## ######## ######## ########
+# ######## ######## MONKEY PATCHING LANGCHAIN ######## ######## 
+# ######## ######## ######## ######## ######## ######## ########
+# from langchain_core.messages.ai import UsageMetadata
+# from langchain_perplexity import chat_models
+
+# def _custom_create_usage_metadata(token_usage: dict) -> UsageMetadata:
+#     input_tokens = token_usage.get("prompt_tokens", 0)
+#     output_tokens = token_usage.get("completion_tokens", 0)
+#     total_tokens = token_usage.get("total_tokens", input_tokens + output_tokens)
+#     print("####### ######## $$$$$ FUCKING MONKEY PATCHING $$$$$ ######## ########")
+#     print("json.dumps(token_usage):", json.dumps(token_usage, indent=4))
+#     return UsageMetadata(
+#         input_tokens=input_tokens,
+#         output_tokens=output_tokens,
+#         total_tokens=total_tokens,
+#     )
+
+# chat_models._create_usage_metadata = _custom_create_usage_metadata
+
+# ######## ######## ######## ######## ######## ######## ########
+# ######## ######## ######## ######## ######## ######## ########
+
+# from anthropic import Anthropic
+# from openai import OpenAI
 
 from langchain_core.messages import (
     AIMessage, 
@@ -35,6 +64,9 @@ from langchain_core.messages import (
     # BaseMessage
 )
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
+from langchain_perplexity import ChatPerplexity
+
 from langchain_openai.chat_models.base import (
     _convert_to_openai_response_format, convert_to_openai_tool, 
     _is_pydantic_class, RunnableLambda, RunnablePassthrough, _oai_structured_outputs_parser, RunnableMap,
@@ -46,7 +78,6 @@ from langchain_anthropic.chat_models import (
     LanguageModelInput, is_basemodel_subclass, OutputParserLike,
     OutputParserException, BaseMessage, AnthropicTool
 )
-from langchain_anthropic import ChatAnthropic
 
 from langchain_core.runnables import Runnable, RunnableBinding
 
@@ -56,7 +87,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.tools import BaseTool
 from langchain.chat_models import init_chat_model
-from langchain_community.chat_models import ChatPerplexity
+# from langchain_community.chat_models import ChatPerplexity
 
 # Add db and service imports
 # from kiwi_app.auth.models import User
@@ -76,6 +107,7 @@ from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
 from workflow_service.registry.nodes.core.dynamic_nodes import ConstructDynamicSchema, DynamicSchema
 from workflow_service.registry.nodes.llm.config import LLMModelProvider, PROVIDER_MODEL_MAP, AnthropicModels, AWS_REGION, ModelMetadata, THINKING_MESSAGE_TYPES, REDACED_THINKING_MESSAGE_TYPES, GEMINI_PARAM_KEY_OVERRIDES, PARAM_KEY_OVERRIDES, AI_MESSAGE_TYPES
 from workflow_service.registry.schemas.base import create_dynamic_schema_with_fields
+# from workflow_service.services.external_context_manager import ExternalContextManager
 
 
 class MessageType(str, Enum):
@@ -102,7 +134,7 @@ class ToolOutput(BaseSchema):
 
 
 class LLMNodeInputSchema(BaseSchema):
-    """Input schema for the LLM node."""
+    """Input schema for the LLM node. NOTE: always use prompt constructor when using loops since this node will always read the same inputs over and over!"""
     # Messages input
     messages_history: List[AnyMessage] = Field(
         default_factory=list, 
@@ -120,6 +152,11 @@ class LLMNodeInputSchema(BaseSchema):
         None,
         description="Dict of tool outputs to append to the conversation. Each tool output must have 'tool_name' and 'output' keys."
     )
+    image_input_url_or_base64: Optional[Union[str, List[str]]] = Field(
+        None,
+        description="URL or base64 encoded image(s) to send to the model. If provided, the model will generate a response based on the image(s)."
+    )
+
 ###########################
 
 
@@ -132,6 +169,7 @@ class LLMMetadata(BaseSchema):
     model_name: str = Field(description="Model name used for generation")
     response_metadata: Optional[Dict[str, Any]] = Field(None, description="Response metadata")
     token_usage: Optional[Dict[str, Union[int, Dict[str, Any]]]] = Field(None, description="Token usage statistics. Input, Output, Thinking, Cached tokens.")
+    search_query_usage: int = Field(default=0, description="Number of search queries used")
     # thinking_tokens: Optional[int] = Field(None, description="Number of thinking tokens (for models that support it)")
     finish_reason: Optional[str] = Field(None, description="Reason for finish (e.g., 'stop', 'length', 'tool_calls')")
     latency: Optional[float] = Field(None, description="Latency in seconds")
@@ -724,10 +762,11 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         
 
         # Execute model with provider-specific handling
+        allocated_credits = 0.0
         try:
             start_time = time.time()
-            response = await self._execute_model(
-                chat_model, messages_for_model, model_metadata,   # **tool_kwargs
+            response, allocated_credits = await self._execute_model(
+                chat_model, messages_for_model, model_metadata, ext_context=ext_context, app_context=app_context,  # **tool_kwargs
                 )
             # NOTE: 
             # if (not self.config.output_schema.is_output_str()): 
@@ -741,7 +780,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             raise RuntimeError(f"Model execution failed: {str(e)}") from e
 
         # Parse and validate response using node config
-        return self._parse_response(response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata)
+        return await self._parse_response(response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata, ext_context=ext_context, app_context=app_context, allocated_credits=allocated_credits)
     
     def _apply_both_structured_output_and_tool_kwargs(self, chat_model, model_metadata: ModelMetadata, output_schema: BaseSchema, tools: Optional[list] = None, **kwargs: Dict[str, Any]):
         if model_metadata.provider == LLMModelProvider.OPENAI:
@@ -1006,6 +1045,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         model_name = self.config.llm_config.model_spec.model
         model_metadata: ModelMetadata = PROVIDER_MODEL_MAP[provider](model_name).metadata
         
+        if provider == LLMModelProvider.OPENAI:
+           model_kwargs["stream_usage"] = True
+           # model_kwargs["stream_options"] = {"include_usage": True}
 
         assert model_kwargs.get("max_tokens") <= model_metadata.output_token_limit, f"Max tokens ({model_kwargs['max_tokens']}) exceeds the model's {provider.value} -> `{model_name}` output token limit ({model_metadata.output_token_limit})"
 
@@ -1053,19 +1095,59 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         assert input_data.tool_outputs or (input_data.system_prompt or self.config.default_system_prompt) or input_data.user_prompt, "At least one of tool_outputs, system_prompt, or user_prompt must be provided to call the LLM!"
         
+        added_images = set()
+        
         if input_data.messages_history:
             # messages.extend(self._convert_messages(input_data.messages_history))
             # TODO: FIXME: probably don't need to convert past message histories to langchain types??
             messages.extend(input_data.messages_history)
+            for message in input_data.messages_history:
+                if isinstance(message, HumanMessage) and message.content and isinstance(message.content, list):
+                    for content in message.content:
+                        if content.get("type") == "image_url":
+                            added_images.add(content.get("image_url", {}).get("url"))
+
         elif input_data.system_prompt or self.config.default_system_prompt:
             # Don't add system prompt if messages_history is available
-            messages.append(SystemMessage(content=input_data.system_prompt or self.config.default_system_prompt))
+            messages.append(SystemMessage(content=input_data.system_prompt or self.config.default_system_prompt, id=str(uuid4())))
             current_messages.append(messages[-1])
         
-        if input_data.user_prompt:
-            messages.append(HumanMessage(content=input_data.user_prompt))
+        if input_data.user_prompt or input_data.image_input_url_or_base64:
+            # Prepare content for HumanMessage - handle both text and images
+            content_parts = []
+            
+            # Add text content
+            if input_data.user_prompt:
+                content_parts.append({
+                    "type": "text",
+                    "text": input_data.user_prompt,
+                })
+            images = input_data.image_input_url_or_base64
+            if images:
+                if not isinstance(images, list):
+                    images = [images]
+                # Add images if available and not already added
+                if images:
+                    for image_url in images:
+                        if image_url not in added_images:
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": image_url},
+                            })
+                            added_images.add(image_url)
+            
+            # Create HumanMessage with appropriate content format
+            if len(content_parts) == 1 and content_parts[0]["type"] == "text":
+                # If only text, use string content for simplicity
+                messages.append(HumanMessage(content=input_data.user_prompt, id=str(uuid4())))
+            else:
+                # If multiple parts or images, use list format
+                messages.append(HumanMessage(content=content_parts, id=str(uuid4())))
             current_messages.append(messages[-1])
         # TODO: log warning if neither of user prompt or tool output provided!
+        
+        # print(added_images)
+        # import ipdb; ipdb.set_trace()
         
         if input_data.tool_outputs:
             assert model_metadata.tool_use, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support tool use!"
@@ -1134,6 +1216,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     tool_output_msg = ToolMessage(
                         content=content,
                         tool_call_id=tool_call_id,
+                        # NOTE: DEBUG: may end up replace tool call!
                         id=tool_call_id,
                         name=tool_output.get("name", ""),
                         status=status,
@@ -1146,6 +1229,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 tool_messages = [{
                     "role": "user",
                     "type": "human",
+                    "id": str(uuid4()),
                     "content": tool_messages
                 }]
             # import ipdb; ipdb.set_trace()
@@ -1229,13 +1313,40 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     raise ValueError(f"Tool {tool_config.tool_name} has no input schema!")
                 
                 # Change schema name to be equal to tool name!
+                field_definitions = {}
+                for k,v in input_schema.model_fields.items():
+                    if BaseSchema._is_field_for_llm_tool_call(v):
+                        # Create a new FieldInfo with default removed and is_required set to True
+                        # This ensures LLM tools see all fields as required for proper tool calling
+                        modified_field = v
+                        # NOTE: hack for openai schemas since they don't support default, etc
+                        if model_metadata.provider == LLMModelProvider.OPENAI:
+                            # modified_field = copy(v)
+                            # modified_field.default = PydanticUndefined  # Remove any default value
+                            # modified_field.default_factory = PydanticUndefined  # Mark as required for LLM tool calls
+
+                            modified_field = FieldInfo(
+                                # Don't pass any default value - this makes the field required
+                                annotation=v.annotation,
+                                description=v.description,
+                                title=v.title,
+                                examples=v.examples,
+                                json_schema_extra=v.json_schema_extra,
+                                metadata=v.metadata,
+                                # Explicitly exclude default and default_factory to make field required
+                                # All other field properties are preserved
+                            )
+                        
+
+                        field_definitions[k] = (v.annotation, modified_field)
+                
                 tool_for_binding = create_model(
                     tool_config.tool_name,
-                    __base__=BaseSchema,
+                    __base__=(BaseNodeConfig if model_metadata.provider == LLMModelProvider.OPENAI else BaseSchema),
                     __doc__=input_schema.__doc__,
                     __module__=input_schema.__module__,  # module_name or 
                     # Only bind user editable fields, hide other fields!
-                    **{k:(v.annotation, v) for k,v in input_schema.model_fields.items() if BaseSchema._is_field_for_llm_tool_call(v)}
+                    **field_definitions
                 )
                 # tool_for_binding = input_schema
             
@@ -1251,7 +1362,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         return model.bind_tools(tools=tools, **kwargs), tools, kwargs
 
-    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, **kwargs) -> Any:
+    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context, app_context, **kwargs) -> Any:
         """Execute model with provider-specific streaming handling."""
         # if self.config.stream:
         #     return self._handle_streaming(model, messages)
@@ -1264,7 +1375,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # model_kwargs = {
         #     "temperature": self.config.llm_config.temperature,
         #     "maxOutputTokens": self.config.llm_config.max_tokens,
-        # }
+        # } 
 
         # provider = self.config.llm_config.model_spec.provider
         # model_name = self.config.llm_config.model_spec.model
@@ -1280,8 +1391,10 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
 
         # response = temp_model.invoke("Hello, world!")
-        # # import ipdb; ipdb.set_trace()
+        # print(json.dumps([m.model_dump(mode="json") if isinstance(m, BaseModel) else m for m in messages], indent=4))
+        # import ipdb; ipdb.set_trace()
 
+        # web_search_options = None
         invoke_kwargs = kwargs
         if hasattr(model_metadata, "web_search") and model_metadata.web_search:
             if self.config.web_search_options is not None:
@@ -1308,10 +1421,48 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 }
         # NOTE: this arg is not supported by some langchain integrations with providers, eg: perplexity
         # invoke_kwargs["max_concurrency"] = 50
-      # import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         # from asyncio import shield
+        
+        # Extract necessary info for billing
+        user = app_context.get("user")  # : Optional[User]
+        run_job = app_context.get("workflow_run_job")  # : Optional[WorkflowRunJobCreate]
+        org_id = run_job.owner_org_id
+        
+        # Calculate estimated cost and allocate credits before model execution
+        estimated_cost = 0.0
+        allocated_credits = 0.0
+        
+        if self.billing_mode:
+            # Calculate estimated cost
+            estimated_cost = self._calculate_estimated_cost(
+                messages=messages,
+                provider=self.config.llm_config.model_spec.provider,
+                model_name=self.config.llm_config.model_spec.model,
+                max_output_tokens=self.config.llm_config.max_tokens
+            )
+            
+            # Allocate credits based on estimated cost
+            from kiwi_app.billing.models import CreditType
+            async with get_async_db_as_manager() as db:
+                await ext_context.billing_service.allocate_credits_for_operation(
+                    db=db,
+                    org_id=org_id,
+                    user_id=user.id,
+                    operation_id=run_job.run_id,
+                    credit_type=CreditType.DOLLAR_CREDITS,
+                    estimated_credits=estimated_cost,
+                    metadata={
+                        "model_name": self.config.llm_config.model_spec.model,
+                        "provider": self.config.llm_config.model_spec.provider.value,
+                    }
+                )
+            allocated_credits = estimated_cost
+            self.info(f"Allocated ${allocated_credits:.6f} credits for LLM call")
+        
         if "extra_body" in invoke_kwargs:
-            return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
+            # TODO: migrate this to using model_kwargs or directly providing this to model init!
+            response = await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
         else:
             message = None
             async for chunk in model.astream(messages, **invoke_kwargs):
@@ -1323,7 +1474,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             if "raw" in message:
                 message["raw"] = message_chunk_to_message(message["raw"])
             # import ipdb; ipdb.set_trace()
-            return message
+            response = message
+        return (response, allocated_credits)
         # return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
         # return await shield(model.ainvoke)(messages, **invoke_kwargs)
     
@@ -1357,14 +1509,17 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             tool_calls = [t for t in tool_calls if t["name"] != output_schema.__name__]
         return tool_calls
     
-    def _parse_response(
+    async def _parse_response(
         self,
         original_response: Any,
         message_history: List[AnyMessage],
         current_messages: List[AnyMessage],
         latency: float,
         output_schema: Union[Type[BaseSchema], Dict[str, Any], None],
-        model_metadata: ModelMetadata
+        model_metadata: ModelMetadata,
+        app_context: Optional[Dict[str, Any]] = None,
+        ext_context = None,
+        allocated_credits: float = 0.0,
     ) -> LLMNodeOutputSchema:
         """Parse response, handle structured output validation/parsing, and format the final output.
 
@@ -1374,6 +1529,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         NOTE: reasoning mode with JSON mode in Fireworks:
         https://docs.fireworks.ai/structured-responses/structured-response-formatting#reasoning-model-json-mode
         """
+
+        
         # Determine if the model actually made tool calls (excluding potential internal structured output calls)
         # import ipdb; ipdb.set_trace()
         
@@ -1410,6 +1567,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # Filter out tool calls that don't have a name
             filtered_tool_calls = [t for t in filtered_tool_calls if "name" in t and t["name"]]
 
+        # import ipdb; ipdb.set_trace()
+
+        # print(response.model_dump_json(indent=4) if isinstance(response, BaseModel) else response)
         # import ipdb; ipdb.set_trace()
         
 
@@ -1455,10 +1615,52 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             response_metadata=response_metadata,  # Use normalized metadata
             model_name=self.config.llm_config.model_spec.model,
             latency=latency,
+            # {'input_tokens': 10, 'output_tokens': 269, 'total_tokens': 279, 'reasoning_tokens': 0, 'cached_tokens': 0}
             token_usage=normalized_metadata["token_usage"] if normalized_metadata else None,
             finish_reason=normalized_metadata["finish_reason"] if normalized_metadata else None,
             # cached=self.config.cache_responses)
         )
+
+        # After model execution, calculate actual cost and adjust if billing is enabled
+        if self.billing_mode and response:
+            try:
+                user = app_context.get("user")
+                run_job = app_context.get("workflow_run_job")
+                org_id = run_job.owner_org_id
+                if metadata.token_usage:
+                    # Calculate actual cost
+                    actual_cost = self._calculate_actual_cost(
+                        token_usage=metadata.token_usage,
+                        provider=self.config.llm_config.model_spec.provider,
+                        model_name=self.config.llm_config.model_spec.model
+                    )
+
+                    # Add a markup factor for LLM token costs
+                    actual_cost = actual_cost * settings.LLM_TOKEN_COST_MARKUP_FACTOR
+                    
+                    # Adjust allocated credits with actual cost
+                    from kiwi_app.billing.models import CreditType
+                    async with get_async_db_as_manager() as db:
+                        await ext_context.billing_service.adjust_allocated_credits(
+                            db=db,
+                            org_id=org_id,
+                            user_id=user.id,
+                            operation_id=run_job.run_id,
+                            credit_type=CreditType.DOLLAR_CREDITS,
+                            allocated_credits=allocated_credits,
+                            actual_credits=actual_cost,
+                            metadata={
+                                "model": self.config.llm_config.model_spec.model,
+                                "provider": self.config.llm_config.model_spec.provider.value,
+                                "token_usage": metadata.token_usage,
+                            }
+                        )
+                        self.info(f"Adjusted credits: allocated=${allocated_credits:.6f}, actual=${actual_cost:.6f}, difference=${actual_cost - allocated_credits:.6f}")
+                else:
+                    self.warning("No token usage found in response metadata for credit adjustment!")
+            except Exception as e:
+                self.warning(f"Error adjusting allocated credits: {str(e)}")
+                # Continue processing even if billing adjustment fails
 
         # Handle tool calls
         tool_calls = []
@@ -1563,6 +1765,35 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         metadata.iteration_count = self._get_iteration_count(message_history + current_messages)
         # import ipdb; ipdb.set_trace()
         web_search_result = LLMNode._parse_search_results(model_metadata, response) or LLMNode._parse_citations_from_response(model_metadata, response)
+        
+        # Web Searches billing
+        # TODO: potentially estimate web searches in pre allocation credits??
+        citation_count = len(web_search_result.citations) if web_search_result else 0
+        if self.billing_mode and response and citation_count > 0:
+            try:
+                user = app_context.get("user")
+                run_job = app_context.get("workflow_run_job")
+                org_id = run_job.owner_org_id
+                estimated_credits = citation_count // settings.WEB_SEARCH_NUM_CITATIONS_PER_CREDIT
+                # Adjust allocated credits with actual cost
+                from kiwi_app.billing.models import CreditType
+                from kiwi_app.billing.schemas import CreditConsumptionRequest
+                async with get_async_db_as_manager() as db:
+                    await ext_context.billing_service.consume_credits(
+                        db=db,
+                        org_id=org_id,
+                        user_id=user.id,
+                        consumption_request=CreditConsumptionRequest(
+                            credit_type=CreditType.WEB_SEARCHES,
+                            credits_consumed=estimated_credits,
+                            event_type="web_search",
+                            metadata={},
+                        ),
+                    )
+                    self.info(f"Consumed estimated web search credits: allocated=${estimated_credits:.6f}")
+            except Exception as e:
+                self.warning(f"Error adjusting allocated web search credits: {str(e)}")
+
         return LLMNodeOutputSchema(
             current_messages=current_messages,
             content=response.content,
@@ -1853,8 +2084,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             Dict with OpenAI-style metadata format:
             {
                 "token_usage": {
-                    "completion_tokens": int,
-                    "prompt_tokens": int,
+                    "output_tokens": int,
+                    "input_tokens": int,
                     "total_tokens": int
                 },
                 "model_name": str,
@@ -1899,29 +2130,31 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # Handle token usage normalization
         token_usage = {}
         if provider == LLMModelProvider.OPENAI:
-            token_usage = raw_metadata.get("token_usage", {}) or {}
-            # Add OpenAI-specific token details if available
-            token_usage.update({
-                "reasoning_tokens": token_usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
-                "accepted_prediction_tokens": token_usage.get("completion_tokens_details", {}).get("accepted_prediction_tokens", 0),
-                "rejected_prediction_tokens": token_usage.get("completion_tokens_details", {}).get("rejected_prediction_tokens", 0),
-                "cached_tokens": token_usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
-            })
-        elif provider == LLMModelProvider.ANTHROPIC:
-            usage = raw_metadata.get("usage", {}) or {}
+            # For OpenAI, token usage is directly in raw_metadata with the new format
             token_usage = {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
-                "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
-                "reasoning_tokens": usage.get("reasoning_tokens", 0),
-                "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
-                "cached_tokens": usage.get("cache_read_input_tokens", 0)
+                "input_tokens": raw_metadata.get("input_tokens", 0),
+                "output_tokens": raw_metadata.get("output_tokens", 0),
+                "total_tokens": raw_metadata.get("total_tokens", 0),
+                "reasoning_tokens": raw_metadata.get("output_token_details", {}).get("reasoning", 0),
+                "cached_tokens": raw_metadata.get("input_token_details", {}).get("cache_read", 0),
+                "audio_input_tokens": raw_metadata.get("input_token_details", {}).get("audio", 0),
+                "audio_output_tokens": raw_metadata.get("output_token_details", {}).get("audio", 0)
+            }
+        elif provider == LLMModelProvider.ANTHROPIC:
+            # For Anthropic, the token usage data is directly in raw_metadata, not nested under 'usage'
+            token_usage = {
+                "input_tokens": raw_metadata.get("input_tokens", 0),
+                "output_tokens": raw_metadata.get("output_tokens", 0),
+                "total_tokens": raw_metadata.get("total_tokens", 0),
+                "reasoning_tokens": 0,  # Anthropic doesn't report reasoning tokens in this format
+                "cache_creation_input_tokens": raw_metadata.get("input_token_details", {}).get("cache_creation", 0),
+                "cached_tokens": raw_metadata.get("input_token_details", {}).get("cache_read", 0)
             }
         elif provider == LLMModelProvider.GEMINI:
             usage = raw_metadata.get("usage_metadata", {}) or {}
             token_usage = {
-                "prompt_tokens": usage.get("prompt_token_count", 0),
-                "completion_tokens": usage.get("candidates_token_count", 0),
+                "input_tokens": usage.get("prompt_token_count", 0),
+                "output_tokens": usage.get("candidates_token_count", 0),
                 "total_tokens": usage.get("total_token_count", 0),
                 "cached_tokens": usage.get("cached_content_token_count", 0),
                 "reasoning_tokens": 0  # Gemini doesn't report reasoning tokens
@@ -1929,8 +2162,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         elif provider == LLMModelProvider.AWS_BEDROCK:
             usage = raw_metadata.get("usage", {}) or {}
             token_usage = {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
                 "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
                 "reasoning_tokens": 0,  # Bedrock doesn't report reasoning tokens
                 "cached_tokens": 0
@@ -1938,7 +2171,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         elif provider in [LLMModelProvider.FIREWORKS]:  # LLMModelProvider.MISTRALAI, 
             token_usage = raw_metadata.get("token_usage", {}) or {}
             if "total_tokens" not in token_usage:
-                token_usage["total_tokens"] = token_usage.get("prompt_tokens", 0) + token_usage.get("completion_tokens", 0)
+                token_usage["total_tokens"] = token_usage.get("input_tokens", 0) + token_usage.get("output_tokens", 0)
             token_usage.update({
                 "reasoning_tokens": 0,  # These providers don't report reasoning tokens
                 "cached_tokens": 0
@@ -1946,8 +2179,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         elif provider == LLMModelProvider.PERPLEXITY:
             usage = raw_metadata
             token_usage = {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
                 "reasoning_tokens": usage.get("reasoning_tokens", 0),  # Perplexity doesn't report reasoning tokens
                 # "cached_tokens": 0
@@ -1971,3 +2204,178 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             normalized["finish_reason"] = finish_reason_mapping[normalized.get("finish_reason", "").lower()]
 
         return normalized
+
+    @staticmethod
+    def map_model_to_tokencost_format(provider: LLMModelProvider, model_name: str) -> str:
+        """
+        Map our internal model names to tokencost library format.
+        
+        The tokencost library expects model names in the format:
+        - OpenAI: model names as-is (e.g., "gpt-4o", "o1-mini")
+        - Anthropic: with "anthropic/" prefix (e.g., "anthropic/claude-3-5-sonnet-20241022")
+        - Google: with "google/" or "gemini/" prefix (e.g., "google/gemini-2.0-flash-thinking-exp-01-21")
+        - AWS Bedrock: with "bedrock/" prefix (e.g., "bedrock/us.deepseek.r1-v1:0")
+        - Perplexity: with "perplexity/" prefix (e.g., "perplexity/sonar-deep-research")
+        - Fireworks: not directly supported, but we can try with the model name as-is
+        
+        Args:
+            provider: The model provider
+            model_name: Our internal model name
+            
+        Returns:
+            str: Model name in tokencost format
+        """
+        # Map provider to tokencost prefix
+        provider_prefixes = {
+            # LLMModelProvider.OPENAI: "",  # OpenAI models don't need prefix
+            # LLMModelProvider.ANTHROPIC: "anthropic/",
+            # LLMModelProvider.GEMINI: "google/",  # or "gemini/" - we'll try both
+            LLMModelProvider.AWS_BEDROCK: "bedrock/",
+            LLMModelProvider.PERPLEXITY: "perplexity/",
+            LLMModelProvider.FIREWORKS: "",  # Fireworks models might not be supported
+        }
+        
+        prefix = provider_prefixes.get(provider, "")
+        
+        # # Special handling for certain providers
+        # if provider == LLMModelProvider.GEMINI:
+        #     # Try to match Gemini model names to tokencost format
+        #     # Some models use "gemini/" prefix, others use "google/"
+        #     if "gemini" in model_name.lower():
+        #         # For models like "gemini-2.0-flash-thinking-exp-01-21"
+        #         return f"gemini/{model_name}"
+        #     else:
+        #         # For other Google models
+        #         return f"google/{model_name}"
+        if provider == LLMModelProvider.AWS_BEDROCK:
+            # AWS Bedrock models might need region prefix
+            # For now, just use the model name with bedrock/ prefix
+            return f"{prefix}{model_name}"
+        else:
+            # Standard case - just add the prefix
+            return f"{prefix}{model_name}"
+
+    def _calculate_estimated_cost(
+        self, 
+        messages: List[AnyMessage], 
+        provider: LLMModelProvider,
+        model_name: str,
+        max_output_tokens: Optional[int] = None
+    ) -> float:
+        """
+        Calculate estimated cost for the LLM call.
+        
+        Args:
+            messages: List of messages to send to the model
+            provider: Model provider
+            model_name: Model name
+            max_output_tokens: Maximum number of output tokens (for estimation)
+            
+        Returns:
+            float: Estimated cost in USD
+        """
+        try:
+            # Map model to tokencost format
+            tokencost_model = self.map_model_to_tokencost_format(provider, model_name)
+            
+            # Calculate prompt cost
+            # Convert messages to format expected by tokencost
+            prompt_messages = []
+            for msg in messages:
+                if isinstance(msg, dict):
+                    prompt_messages.append(msg)
+                else:
+                    # Convert LangChain message to dict format
+                    msg_dict = {
+                        "role": msg.type,
+                        "content": msg.content if hasattr(msg, 'content') else str(msg)
+                    }
+                    # Map role names
+                    role_mapping = {
+                        "human": "user",
+                        "chat": "user",
+                        "ai": "assistant",
+                        "system": "system",
+                        "tool": "tool",
+                        "function": "function"
+                    }
+                    msg_dict["role"] = role_mapping.get(msg_dict["role"], msg_dict["role"])
+                    prompt_messages.append(msg_dict)
+            
+            # Calculate prompt cost
+            prompt_cost = calculate_prompt_cost(prompt_messages, tokencost_model)
+            
+            # Estimate completion cost based on max_output_tokens or a default
+            if max_output_tokens is None:
+                max_output_tokens = 1000  # Default estimate
+            
+            approx_output_tokens = max_output_tokens // 2
+            completion_cost =  calculate_cost_by_tokens(approx_output_tokens, tokencost_model, "output")
+            
+            # Total estimated cost
+            estimated_cost = prompt_cost + completion_cost
+
+            estimated_cost = float(estimated_cost)
+            
+            self.info(f"Estimated token cost for {provider.value}/{model_name}: ${estimated_cost:.6f}")
+            return estimated_cost
+            
+        except Exception as e:
+            self.warning(f"Error calculating token cost: {str(e)}")
+            # Fallback to a conservative estimate based on provider
+            fallback_costs = {
+                LLMModelProvider.OPENAI: 0.002,
+                LLMModelProvider.ANTHROPIC: 0.003,
+                LLMModelProvider.GEMINI: 0.001,
+                LLMModelProvider.AWS_BEDROCK: 0.002,
+                LLMModelProvider.PERPLEXITY: 0.001,
+                LLMModelProvider.FIREWORKS: 0.001,
+            }
+            return fallback_costs.get(provider, 0.001)
+
+    def _calculate_actual_cost(
+        self,
+        token_usage: Dict[str, Any],
+        provider: LLMModelProvider,
+        model_name: str
+    ) -> float:
+        """
+        Calculate actual cost based on token usage from the response.
+        
+        Args:
+            token_usage: Token usage dict with input_tokens, output_tokens, etc.
+            provider: Model provider
+            model_name: Model name
+            
+        Returns:
+            float: Actual cost in USD
+        """
+        try:
+            # Map model to tokencost format
+            tokencost_model = self.map_model_to_tokencost_format(provider, model_name)
+            
+            # Get token counts
+            input_tokens = token_usage.get("input_tokens", 0)
+            output_tokens = token_usage.get("output_tokens", 0)
+            cached_tokens = token_usage.get("cached_tokens", 0)
+            # TODO: adjust input tokens cost based on cached tokens!
+            #     also add anthropic cache creation costs!
+            cached_input_tokens_cost = calculate_cost_by_tokens(cached_tokens, tokencost_model, "cached")
+            cached_input_tokens_cost = float(cached_input_tokens_cost)
+            # adjusted_input_tokens = input_tokens - cached_tokens
+            # adjusted_input_tokens_cost = calculate_cost_by_tokens(adjusted_input_tokens, tokencost_model, "input")
+            # adjusted_actual_cost = actual_cost + adjusted_input_tokens_cost + output_tokens_cost
+            
+            # TODO: add cached tokens costs!
+            input_tokens_cost = calculate_cost_by_tokens(input_tokens, tokencost_model, "input")
+            output_tokens_cost = calculate_cost_by_tokens(output_tokens, tokencost_model, "output")
+            actual_cost = input_tokens_cost + output_tokens_cost
+
+            actual_cost = float(actual_cost)
+            
+            self.info(f"Actual token cost for {provider.value}/{model_name}: ${actual_cost:.6f}")
+            return actual_cost
+            
+        except Exception as e:
+            self.warning(f"Error calculating actual token cost: {str(e)}")
+            return 0.0

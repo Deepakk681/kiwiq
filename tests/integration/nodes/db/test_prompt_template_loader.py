@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List, Tuple, Type
 from pydantic import BaseModel, Field, create_model
 
 # Node imports
-from services.workflow_service.registry.nodes.db.prompt_template_loader import (
+from workflow_service.registry.nodes.db.prompt_template_loader import (
     PromptTemplateLoaderNode,
     LoadPromptTemplatesConfig,
     PromptTemplateLoadEntry,
@@ -17,16 +17,16 @@ from services.workflow_service.registry.nodes.db.prompt_template_loader import (
 )
 
 # Context and Service imports
-from services.workflow_service.services.external_context_manager import (
+from workflow_service.services.external_context_manager import (
     ExternalContextManager,
     get_external_context_manager_with_clients
 )
-from services.workflow_service.config.constants import (
+from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY
 )
-from services.kiwi_app.workflow_app import crud as wf_crud
-from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate, PromptTemplateCreate
+from kiwi_app.workflow_app import crud as wf_crud
+from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate, PromptTemplateCreate
 from db.session import get_async_db_as_manager
 
 # Simple Mock User if real one is complex to import/instantiate
