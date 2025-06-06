@@ -181,7 +181,7 @@ class OrganizationCreditsRead(BillingBaseSchema):
 class CreditConsumptionRequest(BillingBaseSchema):
     """Schema for requesting credit consumption."""
     credit_type: CreditType = Field(..., description="Type of credits to consume")
-    credits_consumed: float = Field(..., ge=0, description="Number of credits to consume (can be 0 for edge cases)")
+    credits_consumed: float = Field(..., description="Number of credits to consume (can be 0 or negative for edge cases)")
     event_type: str = Field(..., description="Type of usage event")
     metadata: Dict[str, Any] = Field(default={}, description="Event-specific metadata")
 
