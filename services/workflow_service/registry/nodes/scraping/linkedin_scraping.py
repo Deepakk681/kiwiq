@@ -31,6 +31,12 @@ from services.scraper_service.client.schemas.job_config_schema import (
 from services.scraper_service.scraper_entrypoint import execute_scraper_job
 from services.scraper_service.settings import rapid_api_settings # For defaults maybe
 
+# Billing and credit calculation imports
+from services.scraper_service.credit_calculator import credit_estimation
+from kiwi_app.billing.models import CreditType
+from db.session import get_async_db_as_manager
+from kiwi_app.settings import settings as kiwi_settings
+
 
 # --- Helper Function (adapted from customer_data.py) ---
 
@@ -319,7 +325,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
     async def process(
         self,
         input_data: Union[DynamicSchema, Dict[str, Any]],
-        runtime_config: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
         *args: Any,
         **kwargs: Any
     ) -> LinkedInScrapingOutput:
@@ -345,6 +351,22 @@ class LinkedInScrapingNode(BaseDynamicNode):
         # Stores tasks in normal mode, validated configs or errors in test mode
         job_output_map: Dict[str, List[Union[asyncio.Task, Dict[str, Any]]]] = {}
         execution_summary: Dict[str, Dict[str, Any]] = {}
+        
+        config = config.get("configurable")
+
+        app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
+        ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
+
+        # Billing tracking
+        total_estimated_credits = 0.0
+        allocated_credits = 0.0
+        job_credit_map: Dict[str, float] = {}  # Maps task name to estimated credits
+        
+        # Credit tracking (regardless of billing mode)
+        total_credits_consumed = 0  # Total credits for successful jobs
+        total_potential_credits = 0  # Total credits if all jobs succeed
+        job_credit_count_map: Dict[str, int] = {}  # Maps task name to credit count (not dollar amount)
+        uncalculated_jobs = []  # Track jobs where credit calculation failed
 
         self.info(f"LinkedIn Scraping Node processing. Test Mode: {test_mode}")
 
@@ -438,6 +460,49 @@ class LinkedInScrapingNode(BaseDynamicNode):
                     final_params = {k: v for k, v in request_params.items() if v is not None}
                     validated_request = ScrapingRequest.model_validate(final_params)
                     execution_summary[output_field]["jobs_triggered"] += 1 # Count potential job
+                    
+                    # Calculate credits for this job (always calculate, not just in billing mode)
+                    job_credits = 0.0
+                    job_credit_count = 0
+                    try:
+                        # Map ScrapingRequest fields to what credit_calculator expects
+                        credit_request = validated_request.model_dump()
+                        
+                        # Ensure all fields have proper defaults first
+                        credit_request.setdefault("profile_info", "no")
+                        credit_request.setdefault("entity_posts", "no")
+                        credit_request.setdefault("activity_comments", "no")
+                        credit_request.setdefault("activity_reactions", "no")
+                        credit_request.setdefault("search_post_by_keyword", "no")
+                        credit_request.setdefault("search_post_by_hashtag", "no")
+                        credit_request.setdefault("post_comments", "no")
+                        credit_request.setdefault("post_reactions", "no")
+                        credit_request.setdefault("post_limit", 0)
+                        credit_request.setdefault("comment_limit", rapid_api_settings.DEFAULT_COMMENT_LIMIT)
+                        credit_request.setdefault("reaction_limit", rapid_api_settings.DEFAULT_REACTION_LIMIT)
+                        
+                        # Now map entity_posts to post_scrap (credit_calculator expects this)
+                        credit_request["post_scrap"] = credit_request.pop("entity_posts", "no")
+                        
+                        # Ensure type field is present (required by credit_calculator)
+                        if "type" not in credit_request:
+                            # Default to person if not specified
+                            credit_request["type"] = "person"
+                        
+                        credit_result = await credit_estimation(credit_request)
+                        # Use max_credits for conservative allocation
+                        job_credit_count = credit_result["max_credits"]
+                        job_credits = job_credit_count * kiwi_settings.SCRAPING_CREDIT_PRICE
+                        total_potential_credits += job_credit_count
+                        
+                        if self.billing_mode and not test_mode:
+                            total_estimated_credits += job_credits
+                            
+                        self.debug(f"Estimated credits for job '{output_field}_{i}': {job_credit_count} credits (${job_credits:.4f})")
+                    except Exception as e:
+                        self.warning(f"Failed to calculate credits for job '{output_field}_{i}': {e}")
+                        # Continue without credit calculation if it fails
+                        uncalculated_jobs.append(f"{output_field}_{i}")
 
                     if test_mode:
                         # Store the validated config dictionary
@@ -446,12 +511,18 @@ class LinkedInScrapingNode(BaseDynamicNode):
                         execution_summary[output_field]["successful"] += 1 # Mark as successful validation
                     else:
                         # Create the async task for actual execution
+                        task_name = f"{output_field}_{i}"
                         task = asyncio.create_task(
                             execute_scraper_job(validated_request),
-                            name=f"{output_field}_{i}"
+                            name=task_name
                         )
                         all_tasks.append(task)
                         job_output_map[output_field].append(task) # Store task
+                        # Store credit mapping for this task
+                        if self.billing_mode:
+                            job_credit_map[task_name] = job_credits
+                        # Always store credit count for reporting
+                        job_credit_count_map[task_name] = job_credit_count
                         # Success/failure counted after gather
 
                 except ValidationError as e:
@@ -463,6 +534,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
                     execution_summary[output_field]["failed"] += 1
                     # Add detailed validation errors if helpful
                     execution_summary[output_field]["errors"].append(f"Iteration {i}: Error {error_msg} Details: {error_details}")
+                    # Note: Credits were already calculated before validation, so they're included in potential credits
 
                 except Exception as e:
                     self.error(f"Unexpected error preparing job for {output_field}, iteration {i}: {e}", exc_info=True)
@@ -470,20 +542,60 @@ class LinkedInScrapingNode(BaseDynamicNode):
                     job_output_map[output_field].append({"error": error_msg})
                     execution_summary[output_field]["failed"] += 1
                     execution_summary[output_field]["errors"].append(f"Iteration {i}: {error_msg}")
+                    # Note: Credits might have been calculated, track if this was after credit calculation
 
 
         # 4. Run tasks concurrently (only if not in test_mode)
         results = []
+        
+        # Allocate credits before execution if billing is enabled
+        if self.billing_mode and not test_mode and total_estimated_credits > 0:
+            try:
+                user = app_context.get("user")
+                run_job = app_context.get("workflow_run_job")
+                org_id = run_job.owner_org_id
+                
+                async with get_async_db_as_manager() as db:
+                    await ext_context.billing_service.allocate_credits_for_operation(
+                        db=db,
+                        org_id=org_id,
+                        user_id=user.id,
+                        operation_id=run_job.run_id,
+                        credit_type=CreditType.DOLLAR_CREDITS,
+                        estimated_credits=total_estimated_credits,
+                        metadata={
+                            "operation_type": "linkedin_scraping",
+                            "job_count": len(all_tasks),
+                        }
+                    )
+                allocated_credits = total_estimated_credits
+                self.info(f"Allocated ${allocated_credits:.4f} credits for {len(all_tasks)} LinkedIn scraping jobs")
+            except Exception as e:
+                self.error(f"Failed to allocate credits for scraping operation: {e}")
+                raise
+                # Continue without billing if allocation fails
+        
         if not test_mode and all_tasks:
             self.info(f"Executing {len(all_tasks)} scraping jobs concurrently...")
             results = await asyncio.gather(*all_tasks, return_exceptions=True)
             self.info("Scraping jobs execution finished.")
         elif test_mode:
              self.info("Test mode enabled. Skipping actual job execution.")
+             # In test mode, all potential credits are considered
+             total_credits_consumed = 0  # No actual consumption in test mode
 
         # 5. Process results (or stored configs in test_mode) and map back to output fields
         output_data: Dict[str, Any] = {}
         task_index = 0 # Index into the 'results' list from asyncio.gather
+        
+        # Track successful jobs for billing adjustment
+        successful_job_credits = 0.0
+        failed_job_credits = 0.0
+        
+        # Track credit counts for reporting
+        successful_credit_count = 0
+        failed_credit_count = 0
+        
         for job_def in self.config.jobs:
              output_field = job_def.output_field_name
              # This list contains Tasks in normal mode, dicts (configs/errors) in test mode
@@ -502,30 +614,42 @@ class LinkedInScrapingNode(BaseDynamicNode):
                  else:
                      # Normal mode: Item is either a Task or an error dict (from pre-validation failure)
                      if isinstance(item, asyncio.Task):
-                         if task_index < len(results):
-                             result_or_exception = results[task_index]
-                             if isinstance(result_or_exception, Exception):
-                                 self.error(f"Scraping job '{item.get_name()}' failed: {result_or_exception}", exc_info=result_or_exception)
-                                 error_detail = str(result_or_exception)
-                                 # Attempt to get cleaner error if available
-                                 if hasattr(result_or_exception, '__cause__') and isinstance(getattr(result_or_exception, '__cause__'), dict):
-                                     error_detail = getattr(result_or_exception, '__cause__').get('error', error_detail)
-                                 final_outputs_for_field.append({"error": f"Job execution failed: {error_detail}"})
-                                 # We count triggered jobs earlier, now mark failure post-execution
-                                 execution_summary[output_field]["failed"] += 1
-                             elif isinstance(result_or_exception, dict) and "error" in result_or_exception:
-                                 self.warning(f"Scraping job '{item.get_name()}' returned an error: {result_or_exception['error']}")
-                                 final_outputs_for_field.append(result_or_exception)
-                                 execution_summary[output_field]["failed"] += 1
-                             else:
-                                 # Successful result
-                                 final_outputs_for_field.append(self._serialize_result(result_or_exception))
-                                 execution_summary[output_field]["successful"] += 1 # Count success post-execution
-                             task_index += 1
-                         else:
-                             self.error(f"Mismatch between tasks and results for '{output_field}'.")
-                             final_outputs_for_field.append({"error": "Internal error processing results."})
-                             execution_summary[output_field]["failed"] += 1 # Count as failed if result missing
+                          task_name = item.get_name()
+                          task_credits = job_credit_map.get(task_name, 0.0)
+                          task_credit_count = job_credit_count_map.get(task_name, 0)
+                          
+                          if task_index < len(results):
+                              result_or_exception = results[task_index]
+                              if isinstance(result_or_exception, Exception):
+                                  self.error(f"Scraping job '{task_name}' failed: {result_or_exception}", exc_info=result_or_exception)
+                                  error_detail = str(result_or_exception)
+                                  # Attempt to get cleaner error if available
+                                  if hasattr(result_or_exception, '__cause__') and isinstance(getattr(result_or_exception, '__cause__'), dict):
+                                      error_detail = getattr(result_or_exception, '__cause__').get('error', error_detail)
+                                  final_outputs_for_field.append({"error": f"Job execution failed: {error_detail}"})
+                                  # We count triggered jobs earlier, now mark failure post-execution
+                                  execution_summary[output_field]["failed"] += 1
+                                  failed_job_credits += task_credits
+                                  failed_credit_count += task_credit_count
+                              elif isinstance(result_or_exception, dict) and "error" in result_or_exception:
+                                  self.warning(f"Scraping job '{task_name}' returned an error: {result_or_exception['error']}")
+                                  final_outputs_for_field.append(result_or_exception)
+                                  execution_summary[output_field]["failed"] += 1
+                                  failed_job_credits += task_credits
+                                  failed_credit_count += task_credit_count
+                              else:
+                                  # Successful result
+                                  final_outputs_for_field.append(self._serialize_result(result_or_exception))
+                                  execution_summary[output_field]["successful"] += 1 # Count success post-execution
+                                  successful_job_credits += task_credits
+                                  successful_credit_count += task_credit_count
+                              task_index += 1
+                          else:
+                              self.error(f"Mismatch between tasks and results for '{output_field}'.")
+                              final_outputs_for_field.append({"error": "Internal error processing results."})
+                              execution_summary[output_field]["failed"] += 1 # Count as failed if result missing
+                              failed_job_credits += task_credits
+                              failed_credit_count += task_credit_count
                      elif isinstance(item, dict) and "error" in item:
                          # Error occurred before task creation (e.g., validation)
                          final_outputs_for_field.append(item)
@@ -546,6 +670,62 @@ class LinkedInScrapingNode(BaseDynamicNode):
                  output_data[output_field] = final_outputs_for_field[0]
              else: # No jobs triggered (e.g., empty expansion list)
                  output_data[output_field] = [] # Represent no results as empty list
+
+        # Adjust credits after execution if billing is enabled
+        if self.billing_mode and not test_mode and allocated_credits > 0:
+            try:
+                user = app_context.get("user")
+                run_job = app_context.get("workflow_run_job")
+                org_id = run_job.owner_org_id
+                
+                # Calculate actual credits (only charge for successful jobs)
+                actual_credits = successful_job_credits
+                
+                async with get_async_db_as_manager() as db:
+                    await ext_context.billing_service.adjust_allocated_credits(
+                        db=db,
+                        org_id=org_id,
+                        user_id=user.id,
+                        operation_id=run_job.run_id,
+                        credit_type=CreditType.DOLLAR_CREDITS,
+                        allocated_credits=allocated_credits,
+                        actual_credits=actual_credits,
+                        metadata={
+                            "operation_type": "linkedin_scraping",
+                            "successful_jobs": sum(s["successful"] for s in execution_summary.values()),
+                            "failed_jobs": sum(s["failed"] for s in execution_summary.values()),
+                            "refunded_credits": failed_job_credits,
+                        }
+                    )
+                self.info(f"Adjusted credits: allocated=${allocated_credits:.4f}, actual=${actual_credits:.4f}, refunded=${failed_job_credits:.4f}")
+            except Exception as e:
+                self.warning(f"Error adjusting allocated credits: {e}")
+                # Continue processing even if billing adjustment fails
+
+        # Calculate total credits consumed and costs (regardless of billing mode)
+        if test_mode:
+            # In test mode, report potential credits but no actual consumption
+            total_credits_consumed = 0
+            total_dollar_cost = 0.0
+            # Count all validated configs as "would be successful"
+            test_mode_successful_count = sum(s["successful"] for s in execution_summary.values())
+        else:
+            total_credits_consumed = successful_credit_count
+            total_dollar_cost = total_credits_consumed * kiwi_settings.SCRAPING_CREDIT_PRICE
+        
+        # Add credit summary to execution_summary
+        execution_summary["_credit_summary"] = {
+            "total_credits_consumed": total_credits_consumed,
+            "total_dollar_cost": round(total_dollar_cost, 4),
+            "total_potential_credits": total_potential_credits,
+            "total_potential_dollar_cost": round(total_potential_credits * kiwi_settings.SCRAPING_CREDIT_PRICE, 4),
+            "failed_credits": failed_credit_count if not test_mode else 0,
+            "failed_dollar_amount": round(failed_credit_count * kiwi_settings.SCRAPING_CREDIT_PRICE, 4) if not test_mode else 0.0,
+            "price_per_credit": kiwi_settings.SCRAPING_CREDIT_PRICE,
+            "test_mode": test_mode,
+            "uncalculated_jobs_count": len(uncalculated_jobs),
+            "uncalculated_jobs": uncalculated_jobs[:10] if uncalculated_jobs else [],  # Limit to first 10 for readability
+        }
 
         # 6. Create output instance
         output_cls = self.__class__.output_schema_cls
@@ -570,9 +750,13 @@ class LinkedInScrapingNode(BaseDynamicNode):
 
         # Final summary logging
         for field_name, summary in execution_summary.items():
-            self.info(f"Output field {field_name}: triggered={summary['jobs_triggered']}, successful={summary['successful']}, failed={summary['failed']}")
-            if summary['errors']:
-                self.warning(f"Errors for {field_name}: {summary['errors'][:5]}" + ("..." if len(summary['errors']) > 5 else ""))
+            if field_name == "_credit_summary":
+                self.info(f"Credit Summary: {total_credits_consumed} credits consumed (${total_dollar_cost:.4f}), "
+                         f"{failed_credit_count} credits failed (${failed_credit_count * kiwi_settings.SCRAPING_CREDIT_PRICE:.4f})")
+            else:
+                self.info(f"Output field {field_name}: triggered={summary['jobs_triggered']}, successful={summary['successful']}, failed={summary['failed']}")
+                if summary['errors']:
+                    self.warning(f"Errors for {field_name}: {summary['errors'][:5]}" + ("..." if len(summary['errors']) > 5 else ""))
 
         return output_instance
 

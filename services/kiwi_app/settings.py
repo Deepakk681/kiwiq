@@ -103,6 +103,7 @@ class Settings(GlobalSettings):
             "default": 0.02
         }, description="Price per credit in dollars"
     )
+    SCRAPING_CREDIT_PRICE: float = Field(0.01, description="Price per scraping credit in dollars (1 cent)")
     
     # Minimum purchase amounts
     MINIMUM_DOLLAR_CREDITS_PURCHASE: float = Field(5.0, description="Minimum dollar credits purchase amount in dollars")

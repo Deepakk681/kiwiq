@@ -1,6 +1,8 @@
 import unittest
 import asyncio
 from typing import Dict, Any, List
+import uuid
+from unittest.mock import MagicMock, AsyncMock
 
 # Import necessary components from the node and schema files
 from services.workflow_service.registry.nodes.scraping.linkedin_scraping import (
@@ -17,12 +19,83 @@ from services.scraper_service.client.schemas.job_config_schema import (
     YesNoEnum
 )
 from services.scraper_service.settings import rapid_api_settings # For checking defaults
+from services.scraper_service.credit_calculator import credit_estimation
+
+# Import for runtime context setup
+from workflow_service.config.constants import APPLICATION_CONTEXT_KEY, EXTERNAL_CONTEXT_MANAGER_KEY
+from kiwi_app.auth.models import User, Organization
+from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
+from kiwi_app.settings import settings as kiwi_settings
 
 
 # --- Test Cases ---
 
 class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
     """Test suite for LinkedInScrapingNode in test_mode=True."""
+
+    def setUp(self):
+        """Set up test environment."""
+        # Mock user
+        self.mock_user = MagicMock(spec=User)
+        self.mock_user.id = uuid.uuid4()
+        self.mock_user.email = "test@example.com"
+        
+        # Mock organization
+        self.mock_org = MagicMock(spec=Organization)
+        self.mock_org.id = uuid.uuid4()
+        self.mock_org.name = "Test Organization"
+        
+        # Mock workflow run job
+        self.mock_run_job = MagicMock(spec=WorkflowRunJobCreate)
+        self.mock_run_job.run_id = str(uuid.uuid4())
+        self.mock_run_job.owner_org_id = self.mock_org.id
+        
+        # Mock external context manager
+        self.mock_ext_context = MagicMock()
+        self.mock_ext_context.db_registry = MagicMock()
+        self.mock_ext_context.customer_data_service = MagicMock()
+        self.mock_ext_context.billing_service = None  # Not needed in test mode
+
+    def _create_runtime_config(self) -> Dict[str, Any]:
+        """Create runtime config with proper app context and external context."""
+        return {
+            "configurable": {
+                APPLICATION_CONTEXT_KEY: {
+                    "user": self.mock_user,
+                    "workflow_run_job": self.mock_run_job,
+                },
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.mock_ext_context
+            }
+        }
+
+    async def _calculate_expected_credits(self, scraping_request: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate expected credits for a scraping request using the credit calculator."""
+        # Map the fields to match what credit_calculator expects
+        mapped_request = scraping_request.copy()
+        
+        # Ensure all required fields are present with defaults first
+        mapped_request.setdefault("profile_info", "no")
+        mapped_request.setdefault("entity_posts", "no")
+        mapped_request.setdefault("activity_comments", "no")
+        mapped_request.setdefault("activity_reactions", "no")
+        mapped_request.setdefault("search_post_by_keyword", "no")
+        mapped_request.setdefault("search_post_by_hashtag", "no")
+        mapped_request.setdefault("post_comments", "no")
+        mapped_request.setdefault("post_reactions", "no")
+        mapped_request.setdefault("post_limit", 0)
+        mapped_request.setdefault("comment_limit", rapid_api_settings.DEFAULT_COMMENT_LIMIT)
+        mapped_request.setdefault("reaction_limit", rapid_api_settings.DEFAULT_REACTION_LIMIT)
+        mapped_request.setdefault("type", "person")  # Default type if not specified
+        
+        # Now map entity_posts to post_scrap (credit_calculator expects this)
+        mapped_request["post_scrap"] = mapped_request.pop("entity_posts", "no")
+        
+        credit_result = await credit_estimation(mapped_request)
+        return {
+            "max_credits": credit_result["max_credits"],
+            "min_credits": credit_result["min_credits"],
+            "dollar_cost": credit_result["max_credits"] * kiwi_settings.SCRAPING_CREDIT_PRICE
+        }
 
     async def test_static_profile_info(self):
         """Tests a single job definition with purely static inputs for profile_info."""
@@ -41,7 +114,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIsInstance(output, LinkedInScrapingOutput)
@@ -75,6 +149,18 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["failed"], 0)
         self.assertEqual(len(summary["errors"]), 0)
 
+        # Check credit summary
+        credit_summary = output.execution_summary.get("_credit_summary")
+        self.assertIsNotNone(credit_summary)
+        self.assertTrue(credit_summary["test_mode"])
+        self.assertEqual(credit_summary["total_credits_consumed"], 0)  # No actual consumption in test mode
+        self.assertEqual(credit_summary["total_dollar_cost"], 0.0)
+        
+        # Calculate expected credits for profile_info job
+        expected_credits = await self._calculate_expected_credits(expected_config)
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], round(expected_credits["dollar_cost"], 4))
+
     async def test_dynamic_company_posts(self):
         """Tests a single job definition with dynamic inputs for company posts."""
         input_data = {
@@ -98,7 +184,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("dynamic_company_feed", output.scraping_results)
@@ -118,6 +205,24 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["jobs_triggered"], 1)
         self.assertEqual(summary["successful"], 1)
         self.assertEqual(summary["failed"], 0)
+
+        # Check credit summary
+        credit_summary = output.execution_summary.get("_credit_summary")
+        self.assertIsNotNone(credit_summary)
+        
+        # Calculate expected credits
+        expected_credits = await self._calculate_expected_credits({
+            "type": "company",
+            "entity_posts": "yes",
+            "post_limit": 5,
+            "post_comments": "yes",
+            "comment_limit": 10,
+            "post_reactions": "no",
+            "reaction_limit": rapid_api_settings.DEFAULT_REACTION_LIMIT
+        })
+        
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], round(expected_credits["dollar_cost"], 4))
 
     async def test_expand_list_usernames(self):
         """Tests expanding a list of usernames for profile info jobs."""
@@ -141,7 +246,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("expanded_profiles", output.scraping_results)
@@ -159,6 +265,13 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["jobs_triggered"], 3)
         self.assertEqual(summary["successful"], 3)
         self.assertEqual(summary["failed"], 0)
+
+        # Check credit summary for expanded jobs
+        credit_summary = output.execution_summary.get("_credit_summary")
+        self.assertIsNotNone(credit_summary)
+        # 3 profile info jobs = 3 credits
+        self.assertEqual(credit_summary["total_potential_credits"], 3)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.03)
 
     async def test_expand_list_keywords_search(self):
         """Tests expanding a list of keywords for search jobs."""
@@ -179,7 +292,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("keyword_searches", output.scraping_results)
@@ -221,7 +335,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("user_reactions", output.scraping_results)
@@ -267,7 +382,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions for Job 1
         self.assertIn("multi_user_out", output.scraping_results)
@@ -308,7 +424,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("invalid_profile", output.scraping_results)
@@ -325,6 +442,12 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(summary["errors"]), 1)
         self.assertIn("Validation failed", summary["errors"][0])
 
+        # Check credit summary shows no credits for failed validation
+        credit_summary = output.execution_summary.get("_credit_summary")
+        self.assertIsNotNone(credit_summary)
+        self.assertEqual(credit_summary["total_potential_credits"], 0)
+        self.assertEqual(credit_summary["total_credits_consumed"], 0)
+
     async def test_validation_invalid_job_type(self):
         """Tests validation failure when job_type resolves to an invalid value."""
         input_data = {"job": "invalid_job_type_value"}
@@ -340,7 +463,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("bad_job_type", output.scraping_results)
@@ -373,7 +497,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("missing_limit_profile", output.scraping_results)
@@ -404,7 +529,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("expand_non_list", output.scraping_results)
@@ -434,7 +560,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("expand_empty", output.scraping_results)
@@ -462,7 +589,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("expand_missing_path", output.scraping_results)
@@ -494,7 +622,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("flag_alignment", output.scraping_results)
@@ -527,7 +656,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIsInstance(output, LinkedInScrapingOutput)
@@ -589,7 +719,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions
         self.assertIn("dynamic_url_posts", output.scraping_results)
@@ -625,7 +756,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
             ]
         }
         node = LinkedInScrapingNode(node_id="test_scraping_node", config=LinkedInScrapingConfig(**node_config_dict))
-        output = await node.process(input_data=input_data)
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
 
         # Assertions: Expecting validation error from ScrapingRequest
         self.assertIn("url_username_conflict", output.scraping_results)
@@ -642,6 +774,560 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["failed"], 1)
         self.assertEqual(len(summary["errors"]), 1)
         self.assertIn("Validation failed", summary["errors"][0])
+
+    # --- COMPREHENSIVE CREDIT CALCULATION TESTS ---
+
+    async def test_credit_calculation_profile_info_simple(self):
+        """Test credit calculation for simple profile info job."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "profile_credit_test",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"static_value": "test_user"},
+                    "profile_info": {"static_value": YesNoEnum.YES.value},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        # Profile info for person = 1 credit
+        self.assertEqual(credit_summary["total_potential_credits"], 1)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.01)  # $0.01 per credit
+
+    async def test_credit_calculation_company_posts_with_comments_reactions(self):
+        """Test credit calculation for company posts with comments and reactions."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "company_posts_full",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "type": {"static_value": EntityTypeEnum.COMPANY.value},
+                    "username": {"static_value": "test_company"},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 10},
+                    "post_comments": {"static_value": YesNoEnum.YES.value},
+                    "comment_limit": {"static_value": 20},
+                    "post_reactions": {"static_value": YesNoEnum.YES.value},
+                    "reaction_limit": {"static_value": 100},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Calculate expected credits based on credit_calculator.py logic:
+        # For company entity posts:
+        # 1. Base posts: 10 posts / 50 per batch = 1 batch = 1 credit
+        # 2. Comments: 10 posts * 1 credit per post = 10 credits
+        # 3. Reactions for company: 10 posts with 100 reactions each
+        #    - First 49 reactions: 3 credits  
+        #    - Remaining 51 reactions: ceil(51/49) = 2 batches * 2 credits = 4 credits
+        #    - Total per post: 3 + 4 = 7 credits
+        #    - Total for all posts: 10 * 7 = 70 credits
+        # Total = 1 + 10 + 70 = 81 credits
+        
+        expected_credits = await self._calculate_expected_credits({
+            "type": "company",
+            "entity_posts": "yes",
+            "post_limit": 10,
+            "post_comments": "yes",
+            "comment_limit": 20,
+            "post_reactions": "yes",
+            "reaction_limit": 100
+        })
+        
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+        self.assertEqual(credit_summary["total_potential_credits"], 81)  # Explicit check
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], round(expected_credits["dollar_cost"], 4))
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.81)  # $0.01 * 81
+        
+        # Verify no actual consumption in test mode
+        self.assertEqual(credit_summary["total_credits_consumed"], 0)
+        self.assertEqual(credit_summary["total_dollar_cost"], 0.0)
+        self.assertTrue(credit_summary["test_mode"])
+
+    async def test_credit_calculation_person_activity_comments_with_nested(self):
+        """Test credit calculation for person activity comments with nested comments and reactions."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "activity_comments_complex",
+                    "job_type": {"static_value": JobTypeEnum.ACTIVITY_COMMENTS.value},
+                    "username": {"static_value": "test_person"},
+                    "activity_comments": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 5},
+                    "post_comments": {"static_value": YesNoEnum.YES.value},
+                    "comment_limit": {"static_value": 10},
+                    "post_reactions": {"static_value": YesNoEnum.YES.value},
+                    "reaction_limit": {"static_value": 50},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Activity comments: 1 credit base
+        # Comments: 5 posts * 1 credit = 5 credits  
+        # Reactions: 5 posts * reactions per post
+        #   For person activity: 50 reactions, first 49 = 3 credits, remaining 1 = 2 credits = 5 credits per post
+        #   Total: 5 * 5 = 25 credits
+        # Total = 1 + 5 + 25 = 31 credits
+        
+        expected_credits = await self._calculate_expected_credits({
+            "type": "person",
+            "activity_comments": "yes",
+            "post_limit": 5,
+            "post_comments": "yes", 
+            "comment_limit": 10,
+            "post_reactions": "yes",
+            "reaction_limit": 50
+        })
+        
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+
+    async def test_credit_calculation_expand_list_multiple_jobs(self):
+        """Test credit calculation when expanding lists across multiple users."""
+        input_data = {
+            "users": ["user1", "user2", "user3", "user4", "user5"],
+            "post_settings": {
+                "limit": 20,
+                "fetch_comments": "yes",
+                "fetch_reactions": "yes",
+                "reaction_limit": 75
+            }
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "expanded_user_posts",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"input_field_path": "users", "expand_list": True},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"input_field_path": "post_settings.limit"},
+                    "post_comments": {"input_field_path": "post_settings.fetch_comments"},
+                    "post_reactions": {"input_field_path": "post_settings.fetch_reactions"},
+                    "reaction_limit": {"input_field_path": "post_settings.reaction_limit"},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Calculate for one user:
+        # Posts: 20 posts / 50 per batch = 1 batch = 1 credit
+        # Comments: 20 posts * 1 credit = 20 credits
+        # Reactions: 20 posts * 75 reactions per post
+        #   For person: first 49 = 1 credit, remaining 26 = ceil(26/49) = 1 batch = 1 credit = 2 credits per post
+        #   Total: 20 * 2 = 40 credits
+        # Total per user = 1 + 20 + 40 = 61 credits
+        # Total for 5 users = 5 * 61 = 305 credits
+        
+        single_user_credits = await self._calculate_expected_credits({
+            "type": "person",
+            "entity_posts": "yes", 
+            "post_limit": 20,
+            "post_comments": "yes",
+            "comment_limit": rapid_api_settings.DEFAULT_COMMENT_LIMIT,
+            "post_reactions": "yes",
+            "reaction_limit": 75
+        })
+        
+        expected_total = single_user_credits["max_credits"] * 5
+        self.assertEqual(credit_summary["total_potential_credits"], expected_total)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], round(expected_total * 0.01, 4))
+
+    async def test_credit_calculation_search_jobs(self):
+        """Test credit calculation for search jobs (keyword and hashtag)."""
+        input_data = {
+            "keywords": ["AI", "machine learning", "data science"],
+            "hashtags": ["tech", "innovation"]
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "keyword_searches",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_KEYWORD.value},
+                    "keyword": {"input_field_path": "keywords", "expand_list": True},
+                    "search_post_by_keyword": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 50},
+                },
+                {
+                    "output_field_name": "hashtag_searches",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_HASHTAG.value},
+                    "hashtag": {"input_field_path": "hashtags", "expand_list": True},
+                    "search_post_by_hashtag": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 25},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Search jobs are now implemented in credit_calculator.py
+        # Keyword searches: 3 searches * 50 posts each / 10 posts per page = 3 * 5 = 15 credits
+        # Hashtag searches: 2 searches * 25 posts each / 45 posts per page = 2 * 1 = 2 credits
+        # Total = 15 + 2 = 17 credits
+        
+        self.assertEqual(credit_summary["total_potential_credits"], 17)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.17)
+        self.assertEqual(credit_summary["uncalculated_jobs_count"], 0)
+
+    async def test_credit_calculation_search_jobs_detailed(self):
+        """Test detailed credit calculation for search jobs with various post limits."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "keyword_small",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_KEYWORD.value},
+                    "keyword": {"static_value": "python"},
+                    "search_post_by_keyword": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 5},  # Less than 1 page
+                },
+                {
+                    "output_field_name": "keyword_medium",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_KEYWORD.value},
+                    "keyword": {"static_value": "data science"},
+                    "search_post_by_keyword": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 25},  # ~3 pages
+                },
+                {
+                    "output_field_name": "hashtag_large",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_HASHTAG.value},
+                    "hashtag": {"static_value": "technology"},
+                    "search_post_by_hashtag": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 100},  # ~3 pages (45 per page)
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Keyword small: 5 posts / 10 per page = 1 credit
+        # Keyword medium: 25 posts / 10 per page = 3 credits
+        # Hashtag large: 100 posts / 45 per page = 3 credits
+        # Total = 1 + 3 + 3 = 7 credits
+        
+        self.assertEqual(credit_summary["total_potential_credits"], 7)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.07)
+
+    async def test_credit_calculation_edge_case_zero_posts(self):
+        """Test credit calculation edge case with zero posts."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "zero_posts_job",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"static_value": "test_user"},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 0},
+                    "post_comments": {"static_value": YesNoEnum.YES.value},
+                    "post_reactions": {"static_value": YesNoEnum.YES.value},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # With 0 posts, should still have base credits but no comment/reaction credits
+        # Entity posts base: 0 posts / 50 = 0 batches = 0 credits  
+        # Comments: 0 posts * 1 = 0 credits
+        # Reactions: 0 posts * reactions = 0 credits
+        # Total = 0 credits
+        
+        expected_credits = await self._calculate_expected_credits({
+            "type": "person",
+            "entity_posts": "yes",
+            "post_limit": 0,
+            "post_comments": "yes",
+            "post_reactions": "yes",
+            "reaction_limit": rapid_api_settings.DEFAULT_REACTION_LIMIT
+        })
+        
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+
+    async def test_credit_calculation_high_volume_reactions(self):
+        """Test credit calculation with very high reaction limits."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "high_reactions_job",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "type": {"static_value": EntityTypeEnum.COMPANY.value},
+                    "username": {"static_value": "popular_company"},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 3},
+                    "post_reactions": {"static_value": YesNoEnum.YES.value},
+                    "reaction_limit": {"static_value": 500},  # Very high limit
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Company with 500 reactions per post:
+        # Posts: 3 posts / 50 = 1 batch = 1 credit
+        # Reactions per post: first 49 = 3 credits, remaining 451 = ceil(451/49) = 10 batches * 2 = 20 credits
+        # Total reactions: 3 posts * 23 credits = 69 credits
+        # Total = 1 + 69 = 70 credits
+        
+        expected_credits = await self._calculate_expected_credits({
+            "type": "company",
+            "entity_posts": "yes",
+            "post_limit": 3,
+            "post_reactions": "yes",
+            "reaction_limit": 500
+        })
+        
+        self.assertEqual(credit_summary["total_potential_credits"], expected_credits["max_credits"])
+        self.assertGreater(credit_summary["total_potential_dollar_cost"], 0.5)  # Should be > $0.50
+
+    async def test_credit_calculation_mixed_job_types(self):
+        """Test credit calculation with multiple different job types in one run."""
+        input_data = {
+            "company_name": "test_company",
+            "person_username": "test_person",
+            "search_keyword": "technology"
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "company_profile",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "type": {"static_value": EntityTypeEnum.COMPANY.value},
+                    "username": {"input_field_path": "company_name"},
+                    "profile_info": {"static_value": YesNoEnum.YES.value},
+                },
+                {
+                    "output_field_name": "person_posts",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"input_field_path": "person_username"},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 15},
+                    "post_comments": {"static_value": YesNoEnum.YES.value},
+                },
+                {
+                    "output_field_name": "keyword_search",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_KEYWORD.value},
+                    "keyword": {"input_field_path": "search_keyword"},
+                    "search_post_by_keyword": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 30},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Company profile: 1 credit
+        # Person posts: 15 posts / 50 = 1 batch = 1 credit + 15 comments = 16 credits
+        # Keyword search: 30 posts / 10 per page = 3 credits (conservative estimate)
+        # Total = 1 + 16 + 3 = 20 credits
+        
+        self.assertEqual(credit_summary["total_potential_credits"], 20)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.20)
+        
+        # No uncalculated jobs now that search is implemented
+        self.assertEqual(credit_summary["uncalculated_jobs_count"], 0)
+
+    async def test_credit_calculation_validation_failures(self):
+        """Test that credit calculation handles validation failures properly."""
+        input_data = {
+            "valid_users": ["user1", "user2"],
+            "invalid_job_type": "not_a_real_job"
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "valid_job",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"input_field_path": "valid_users", "expand_list": True},
+                    "profile_info": {"static_value": YesNoEnum.YES.value},
+                },
+                {
+                    "output_field_name": "invalid_job",
+                    "job_type": {"input_field_path": "invalid_job_type"},  # Will fail
+                    "username": {"static_value": "test_user"},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Should still calculate credits for valid jobs
+        # Valid job: 2 users * 1 credit = 2 credits
+        # Invalid job: 0 credits (failed validation)
+        
+        self.assertEqual(credit_summary["total_potential_credits"], 2)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.02)
+        
+        # Check that invalid job failed
+        invalid_summary = output.execution_summary["invalid_job"]
+        self.assertEqual(invalid_summary["failed"], 1)
+        self.assertEqual(invalid_summary["successful"], 0)
+
+    async def test_credit_calculation_empty_expansion_list(self):
+        """Test credit calculation when expanding an empty list."""
+        input_data = {
+            "empty_users": [],
+            "empty_keywords": []
+        }
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "empty_profiles",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "type": {"static_value": EntityTypeEnum.PERSON.value},
+                    "username": {"input_field_path": "empty_users", "expand_list": True},
+                    "profile_info": {"static_value": YesNoEnum.YES.value},
+                },
+                {
+                    "output_field_name": "empty_searches",
+                    "job_type": {"static_value": JobTypeEnum.SEARCH_POST_BY_KEYWORD.value},
+                    "keyword": {"input_field_path": "empty_keywords", "expand_list": True},
+                    "search_post_by_keyword": {"static_value": YesNoEnum.YES.value},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # No jobs triggered, so no credits
+        self.assertEqual(credit_summary["total_potential_credits"], 0)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.0)
+        self.assertEqual(credit_summary["total_credits_consumed"], 0)
+
+    async def test_credit_calculation_url_parsing(self):
+        """Test credit calculation when using URLs that need parsing."""
+        input_data = {}
+        node_config_dict = {
+            "test_mode": True,
+            "jobs": [
+                {
+                    "output_field_name": "url_based_profile",
+                    "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                    "url": {"static_value": "https://www.linkedin.com/in/test-user-123/"},
+                    "profile_info": {"static_value": YesNoEnum.YES.value},
+                },
+                {
+                    "output_field_name": "url_based_company",
+                    "job_type": {"static_value": JobTypeEnum.ENTITY_POSTS.value},
+                    "url": {"static_value": "https://www.linkedin.com/company/test-company-456/"},
+                    "entity_posts": {"static_value": YesNoEnum.YES.value},
+                    "post_limit": {"static_value": 10},
+                }
+            ]
+        }
+        node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+        runtime_config = self._create_runtime_config()
+        output = await node.process(input_data=input_data, config=runtime_config)
+
+        credit_summary = output.execution_summary["_credit_summary"]
+        
+        # Profile: 1 credit
+        # Company posts: 10 posts / 50 = 1 batch = 1 credit
+        # Total = 2 credits
+        
+        self.assertEqual(credit_summary["total_potential_credits"], 2)
+        self.assertEqual(credit_summary["total_potential_dollar_cost"], 0.02)
+
+    async def test_credit_calculation_uncalculated_jobs_tracking(self):
+        """Test tracking of jobs where credit calculation fails."""
+        # Use unittest.mock to properly patch the credit_estimation function
+        from unittest.mock import patch, AsyncMock
+        
+        # Create a wrapper that fails for specific users
+        async def failing_credit_estimation(req):
+            if req.get("username") == "failing_user":
+                raise Exception("Credit calculation error")
+            # Call the real function for other cases
+            from services.scraper_service.credit_calculator import credit_estimation as real_credit_estimation
+            return await real_credit_estimation(req)
+        
+        # Patch the credit_estimation in the linkedin_scraping module
+        with patch('services.workflow_service.registry.nodes.scraping.linkedin_scraping.credit_estimation', 
+                   new=failing_credit_estimation):
+            input_data = {
+                "users": ["good_user", "failing_user", "another_good_user"]
+            }
+            node_config_dict = {
+                "test_mode": True,
+                "jobs": [
+                    {
+                        "output_field_name": "mixed_users",
+                        "job_type": {"static_value": JobTypeEnum.PROFILE_INFO.value},
+                        "type": {"static_value": EntityTypeEnum.PERSON.value},
+                        "username": {"input_field_path": "users", "expand_list": True},
+                        "profile_info": {"static_value": YesNoEnum.YES.value},
+                    }
+                ]
+            }
+            node = LinkedInScrapingNode(node_id="test_node", config=LinkedInScrapingConfig(**node_config_dict))
+            runtime_config = self._create_runtime_config()
+            output = await node.process(input_data=input_data, config=runtime_config)
+
+            credit_summary = output.execution_summary["_credit_summary"]
+            
+            # Should track uncalculated jobs
+            self.assertEqual(credit_summary["uncalculated_jobs_count"], 1)
+            self.assertIn("mixed_users_1", credit_summary["uncalculated_jobs"])
+            
+            # Should still calculate credits for successful jobs
+            self.assertEqual(credit_summary["total_potential_credits"], 2)  # 2 good users
 
 # Allow running the tests directly using python -m unittest path/to/test_file.py
 if __name__ == "__main__":
