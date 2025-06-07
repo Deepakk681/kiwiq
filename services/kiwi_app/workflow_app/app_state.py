@@ -596,7 +596,17 @@ async def initialize_user_state(
                         "state_value_type_name": "bool",
                         "description": "Review user DNA and complete onboarding.",
                         "state_value": False
-                    }
+                    },
+                    "page_11_content_style_analysis": {
+                        "state_value_type_name": "bool",
+                        "description": "Analyze and review content writing style patterns.",
+                        "state_value": False
+                    },
+                    "page_12_style_test": {
+                        "state_value_type_name": "bool",
+                        "description": "Test and validate content style preferences.",
+                        "state_value": False
+                    },
                 }
             }
         }
