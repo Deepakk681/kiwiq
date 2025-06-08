@@ -205,54 +205,162 @@ class OrganizationDAO(BaseDAO[models.Organization, schemas.OrganizationCreate, s
         result = await db.exec(statement)
         return result.scalars().first()
 
-    # async def get_users_in_org(
-    #     self, 
-    #     db: AsyncSession, 
-    #     org_id: uuid.UUID,
-    #     skip: int = 0,
-    #     limit: int = 100
-    # ) -> Sequence[models.UserOrganizationRole]:
-    #     """
-    #     Get all users in an organization with their roles and user details.
+    async def update_primary_billing_email(
+        self, 
+        db: AsyncSession, 
+        *, 
+        org_id: uuid.UUID, 
+        email: Optional[str]
+    ) -> Optional[models.Organization]:
+        """
+        Update the primary billing email for an organization.
         
-    #     This method retrieves UserOrganizationRole records for a specific organization,
-    #     eagerly loading the associated user and role information to avoid N+1 queries.
-    #     The results are paginated using skip/limit parameters.
+        Args:
+            db: Database session
+            org_id: Organization ID to update
+            email: New primary billing email (can be None to clear)
+            
+        Returns:
+            Updated organization or None if not found
+            
+        Raises:
+            Exception: If there's a database error during update
+        """
+        try:
+            # Get the organization
+            org = await self.get(db, id=org_id)
+            if not org:
+                auth_logger.warning(f"Attempted to update primary_billing_email for non-existent organization: {org_id}")
+                return None
+            
+            # Update the primary billing email
+            org.primary_billing_email = email
+            db.add(org)
+            await db.commit()
+            await db.refresh(org)
+            
+            auth_logger.info(f"Updated primary_billing_email for organization {org_id} to: {email}")
+            return org
+            
+        except Exception as e:
+            auth_logger.error(f"Error updating primary_billing_email for organization {org_id}: {e}", exc_info=True)
+            raise
+
+    async def get_admin_users_in_org(
+        self, 
+        db: AsyncSession, 
+        org_id: uuid.UUID
+    ) -> Sequence[models.UserOrganizationRole]:
+        """
+        Get all admin users in an organization.
         
-    #     Args:
-    #         db: Database session
-    #         org_id: Organization ID to get users for
-    #         skip: Number of records to skip for pagination (default: 0)
-    #         limit: Maximum number of records to return (default: 100)
+        This method retrieves UserOrganizationRole records for users with admin roles
+        in a specific organization, eagerly loading the associated user information.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID to get admin users for
             
-    #     Returns:
-    #         Sequence of UserOrganizationRole objects with loaded user and role relationships
+        Returns:
+            Sequence of UserOrganizationRole objects with loaded user relationships
             
-    #     Example:
-    #         # Get first 50 users in organization
-    #         user_roles = await dao.get_users_in_org(db, org_id, skip=0, limit=50)
-    #         for user_role in user_roles:
-    #             print(f"User: {user_role.user.email}, Role: {user_role.role.name}")
-    #     """
-    #     try:
-    #         statement = select(models.UserOrganizationRole).options(
-    #             # Eagerly load user details
-    #             selectinload(models.UserOrganizationRole.user),
-    #             # Eagerly load role details with permissions
-    #             selectinload(models.UserOrganizationRole.role).selectinload(models.Role.permissions)
-    #         ).where(
-    #             models.UserOrganizationRole.organization_id == org_id
-    #         ).offset(skip).limit(limit).order_by(models.UserOrganizationRole.created_at.desc())
+        Example:
+            admin_links = await dao.get_admin_users_in_org(db, org_id)
+            for admin_link in admin_links:
+                print(f"Admin: {admin_link.user.email}")
+        """
+        try:
+            from kiwi_app.auth.constants import DefaultRoles
             
-    #         result = await db.exec(statement)
-    #         user_roles = result.scalars().all()
+            statement = select(models.UserOrganizationRole).options(
+                # Eagerly load user details
+                selectinload(models.UserOrganizationRole.user),
+                # Eagerly load role details
+                selectinload(models.UserOrganizationRole.role)
+            ).join(
+                models.Role, models.UserOrganizationRole.role_id == models.Role.id
+            ).where(
+                models.UserOrganizationRole.organization_id == org_id,
+                models.Role.name == DefaultRoles.ADMIN  # Only get admin users
+            ).order_by(models.UserOrganizationRole.created_at.asc())
             
-    #         auth_logger.debug(f"Retrieved {len(user_roles)} users for organization {org_id}")
-    #         return user_roles
+            result = await db.exec(statement)
+            admin_links = result.scalars().all()
             
-    #     except Exception as e:
-    #         auth_logger.error(f"Error getting users for organization {org_id}: {e}", exc_info=True)
-    #         raise
+            auth_logger.debug(f"Retrieved {len(admin_links)} admin users for organization {org_id}")
+            return admin_links
+            
+        except Exception as e:
+            auth_logger.error(f"Error getting admin users for organization {org_id}: {e}", exc_info=True)
+            raise
+
+    async def auto_update_primary_billing_email(
+        self, 
+        db: AsyncSession, 
+        *, 
+        org_id: uuid.UUID,
+        action: str,
+        user_email: Optional[str] = None
+    ) -> Optional[models.Organization]:
+        """
+        Automatically update primary billing email based on organization changes.
+        
+        This method implements the business logic for automatically setting/updating
+        the primary billing email when users are added or removed from organizations.
+        
+        Logic:
+        - If no primary_billing_email exists, set it to the first available admin user
+        - If the current primary_billing_email user is removed, replace with another admin
+        - If adding a user and no primary_billing_email exists, use the new user's email
+        
+        Args:
+            db: Database session
+            org_id: Organization ID to update
+            action: Type of action ('create', 'add_user', 'remove_user')
+            user_email: Email of user being added/removed (for add_user/remove_user actions)
+            
+        Returns:
+            Updated organization or None if not found/no update needed
+        """
+        try:
+            org = await self.get(db, id=org_id)
+            if not org:
+                return None
+            
+            auth_logger.debug(f"Auto-updating primary_billing_email for org {org_id}, action: {action}, user_email: {user_email}")
+            
+            if action == "create":
+                # For new organizations, primary_billing_email should be set to creator's email
+                # This is handled in the service layer when creating the org
+                return org
+                
+            elif action == "add_user":
+                # If no primary billing email exists, set it to the new user's email
+                if not org.primary_billing_email and user_email:
+                    return await self.update_primary_billing_email(db, org_id=org_id, email=user_email)
+                    
+            elif action == "remove_user":
+                # If the removed user was the primary billing contact, find a replacement
+                if org.primary_billing_email == user_email:
+                    # Get admin users to find a replacement
+                    admin_links = await self.get_admin_users_in_org(db, org_id)
+                    
+                    # Find the first admin that's not the user being removed
+                    replacement_email = None
+                    for admin_link in admin_links:
+                        if admin_link.user and admin_link.user.email != user_email:
+                            replacement_email = admin_link.user.email
+                            break
+                    
+                    # Update to replacement email (could be None if no other admins)
+                    return await self.update_primary_billing_email(db, org_id=org_id, email=replacement_email)
+            
+            # No update needed
+            return org
+            
+        except Exception as e:
+            auth_logger.error(f"Error auto-updating primary_billing_email for org {org_id}: {e}", exc_info=True)
+            raise
 
     async def get_user_count_in_org(self, db: AsyncSession, org_id: uuid.UUID) -> int:
         """
@@ -370,7 +478,7 @@ class UserDAO(BaseDAO[models.User, schemas.UserCreate, schemas.UserAdminUpdate])
                         all_permissions.add(perm.name)
         return all_permissions
 
-    async def add_user_to_org(self, db: AsyncSession, *, user: models.User, organization: models.Organization, role: models.Role, current_user_is_superuser: bool) -> models.UserOrganizationRole:
+    async def add_user_to_org(self, db: AsyncSession, *, user: models.User, organization: models.Organization, role: models.Role, current_user_is_superuser: bool = False) -> models.UserOrganizationRole:
         """Adds a user to an organization with a specific role.
         # TODO: move logic to service!
         """

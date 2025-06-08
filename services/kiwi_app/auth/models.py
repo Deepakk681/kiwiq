@@ -110,6 +110,7 @@ class Organization(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
     external_billing_id: Optional[str] = Field(default=None, sa_column=Column(SQLAlchemyString, unique=True, nullable=True, index=True))
+    primary_billing_email: Optional[str] = Field(default=None, sa_column=Column(SQLAlchemyString, nullable=True, index=True))
     name: str = Field(sa_column=Column(SQLAlchemyString, index=True))
     description: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))

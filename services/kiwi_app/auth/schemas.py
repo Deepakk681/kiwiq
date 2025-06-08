@@ -52,11 +52,25 @@ class OrganizationCreate(OrganizationBase):
     pass
 
 class OrganizationRead(OrganizationBase, UUIDModel, TimestampModel):
-    pass # Add relationships later if needed, e.g., list of members
+    primary_billing_email: Optional[EmailStr] = None
 
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+
+class OrganizationBillingEmailUpdate(BaseModel):
+    """
+    Schema for updating an organization's primary billing email.
+    
+    This schema is used when manually updating the billing contact email
+    for an organization, separate from the automatic updates that happen
+    when users are added/removed.
+    
+    Attributes:
+        primary_billing_email: The new primary billing email address, 
+                              or None to clear the current email
+    """
+    primary_billing_email: EmailStr = Field(..., description="Primary billing email address for the organization.")
 
 # --- UserOrganizationRole Link Schemas ---
 class UserOrganizationRoleRead(BaseModel):

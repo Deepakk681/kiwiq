@@ -1815,14 +1815,15 @@ class BillingService:
         if organization.external_billing_id:
             try:
                 customer = stripe.Customer.retrieve(organization.external_billing_id)
-                modify_kwargs = {}
-                if customer.email != user.email:
-                    modify_kwargs["email"] = user.email
-                if customer.name != organization.name:
-                    modify_kwargs["name"] = organization.name
-                if modify_kwargs:
-                    modify_kwargs["id"] = customer.id
-                    customer.modify(**modify_kwargs)
+                # NOTE: this is managed in organization service directly
+                # modify_kwargs = {}
+                # if customer.email != user.email:
+                #     modify_kwargs["email"] = user.email
+                # if customer.name != organization.name:
+                #     modify_kwargs["name"] = organization.name
+                # if modify_kwargs:
+                #     modify_kwargs["id"] = customer.id
+                #     customer.modify(**modify_kwargs)
                 return customer
             except stripe.StripeError as e:
                 billing_logger.warning(f"Failed to retrieve Stripe customer {organization.external_billing_id}: {e}")

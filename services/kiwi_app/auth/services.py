@@ -4,7 +4,8 @@ from typing import Optional, List, Set, Tuple
 from datetime import datetime, timedelta # Import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status, BackgroundTasks # Add BackgroundTasks
+from fastapi import HTTPException, status, BackgroundTasks
+import stripe # Add BackgroundTasks
 
 from kiwi_app.auth import crud, models, schemas, security # Added email_verify
 from kiwi_app.auth.utils import auth_logger, datetime_now_utc # Import datetime_now_utc
@@ -23,6 +24,10 @@ from kiwi_app.auth.exceptions import (
 )
 from kiwi_app.email import email_verify
 from kiwi_app.settings import settings # Import settings
+
+# Configure Stripe
+stripe.api_key = settings.STRIPE_SECRET_KEY
+stripe.api_version = settings.STRIPE_API_VERSION
 
 class AuthService:
     """Service layer for authentication and user management logic."""
@@ -467,20 +472,45 @@ class AuthService:
     async def create_organization(self, db: AsyncSession, org_in: schemas.OrganizationCreate, creator: models.User) -> models.Organization:
         """
         Creates a new organization and assigns the creator as admin.
+        Automatically sets the primary_billing_email to the creator's email.
         """
         existing_org = await self.org_dao.get_by_name(db, name=org_in.name)
         if existing_org:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization name already exists")
 
+        # Create the organization first
         new_org = await self.org_dao.create(db=db, obj_in=org_in)
+
+        # Set the primary billing email to creator's email
+        await self.org_dao.update_primary_billing_email(db=db, org_id=new_org.id, email=creator.email)
 
         admin_role = await self.role_dao.get_by_name(db, name=DefaultRoles.ADMIN)
         if not admin_role:
              raise RoleNotFoundException(detail=f"Default role '{DefaultRoles.ADMIN}' not found.")
 
-        await self.user_dao.add_user_to_org(db=db, user=creator, organization=new_org, role=admin_role)
+        await self.user_dao.add_user_to_org(db=db, user=creator, organization=new_org, role=admin_role, current_user_is_superuser=creator.is_superuser)
+
+        # Create new customer
+        customer = stripe.Customer.create(
+            email=creator.email,
+            name=new_org.name,
+            metadata={
+                "kiwiq_org_id": str(new_org.id),
+                "kiwiq_user_id": str(creator.id)
+            }
+        )
+
+        # Update organization with Stripe customer ID
+        new_org.external_billing_id = customer.id
+        db.add(new_org)
+        await db.commit()
+        await db.refresh(new_org)
+
+        auth_logger.info(f"Organization '{new_org.name}' created with primary_billing_email set to: {creator.email}")
+    
 
         return new_org
+
     async def get_organization_users(
         self, 
         db: AsyncSession, 
@@ -586,6 +616,28 @@ class AuthService:
             current_user_is_superuser = current_user.is_superuser
             link = await self.user_dao.add_user_to_org(db=db, user=target_user, organization=target_org, role=target_role, current_user_is_superuser=current_user_is_superuser)
             auth_logger.info(f"Assigned role '{target_role.name}' to user '{target_user.email}' in organization '{target_org.name}'")
+            
+            # Automatically update primary billing email if needed
+            potentially_updated_organization = await self.org_dao.auto_update_primary_billing_email(
+                db=db, 
+                org_id=org_id, 
+                action="add_user", 
+                user_email=target_user.email
+            )
+
+            if potentially_updated_organization is not None and potentially_updated_organization.external_billing_id:
+                try:
+                    customer = stripe.Customer.retrieve(potentially_updated_organization.external_billing_id)
+                    modify_kwargs = {}
+                    if customer.email != potentially_updated_organization.primary_billing_email:
+                        modify_kwargs["email"] = potentially_updated_organization.primary_billing_email
+                    if modify_kwargs:
+                        modify_kwargs["id"] = customer.id
+                        customer.modify(**modify_kwargs)
+                except stripe.StripeError as e:
+                    auth_logger.warning(f"Failed to retrieve Stripe customer {potentially_updated_organization.external_billing_id}: {e}")
+                    # Continue to create new customer if retrieval fails
+            
         except OrganizationSeatLimitExceededException as e:
             auth_logger.error(f"Error assigning role: {e}", exc_info=True)
             raise
@@ -697,6 +749,27 @@ class AuthService:
             deleted = await self.user_dao.remove_user_from_org(db=db, user_id=target_user.id, org_id=target_org.id)
             if deleted:
                 auth_logger.info(f"Removed user '{target_user.email}' from organization '{target_org.name}'")
+                
+                # Automatically update primary billing email if the removed user was the billing contact
+                potentially_updated_organization = await self.org_dao.auto_update_primary_billing_email(
+                    db=db, 
+                    org_id=target_org.id, 
+                    action="remove_user", 
+                    user_email=target_user.email
+                )
+
+                if potentially_updated_organization is not None and potentially_updated_organization.external_billing_id:
+                    try:
+                        customer = stripe.Customer.retrieve(potentially_updated_organization.external_billing_id)
+                        modify_kwargs = {}
+                        if customer.email != potentially_updated_organization.primary_billing_email:
+                            modify_kwargs["email"] = potentially_updated_organization.primary_billing_email
+                        if modify_kwargs:
+                            modify_kwargs["id"] = customer.id
+                            customer.modify(**modify_kwargs)
+                    except stripe.StripeError as e:
+                        auth_logger.warning(f"Failed to retrieve Stripe customer {potentially_updated_organization.external_billing_id}: {e}")
+                
             else:
                 # This might mean the user wasn't in the org to begin with
                 auth_logger.warning(f"Attempted to remove user {target_user.email} from org {target_org.id}, but they were not found (or deletion failed).",)
@@ -871,6 +944,19 @@ class AuthService:
         try:
             # Update the organization with the provided data
             updated_org = await self.org_dao.update(db, db_obj=target_org, obj_in=org_update)
+
+            if updated_org is not None and updated_org.external_billing_id:
+                try:
+                    customer = stripe.Customer.retrieve(updated_org.external_billing_id)
+                    modify_kwargs = {}
+                    if customer.name != updated_org.name:
+                        modify_kwargs["name"] = updated_org.name
+                    if modify_kwargs:
+                        modify_kwargs["id"] = customer.id
+                        customer.modify(**modify_kwargs)
+                except stripe.StripeError as e:
+                    auth_logger.warning(f"Failed to retrieve Stripe customer {updated_org.external_billing_id}: {e}")
+                    # Continue to create new customer if retrieval fails
             
             auth_logger.info(
                 f"Organization '{updated_org.name}' (ID: {org_id}) updated by user '{current_user.email}'"
@@ -885,6 +971,87 @@ class AuthService:
             raise HTTPException(
                 status_code=500, 
                 detail="Failed to update organization due to a database error"
+            )
+
+    async def update_organization_billing_email(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        billing_email_update: schemas.OrganizationBillingEmailUpdate,
+        current_user: models.User
+    ) -> models.Organization:
+        """
+        Manually update an organization's primary billing email.
+        
+        This method allows authorized users to manually set or clear the primary billing
+        email for an organization, overriding the automatic assignment logic.
+        
+        Args:
+            db: Database session
+            org_id: UUID of the organization to update
+            billing_email_update: Schema containing the new billing email
+            current_user: The user requesting the update
+            
+        Returns:
+            models.Organization: The updated organization
+            
+        Raises:
+            OrganizationNotFoundException: If the organization doesn't exist
+            PermissionDeniedException: If the user lacks the required permission
+            HTTPException: If there's a database error during update
+        """
+        # 1. Check if organization exists
+        target_org = await self.org_dao.get(db, id=org_id)
+        if not target_org:
+            auth_logger.warning(f"Attempted to update billing email for non-existent organization: {org_id}")
+            raise OrganizationNotFoundException()
+        
+        # 2. Check if user has permission to update the organization
+        # We can reuse the ORG_UPDATE permission for billing email updates
+        await self._check_permission(db, user=current_user, org_id=org_id, required_permission=Permissions.ORG_UPDATE)
+        
+        # 3. Perform the update
+        try:
+            updated_org = await self.org_dao.update_primary_billing_email(
+                db=db, 
+                org_id=org_id, 
+                email=billing_email_update.primary_billing_email
+            )
+            
+            if updated_org:
+                auth_logger.info(
+                    f"Primary billing email for organization '{updated_org.name}' (ID: {org_id}) "
+                    f"manually updated by user '{current_user.email}' to: {billing_email_update.primary_billing_email}"
+                )
+                if updated_org.external_billing_id:
+                    try:
+                        customer = stripe.Customer.retrieve(updated_org.external_billing_id)
+                        modify_kwargs = {}
+                        if customer.email != updated_org.primary_billing_email:
+                            modify_kwargs["email"] = updated_org.primary_billing_email
+                        if modify_kwargs:
+                            modify_kwargs["id"] = customer.id
+                            customer.modify(**modify_kwargs)
+                    except stripe.StripeError as e:
+                        auth_logger.warning(f"Failed to retrieve Stripe customer {updated_org.external_billing_id}: {e}")
+                return updated_org
+            else:
+                # Should not happen if we already verified the org exists
+                auth_logger.error(f"Failed to update billing email for organization {org_id} - update returned None")
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to update billing email due to a database error"
+                )
+                
+        except Exception as e:
+            auth_logger.error(
+                f"Database error updating billing email for organization {org_id}: {e}", 
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to update billing email due to a database error"
             )
 
 # Instantiate service for use in routers/dependencies

@@ -36,7 +36,8 @@ from kiwi_app.auth.schemas import (
     Token, UserReadWithOrgs, UserRead, UserCreate, OrganizationRead, OrganizationCreate, RoleRead, RoleCreate, UserAssignRole, RequestEmailVerification,
     # Add new password schemas
     AccessTokenResponse, UserChangePassword, RequestPasswordReset, ResetPassword,
-    UserAdminCreate, UserReadWithSuperuserStatus # Added for admin user creation
+    UserAdminCreate, UserReadWithSuperuserStatus, # Added for admin user creation
+    OrganizationBillingEmailUpdate # Added for billing email updates
 )
 
 # Create an API Router
@@ -702,6 +703,69 @@ async def update_organization_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while updating the organization"
+        )
+
+@router.patch("/organizations/{org_id}/billing-email", response_model=schemas.OrganizationRead, tags=["organizations"])
+async def update_organization_billing_email_endpoint(
+    org_id: uuid.UUID = Path(..., description="The ID of the organization to update billing email for"),
+    billing_email_update: schemas.OrganizationBillingEmailUpdate = Body(..., description="The new billing email details"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    # Check permission using the SpecificOrgPermissionChecker for the org_id in path
+    # Using ORG_UPDATE permission for billing email updates
+    current_user: models.User = Depends(dependencies.SpecificOrgPermissionChecker([Permissions.ORG_UPDATE])),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    Update an organization's primary billing email.
+    
+    This endpoint allows authorized users to manually set or clear the primary billing
+    email for an organization. The user must have the 'org:update' permission within
+    that organization to perform this operation.
+    
+    The primary billing email is automatically managed when users are added/removed
+    from organizations, but this endpoint allows for manual override when needed.
+    
+    Args:
+        org_id: UUID of the organization to update
+        billing_email_update: The new billing email (or null to clear)
+        
+    Returns:
+        OrganizationRead: The updated organization with the new billing email
+        
+    Raises:
+        HTTPException: 
+            - 404 if organization not found
+            - 403 if user lacks permission (handled by dependency)
+            - 400 for invalid email format
+            - 500 for unexpected errors
+    """
+    try:
+        # Call the service method to handle the update logic
+        updated_org = await auth_service.update_organization_billing_email(
+            db=db, 
+            org_id=org_id, 
+            billing_email_update=billing_email_update, 
+            current_user=current_user
+        )
+        
+        auth_logger.info(f"Billing email for organization {org_id} updated by user '{current_user.email}'")
+        return updated_org
+        
+    except OrganizationNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Organization not found"
+        )
+    except PermissionDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.detail
+        )
+    except Exception as e:
+        auth_logger.exception(f"Error updating billing email for organization {org_id} by user {current_user.email}", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while updating the organization billing email"
         )
 
 # === Admin/Superuser Endpoints (Example) ===
