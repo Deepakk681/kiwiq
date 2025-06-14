@@ -338,6 +338,27 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       },
       "template_specific": false
     },
+    "knowledge_base_analysis_workflow": {
+      "name": "knowledge_base_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "documents_to_process": [
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "uploaded_files_{item}", 
+                    "input_namespace_field": "entity_username",
+                    "static_docname": null
+                },
+                "output_field_name": "loaded_documents"
+            }
+        ],
+        "entity_username": null,
+        "description": null
+      },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
     "content_strategy_workflow": {
       "name": "content_strategy_workflow",
       "version": null,
