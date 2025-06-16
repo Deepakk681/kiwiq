@@ -222,6 +222,7 @@ async def logout_endpoint(
         
         # Always clear the cookie, even if token invalidation had an issue
         response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
+        response.delete_cookie(key=settings.ACCESS_TOKEN_COOKIE_NAME)
         
         auth_logger.info(f"User successfully logged out: {current_user.email}")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
