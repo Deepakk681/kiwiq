@@ -100,7 +100,23 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     openapi_tags=tags_metadata,
+    swagger_ui_parameters={
+        "withCredentials": True,
+    }
     )
+
+if settings.APP_ENV not in ("PROD", "STAGE"):
+    # Only in dev/stage—skip in real PROD where NGINX handles it
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",   # your frontend URL(s)
+            "http://localhost:8000",   # if you also hit the openapi from another port
+        ],
+        allow_credentials=True,       # must be True to allow cookies
+        allow_methods=["*"],          # GET, POST, PUT, etc.
+        allow_headers=["*"],          # Authorization, Content-Type, etc.
+    )  # :contentReference[oaicite:2]{index=2}
 
 # origins = [
 #     "http://localhost:3000",  # Your frontend URL

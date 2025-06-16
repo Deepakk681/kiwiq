@@ -187,7 +187,7 @@ class AuthService:
         )
         return refresh_token_obj
 
-    async def generate_tokens_for_user(self, db: AsyncSession, user: models.User) -> Tuple[str, models.RefreshToken]:
+    async def generate_tokens_for_user(self, db: AsyncSession, user: models.User, keep_me_logged_in: bool = True) -> Tuple[str, models.RefreshToken]:
         """
         Generates a new JWT access token and a new refresh token for a user.
         Stores the refresh token.
@@ -196,6 +196,9 @@ class AuthService:
         # Create access token
         access_token = security.create_access_token(subject=user.id)
         # Create and store refresh token
+        if not keep_me_logged_in:
+            return access_token, None
+        
         refresh_token_obj = await self._create_refresh_token(db, user_id=user.id)
 
         return access_token, refresh_token_obj

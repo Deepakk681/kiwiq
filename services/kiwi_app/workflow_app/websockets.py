@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any, Set, Tuple, AsyncGenerator
 
 from fastapi import (
     APIRouter, Depends, HTTPException, status, Query, WebSocket,
-    WebSocketDisconnect, Path
+    WebSocketDisconnect, Path, Cookie
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -268,7 +268,7 @@ websocket_manager = ConnectionManager()
 async def websocket_endpoint(
     websocket: WebSocket,
     run_id: uuid.UUID = Path(..., description="The ID of the workflow run to subscribe to"),
-    token: str = Query(..., description="The JWT token for the user"),
+    access_token: str = Cookie(..., description="The JWT token for the user"),
     active_org_id: uuid.UUID = Query(..., description="The active organization ID"),
     db: AsyncSession = Depends(get_async_db_dependency),
 ):
@@ -294,7 +294,7 @@ async def websocket_endpoint(
     # Authenticate the user from the token
     try:
         # logger.debug(f"Attempting to authenticate user with token")
-        user = await get_current_user_non_dependency(db, token)
+        user = await get_current_user_non_dependency(db, access_token)
         if not user:
             logger.warning(f"Invalid token for WebSocket connection to run {run_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -472,7 +472,7 @@ async def websocket_endpoint(
 @websocket_router.websocket("/ws/notifications")
 async def notifications_websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(..., description="The JWT token for the user"),
+    access_token: str = Cookie(..., description="The JWT token for the user"),
     db: AsyncSession = Depends(get_async_db_dependency),
 ):
     """
@@ -495,7 +495,7 @@ async def notifications_websocket_endpoint(
     # Authenticate the user from the token
     try:
         # logger.debug(f"Attempting to authenticate user with token")
-        user = await get_current_user_non_dependency(db, token)
+        user = await get_current_user_non_dependency(db, access_token)
         if not user:
             logger.warning("Invalid token for WebSocket general notifications connection")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

@@ -2,7 +2,10 @@ from typing import List, Any, Optional, AsyncGenerator
 import uuid
 import logging # Keep standard logging import if needed elsewhere
 
+# from fastapi.responses import Response as FastAPIResponse
+
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Query, Request, Security, BackgroundTasks, Cookie, Response, Path
+
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm # Special form for username/password
 from sqlalchemy.exc import IntegrityError
@@ -56,12 +59,29 @@ router = APIRouter(
 def _set_cookie(response: Response, token: str, cookie_name: str, max_age_seconds: int):
     response.set_cookie(
         key=cookie_name,
+        domain=settings.COOKIE_DOMAIN,
         value=token,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        max_age=max_age_seconds # In seconds
+        max_age=max_age_seconds, # In seconds
+        path="/"  # Explicitly set path for consistency
     )
+
+def _delete_cookie(response: Response, cookie_name: str):
+    # When deleting cookies, we must match the exact attributes used when setting them
+    # Set the cookie with max_age=0 to delete it (more reliable than delete_cookie)
+    response.set_cookie(
+        key=cookie_name,
+        value="",  # Empty value
+        domain=settings.COOKIE_DOMAIN,
+        httponly=settings.COOKIE_HTTPONLY,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=0,  # This will delete the cookie
+        expires=0   # Also set expires to ensure deletion
+    )
+
 
 def _get_base_url(request: Request, dev_env_suffix: str = ""):
     URL = f"{str(request.base_url).rstrip('/')}{settings.API_V1_PREFIX}{dev_env_suffix}"
@@ -110,6 +130,7 @@ async def register_user_endpoint(
 async def login_for_access_token_endpoint(
     response: Response, # Inject Response object to set cookie
     db: AsyncSession = Depends(get_async_db_dependency),
+    keep_me_logged_in: bool = Query(True, description="If True, will keep user logged in for 30 days"),
     form_data: OAuth2PasswordRequestForm = Depends(),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service)
 ) -> schemas.AccessTokenResponse: # Use a specific response schema for clarity
@@ -119,12 +140,17 @@ async def login_for_access_token_endpoint(
     try:
         user = await auth_service.authenticate_user(db=db, email=form_data.username, password=form_data.password)
         # Generate both tokens
-        access_token_str, refresh_token_obj = await auth_service.generate_tokens_for_user(db=db, user=user)
+        access_token_str, refresh_token_obj = await auth_service.generate_tokens_for_user(db=db, user=user, keep_me_logged_in=keep_me_logged_in)
         auth_logger.info(f"User successfully authenticated: {user.email}")
 
         # Set refresh token in HttpOnly cookie
-        _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
+        if keep_me_logged_in:
+            _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
+        else:
+            _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
         _set_cookie(response, str(access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+
+        # response.
 
         # Return access token in response body
         return {"status": "success"}
@@ -177,14 +203,28 @@ async def refresh_token_endpoint(
 
     except CredentialsException as e:
         # If refresh fails (invalid, expired, revoked), clear the cookie
-        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=e.detail or "Invalid refresh token")
+        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
+        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        # Return an error response with the modified response object to include cookie headers
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": e.detail or "Invalid refresh token"},
+            headers=response.headers
+        )
     except Exception as e:
         # Log unexpected errors
         auth_logger.exception(f"Unexpected error during token refresh", exc_info=e)
         # Clear potentially compromised/invalid cookie on error
-        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
-        raise HTTPException(status_code=500, detail="An internal error occurred during token refresh.")
+        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
+        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        # Return an error response with the modified response object to include cookie headers
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal error occurred during token refresh."},
+            headers=response.headers
+        )
 
 # --- Logout Endpoint --- #
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["auth"])
@@ -221,18 +261,23 @@ async def logout_endpoint(
                 auth_logger.exception(f"Error invalidating refresh token during logout: {current_user.email}", exc_info=e)
         
         # Always clear the cookie, even if token invalidation had an issue
-        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
-        response.delete_cookie(key=settings.ACCESS_TOKEN_COOKIE_NAME)
+        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
+        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
         
         auth_logger.info(f"User successfully logged out: {current_user.email}")
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # Don't return a new Response object - let FastAPI use the modified response
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return response
         
     except Exception as e:
         # Log unexpected errors
         auth_logger.exception(f"Unexpected error during logout for user: {current_user.email}", exc_info=e)
         # Still try to clear cookie on error
-        response.delete_cookie(key=settings.REFRESH_COOKIE_NAME)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
+        # Don't return a new Response object - let FastAPI use the modified response
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return response
 
 # --- Optional: Email Verification Endpoints ---
 @router.post("/request-verify-email", status_code=status.HTTP_202_ACCEPTED, tags=["auth"])

@@ -8,7 +8,7 @@ class Settings(GlobalSettings):
     # --- Auth Settings --- #
     SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 10
     
@@ -99,6 +99,7 @@ class Settings(GlobalSettings):
     ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
     COOKIE_SECURE: bool = global_settings.APP_ENV in ["PROD", "STAGE"] # Set to False for local HTTP development ONLY
+    COOKIE_DOMAIN: Optional[str] = ".kiwiq.ai" if global_settings.APP_ENV in ["PROD", "STAGE"] else None
     COOKIE_HTTPONLY: bool = True
     COOKIE_SAMESITE: str = "lax" # Or "strict"
 

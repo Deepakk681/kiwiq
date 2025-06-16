@@ -62,25 +62,7 @@ class WebSocketTestClient:
             
         logger.info(f"WebSocketTestClient initialized for user: {self._auth_client._email}")
 
-    def _get_auth_token(self) -> Optional[str]:
-        """
-        Extracts the JWT token from the AuthenticatedClient's Authorization header.
-        
-        Returns:
-            Optional[str]: The JWT token, or None if not available
-        """
-        if not self._auth_client.client or "Authorization" not in self._auth_client.client.headers:
-            logger.warning("No Authorization header found in AuthenticatedClient")
-            return None
-            
-        auth_header = self._auth_client.client.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]  # Remove "Bearer " prefix
-            logger.debug(f"Extracted JWT token: {token[:10]}...")
-            return token
-        
-        logger.warning(f"Authorization header does not have expected Bearer format: {auth_header}")
-        return None
+
 
     def _get_active_org_id(self) -> Optional[str]:
         """
@@ -100,8 +82,9 @@ class WebSocketTestClient:
     def _add_params_to_url(self, url: str, include_active_org: bool = True) -> str:
         """
         Adds required parameters to the WebSocket URL:
-        - token: JWT token from Authorization header
         - active_org_id: organization ID from X-Active-Org header (optional)
+        
+        Note: JWT token is now passed via cookies instead of query parameters.
         
         Args:
             url (str): The original WebSocket URL
@@ -110,20 +93,11 @@ class WebSocketTestClient:
         Returns:
             str: The URL with query parameters added
         """
-        # Get authentication token
-        token = self._get_auth_token()
-        if not token:
-            logger.warning("No token available to add to URL")
-            return url
-            
         # Parse URL into components
         parsed = urlparse(url)
         
         # Parse existing query parameters
         query_dict = dict(parse_qsl(parsed.query))
-        
-        # Add token parameter
-        query_dict['token'] = token
         
         # Add active_org_id parameter if requested
         if include_active_org:
@@ -148,6 +122,7 @@ class WebSocketTestClient:
     def _get_header_dict(self) -> Dict[str, str]:
         """
         Creates a header dictionary for the WebSocket connection.
+        Includes all cookies from the authenticated client, including the access_token cookie.
         
         Returns:
             Dict[str, str]: A dictionary of headers to include in the WebSocket connection
@@ -160,16 +135,16 @@ class WebSocketTestClient:
             # Add X-Active-Org header if present in the httpx client
             if "X-Active-Org" in self._auth_client.client.headers:
                 headers["X-Active-Org"] = self._auth_client.client.headers["X-Active-Org"]
-            if "Authorization" in self._auth_client.client.headers:
-                headers["Authorization"] = self._auth_client.client.headers["Authorization"]
             
-            # Add cookies as header (for any authentication that uses cookies)
+            # Add all cookies from the httpx client (which includes access_token and refresh_token)
             if self._auth_client.client.cookies:
                 cookie_parts = []
                 for name, value in self._auth_client.client.cookies.items():
                     cookie_parts.append(f"{name}={value}")
+                
                 if cookie_parts:
                     headers["Cookie"] = "; ".join(cookie_parts)
+                    logger.debug(f"WebSocket cookies: {headers['Cookie']}")
                     
         return headers
 
@@ -202,10 +177,10 @@ class WebSocketTestClient:
         Returns:
             websocket.WebSocketApp: The configured WebSocketApp instance
         """
-        # Add parameters to URL if authentication is needed
+        # Add parameters to URL and prepare headers if authentication is needed
         if include_auth:
             url_with_params = self._add_params_to_url(url, include_active_org)
-            headers = self._get_header_dict()
+            headers = self._get_header_dict()  # This includes JWT token as access_token cookie
         else:
             url_with_params = url
             headers = {}
@@ -547,13 +522,14 @@ def example_usage():
     async def run_example():
         # Create authenticated client
         async with AuthenticatedClient() as auth_client:
-            # Verify auth client has a token
-            if not auth_client._access_token:
-                print("Failed to get access token. Check your credentials.")
+            # Verify auth client has the access_token cookie
+            if not auth_client.access_token:
+                print("Failed to get access_token cookie. Check your credentials.")
                 return
                 
-            print(f"Auth token: {auth_client._access_token[:10]}...")
+            print(f"Access token cookie: {auth_client.access_token[:10]}...")
             print(f"Active Org ID: {auth_client.active_org_id}")
+            print(f"All cookies: {list(auth_client.client.cookies.keys())}")
             
             # Create WebSocket test client
             ws_client = WebSocketTestClient(auth_client, enable_trace=ENABLE_WEBSOCKET_TRACE)

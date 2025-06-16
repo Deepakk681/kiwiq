@@ -91,6 +91,20 @@ class AuthenticatedClient:
         """Returns the active organization ID being used."""
         return self._active_org_id
 
+    @property
+    def access_token(self) -> Optional[str]:
+        """Returns the current access token from cookies, if available."""
+        if self._client and self._client.cookies:
+            return self._client.cookies.get("access_token")
+        return None
+
+    @property
+    def refresh_token(self) -> Optional[str]:
+        """Returns the current refresh token from cookies, if available."""
+        if self._client and self._client.cookies:
+            return self._client.cookies.get("refresh_token")
+        return None
+
     async def _update_org_header(self) -> None:
         """Updates the X-Active-Org header in the client."""
         self._client.headers["X-Active-Org"] = self._active_org_id
