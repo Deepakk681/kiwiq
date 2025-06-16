@@ -2348,14 +2348,14 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             
             # Calculate prompt cost
             if provider == LLMModelProvider.ANTHROPIC:
+                kwargs = {}
                 if system_message:
                     prompt_messages.pop(system_message[0])
                     if system_message[1]:
                         kwargs = {
                             "system": system_message[1]
                         }
-                    else:
-                        kwargs = {}
+                self.info(f"messages: {json.dumps(prompt_messages, indent=2)}, kwargs_system: {kwargs.get('system', None)}")
                 input_tokens = anthropic.Anthropic().beta.messages.count_tokens(
                         model=model_name,
                         messages=messages,
