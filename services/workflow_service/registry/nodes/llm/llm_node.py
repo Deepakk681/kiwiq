@@ -54,6 +54,7 @@ from pydantic.v1 import BaseModel as BaseModelV1
 
 # from anthropic import Anthropic
 # from openai import OpenAI
+import anthropic
 
 from langchain_core.messages import (
     AIMessage, 
@@ -2321,7 +2322,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # Calculate prompt cost
             # Convert messages to format expected by tokencost
             prompt_messages = []
-            for msg in messages:
+            system_message = None
+            for i, msg in enumerate(messages):
                 if isinstance(msg, dict):
                     prompt_messages.append(msg)
                 else:
@@ -2340,10 +2342,28 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                         "function": "function"
                     }
                     msg_dict["role"] = role_mapping.get(msg_dict["role"], msg_dict["role"])
+                    if msg_dict["role"] == "system":
+                        system_message = (i, msg_dict["content"])
                     prompt_messages.append(msg_dict)
             
             # Calculate prompt cost
-            prompt_cost = calculate_prompt_cost(prompt_messages, tokencost_model)
+            if provider == LLMModelProvider.ANTHROPIC:
+                if system_message:
+                    prompt_messages.pop(system_message[0])
+                    if system_message[1]:
+                        kwargs = {
+                            "system": system_message[1]
+                        }
+                    else:
+                        kwargs = {}
+                input_tokens = anthropic.Anthropic().beta.messages.count_tokens(
+                        model=model_name,
+                        messages=messages,
+                        **kwargs,
+                    ).input_tokens
+                prompt_cost =  calculate_cost_by_tokens(input_tokens, tokencost_model, "input")
+            else:
+                prompt_cost = calculate_prompt_cost(prompt_messages, tokencost_model)
             
             # Estimate completion cost based on max_output_tokens or a default
             if max_output_tokens is None:
