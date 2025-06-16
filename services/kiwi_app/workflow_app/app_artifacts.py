@@ -57,6 +57,18 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
       "schema_template_version": null,
       "is_system_entity": false
     },
+    "knowledge_base_analysis": {
+      "docname_template": "knowledge_base_analysis",
+      "namespace_template": "knowledge_base_{entity_username}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"entity_username": null},
+      "is_shared": false,
+      "is_versioned": true,
+      "initial_version": null,
+      "schema_template_name": null,
+      "schema_template_version": null,
+      "is_system_entity": false
+    },
     "uploaded_files": {
       "docname_template": "",
       "namespace_template": "uploaded_files_{entity_username}",
@@ -181,6 +193,18 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
         "docname_template": "idea_{_uuid_}",
         "namespace_template": "content_ideas_{entity_username}",
         "docname_template_vars": {"_uuid_": null},
+        "namespace_template_vars": {"entity_username": null},
+        "is_shared": false,
+        "is_versioned": true,
+        "initial_version": null,
+        "schema_template_name": null,
+        "schema_template_version": null,
+        "is_system_entity": false
+	},
+	"writing_style": {
+        "docname_template": "writing_style_posts_doc",
+        "namespace_template": "user_inputs_{entity_username}",
+        "docname_template_vars": {},
         "namespace_template_vars": {"entity_username": null},
         "is_shared": false,
         "is_versioned": true,
