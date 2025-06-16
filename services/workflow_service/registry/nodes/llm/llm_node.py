@@ -2358,7 +2358,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 self.info(f"messages: {json.dumps(prompt_messages, indent=2)}, kwargs_system: {kwargs.get('system', None)}")
                 input_tokens = anthropic.Anthropic().beta.messages.count_tokens(
                         model=model_name,
-                        messages=messages,
+                        messages=prompt_messages,
                         **kwargs,
                     ).input_tokens
                 prompt_cost =  calculate_cost_by_tokens(input_tokens, tokencost_model, "input")
