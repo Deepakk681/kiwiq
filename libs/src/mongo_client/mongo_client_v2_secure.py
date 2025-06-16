@@ -1,5 +1,6 @@
 from datetime import datetime
 from pymongo import AsyncMongoClient
+import re
 
 import logging
 import asyncio
@@ -409,11 +410,18 @@ class AsyncMongoDBClient:
                 # Handle embedded wildcards within a segment (e.g., "ab*cd")
                 if part and '*' in part:
                     # Escape special regex characters except *
-                    escaped_part = part
-                    for char in '.^$+?()[]{}|\\':
-                        escaped_part = escaped_part.replace(char, '\\' + char)
-                    regex_pattern = '^' + escaped_part.replace('*', '.*') + '$'
+                    # NOTE: regex mongo db optimization notes: https://www.mongodb.com/docs/manual/reference/operator/query/regex/#index-use
+                    # Split pattern by '*' and escape each part separately
+                    parts = part.split('*')
+                    escaped_parts = [re.escape(p) for p in parts]
+                    regex_pattern = '^' + '.*'.join(escaped_parts) + '$'
+                    
+                    # Remove trailing .* if pattern ends with * (for mongo DB prefix optimization as linked above!)
+                    if part.endswith('*') and regex_pattern.endswith('.*$'):
+                        regex_pattern = regex_pattern[:-3]
+                    
                     query[segment_name] = {'$regex': regex_pattern}
+                    print(f"\n\n$$$$$ DEBUG: regex pattern:", regex_pattern, "\n\n")
                 else:
                     query[segment_name] = part
         
@@ -1102,6 +1110,113 @@ class AsyncMongoDBClient:
                 return False
         except Exception as e:
             logger.error(f"Error deleting document for path '{path}': {e}")
+            raise
+    
+    async def move_object(
+        self,
+        source_path: List[str],
+        destination_path: List[str],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False,
+        move: bool = True
+    ) -> Optional[str]:
+        """
+        Moves/renames or copies a document from source path to destination path.
+        
+        This operation:
+        1. Fetches the document from source path
+        2. Creates/updates the document at destination path
+        3. If move=True (default), deletes the document from source path (move/rename)
+        4. If move=False, keeps the document at source path (copy)
+        
+        Database round trips:
+        1. One round trip to fetch source document
+        2. One round trip to create/update destination document
+        3. One round trip to delete source document (only if move=True)
+        
+        Args:
+            source_path: Current path of the document as list of segments
+            destination_path: New path for the document as list of segments
+            allowed_prefixes: Optional list of allowed path prefixes as lists
+            overwrite_destination: If True, overwrites existing document at destination
+            move: If True, deletes source after copying (move/rename). If False, keeps source (copy)
+            
+        Returns:
+            ID of the document at destination, or None if source not found
+            
+        Raises:
+            ValueError: If path format is invalid, access is denied, or destination exists
+                       and overwrite_destination is False
+        """
+        # Validate both paths
+        self._validate_document_path(source_path)
+        self._validate_document_path(destination_path)
+        
+        # Check permissions for both paths
+        if allowed_prefixes:
+            if not self._validate_path_permission(source_path, allowed_prefixes):
+                error_msg = f"Access denied for source path '{source_path}' based on allowed prefixes"
+                logger.warning(error_msg)
+                raise ValueError(error_msg)
+                
+            if not self._validate_path_permission(destination_path, allowed_prefixes):
+                error_msg = f"Access denied for destination path '{destination_path}' based on allowed prefixes"
+                logger.warning(error_msg)
+                raise ValueError(error_msg)
+        
+        # Check if source and destination are the same
+        if source_path == destination_path:
+            if move:
+                logger.info(f"Source and destination paths are identical: '{source_path}'. No operation needed.")
+                return self._path_to_id(source_path)
+            else:
+                # For copy operation with same paths, this doesn't make sense
+                logger.warning(f"Copy operation with identical source and destination paths: '{source_path}'. No operation performed.")
+                return self._path_to_id(source_path)
+        
+        collection = await self._get_collection()
+        
+        try:
+            # Step 1: Fetch the source document
+            source_doc = await self.fetch_object(source_path, allowed_prefixes=allowed_prefixes)
+            if source_doc is None:
+                logger.info(f"No document found at source path '{source_path}' to move")
+                return None
+            
+            # Step 2: Check if destination exists
+            destination_doc = await self.fetch_object(destination_path, allowed_prefixes=allowed_prefixes)
+            if destination_doc is not None and not overwrite_destination:
+                error_msg = f"Document already exists at destination path '{destination_path}' and overwrite_destination is False"
+                logger.warning(error_msg)
+                raise ValueError(error_msg)
+            
+            # Step 3: Create document at destination with the same data
+            # We need to preserve the original data and any metadata
+            source_data = source_doc.get("data")
+            destination_id = await self.create_object(
+                destination_path, 
+                source_data, 
+                allowed_prefixes=allowed_prefixes
+            )
+            
+            # Step 4: Delete the source document (only if move=True)
+            if move:
+                deleted = await self.delete_object(source_path, allowed_prefixes=allowed_prefixes)
+                if not deleted:
+                    # This shouldn't happen as we just fetched the document, but let's handle it
+                    logger.warning(f"Failed to delete source document at '{source_path}' after moving to '{destination_path}'")
+                    # The destination document was created, so we don't rollback
+                    # This is a partial success - destination exists but source wasn't deleted
+                
+                logger.info(f"Successfully moved document from '{source_path}' to '{destination_path}'")
+            else:
+                logger.info(f"Successfully copied document from '{source_path}' to '{destination_path}'")
+            
+            return destination_id
+            
+        except Exception as e:
+            operation_type = "moving" if move else "copying"
+            logger.error(f"Error {operation_type} document from '{source_path}' to '{destination_path}': {e}")
             raise
     
     # =========================================================================
@@ -1805,3 +1920,198 @@ class AsyncMongoDBClient:
         except Exception as e:
             logger.error(f"Error during batch upsert: {e}")
             raise
+    
+    async def batch_move_objects(
+        self,
+        move_pairs: List[Tuple[List[str], List[str]]],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False,
+        move: bool = True
+    ) -> List[Optional[str]]:
+        """
+        Moves or copies multiple documents in a batch operation.
+        
+        Database round trips:
+        1. One round trip to fetch all source documents
+        2. One round trip to check all destination documents (if overwrite_destination is False)
+        3. One round trip to create all destination documents
+        4. One round trip to delete all source documents (only if move=True)
+        
+        Args:
+            move_pairs: List of (source_path, destination_path) tuples
+            allowed_prefixes: Optional list of allowed path prefixes as lists
+            overwrite_destination: If True, overwrites existing documents at destinations
+            move: If True, deletes sources after copying (move/rename). If False, keeps sources (copy)
+            
+        Returns:
+            List of destination IDs for processed documents (None for any that failed)
+            
+        Raises:
+            ValueError: If any path format is invalid, access is denied, or destinations exist
+                       and overwrite_destination is False
+        """
+        if not move_pairs:
+            return []
+        
+        # Validate all paths and check permissions
+        source_paths = []
+        destination_paths = []
+        
+        for source_path, destination_path in move_pairs:
+            # Validate both paths
+            self._validate_document_path(source_path)
+            self._validate_document_path(destination_path)
+            
+            # Check permissions for both paths
+            if allowed_prefixes:
+                if not self._validate_path_permission(source_path, allowed_prefixes):
+                    error_msg = f"Access denied for source path '{source_path}' based on allowed prefixes"
+                    logger.warning(error_msg)
+                    raise ValueError(error_msg)
+                    
+                if not self._validate_path_permission(destination_path, allowed_prefixes):
+                    error_msg = f"Access denied for destination path '{destination_path}' based on allowed prefixes"
+                    logger.warning(error_msg)
+                    raise ValueError(error_msg)
+            
+            source_paths.append(source_path)
+            destination_paths.append(destination_path)
+        
+        try:
+            # Step 1: Batch fetch all source documents
+            source_results = await self.batch_fetch_objects(source_paths, allowed_prefixes=allowed_prefixes)
+            
+            # Step 2: Check destinations if overwrite_destination is False
+            if not overwrite_destination:
+                destination_results = await self.batch_fetch_objects(destination_paths, allowed_prefixes=allowed_prefixes)
+                
+                # Check for existing destinations
+                for i, destination_path in enumerate(destination_paths):
+                    destination_path_str = str(destination_path)
+                    if (destination_path_str in destination_results and 
+                        destination_results[destination_path_str] is not None):
+                        error_msg = f"Document already exists at destination path '{destination_path}' and overwrite_destination is False"
+                        logger.warning(error_msg)
+                        raise ValueError(error_msg)
+            
+            # Step 3: Prepare data for batch create at destinations
+            create_data = []
+            valid_moves = []
+            
+            for i, (source_path, destination_path) in enumerate(move_pairs):
+                source_path_str = str(source_path)
+                
+                # Check if source document exists
+                if (source_path_str in source_results and 
+                    source_results[source_path_str] is not None):
+                    source_doc = source_results[source_path_str]
+                    source_data = source_doc.get("data")
+                    create_data.append((destination_path, source_data))
+                    valid_moves.append((source_path, destination_path))
+                else:
+                    logger.info(f"No document found at source path '{source_path}' to move")
+            
+            # Step 4: Batch create destinations
+            destination_ids = []
+            if create_data:
+                created_ids = await self.batch_create_objects(create_data, allowed_prefixes=allowed_prefixes)
+                destination_ids.extend(created_ids)
+            
+            # Step 5: Batch delete sources (only if move=True)
+            if move:
+                delete_sources = [source_path for source_path, _ in valid_moves]
+                if delete_sources:
+                    delete_results = await self.batch_delete_objects(delete_sources, allowed_prefixes=allowed_prefixes)
+                    
+                    # Log any failed deletions
+                    for source_path in delete_sources:
+                        source_path_str = str(source_path)
+                        if (source_path_str in delete_results and 
+                            not delete_results[source_path_str]):
+                            logger.warning(f"Failed to delete source document at '{source_path}' after moving")
+            
+            # Step 6: Build results list
+            results = []
+            valid_move_index = 0
+            
+            for i, (source_path, destination_path) in enumerate(move_pairs):
+                source_path_str = str(source_path)
+                
+                if (source_path_str in source_results and 
+                    source_results[source_path_str] is not None):
+                    # Source existed, so we should have a destination ID
+                    if valid_move_index < len(destination_ids):
+                        results.append(destination_ids[valid_move_index])
+                        valid_move_index += 1
+                    else:
+                        results.append(None)  # Something went wrong
+                else:
+                    # Source didn't exist
+                    results.append(None)
+            
+            operation_type = "moved" if move else "copied"
+            logger.info(f"Batch {operation_type} {len(valid_moves)} documents out of {len(move_pairs)} requested")
+            return results
+            
+        except Exception as e:
+            operation_type = "move" if move else "copy"
+            logger.error(f"Error in batch {operation_type} operation: {e}")
+            raise
+    
+    async def copy_object(
+        self,
+        source_path: List[str],
+        destination_path: List[str],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False
+    ) -> Optional[str]:
+        """
+        Copy an object from source to destination (convenience method).
+        
+        Args:
+            source_path: Source document path as list of strings
+            destination_path: Destination document path as list of strings
+            allowed_prefixes: Optional list of allowed path prefixes for permission control
+            overwrite_destination: Whether to overwrite existing destination document
+            
+        Returns:
+            Destination document ID if successful, None if source doesn't exist
+            
+        Raises:
+            ValueError: If path format is invalid, access is denied, or destination exists
+                       and overwrite_destination is False
+        """
+        return await self.move_object(
+            source_path=source_path,
+            destination_path=destination_path,
+            allowed_prefixes=allowed_prefixes,
+            overwrite_destination=overwrite_destination,
+            move=False
+        )
+    
+    async def batch_copy_objects(
+        self,
+        copy_pairs: List[Tuple[List[str], List[str]]],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False
+    ) -> List[Optional[str]]:
+        """
+        Copy multiple objects in batch (convenience method).
+        
+        Args:
+            copy_pairs: List of (source_path, destination_path) tuples
+            allowed_prefixes: Optional list of allowed path prefixes for permission control
+            overwrite_destination: Whether to overwrite existing destination objects
+            
+        Returns:
+            List of destination IDs (None for failed operations)
+            
+        Raises:
+            ValueError: If validation fails or permissions are denied
+        """
+        return await self.batch_move_objects(
+            move_pairs=copy_pairs,
+            allowed_prefixes=allowed_prefixes,
+            overwrite_destination=overwrite_destination,
+            move=False
+        )

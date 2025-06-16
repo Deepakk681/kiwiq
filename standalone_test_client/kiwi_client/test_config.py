@@ -46,7 +46,7 @@ CLIENT_LOG_LEVEL = logging.INFO
 
 # Auth
 REGISTER_URL = f"{API_BASE_URL}/auth/register"
-LOGIN_URL = f"{API_BASE_URL}/auth/login/token"
+LOGIN_URL = f"{API_BASE_URL}/auth/login"
 REFRESH_URL = f"{API_BASE_URL}/auth/refresh"
 REQUEST_VERIFY_EMAIL_URL = f"{API_BASE_URL}/auth/request-verify-email"
 VERIFY_EMAIL_URL = f"{API_BASE_URL}/auth/verify-email"

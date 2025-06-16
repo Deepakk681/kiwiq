@@ -193,8 +193,9 @@ class TokenData(BaseModel):
 
 class AccessTokenResponse(BaseModel):
     """Response containing only the access token."""
-    access_token: str
-    token_type: str = "bearer"
+    status: str
+    # access_token: str
+    # token_type: str = "bearer"
 
 # --- LinkedIn User Schema --- (Moved from linkedin.py)
 class LinkedInUser(BaseModel):

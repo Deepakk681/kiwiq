@@ -113,6 +113,18 @@ def extract_username_from_url(url: str) -> Optional[str]:
     
     return None
 
+async def build_post_url_from_urn(urn: str) -> str:
+    """
+    Build a post URL from a LinkedIn URN.
+    
+    Args:
+        urn (str): The URN to build a post URL from
+    
+    Returns:
+        str: The post URL
+    """
+    return f"https://www.linkedin.com/feed/update/urn:li:activity:{urn}/"
+
 def extract_post_id_from_url(url: str) -> Optional[str]:
     """
     Extract the post ID from a LinkedIn post URL.
@@ -126,6 +138,7 @@ def extract_post_id_from_url(url: str) -> Optional[str]:
     TODO: FIXME: the first pattern is probably incorrect for share URLs!
     """
     # Pattern for post URLs with activity IDs
+    # NOTE: this pattern is for Share URL for posts
     post_pattern = r"linkedin\.com/posts/[^/]+/[^/]+-(\d+)"
     post_match = re.search(post_pattern, url)
     if post_match:

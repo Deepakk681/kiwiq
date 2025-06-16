@@ -372,8 +372,43 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
         """Check if no structured output schema is defined."""
         return not (self.dynamic_schema_spec or self.schema_template_name or self.schema_definition)
 
+
+    @staticmethod
+    def _recursive_set_json_schema_to_openai_format(
+        schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        if isinstance(schema, dict):
+            # Check if 'required' is a key at the current level or if the schema is empty,
+            # in which case additionalProperties still needs to be specified.
+            if "required" in schema or (
+                "properties" in schema and not schema["properties"]
+            ):
+                schema["additionalProperties"] = False
+
+            # Recursively check 'properties' and 'items' if they exist
+            if "properties" in schema:
+                if "required" not in schema:
+                    schema["required"] = []
+                for value in schema["properties"].values():
+                    if "$ref" in value:
+                        # continue
+                        if "description" in value:
+                            del value["description"]
+                    LLMStructuredOutputSchema._recursive_set_json_schema_to_openai_format(value)
+                for key in schema["properties"].keys(): # NOTE: this is a hack to set additionalProperties to False for all properties
+                    if key not in schema["required"]:
+                        schema["required"].append(key)
+            if "$defs" in schema:
+                for value in schema["$defs"].values():
+                    LLMStructuredOutputSchema._recursive_set_json_schema_to_openai_format(value)
+            if "items" in schema:
+                LLMStructuredOutputSchema._recursive_set_json_schema_to_openai_format(schema["items"])
+
+        return schema
+
     async def get_schema(
         self,
+        model_metadata: ModelMetadata,
         org_id: str,
         user,  # : User
         customer_data_service,  # : CustomerDataService
@@ -387,6 +422,7 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
         a directly provided JSON schema definition.
 
         Args:
+            model_metadata: Model metadata.
             org_id: The organization ID.
             user: The user object.
             customer_data_service: Service to interact with customer data and schemas.
@@ -428,6 +464,9 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
 
         if self.convert_loaded_schema_to_pydantic and isinstance(response, dict):
             response = convert_json_schema_to_pydantic_in_memory(response)
+        elif isinstance(response, dict):
+            if model_metadata.provider == LLMModelProvider.OPENAI:
+                response = LLMStructuredOutputSchema._recursive_set_json_schema_to_openai_format(response)
 
         return response
 
@@ -736,6 +775,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             assert model_metadata.structured_output, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support structured output!"
             try:
                 determined_output_schema = await self.config.output_schema.get_schema(
+                    model_metadata=model_metadata,
                     org_id=org_id,
                     user=user,
                     customer_data_service=customer_data_service,

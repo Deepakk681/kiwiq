@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph, heading %}
+{% from "components/lists.html" import render_simple_list %}
+{% from "components/signature.html" import keep_up_great_work_signature %}
+{% from "components/preheader.html" import preheader %}
+
+{% block title %}Congratulations on Your KiwiQ Milestone!{% endblock %}
+
+{% block preheader %}
+{{ preheader("You've reached an important content creation milestone") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hello " + user_name + ",") }}
+  
+  {{ paragraph("🎉 <strong>Congratulations!</strong> You've reached an important content creation milestone.") }}
+  
+  {{ paragraph("You've published <strong>" + posts_published|string + " posts</strong> through KiwiQ!") }}
+  
+  {{ paragraph("<strong>Your Content Stats:</strong>") }}
+  
+  {% set content_stats = [
+    "<strong>Total Posts Published:</strong> " + posts_published|string,
+    "<strong>Consistency Streak:</strong> " + consistency_streak_weeks|string + " weeks",
+    "<strong>Next Milestone:</strong> " + next_milestone_target
+  ] %}
+  {{ render_simple_list(content_stats) }}
+  
+  {{ paragraph("Your commitment to consistent content creation is building your professional brand and audience engagement.") }}
+  
+  {{ render_button("REVIEW YOUR CONTENT JOURNEY", content_journey_url, is_primary=True, align="center") }}
+  
+  {{ keep_up_great_work_signature() }}
+{% endblock %} 

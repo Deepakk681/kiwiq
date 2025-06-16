@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph, heading %}
+{% from "components/signature.html" import happy_creating_signature %}
+{% from "components/preheader.html" import preheader %}
+
+{% block title %}Get Started with KiwiQ: Your First Content Creation Guide{% endblock %}
+
+{% block preheader %}
+{{ preheader("Start creating amazing LinkedIn content with these three simple steps") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hello " + user_name + ",") }}
+  
+  {{ paragraph("Thank you for completing your onboarding process! Let's get started with KiwiQ.") }}
+  
+  {{ paragraph("Here are three simple ways to begin creating amazing LinkedIn content:") }}
+  
+  {{ heading("1. Create Your First Post", level=3) }}
+  {{ paragraph("Start with a blank canvas and craft your post from scratch.") }}
+  {{ render_button("START WRITING", start_writing_url, is_primary=True, align="left") }}
+  
+  {{ heading("2. Explore Content Ideas", level=3) }}
+  {{ paragraph("Let KiwiQ suggest personalized content ideas based on your profile.") }}
+  {{ render_button("EXPLORE IDEAS", explore_ideas_url, is_primary=False, align="left") }}
+  
+  {{ heading("3. Build Your Content Calendar", level=3) }}
+  {{ paragraph("Plan your content strategy with our automated calendar.") }}
+  {{ render_button("GO TO CALENDAR", calendar_url, is_primary=False, align="left") }}
+  
+  {{ happy_creating_signature() }}
+{% endblock %} 

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph, paragraph_with_link %}
+{% from "components/lists.html" import render_nested_list %}
+{% from "components/preheader.html" import preheader %}
+
+{% block title %}Welcome to KiwiQ, {{ user_name }}!{% endblock %}
+
+{% block preheader %}
+{{ preheader("Get started with your new account and explore powerful features") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hi " + user_name) }}
+  
+  {{ paragraph(congratulations_message) }}
+  
+  {{ paragraph("Sometimes you just want to send a simple HTML email with a simple design and clear call to action. This is it.") }}
+  
+  {{ paragraph("Here are some example items to get you started:") }}
+  
+  {% set feature_list = [
+    {
+      'text': 'Dashboard overview and analytics',
+      'children': [
+        'Real-time performance metrics',
+        'Custom visualization charts', 
+        'Automated weekly reports'
+      ]
+    },
+    {
+      'text': 'User management and permissions',
+      'children': [
+        'Role-based access control',
+        'Team invitation system'
+      ]
+    },
+    {
+      'text': 'Project collaboration tools',
+      'children': []
+    },
+    {
+      'text': 'Real-time notifications',
+      'children': [
+        'Email alerts',
+        'In-app notifications',
+        'Mobile push notifications'
+      ]
+    },
+    {
+      'text': 'Data export and reporting',
+      'children': []
+    }
+  ] %}
+  
+  {{ render_nested_list(feature_list) }}
+  
+  {{ render_button("Get Started", action_button_url, is_primary=True, align="left") }}
+  
+  {{ paragraph("This is a really simple email template. Its sole purpose is to get the recipient to click the button with no distractions.") }}
+  
+  {{ paragraph_with_link("For more information about our features and pricing, please visit our ", "comprehensive features page", features_page_url, " where you can learn more about what we offer.") }}
+  
+  {{ paragraph("Good luck! Hope it works.") }}
+{% endblock %} 

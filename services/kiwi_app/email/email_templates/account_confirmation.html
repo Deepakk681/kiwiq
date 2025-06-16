@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph, url_display %}
+{% from "components/signature.html" import team_signature %}
+{% from "components/preheader.html" import preheader %}
+{% from "components/notice.html" import important_notice %}
+
+{% block title %}[ACTION REQUIRED] Confirm Your KiwiQ Account{% endblock %}
+
+{% block preheader %}
+{{ preheader("Verify your email and activate your KiwiQ account") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hello " + user_name + ",") }}
+  
+  {{ paragraph("Welcome to KiwiQ AI! We're excited to have you join our platform to help streamline your LinkedIn content creation.") }}
+  
+  {{ paragraph("Please confirm your email address by clicking the button below:") }}
+  
+  {{ render_button("CONFIRM MY ACCOUNT", confirmation_url, is_primary=True, align="center") }}
+  
+  
+  {{ paragraph("If the button doesn't work, copy and paste this link into your browser:") }}
+  {{ url_display(confirmation_url) }}
+
+  <!-- Expiry notice -->
+  {{ important_notice("This link will expire in " + expiry_hours|string + " hours.") }}
+  
+  {{ paragraph("If you did not create a KiwiQ account, please disregard this email.") }}
+  
+  {{ team_signature() }}
+{% endblock %} 

@@ -150,6 +150,7 @@ class JobDefinition(BaseNodeConfig):
     activity_reactions: InputSource = Field(default_factory=lambda: InputSource(static_value=YesNoEnum.NO.value))
     search_post_by_keyword: InputSource = Field(default_factory=lambda: InputSource(static_value=YesNoEnum.NO.value))
     search_post_by_hashtag: InputSource = Field(default_factory=lambda: InputSource(static_value=YesNoEnum.NO.value))
+    post_details: InputSource = Field(default_factory=lambda: InputSource(static_value=YesNoEnum.NO.value))
 
     # --- Input Identifiers (Required based on job_type) ---
     url: Optional[InputSource] = Field(
@@ -163,6 +164,9 @@ class JobDefinition(BaseNodeConfig):
     )
     hashtag: Optional[InputSource] = Field(
         None, description="Source for the search hashtag (without '#')."
+    )
+    post_url_or_urn: Optional[InputSource] = Field(
+        None, description="Source for the LinkedIn post URL or URN for post details."
     )
 
     # --- Limits ---
@@ -475,6 +479,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
                         credit_request.setdefault("activity_reactions", "no")
                         credit_request.setdefault("search_post_by_keyword", "no")
                         credit_request.setdefault("search_post_by_hashtag", "no")
+                        credit_request.setdefault("post_details", "no")
                         credit_request.setdefault("post_comments", "no")
                         credit_request.setdefault("post_reactions", "no")
                         credit_request.setdefault("post_limit", 0)

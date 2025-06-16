@@ -2,7 +2,7 @@
 # poetry run python -m kiwi_client.auth_client
 
 Provides an authenticated HTTP client for interacting with the API.
-Handles login, token storage, and setting necessary headers.
+Handles login, token storage via cookies, and setting necessary headers.
 """
 import httpx
 import logging
@@ -43,8 +43,9 @@ class AuthenticatedClient:
     """
     Manages an authenticated httpx session for API testing.
 
-    Handles login, stores access token, manages refresh token cookies,
-    and provides an authenticated httpx.AsyncClient instance.
+    Handles login, manages authentication via cookies (access token and refresh token),
+    and provides an authenticated httpx.AsyncClient instance. The backend automatically
+    sets access_token and refresh_token cookies after successful login.
     """
     def __init__(
         self,
@@ -66,7 +67,6 @@ class AuthenticatedClient:
         self._email = email
         self._password = password
         self._active_org_id = active_org_id
-        self._access_token: Optional[str] = None
         # Use httpx.AsyncClient with cookie handling enabled
         self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self._base_url,
@@ -91,17 +91,6 @@ class AuthenticatedClient:
         """Returns the active organization ID being used."""
         return self._active_org_id
 
-    async def _update_auth_header(self) -> None:
-        """Updates the Authorization header in the client."""
-        if self._access_token:
-            self._client.headers["Authorization"] = f"Bearer {self._access_token}"
-            logger.debug("Authorization header updated.")
-        else:
-            # Should not happen if login was successful, but handle defensively
-            if "Authorization" in self._client.headers:
-                del self._client.headers["Authorization"]
-            logger.warning("Attempted to update auth header with no access token.")
-
     async def _update_org_header(self) -> None:
         """Updates the X-Active-Org header in the client."""
         self._client.headers["X-Active-Org"] = self._active_org_id
@@ -109,8 +98,8 @@ class AuthenticatedClient:
 
     async def login(self) -> None:
         """
-        Logs in the user using the provided credentials and stores the access token
-        and refresh token cookie.
+        Logs in the user using the provided credentials. The backend automatically
+        sets access_token and refresh_token cookies after successful authentication.
         """
         logger.info(f"Attempting login for user: {self._email}...")
         try:
@@ -127,18 +116,18 @@ class AuthenticatedClient:
             response.raise_for_status() # Raises HTTPStatusError for 4xx/5xx
 
             token_data = response.json()
-            self._access_token = token_data.get("access_token")
 
-            if not self._access_token:
-                logger.error("Login response did not contain an access token.")
-                raise AuthenticationError("Login failed: No access token received.")
+            # access_token = token_data.get("access_token")
 
-            # Update headers
-            await self._update_auth_header()
-            await self._update_org_header() # Set org header after successful login
+            # if not access_token:
+            #     logger.error("Login response did not contain an access token.")
+            #     raise AuthenticationError("Login failed: No access token received.")
+
+            # Set org header after successful login
+            await self._update_org_header()
 
             self._is_authenticated = True
-            logger.info(f"Login successful for user: {self._email}. Access token stored. Refresh cookie set by server.")
+            logger.info(f"Login successful for user: {self._email}. Authentication cookies set by server.")
 
         except httpx.RequestError as e:
             logger.error(f"Login request failed: {e}", exc_info=True)
@@ -162,7 +151,8 @@ class AuthenticatedClient:
     async def refresh_token(self) -> bool:
         """
         Attempts to refresh the access token using the refresh token cookie.
-        Updates the stored access token and client headers on success.
+        The backend handles token rotation and updates both access_token and
+        refresh_token cookies on success.
 
         Returns:
             True if refresh was successful, False otherwise.
@@ -172,29 +162,24 @@ class AuthenticatedClient:
              logger.warning("No refresh token cookie found. Cannot refresh.")
              return False
         try:
-            # The refresh endpoint expects no body, it uses the cookie
+            # The refresh endpoint expects no body, it uses the refresh_token cookie
             response = await self._client.post(REFRESH_URL) # Use absolute URL
             response.raise_for_status()
 
             token_data = response.json()
-            new_access_token = token_data.get("access_token")
+            # new_access_token = token_data.get("access_token")
 
-            if not new_access_token:
-                logger.error("Token refresh response did not contain a new access token.")
-                return False
+            # if not new_access_token:
+            #     logger.error("Token refresh response did not contain a new access token.")
+            #     return False
 
-            self._access_token = new_access_token
-            await self._update_auth_header() # Update header with new token
-            logger.info("Access token refreshed successfully.")
+            logger.info("Access token refreshed successfully. New authentication cookies set by server.")
             return True
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Token refresh failed with status {e.response.status_code}: {e.response.text}")
             # If refresh fails (e.g., 401), mark as unauthenticated
             self._is_authenticated = False
-            self._access_token = None
-            if "Authorization" in self._client.headers:
-                del self._client.headers["Authorization"]
             return False
         except httpx.RequestError as e:
             logger.error(f"Token refresh request failed: {e}", exc_info=True)
@@ -365,6 +350,7 @@ async def main():
             print(f"Login successful. Using Org ID: {auth_client.active_org_id}")
             client = auth_client.client # Get the authenticated client
             print("Headers:", client.headers)
+            print("Cookies:", dict(client.cookies))
 
             # Example: Make an authenticated request (replace with a valid endpoint)
             try:
@@ -383,7 +369,7 @@ async def main():
             refreshed = await auth_client.refresh_token()
             if refreshed:
                 print("Token refreshed successfully.")
-                print("New Headers:", client.headers)
+                print("Updated Cookies:", dict(client.cookies))
             else:
                 print("Token refresh failed.")
                 

@@ -1,7 +1,4 @@
 import uuid
-import smtplib # Import smtplib
-import ssl # Import SSL for STARTTLS
-from email.message import EmailMessage # Import EmailMessage
 from typing import Optional
 from datetime import datetime, timedelta, timezone # Import datetime utilities
 
@@ -9,8 +6,6 @@ from fastapi import BackgroundTasks
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select # Keep select for user lookup by ID
-
-from bs4 import BeautifulSoup
 
 # from global_config.settings import LOG_ROOT
 from kiwi_app.settings import settings
@@ -22,6 +17,14 @@ from kiwi_app.auth.security import create_access_token, decode_access_token
 from kiwi_app.auth.exceptions import CredentialsException
 # Import TokenData schema to check for password_reset claim
 from kiwi_app.auth.schemas import TokenData
+
+# Import the new email system
+from kiwi_app.email.email_dispatch import email_dispatch, EmailContent, EmailRecipient
+from kiwi_app.email.email_templates.renderer import (
+    EmailRenderer, 
+    AccountConfirmationEmailData, 
+    PasswordResetEmailData
+)
 
 
 # Get loggers for different parts of a hypothetical application
@@ -45,123 +48,8 @@ from kiwi_app.auth.schemas import TokenData
 
 # TODO: CRITICAL: FIXME: change URLs to not redirect customers to API but the SPA and SPA can call backend for verification!
 
-
-
-def html_to_text(html_content):
-    # Create a BeautifulSoup object
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Get text content
-    text = soup.get_text(separator=' ', strip=True)
-    
-    return text
-
-
-def send_verification_email_sync(
-    email_to: EmailStr,
-    username: Optional[str],
-    verification_link: str
-):
-    """
-    Synchronous function to construct and send the verification email.
-    Designed to be run in a background task.
-
-    Args:
-        email_to: The recipient's email address.
-        username: The recipient's name (for personalization).
-        verification_link: The full URL the user needs to click (contains JWT).
-    """
-    # Check if essential mail server settings are configured
-    # Simplified the check slightly
-    # RB Corx: REMOVED Check - This check is already done in the calling function `trigger_send_verification_email`
-    # if not all([
-    #     settings.GMAIL_SMTP_SERVER,
-    #     settings.GMAIL_SMTP_PORT,
-    #     settings.GMAIL_SMTP_FROM
-    #     # Credentials might be optional depending on server/method
-    # ]) or (settings.USE_CREDENTIALS and not all([settings.GMAIL_SMTP_USERNAME, settings.GMAIL_SMTP_PASSWORD])):
-    #     auth_logger.warning("Mail server details not fully configured in settings or USE_CREDENTIALS is True but credentials missing. Skipping email sending.")
-    #     return
-
-    message = EmailMessage()
-    message["To"] = email_to
-    # Ensure MAIL_FROM_NAME is used if available, otherwise default to the from address
-    from_name = settings.MAIL_FROM_NAME or settings.GMAIL_SMTP_FROM
-    message["From"] = f"{from_name} <{settings.GMAIL_SMTP_FROM}>"
-    message["Subject"] = "Verify Your Email Address for KiwiQ"
-
-    # Simple HTML body
-    user_greeting = f" {username}" if username else ""
-    html_body = f"""
-    <html>
-      <body>
-        <p>Hi{user_greeting},</p>
-        <p>Thank you for registering with KiwiQ!</p>
-        <p>Please click the link below to verify your email address:</p>
-        <p><a href="{verification_link}">{verification_link}</a></p>
-        <p>This link will expire in {settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES} minutes.</p>
-        <p>If you did not request this, please ignore this email.</p>
-        <p>Thanks,<br>The KiwiQ Team</p>
-      </body>
-    </html>
-    """
-
-    text_body = html_to_text(html_body)
-    message.set_content(text_body) # Plain text fallback
-    message.add_alternative(html_body, subtype="html")
-
-    # Connect to SMTP server and send
-    # Use SSL context for security
-    context = ssl.create_default_context()
-    server = None # Initialize server to None for finally block
-
-    try:
-        auth_logger.debug(f"Attempting to send verification email to {email_to} via {settings.GMAIL_SMTP_SERVER}:{settings.GMAIL_SMTP_PORT}")
-        # Choose connection type based on settings
-        if settings.MAIL_SSL_TLS:
-            # Use SMTP_SSL for implicit TLS (usually port 465)
-            auth_logger.debug("Connecting using SMTP_SSL (implicit TLS)...")
-            server = smtplib.SMTP_SSL(settings.GMAIL_SMTP_SERVER, settings.GMAIL_SMTP_PORT, context=context)
-        else:
-            # Use standard SMTP (usually port 587 or 25)
-            auth_logger.debug("Connecting using standard SMTP...")
-            server = smtplib.SMTP(settings.GMAIL_SMTP_SERVER, settings.GMAIL_SMTP_PORT)
-            if settings.MAIL_STARTTLS:
-                # Secure the connection with STARTTLS
-                auth_logger.debug("Attempting STARTTLS...")
-                server.starttls(context=context)
-                auth_logger.debug("STARTTLS successful.")
-
-        # Login if credentials are provided and required by settings
-        if settings.USE_CREDENTIALS and settings.GMAIL_SMTP_USERNAME and settings.GMAIL_SMTP_PASSWORD:
-            auth_logger.debug(f"Logging in as {settings.GMAIL_SMTP_USERNAME}...")
-            server.login(settings.GMAIL_SMTP_USERNAME, settings.GMAIL_SMTP_PASSWORD)
-            auth_logger.debug("SMTP login successful.")
-        else:
-             auth_logger.debug("Skipping SMTP login (USE_CREDENTIALS is False or credentials not set).")
-
-        # Send the email
-        server.send_message(message)
-        auth_logger.info(f"Verification email successfully sent to {email_to}")
-
-    except smtplib.SMTPAuthenticationError as e:
-         auth_logger.error(f"SMTP Authentication Error for {settings.GMAIL_SMTP_USERNAME}: {e}", exc_info=True)
-    except smtplib.SMTPException as e:
-        # Log specific SMTP errors
-        auth_logger.error(f"SMTP Error sending verification email to {email_to}: {e}", exc_info=True)
-        # Consider adding more specific error handling or re-queueing logic here
-    except Exception as e:
-        # Catch any other unexpected errors during email sending
-        auth_logger.error(f"Unexpected error sending verification email to {email_to}: {e}", exc_info=True)
-    finally:
-        if server:
-            try:
-                # Always try to quit the server connection gracefully
-                server.quit()
-                auth_logger.debug("SMTP server connection closed.")
-            except Exception as e:
-                # Log if quitting fails, but don't raise further errors
-                auth_logger.warning(f"Error quitting SMTP server connection: {e}", exc_info=True)
+# Initialize the email renderer
+email_renderer = EmailRenderer()
 
 
 async def trigger_send_verification_email(
@@ -173,7 +61,7 @@ async def trigger_send_verification_email(
 ) -> Optional[str]:
     """
     Generates a JWT verification token, constructs the link,
-    and adds the actual email sending to background tasks.
+    and adds the actual email sending to background tasks using the new template system.
     The token itself is NOT saved to the database.
 
     Args:
@@ -202,13 +90,6 @@ async def trigger_send_verification_email(
         auth_logger.error(f"Error generating verification JWT for {user.email}: {e}", exc_info=True)
         return None # Cannot proceed without a token
 
-    # Removed database update for saving token
-    # try:
-    #     await user_dao.update(db, db_obj=user, obj_in=schemas.UserAdminUpdate(email_verification_token=token))
-    # except Exception as e:
-    #     auth_logger.error(f"DB Error saving verification token for {user.email}: {e}", exc_info=True)
-    #     return None # Don't proceed if token couldn't be saved
-
     # Construct the verification URL with the JWT
     URL = base_url
     # URL = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_EMAIL_URL}"
@@ -216,25 +97,48 @@ async def trigger_send_verification_email(
     if settings.VERIFY_EMAIL_SPA_URL:
         verification_link = f"{settings.VERIFY_EMAIL_SPA_URL}?token={token}"
 
-    # Check if mail is configured before adding task
-    # Simplified the check slightly
-    if not all([
-        settings.GMAIL_SMTP_SERVER,
-        settings.GMAIL_SMTP_PORT,
-        settings.GMAIL_SMTP_FROM
-    ]) or (settings.USE_CREDENTIALS and not all([settings.GMAIL_SMTP_USERNAME, settings.GMAIL_SMTP_PASSWORD])):
-         auth_logger.warning(f"Mail not configured, skipping background task for {user.email}. Token generated but not sent.")
-         # Still return the token - useful for testing or manual verification if needed
-         return token
-
-    # Add the synchronous email sending function to background tasks
-    background_tasks.add_task(
-        send_verification_email_sync,
-        email_to=user.email,
-        username=user.full_name, # Pass user's name for personalization
-        verification_link=verification_link
-    )
-    auth_logger.info(f"Verification email task added for {user.email} ({user.id})")
+    try:
+        # Create email content using the new template system
+        email_data = AccountConfirmationEmailData(
+            user_name=user.full_name or user.email.split('@')[0],  # Fallback to email prefix if no name
+            confirmation_url=verification_link,
+            expiry_hours=settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES // 60 or 1  # Convert minutes to hours
+        )
+        
+        # Render both HTML and text versions
+        html_content = email_renderer.render_account_confirmation_email(email_data)
+        text_content = email_renderer.html_to_text(html_content)
+        
+        # Create email content object
+        email_content = EmailContent(
+            subject="Verify Your Email Address for KiwiQ",
+            html_body=html_content,
+            text_body=text_content,
+            from_name="KiwiQ Team"
+        )
+        
+        # Create recipient object
+        recipient = EmailRecipient(
+            email=user.email,
+            name=user.full_name
+        )
+        
+        # Send email using the dispatch service
+        success = await email_dispatch.send_email_async(
+            background_tasks=background_tasks,
+            recipient=recipient,
+            content=email_content
+        )
+        
+        if success:
+            auth_logger.info(f"Verification email task queued for {user.email} ({user.id})")
+        else:
+            auth_logger.warning(f"Failed to queue verification email for {user.email}")
+            
+    except Exception as e:
+        auth_logger.error(f"Error preparing verification email for {user.email}: {e}", exc_info=True)
+        # Still return the token - useful for testing or manual verification if needed
+        return token
 
     return token # Return the generated JWT
 
@@ -300,76 +204,7 @@ async def verify_email_token(db: AsyncSession, token: str) -> Optional[models.Us
 
 # --- Password Reset Email Utilities --- #
 
-def send_password_reset_email_sync(
-    email_to: EmailStr,
-    username: Optional[str],
-    reset_link: str
-):
-    """
-    Synchronous function to construct and send the password reset email.
-    Designed to be run in a background task.
-
-    Args:
-        email_to: The recipient's email address.
-        username: The recipient's name (for personalization).
-        reset_link: The full URL the user needs to click (contains password reset JWT).
-    """
-    # Configuration check (already done in trigger function)
-
-    message = EmailMessage()
-    message["To"] = email_to
-    from_name = settings.MAIL_FROM_NAME or settings.GMAIL_SMTP_FROM
-    message["From"] = f"{from_name} <{settings.GMAIL_SMTP_FROM}>"
-    message["Subject"] = "Reset Your KiwiQ Password"
-
-    user_greeting = f" {username}" if username else ""
-    html_body = f"""
-    <html>
-      <body>
-        <p>Hi{user_greeting},</p>
-        <p>We received a request to reset your password for your KiwiQ account.</p>
-        <p>Please click the link below to set a new password:</p>
-        <p><a href="{reset_link}">{reset_link}</a></p>
-        <p>This link will expire in {settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutes.</p>
-        <p>If you did not request a password reset, please ignore this email or contact support if you have concerns.</p>
-        <p>Thanks,<br>The KiwiQ Team</p>
-      </body>
-    </html>
-    """
-    text_body = html_to_text(html_body)
-    message.set_content(text_body) # Plain text fallback
-    message.add_alternative(html_body, subtype="html")
-
-    # Connect and send (identical logic to send_verification_email_sync)
-    context = ssl.create_default_context()
-    server = None
-    try:
-        auth_logger.debug(f"Attempting to send password reset email to {email_to} via {settings.GMAIL_SMTP_SERVER}:{settings.GMAIL_SMTP_PORT}")
-        if settings.MAIL_SSL_TLS:
-            server = smtplib.SMTP_SSL(settings.GMAIL_SMTP_SERVER, settings.GMAIL_SMTP_PORT, context=context)
-        else:
-            server = smtplib.SMTP(settings.GMAIL_SMTP_SERVER, settings.GMAIL_SMTP_PORT)
-            if settings.MAIL_STARTTLS:
-                server.starttls(context=context)
-
-        if settings.USE_CREDENTIALS and settings.GMAIL_SMTP_USERNAME and settings.GMAIL_SMTP_PASSWORD:
-            server.login(settings.GMAIL_SMTP_USERNAME, settings.GMAIL_SMTP_PASSWORD)
-
-        server.send_message(message)
-        auth_logger.info(f"Password reset email successfully sent to {email_to}")
-
-    except smtplib.SMTPAuthenticationError as e:
-         auth_logger.error(f"SMTP Authentication Error for {settings.GMAIL_SMTP_USERNAME}: {e}", exc_info=True)
-    except smtplib.SMTPException as e:
-        auth_logger.error(f"SMTP Error sending password reset email to {email_to}: {e}", exc_info=True)
-    except Exception as e:
-        auth_logger.error(f"Unexpected error sending password reset email to {email_to}: {e}", exc_info=True)
-    finally:
-        if server:
-            try:
-                server.quit()
-            except Exception as e:
-                auth_logger.warning(f"Error quitting SMTP server connection: {e}", exc_info=True)
+# Password reset email sending is now handled by the dispatch service and templates
 
 async def trigger_send_password_reset_email(
     background_tasks: BackgroundTasks,
@@ -379,7 +214,7 @@ async def trigger_send_password_reset_email(
 ) -> Optional[str]:
     """
     Generates a short-lived JWT for password reset, constructs the link,
-    and adds the actual email sending to background tasks.
+    and adds the actual email sending to background tasks using the new template system.
 
     Args:
         background_tasks: FastAPI BackgroundTasks instance.
@@ -413,26 +248,49 @@ async def trigger_send_password_reset_email(
     reset_link = f"{URL}?token={token}"
     if settings.VERIFY_PASSWORD_RESET_TOKEN_SPA_URL:
         reset_link = f"{settings.VERIFY_PASSWORD_RESET_TOKEN_SPA_URL}?token={token}"
-    # If no frontend, you could link directly to the verify endpoint:
-    # reset_link = f"{base_url.rstrip('/')}{settings.API_V1_PREFIX}{settings.AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL}?token={token}"
 
-    # Check mail config
-    if not all([
-        settings.GMAIL_SMTP_SERVER,
-        settings.GMAIL_SMTP_PORT,
-        settings.GMAIL_SMTP_FROM
-    ]) or (settings.USE_CREDENTIALS and not all([settings.GMAIL_SMTP_USERNAME, settings.GMAIL_SMTP_PASSWORD])):
-         auth_logger.warning(f"Mail not configured, skipping password reset background task for {user.email}. Token generated but not sent.")
-         return token # Return token for testing/manual use
-
-    # Add the sync email sending task
-    background_tasks.add_task(
-        send_password_reset_email_sync,
-        email_to=user.email,
-        username=user.full_name,
-        reset_link=reset_link
-    )
-    auth_logger.info(f"Password reset email task added for {user.email} ({user.id})")
+    try:
+        # Create email content using the new template system
+        email_data = PasswordResetEmailData(
+            user_name=user.full_name or user.email.split('@')[0],  # Fallback to email prefix if no name
+            reset_url=reset_link,
+            expiry_hours=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES // 60 or 1  # Convert minutes to hours
+        )
+        
+        # Render both HTML and text versions
+        html_content = email_renderer.render_password_reset_email(email_data)
+        text_content = email_renderer.html_to_text(html_content)
+        
+        # Create email content object
+        email_content = EmailContent(
+            subject="Reset Your KiwiQ Password",
+            html_body=html_content,
+            text_body=text_content,
+            from_name="KiwiQ Team"
+        )
+        
+        # Create recipient object
+        recipient = EmailRecipient(
+            email=user.email,
+            name=user.full_name
+        )
+        
+        # Send email using the dispatch service
+        success = await email_dispatch.send_email_async(
+            background_tasks=background_tasks,
+            recipient=recipient,
+            content=email_content
+        )
+        
+        if success:
+            auth_logger.info(f"Password reset email task queued for {user.email} ({user.id})")
+        else:
+            auth_logger.warning(f"Failed to queue password reset email for {user.email}")
+            
+    except Exception as e:
+        auth_logger.error(f"Error preparing password reset email for {user.email}: {e}", exc_info=True)
+        # Still return the token - useful for testing or manual verification if needed
+        return token
 
     return token
 
@@ -474,4 +332,4 @@ async def verify_password_reset_token(token: str) -> TokenData:
     except Exception as e:
         # Catch unexpected errors
         auth_logger.error(f"Unexpected error during password reset token verification: {e}", exc_info=True)
-        raise CredentialsException(detail="Could not validate password reset token due to an internal error.") 
+        raise CredentialsException(detail="Could not validate password reset token due to an internal error.")

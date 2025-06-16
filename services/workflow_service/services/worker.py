@@ -7,7 +7,7 @@ from typing import Any, Dict, Tuple, AsyncGenerator, Optional, List, Union, cast
 from pydantic import BaseModel
 
 # Prefect imports
-from prefect import flow, get_run_logger
+from prefect import flow, get_run_logger, serve
 from prefect.deployments import run_deployment
 from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
 from prefect.client.schemas import FlowRun
@@ -60,12 +60,12 @@ from kiwi_app.settings import settings # Assuming path for central settings
 from workflow_service.utils.utils import get_node_output_state_key # Util for final output extraction
 from workflow_service.config.constants import STATE_KEY_DELIMITER
 
+from workflow_service.services.cron_flows import billing_expire_organization_credits_flow, search_scheduled_briefs_and_send_reminders_flow
+
 # --- Core Workflow Execution Flow ---
 
-external_context_global = None
 
 # TODO: mount logs volume to persist logs!
-configured_logger = get_prefect_logger()
 # get_logger(
 #     name="workflow-execution-worker",
 #     log_level=global_settings.LOG_LEVEL,
@@ -184,6 +184,7 @@ async def workflow_execution_flow(
             logger.info("External context manager closed successfully")
         except Exception as close_err:
             logger.error(f"Error closing external context: {close_err}", exc_info=True)
+
 
 
 async def run_graph(
@@ -869,131 +870,54 @@ async def trigger_workflow_run(
 
 #     return deployment
 
-def start_worker_process(worker_id: int) -> None:
-    """
-    Start a single worker process with a unique deployment name.
-    
-    Args:
-        worker_id: Unique identifier for this worker process (1-based)
-        
-    This function runs the Prefect flow serve method in a separate process,
-    allowing multiple workers to handle workflow executions concurrently.
-    Each worker gets a unique name (prod-1, prod-2, etc.) for identification
-    and monitoring purposes.
-    """
-    workflow_execution_flow.serve(
-        name=f"prod-{worker_id}",
-        tags=["workflow-service", f"worker-{worker_id}"],
-        # parameters={"goodbye": True},
-        pause_on_shutdown=global_settings.APP_ENV != "PROD",
-        # interval=60,
-        # cron="* * * * *",
-        description=f"Production deployment for KiwiQ LangGraph workflows - Worker {worker_id} ({global_settings.APP_ENV})",
-        version="workflow-service/deployments",
-    )
+
 
 # Entry point for deployment registration
 if __name__ == "__main__":
     """
-    Script entry point for registering the workflow deployment with Prefect.
+    Script entry point for registering deployments with Prefect.
     
     Usage:
-        python -m services.workflow_service.services.worker apply
+        python -m services.workflow_service.services.worker
 
-    This will register/update the workflow deployment with the Prefect server
-    configured in your environment or Prefect profile.
+    This will register/update multiple deployments with the Prefect server:
+    1. workflow-execution/prod - On-demand workflow execution
+    2. expire-organization-credits/hourly - Hourly credit expiration cron job
+    3. search-scheduled-briefs-and-send-reminders/daily - Daily search for scheduled briefs and send reminder emails
     """
-    workflow_execution_flow.serve(
-        name="prod",
-        tags=["workflow-service"],
-        # parameters={"goodbye": True},
-        pause_on_shutdown=global_settings.APP_ENV != "PROD",
-        # interval=60,
-        # cron="* * * * *",
-        description=f"Production deployment for KiwiQ LangGraph workflows ({global_settings.APP_ENV})",
-        version="workflow-service/deployments",
+    serve(
+        workflow_execution_flow.to_deployment(
+            name="prod",
+            tags=["workflow-service"],
+            # parameters={"goodbye": True},
+            # pause_on_shutdown=global_settings.APP_ENV != "PROD",
+            # interval=60,
+            # cron="* * * * *",
+            description=f"Production deployment for KiwiQ LangGraph workflows ({global_settings.APP_ENV})",
+            version="workflow-service/deployments",
+        ),
+        # Credit expiration deployment (hourly cron job)
+        billing_expire_organization_credits_flow.to_deployment(
+            name="hourly",
+            tags=["billing-service", "maintenance", "cron"],
+            cron="0 * * * *",  # Run every hour at minute 0
+            # pause_on_shutdown=global_settings.APP_ENV != "PROD",
+            description=f"Hourly credit expiration maintenance job ({global_settings.APP_ENV})",
+            version="billing-service/maintenance",
+            parameters={}  # Use default parameters (expire all orgs at current time)
+        ),
+        # Scheduled briefs search and reminder deployment (daily cron job)
+        search_scheduled_briefs_and_send_reminders_flow.to_deployment(
+            name="daily",
+            tags=["content-service", "scheduling", "email-reminders", "cron"],
+            cron="0 12 * * *",  # Run daily at 12 PM UTC / 5 AM PST / 8 AM EST
+            description=f"Daily search for scheduled content briefs and send draft progress reminders ({global_settings.APP_ENV})",
+            version="content-service/scheduling",
+            parameters={
+                "send_reminder_emails": True,  # Enable email reminders by default
+                "trigger_workflows": False  # Can be set to True when workflow triggering is implemented
+            }
+        ),
+        # pause_on_shutdown=global_settings.APP_ENV != "PROD",
     )
-
-    ############## ############## ############## ############## ############## ############## 
-    ############## ############## EXPERIMENTAL MULTIPROCESSING ############## ##############
-    ############## ############## ############## ############## ############## ############## 
-
-    # import multiprocessing
-    # import os
-    # from typing import List
     
-    
-    
-    # # Determine number of worker processes
-    # # Use CPU count as default, but allow override via environment variable
-    # num_processes = int(os.getenv("WORKFLOW_WORKER_PROCESSES", multiprocessing.cpu_count()))
-    
-    # # Ensure we have at least 1 process and cap at reasonable maximum
-    # num_processes = max(1, min(num_processes, 16))
-    
-    # print(f"Starting {num_processes} workflow worker processes...")
-    
-    # # Create and start worker processes
-    # processes: List[multiprocessing.Process] = []
-    
-    # try:
-    #     for worker_id in range(1, num_processes + 1):
-    #         # Create process for each worker with unique ID
-    #         process = multiprocessing.Process(
-    #             target=start_worker_process,
-    #             args=(worker_id,),
-    #             name=f"workflow-worker-{worker_id}"
-    #         )
-    #         process.start()
-    #         processes.append(process)
-    #         print(f"Started worker process {worker_id} (PID: {process.pid})")
-        
-    #     # Wait for all processes to complete
-    #     # In production, this will run indefinitely until interrupted
-    #     for process in processes:
-    #         process.join()
-            
-    # except KeyboardInterrupt:
-    #     print("\nShutting down worker processes...")
-    #     # Gracefully terminate all worker processes
-    #     for process in processes:
-    #         if process.is_alive():
-    #             print(f"Terminating worker process {process.name} (PID: {process.pid})")
-    #             process.terminate()
-    #             process.join(timeout=10)  # Wait up to 10 seconds for graceful shutdown
-                
-    #             # Force kill if process doesn't terminate gracefully
-    #             if process.is_alive():
-    #                 print(f"Force killing worker process {process.name}")
-    #                 process.kill()
-    #                 process.join()
-        
-    #     print("All worker processes shut down.")
-    ############## ############## ############## ############## ############## ############## 
-    ############## ############## ############## ############## ############## ############## 
-
-    # import sys
-    # if len(sys.argv) > 1 and sys.argv[1] == 'apply':
-    #     print("Registering Prefect deployment...")
-    #     # Create the deployment with customized settings from environment/config
-    #     deployment = create_workflow_deployment(
-    #         work_pool_name=settings.PREFECT_WORK_POOL_NAME, # Use your actual work pool name from settings
-    #         cron_schedule=None,  # Set dynamically if needed
-    #         version=settings.VERSION,
-    #         # Example: storage_block="github/your-org/your-repo" # Configure via settings
-    #         storage_block=settings.PREFECT_STORAGE_BLOCK,
-    #         description=f"Production deployment for KiwiQ LangGraph workflows ({settings.ENV})"
-    #     )
-
-    #     # Apply the deployment to the Prefect server
-    #     deployment.apply() # Use apply() which creates or updates
-    #     print(f"Workflow deployment '{deployment.flow_name}/{deployment.name}' (version {deployment.version}) applied successfully to work pool '{deployment.work_pool_name}'.")
-
-    #     # Note about work pool existence
-    #     print(f"\nNote: Ensure the work pool '{settings.PREFECT_WORK_POOL_NAME}' exists in your Prefect Cloud/Server.")
-    #     print("If not, create it (e.g., via Prefect UI or CLI).")
-    #     # Example CLI command:
-    #     # prefect work-pool create your-pool-name --type process # Or 'kubernetes', 'docker', etc.
-    # else:
-    #      print("Run with 'apply' argument to register the Prefect deployment:")
-    #      print("  python -m services.workflow_service.services.worker apply")

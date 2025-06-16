@@ -25,12 +25,14 @@ class JobTypeEnum(str, Enum):
     ACTIVITY_REACTIONS = "activity_reactions"
     SEARCH_POST_BY_KEYWORD = "search_post_by_keyword"
     SEARCH_POST_BY_HASHTAG = "search_post_by_hashtag"
+    POST_DETAILS = "post_details"
 
 
 class EntityTypeEnum(str, Enum):
-    """Enum defining the type of LinkedIn entity (company or person)."""
+    """Enum defining the type of LinkedIn entity (company, person, or post)."""
     COMPANY = "company"
     PERSON = "person"
+    POST = "post"
 
 
 def parse_linkedin_url(data: Dict[str, Any], set_in_data: bool = True) -> Tuple[str, str]:
@@ -87,8 +89,8 @@ class ScrapingRequest(BaseModel):
     Attributes:
         job_type (JobTypeEnum): The primary type of job being requested. Must match exactly
                                 one of the specific job flags set to 'yes'.
-        type (Optional[EntityTypeEnum]): Specifies if the target entity is a 'company' or 'person'.
-                                         Required for 'profile_info' and 'entity_posts' jobs.
+        type (Optional[EntityTypeEnum]): Specifies if the target entity is a 'company', 'person', or 'post'.
+                                         Required for 'profile_info', 'entity_posts', and 'post_details' jobs.
         profile_info (YesNoEnum): Flag to indicate if profile information should be scraped.
                                   Defaults to 'no'. Only one job flag can be 'yes'.
         entity_posts (YesNoEnum): Flag to indicate if posts by the entity should be scraped.
@@ -102,6 +104,8 @@ class ScrapingRequest(BaseModel):
                                             Defaults to 'no'. Only one job flag can be 'yes'. Requires 'keyword'.
         search_post_by_hashtag (YesNoEnum): Flag to indicate if posts should be searched by hashtag.
                                             Defaults to 'no'. Only one job flag can be 'yes'. Requires 'hashtag'.
+        post_details (YesNoEnum): Flag to indicate if details for a specific post should be scraped.
+                                  Defaults to 'no'. Only one job flag can be 'yes'. Requires 'post_url_or_urn'.
         username (Optional[str]): The LinkedIn username or profile URL identifier. Required for jobs involving
                                   a specific user or company profile ('profile_info', 'entity_posts',
                                   'activity_comments', 'activity_reactions').
@@ -109,20 +113,22 @@ class ScrapingRequest(BaseModel):
                                  'search_post_by_keyword' job type.
         hashtag (Optional[str]): The hashtag to use for searching posts (without the '#'). Required for
                                  'search_post_by_hashtag' job type.
+        post_url_or_urn (Optional[str]): The LinkedIn post URL or URN for post details. Required for 'post_details' job type.
+                                         Accepts both full LinkedIn post URLs and post URNs.
         post_limit (Optional[int]): The maximum number of posts to retrieve. Applicable when scraping
                                     entity posts or activity. Defaults to a configured value.
         post_comments (YesNoEnum): Flag to indicate if comments should be fetched for the scraped posts.
-                                   Defaults to 'no'. Requires 'entity_posts' to be 'yes'.
+                                   Defaults to 'no'. Requires 'entity_posts' or 'post_details' to be 'yes'.
         comment_limit (Optional[int]): The maximum number of comments to retrieve per post.
                                        Defaults to a configured value.
         post_reactions (YesNoEnum): Flag to indicate if reactions should be fetched for the scraped posts.
-                                    Defaults to 'no'. Requires 'entity_posts' to be 'yes'.
+                                    Defaults to 'no'. Requires 'entity_posts' or 'post_details' to be 'yes'.
         reaction_limit (Optional[int]): The maximum number of reactions to retrieve per post.
                                         Defaults to a configured value.
     """
     # Core job definition fields
     job_type: JobTypeEnum
-    type: Optional[EntityTypeEnum] = None # Required for profile_info and entity_posts
+    type: Optional[EntityTypeEnum] = None # Required for profile_info, entity_posts, and post_details
 
     # Flags to indicate the specific job type - exactly one must be 'yes'
     profile_info: YesNoEnum = Field(default=YesNoEnum.NO, description="Scrape profile information?")
@@ -131,17 +137,19 @@ class ScrapingRequest(BaseModel):
     activity_reactions: YesNoEnum = Field(default=YesNoEnum.NO, description="Scrape posts the user reacted to?")
     search_post_by_keyword: YesNoEnum = Field(default=YesNoEnum.NO, description="Search posts by keyword?")
     search_post_by_hashtag: YesNoEnum = Field(default=YesNoEnum.NO, description="Search posts by hashtag?")
+    post_details: YesNoEnum = Field(default=YesNoEnum.NO, description="Scrape details for a specific post?")
 
     # Input identifiers - required based on the job type
     url: Optional[HttpUrl] = Field(default=None, description="URL of the profile/entity to scrape.")
     username: Optional[str] = Field(default=None, description="Username/Profile URL for profile/entity specific jobs.")
     keyword: Optional[str] = Field(default=None, description="Keyword for post search.")
     hashtag: Optional[str] = Field(default=None, description="Hashtag for post search (without '#').")
+    post_url_or_urn: Optional[str] = Field(default=None, description="LinkedIn post URL or URN for post details. Accepts both full LinkedIn post URLs and post URNs.")
 
     # Limits for data retrieval
     post_limit: Optional[int] = Field(default=None, description="Max posts to retrieve.")
 
-    # Flags and limits for nested data within posts - require entity_posts='yes'
+    # Flags and limits for nested data within posts - require entity_posts='yes' or post_details='yes'
     post_comments: YesNoEnum = Field(default=YesNoEnum.NO, description="Fetch comments for scraped posts?")
     comment_limit: Optional[int] = Field(default=rapid_api_settings.DEFAULT_COMMENT_LIMIT, description="Max comments per post.")
     post_reactions: YesNoEnum = Field(default=YesNoEnum.NO, description="Fetch reactions for scraped posts?")
@@ -162,8 +170,8 @@ class ScrapingRequest(BaseModel):
         Ensures:
         1. Exactly one job type flag (e.g., 'profile_info', 'entity_posts') is set to 'yes'.
         2. The 'job_type' field is provided and correctly matches the single active job flag.
-        3. Required identifiers ('username', 'keyword', 'hashtag', 'type') are present based on the job type.
-        4. 'post_comments' or 'post_reactions' can only be 'yes' if 'entity_posts' is also 'yes'.
+        3. Required identifiers ('username', 'keyword', 'hashtag', 'post_url_or_urn', 'type') are present based on the job type.
+        4. 'post_comments' or 'post_reactions' can only be 'yes' if 'entity_posts' or 'post_details' is also 'yes'.
 
         Args:
             data (Any): The raw input data (expected to be a dictionary).
@@ -178,7 +186,9 @@ class ScrapingRequest(BaseModel):
             # Ensure data is a dictionary for further processing
             raise ValueError("Request data must be a dictionary.")
 
-        parse_linkedin_url(data, set_in_data=True)
+        # Only parse LinkedIn URL if it's not a post URL (post URLs don't follow the same pattern)
+        if data.get('url') and data.get('job_type') != JobTypeEnum.POST_DETAILS.value:
+            parse_linkedin_url(data, set_in_data=True)
 
         # Define the flags that represent distinct job types
         job_flags = {
@@ -188,6 +198,7 @@ class ScrapingRequest(BaseModel):
             JobTypeEnum.ACTIVITY_REACTIONS: 'activity_reactions',
             JobTypeEnum.SEARCH_POST_BY_KEYWORD: 'search_post_by_keyword',
             JobTypeEnum.SEARCH_POST_BY_HASHTAG: 'search_post_by_hashtag',
+            JobTypeEnum.POST_DETAILS: 'post_details',
         }
 
         # --- Validation 1 & 3: Ensure exactly one job flag is 'yes' ---
@@ -241,25 +252,24 @@ class ScrapingRequest(BaseModel):
         elif active_job_type == JobTypeEnum.SEARCH_POST_BY_HASHTAG:
              if not data.get('hashtag'):
                 raise ValueError(f"'hashtag' is required for job type '{active_job_type.value}'.")
+        elif active_job_type == JobTypeEnum.POST_DETAILS:
+            if not data.get('post_url_or_urn'):
+                raise ValueError(f"'post_url_or_urn' is required for job type '{active_job_type.value}'.")
+            # Set type to POST for post details jobs
+            data['type'] = EntityTypeEnum.POST.value
 
         # --- Validation 2: Check conditional requirements for post_comments/post_reactions ---
         fetch_comments = data.get('post_comments') == YesNoEnum.YES.value
         fetch_reactions = data.get('post_reactions') == YesNoEnum.YES.value
         entity_posts_enabled = data.get('entity_posts') == YesNoEnum.YES.value
+        post_details_enabled = data.get('post_details') == YesNoEnum.YES.value
 
         # This validation is only relevant if the job involves fetching posts in the first place.
-        # Currently, only 'entity_posts' allows fetching comments/reactions directly.
-        # If other job types (like search) were extended to allow this, this logic might need adjustment.
+        # Currently, 'entity_posts' and 'post_details' allow fetching comments/reactions directly.
         if fetch_comments or fetch_reactions:
-            # Check if the primary job is entity_posts OR if entity_posts flag is explicitly yes
-            # The second condition covers potential future scenarios or if entity_posts is set alongside another primary job (though disallowed by rule 1)
-            if active_job_type not in [JobTypeEnum.ENTITY_POSTS, JobTypeEnum.ACTIVITY_COMMENTS, JobTypeEnum.ACTIVITY_REACTIONS] and not entity_posts_enabled:
-                 raise ValueError("Cannot set 'post_comments' or 'post_reactions' to 'yes' unless the job type is 'entity_posts'.")
-            # Defensive check: Ensure entity_posts flag is indeed yes if comments/reactions are requested.
-            # This reinforces the logic, especially if the primary job *is* entity_posts.
-            # if not entity_posts_enabled:
-            #      raise ValueError("Cannot set 'post_comments' or 'post_reactions' to 'yes' if 'entity_posts' is not 'yes'.")
-
+            # Check if the primary job is entity_posts, post_details, or activity jobs
+            if active_job_type not in [JobTypeEnum.ENTITY_POSTS, JobTypeEnum.POST_DETAILS, JobTypeEnum.ACTIVITY_COMMENTS, JobTypeEnum.ACTIVITY_REACTIONS] and not (entity_posts_enabled or post_details_enabled):
+                 raise ValueError("Cannot set 'post_comments' or 'post_reactions' to 'yes' unless the job type is 'entity_posts' or 'post_details'.")
 
         # If all validations pass, return the original data dictionary
         # Pydantic will handle the rest of the type casting and model creation.

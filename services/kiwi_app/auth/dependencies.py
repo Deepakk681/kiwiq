@@ -4,7 +4,7 @@ import uuid
 from typing import Set, List, Optional, AsyncGenerator
 import logging # Keep standard logging import if needed elsewhere
 
-from fastapi import Depends, HTTPException, status, Request, Security, Header, Path # Added Header, Path
+from fastapi import Depends, HTTPException, status, Request, Security, Header, Path, Cookie # Added Header, Path
 from fastapi.security import OAuth2PasswordBearer, SecurityScopes
 from sqlalchemy.ext.asyncio import AsyncSession
 # from sqlalchemy import select, selectinload
@@ -22,6 +22,7 @@ from kiwi_app.auth.exceptions import (
     # InvalidOrgHeaderException,
     RoleNotFoundException,
 )
+from kiwi_app.settings import settings 
 
 # --- DAO Dependency Factories --- #
 # These simply return new instances of the DAOs.
@@ -113,7 +114,8 @@ async def _check_permissions_for_org(
 
 async def get_current_user(
     db: AsyncSession = Depends(get_async_db_dependency),
-    token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
+    # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
+    token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
@@ -121,6 +123,8 @@ async def get_current_user(
     Loads basic user info, but *not* detailed org/role/permission links by default.
     Those are loaded dynamically by permission checkers when needed.
     """
+    if not token:
+        raise CredentialsException(detail="No token found in cookie.")
     try:
         token_data = security.decode_access_token(token)
     except CredentialsException as e:
@@ -164,7 +168,8 @@ async def get_current_user_non_dependency(
 
 async def get_current_active_user_with_orgs(
     db: AsyncSession = Depends(get_async_db_dependency),
-    token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
+    # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
+    token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
@@ -188,6 +193,8 @@ async def get_current_active_user_with_orgs(
         InactiveUserException: If the user is not active
         UserNotVerifiedException: If the user is not verified
     """
+    if not token:
+        raise CredentialsException(detail="No token found in cookie.")
     try:
         token_data = security.decode_access_token(token)
     except CredentialsException as e:

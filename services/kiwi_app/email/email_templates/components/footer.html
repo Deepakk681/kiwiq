@@ -1,0 +1,66 @@
+{% macro render_footer(footer_data) %}
+<div class="footer" style="clear: both; padding-top: 24px; padding-bottom: 24px; text-align: center; width: 100%;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse: separate; mso-table-lspace: 0pt; mso-table-rspace: 0pt; width: 100%;" width="100%">
+    <tr>
+      <td class="content-block" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center;" valign="top" align="center">
+        <a href="{{ footer_data.powered_by_url }}" class="apple-link" style="color: #9a9ea6; font-size: 14px; text-align: center; text-decoration: none;">{{ footer_data.company_name }}, {{ footer_data.company_address }}</a>
+        <br> 
+        {% if footer_data.unsubscribe_link %}
+        Don't like these emails? <a href="{{ footer_data.unsubscribe_link }}" style="text-decoration: underline; color: #9a9ea6; font-size: 14px; text-align: center;">Unsubscribe</a>.
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td class="content-block powered-by" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center;" valign="top" align="center">
+        Powered by <a href="{{ footer_data.powered_by_url }}" style="color: #9a9ea6; font-size: 14px; text-align: center; text-decoration: none;">{{ footer_data.powered_by_name }}</a>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endmacro %}
+
+<!-- Enhanced footer component for direct inclusion with notification preferences -->
+<div class="footer" style="clear: both; padding-top: 24px; padding-bottom: 24px; text-align: center; width: 100%;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="border-collapse: separate; mso-table-lspace: 0pt; mso-table-rspace: 0pt; width: 100%;" width="100%">
+    <!-- Notification preferences row -->
+     <!-- 
+        <tr>
+        <td class="content-block" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center; padding-bottom: 8px;" valign="top" align="center">
+            <a href="#" style="color: #9a9ea6; text-decoration: underline;">Manage notification preferences</a> | 
+            <a href="#" style="color: #9a9ea6; text-decoration: underline;">Unsubscribe</a>
+        </td>
+        </tr>
+    -->
+        <!-- Company info row -->
+    <tr>
+        <td class="content-block" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center;" valign="top" align="center">
+                   <a href="{{ footer.powered_by_url }}" class="apple-link" style="color: #9a9ea6; font-size: 14px; text-align: center; text-decoration: none;">{{ footer.company_name }}, {{ footer.company_address }}</a>
+          
+        </td>
+      </tr>
+    <!-- Support contact row -->
+    <tr>
+        <td class="content-block" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center; padding-top: 8px;" valign="top" align="center">
+          Contact us at <a href="mailto:{{ footer.support_email }}" style="color: #9a9ea6; text-decoration: underline;">{{ footer.support_email }}</a> 
+          | 
+          <!-- <a href="{{ footer.help_center_url }}" style="color: #9a9ea6; text-decoration: underline;">Help Center</a> -->
+
+          {% if footer.unsubscribe_link %}
+            <a href="{{ footer.unsubscribe_link }}" style="text-decoration: underline; color: #9a9ea6; font-size: 14px; text-align: center;">Unsubscribe</a>
+            {% else %}
+            <a href="mailto:{{ footer.support_email }}" style="text-decoration: underline; color: #9a9ea6; font-size: 14px; text-align: center;">Unsubscribe</a>
+            {% endif %}
+        </td>
+      </tr>
+    
+    <!-- Powered by row -->
+    <!-- 
+        <tr>
+        <td class="content-block powered-by" style="font-family: Helvetica, sans-serif; vertical-align: top; color: #9a9ea6; font-size: 14px; text-align: center;" valign="top" align="center">
+            Powered by <a href="{{ footer.powered_by_url }}" style="color: #9a9ea6; font-size: 14px; text-align: center; text-decoration: none;">{{ footer.powered_by_name }}</a>
+        </td>
+        </tr>
+    -->
+    
+  </table>
+</div> 

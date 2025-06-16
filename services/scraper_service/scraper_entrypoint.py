@@ -166,6 +166,16 @@ async def execute_scraper_job(job_config: ScrapingRequest) -> Any:
                 total_posts=job_config.post_limit # Pass post_limit as total_posts
             )
 
+        elif job_type == JobTypeEnum.POST_DETAILS:
+            # The validator ensures 'post_url_or_urn' is present and 'type' is set to POST.
+            # Defensive check retained for clarity.
+            if job_config.post_url_or_urn is None:
+                logger.error("Post URL or URN missing for POST_DETAILS despite validation.")
+                raise ValueError("'post_url_or_urn' is required for POST_DETAILS job.")
+            logger.debug(f"Routing to get_post_details_with_enrichment for post URL/URN: '{job_config.post_url_or_urn}'")
+            # Pass the full data dictionary to the client method.
+            return await linkedin_post_fetcher.get_post_details_with_enrichment(data_dict)
+
         else:
             # This case should ideally not be reachable if JobTypeEnum is comprehensive
             # and the validator ensures one job type flag matches the job_type field.
@@ -324,6 +334,17 @@ if __name__ == "__main__":
         "username": COMPANY_USERNAME, # Example company username
     }
 
+    # Example 9: Get Post Details with Enrichment
+    test_config_post_details = {
+        "job_type": JobTypeEnum.POST_DETAILS.value,
+        "post_details": YesNoEnum.YES.value,
+        "post_url_or_urn": "7335304292926451712",
+        "post_comments": YesNoEnum.YES.value,
+        "comment_limit": 50,
+        "post_reactions": YesNoEnum.YES.value,
+        "reaction_limit": 100,
+    }
+
     
 
     # Define the list of tests to run
@@ -333,10 +354,11 @@ if __name__ == "__main__":
         # (test_config_search_keyword, "Keyword Search"),
         # (test_config_activity_likes, "User Activity (Likes)"),
         # (test_config_profile_info, "User Profile Info"),
-        (test_config_profile_info_url, "User Profile Info (URL)"),
+        # (test_config_profile_info_url, "User Profile Info (URL)"),
         # (test_config_company_info, "Company Profile Info"),
         # (test_config_search_hashtag, "Hashtag Search"),
         # (test_config_activity_comments, "User Activity (Comments)"),
+        (test_config_post_details, "Post Details with Enrichment"),
     ]
 
     # Run all defined tests asynchronously

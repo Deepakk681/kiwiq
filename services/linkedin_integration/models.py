@@ -1,190 +1,167 @@
-"""
-Database models for LinkedIn integration using SQLModel.
+import uuid
+from datetime import datetime, timedelta
+from typing import List, Optional, Set
 
-This module contains SQLModel models for storing LinkedIn-related data including:
-- LinkedIn accounts (both individual and organization)
-- Posts and their analytics
-- Comments and reactions
-- Employee advocacy tracking
-"""
+import sqlalchemy as sa
+from sqlalchemy import String as SQLAlchemyString, Text, JSON, Boolean, Index, ForeignKey, text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlmodel import Field, Relationship, SQLModel, Column
 
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
-from enum import Enum
-from sqlmodel import SQLModel, Field, JSON, Relationship
+from kiwi_app.auth.utils import datetime_now_utc
+from kiwi_app.settings import settings
+from kiwi_app.auth.models import User, Organization
 
-class AccountType(str, Enum):
-    """Enum for LinkedIn account types"""
-    INDIVIDUAL = "individual"
-    ORGANIZATION = "organization"
+table_prefix = f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_LINKEDIN_PREFIX}"
 
-class LinkedInAccount(SQLModel, table=True):
+
+# --- LinkedIn OAuth Token Model --- #
+class LinkedinUserOauth(SQLModel, table=True):
     """
-    Represents a LinkedIn account (either individual or organization).
+    LinkedIn OAuth token model for storing user OAuth credentials.
+    
+    This model stores LinkedIn OAuth2 access tokens and refresh tokens for users,
+    enabling API access to LinkedIn's services. The model has a 1:1 relationship
+    with the User model, using LinkedIn's 'sub' field as the primary key.
+    
+    Design Notes:
+        - Primary key uses LinkedIn's 'sub' field from UserInfo response
+        - Stores both access and refresh tokens with expiration tracking
+        - Includes scope information for permission management
+        - Follows OAuth2 security best practices for token storage
+        - All token fields are encrypted at rest (implementation dependent)
+    
+    Key Features:
+        - Automatic expiration timestamp calculation
+        - Secure token storage with length validation
+        - Scope parsing for permission verification
+        - 1:1 relationship with User model for seamless integration
+    
+    Security Considerations:
+        - All tokens must be kept secure as per LinkedIn API Terms of Use
+        - Access tokens are typically ~500 characters but schema allows expansion
+        - Refresh tokens enable long-term access without re-authentication
+        - Regular token rotation is recommended for security
     """
-    __tablename__ = "linkedin_accounts"
+    __tablename__ = f"{table_prefix}oauth"
 
-    id: str = Field(primary_key=True)
-    linkedin_id: str = Field(unique=True, index=True)
-    account_type: AccountType
-    access_token: str
-    refresh_token: Optional[str] = None
-    token_expires_at: Optional[datetime] = None
+    # Use LinkedIn's 'sub' field as primary key for 1:1 mapping with LinkedIn identity
+    id: str = Field(
+        primary_key=True, 
+        index=True,
+        sa_column=Column(SQLAlchemyString(255), primary_key=True, index=True),
+        description="LinkedIn 'sub' identifier from UserInfo - unique LinkedIn user identifier"
+    )
     
-    # Profile information
-    name: str
-    profile_url: Optional[str] = None
-    profile_picture_url: Optional[str] = None
+    # Foreign key relationship to User model (1:1)
+    user_id: uuid.UUID = Field(
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id"), unique=True, index=True),
+        description="Foreign key to User model - ensures 1:1 relationship"
+    )
     
-    # Organization-specific fields
-    organization_size: Optional[int] = None
-    industry: Optional[str] = None
-    website: Optional[str] = None
+    # OAuth token fields from LinkedInAccessTokenSchema
+    access_token: str = Field(
+        sa_column=Column(SQLAlchemyString(1000), nullable=False),
+        description="LinkedIn access token for API calls - must be kept secure"
+    )
     
-    # Relationships
-    posts: List["LinkedInPost"] = Relationship(back_populates="account")
-    analytics: List["LinkedInAnalytics"] = Relationship(back_populates="account")
+    refresh_token: Optional[str] = Field(
+        default=None,
+        sa_column=Column(SQLAlchemyString(1000), nullable=True),
+        description="LinkedIn refresh token for obtaining new access tokens - must be kept secure"
+    )
+    
+    scope: str = Field(
+        sa_column=Column(Text, nullable=False),
+        description="URL-encoded, space-delimited list of authorized LinkedIn permissions"
+    )
+    
+    expires_in: int = Field(
+        sa_column=Column(sa.Integer, nullable=False),
+        description="Number of seconds until access token expires (typically 60 days)"
+    )
+    
+    refresh_token_expires_in: Optional[int] = Field(
+        default=None,
+        sa_column=Column(sa.Integer, nullable=True),
+        description="Number of seconds until refresh token expires"
+    )
+    
+    # Computed expiration timestamps for easier expiration handling
+    token_expires_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True),
+        description="Calculated expiration timestamp for access token"
+    )
+    
+    refresh_token_expires_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True),
+        description="Calculated expiration timestamp for refresh token"
+    )
+    
+    # Metadata fields
+    created_at: datetime = Field(
+        default_factory=datetime_now_utc, 
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+        description="Timestamp when the OAuth record was created"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime_now_utc, 
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc),
+        description="Timestamp when the OAuth record was last updated"
+    )
+    
+    # 1:1 Relationship to User model
+    user: User = Relationship()
+    
+    def is_access_token_expired(self) -> bool:
+        """
+        Check if the access token has expired.
+        
+        Returns:
+            bool: True if token is expired, False otherwise
+        """
+        if not self.token_expires_at:
+            return False
+        return datetime_now_utc() >= self.token_expires_at
+    
+    def is_refresh_token_expired(self) -> bool:
+        """
+        Check if the refresh token has expired.
+        
+        Returns:
+            bool: True if refresh token is expired, False otherwise
+        """
+        if not self.refresh_token_expires_at:
+            return False
+        return datetime_now_utc() >= self.refresh_token_expires_at
+    
+    def get_scopes_list(self) -> List[str]:
+        """
+        Parse the scope string into a list of individual scopes.
+        
+        Returns:
+            List[str]: List of individual scope permissions
+        """
+        return self.scope.split() if self.scope else []
+    
+    def update_expiration_timestamps(self) -> None:
+        """
+        Update expiration timestamps based on expires_in values.
+        
+        This method recalculates the expiration timestamps when token data is updated,
+        ensuring accurate expiration tracking for token refresh workflows.
+        """
+        current_time = datetime_now_utc()
+        
+        # Calculate access token expiration timestamp
+        if self.expires_in:
+            self.token_expires_at = current_time + timedelta(seconds=self.expires_in - 1)
+        
+        # Calculate refresh token expiration timestamp if available
+        if self.refresh_token_expires_in:
+            self.refresh_token_expires_at = current_time + timedelta(seconds=self.refresh_token_expires_in - 1)
 
-class LinkedInPost(SQLModel, table=True):
-    """
-    Represents a LinkedIn post with its content and metadata.
-    """
-    __tablename__ = "linkedin_posts"
 
-    id: str = Field(primary_key=True)
-    linkedin_post_id: Optional[str] = Field(unique=True, index=True)  # Null for scheduled posts
-    account_id: str = Field(foreign_key="linkedin_accounts.id", index=True)
-    
-    # Content
-    content_text: str
-    media_urls: Optional[List[str]] = Field(default=None, sa_type=JSON)
-    post_type: str  # text, article, image, video
-    
-    # Scheduling
-    scheduled_time: Optional[datetime] = None
-    published_time: Optional[datetime] = None
-    is_published: bool = Field(default=False)
-    
-    # Employee advocacy
-    is_advocacy_post: bool = Field(default=False)
-    original_post_id: Optional[str] = Field(default=None, foreign_key="linkedin_posts.id")
-    
-    # Metadata
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
-    # Relationships
-    account: LinkedInAccount = Relationship(back_populates="posts")
-    comments: List["LinkedInComment"] = Relationship(back_populates="post")
-    reactions: List["LinkedInReaction"] = Relationship(back_populates="post")
-    analytics: Optional["LinkedInPostAnalytics"] = Relationship(back_populates="post")
+LinkedinUserOauth.model_rebuild()
 
-class LinkedInComment(SQLModel, table=True):
-    """
-    Represents comments on LinkedIn posts.
-    """
-    __tablename__ = "linkedin_comments"
-
-    id: str = Field(primary_key=True)
-    linkedin_comment_id: str = Field(unique=True, index=True)
-    post_id: str = Field(foreign_key="linkedin_posts.id", index=True)
-    author_id: str  # LinkedIn URN of commenter
-    
-    content: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
-    # Parent comment for nested comments
-    parent_comment_id: Optional[str] = Field(default=None, foreign_key="linkedin_comments.id")
-    
-    # Relationships
-    post: LinkedInPost = Relationship(back_populates="comments")
-    replies: List["LinkedInComment"] = Relationship()
-
-class LinkedInReaction(SQLModel, table=True):
-    """
-    Represents reactions (likes, etc.) on LinkedIn posts.
-    """
-    __tablename__ = "linkedin_reactions"
-
-    id: str = Field(primary_key=True)
-    post_id: str = Field(foreign_key="linkedin_posts.id", index=True)
-    actor_id: str  # LinkedIn URN of reactor
-    reaction_type: str  # LIKE, CELEBRATE, SUPPORT, FUNNY, LOVE, INSIGHTFUL, CURIOUS
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
-    # Relationships
-    post: LinkedInPost = Relationship(back_populates="reactions")
-
-class LinkedInAnalytics(SQLModel, table=True):
-    """
-    Stores account-level analytics for organizations/individuals.
-    """
-    __tablename__ = "linkedin_analytics"
-
-    id: int = Field(primary_key=True)
-    account_id: str = Field(foreign_key="linkedin_accounts.id", index=True)
-    date: datetime = Field(index=True)
-    
-    # Follower metrics
-    follower_count: Optional[int] = None
-    follower_gain: Optional[int] = None
-    
-    # Engagement metrics
-    engagement_rate: Optional[float] = None
-    impressions: Optional[int] = None
-    
-    # Organization-specific metrics
-    page_views: Optional[int] = None
-    unique_visitors: Optional[int] = None
-    
-    # Relationships
-    account: LinkedInAccount = Relationship(back_populates="analytics")
-
-class LinkedInPostAnalytics(SQLModel, table=True):
-    """
-    Stores analytics data for individual posts.
-    """
-    __tablename__ = "linkedin_post_analytics"
-
-    id: int = Field(primary_key=True)
-    post_id: str = Field(foreign_key="linkedin_posts.id", unique=True, index=True)
-    
-    # Engagement metrics
-    impressions: int = Field(default=0)
-    clicks: int = Field(default=0)
-    reactions_count: int = Field(default=0)
-    comments_count: int = Field(default=0)
-    shares_count: int = Field(default=0)
-    
-    # Derived metrics
-    engagement_rate: Optional[float] = None
-    
-    # Time-based metrics
-    first_24h_engagement: int = Field(default=0)
-    peak_engagement_time: Optional[datetime] = None
-    
-    # Relationships
-    post: LinkedInPost = Relationship(back_populates="analytics")
-
-class EmployeeAdvocacy(SQLModel, table=True):
-    """
-    Tracks employee advocacy program metrics and participation.
-    """
-    __tablename__ = "employee_advocacy"
-
-    id: str = Field(primary_key=True)
-    organization_id: str = Field(foreign_key="linkedin_accounts.id", index=True)
-    employee_id: str = Field(foreign_key="linkedin_accounts.id", index=True)
-    
-    # Program metrics
-    posts_shared: int = Field(default=0)
-    total_engagement: int = Field(default=0)
-    active_status: bool = Field(default=True)
-    
-    # Timestamps
-    joined_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_share_at: Optional[datetime] = None
-    
-    # Relationships
-    # organization: LinkedInAccount = Relationship(back_populates=organization_id)
-    # employee: LinkedInAccount = Relationship(back_populates=employee_id) 

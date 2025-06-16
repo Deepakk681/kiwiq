@@ -135,7 +135,8 @@ if __name__ == "__main__":
         "type": "object",
         "properties": {
             "person_name": {"type": "string", "description": "Name of the person"},
-            "person_age": {"type": "integer", "description": "Age of the person"}
+            "person_age": {"type": "integer", "description": "Age of the person"},
+            "birthday": {"type": "string", "description": "Birthday of the person", "format": "date-time"}
         },
         "required": ["person_name", "person_age"]
     }

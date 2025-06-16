@@ -21,6 +21,7 @@ class Settings(GlobalSettings):
     DB_TABLE_BILLING_PREFIX: str = "billing_"  # Added prefix for billing tables
 
     DB_TABLE_WORKFLOW_PREFIX: str = "kw_wf_" # Added prefix for workflow tables
+    DB_TABLE_LINKEDIN_PREFIX: str = "linkedin_"
 
     # --- LinkedIn Settings --- #
     LINKEDIN_CLIENT_ID: Optional[str] = None
@@ -28,13 +29,44 @@ class Settings(GlobalSettings):
     LINKEDIN_REDIRECT_URI: Optional[str] = None
 
     # --- Gmail SMTP Settings --- #
+    """
+    Gmail SMTP Configuration Guide:
+    
+    Gmail supports two main SMTP configurations:
+    
+    1. Port 587 with STARTTLS (RECOMMENDED):
+       - GMAIL_SMTP_PORT: 587
+       - MAIL_SSL_TLS: False (no implicit TLS)
+       - MAIL_STARTTLS: True (upgrade plain connection to TLS)
+       - Works with both smtp.gmail.com and smtp-relay.gmail.com
+    
+    2. Port 465 with implicit SSL/TLS:
+       - GMAIL_SMTP_PORT: 465  
+       - MAIL_SSL_TLS: True (implicit TLS from connection start)
+       - MAIL_STARTTLS: False (no STARTTLS needed)
+       - Works with smtp.gmail.com (smtp-relay.gmail.com doesn't support port 465)
+    
+    Common Issues:
+    - Port 587 + MAIL_SSL_TLS=True → SSL: WRONG_VERSION_NUMBER error
+    - Port 465 + MAIL_STARTTLS=True → Connection timeout or SSL errors
+    - Both MAIL_SSL_TLS and MAIL_STARTTLS True → Configuration conflict
+    
+    For production, always use encrypted connections (either configuration above).
+    Never use plain SMTP without encryption for sensitive data.
+    """
     GMAIL_SMTP_USERNAME: Optional[str] = None # Your Gmail address (e.g., your_email@gmail.com)
     GMAIL_SMTP_PASSWORD: Optional[str] = None # Your Gmail App Password (NOT your regular password)
     GMAIL_SMTP_FROM: Optional[str] = None     # The email address emails should be sent from
-    GMAIL_SMTP_PORT: int = 587                # Default SMTP TLS port
-    GMAIL_SMTP_SERVER: str = "smtp-relay.gmail.com"  # smtp-relay.gmail.com  smtp.gmail.com
-    MAIL_STARTTLS: bool = True
-    MAIL_SSL_TLS: bool = False
+    GMAIL_SMTP_PORT: int = 587                # Gmail STARTTLS port (587) or SSL/TLS port (465)
+    GMAIL_SMTP_SERVER: str = "smtp-relay.gmail.com"  # smtp-relay.gmail.com or smtp.gmail.com
+    # TLS Configuration - Choose ONE of these two configurations:
+    # Configuration 1: Port 587 with STARTTLS (recommended for Gmail)
+    MAIL_STARTTLS: bool = True                # Start plain, upgrade to TLS
+    MAIL_SSL_TLS: bool = False                # No implicit TLS from start
+    # Configuration 2: Port 465 with implicit SSL/TLS (alternative)
+    # MAIL_STARTTLS: bool = False             # No STARTTLS needed
+    # MAIL_SSL_TLS: bool = True               # Implicit TLS from connection start
+    # GMAIL_SMTP_PORT: int = 465              # Change port to 465
     USE_CREDENTIALS: bool = True
     VALIDATE_CERTS: bool = True
     MAIL_FROM_NAME: Optional[str] = "KiwiQ Verification" # Optional: Sender name
@@ -63,10 +95,12 @@ class Settings(GlobalSettings):
 
     None: Cookies are sent with all requests, including cross-origin requests—but this requires cookie_secure to be True.
     """
+    # --- Cookie Settings --- #
+    ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
-    REFRESH_COOKIE_SECURE: bool = global_settings.APP_ENV in ["PROD", "STAGE"] # Set to False for local HTTP development ONLY
-    REFRESH_COOKIE_HTTPONLY: bool = True
-    REFRESH_COOKIE_SAMESITE: str = "lax" # Or "strict"
+    COOKIE_SECURE: bool = global_settings.APP_ENV in ["PROD", "STAGE"] # Set to False for local HTTP development ONLY
+    COOKIE_HTTPONLY: bool = True
+    COOKIE_SAMESITE: str = "lax" # Or "strict"
 
     # NOTE: set this URL to the route to get auth token from without global prefix!
     AUTH_TOKEN_URL: str = "/auth/login/token"
@@ -74,6 +108,13 @@ class Settings(GlobalSettings):
     AUTH_VERIFY_EMAIL_URL: str = "/auth/verify-email"
     AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL: str = "/auth/verify-password-reset-token"
     REDIRECT_BASE_URL: str = "https://kiwiq-frontend.vercel.app"  # "http://localhost:3000"
+    # Frontend URLs for first steps guide email
+    # These URLs are used in the first steps guide email sent after email verification
+    # They should point to the frontend application pages where users can take their next steps
+    URL_CREATE_NEW_POST: str = f"{REDIRECT_BASE_URL}/studio/post/new"
+    URL_EXPLORE_CONTENT_IDEAS: str = f"{REDIRECT_BASE_URL}/studio/idea/new"
+    URL_CONTENT_CALENDAR: str = f"{REDIRECT_BASE_URL}/calendar"
+    
     # TODO: FIXME: fill these up in production to redirect correctly to the SPA to handle verification / password reset!
     VERIFY_EMAIL_SPA_URL: Optional[str] = None
     VERIFY_PASSWORD_RESET_TOKEN_SPA_URL: Optional[str] = None
@@ -176,7 +217,7 @@ class Settings(GlobalSettings):
     MONGO_CUSTOMER_COLLECTION: str = Field(default="customer_data", env="MONGO_CUSTOMER_COLLECTION")
     MONGO_CUSTOMER_SEGMENTS: List[str] = Field(default=["org_id", "user_id", "namespace", "docname"])
     MONGO_CUSTOMER_SEGMENTS_VALUE_FILTER_FIELDS: Optional[List[str]] = Field(
-        default=["created_at", "updated_at"],  # Allow filtering by namespace/docname
+        default=["created_at", "updated_at", "scheduled_date"],  # Allow filtering by namespace/docname
         env="MONGO_CUSTOMER_SEGMENTS_VALUE_FILTER_FIELDS"
     )
     

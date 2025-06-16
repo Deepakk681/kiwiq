@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph, paragraph_with_link, heading %}
+{% from "components/lists.html" import render_simple_list %}
+{% from "components/signature.html" import team_signature %}
+{% from "components/preheader.html" import preheader %}
+
+{% block title %}[REMINDER] Your Scheduled LinkedIn Post Needs Attention{% endblock %}
+
+{% block preheader %}
+{{ preheader("Complete your draft post scheduled for today") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hello " + user_name + ",") }}
+  
+  {{ paragraph("⏰ <strong>REMINDER:</strong> You have a LinkedIn post scheduled for publication today, but it still needs your attention.") }}
+  
+  {{ heading("Post Details:", level=3) }}
+  
+  {% set post_details = [
+    "<strong>Topic:</strong> " + brief_title,
+    "<strong>Scheduled Time:</strong> " + publication_time,
+    "<strong>Status:</strong> Draft Needed"
+  ] %}
+  {{ render_simple_list(post_details) }}
+  
+  {{ paragraph("Your audience is waiting for your insights!") }}
+  
+  {{ render_button("COMPLETE MY POST NOW", complete_post_url, is_primary=True, align="center") }}
+  
+  {{ paragraph_with_link("Need to reschedule? You can easily adjust your posting schedule from your ", "content calendar", calendar_url, ".") }}
+  
+  {{ team_signature() }}
+{% endblock %} 

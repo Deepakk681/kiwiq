@@ -29,6 +29,8 @@ from faststream.rabbit import RabbitBroker, RabbitQueue
 from prefect import get_client as prefect_get_client
 from workflow_service.services.events import WorkflowBaseEvent # Assuming path for event schemas
 
+from kiwi_app.workflow_app.service_customer_data import CustomerDataService
+
 # Global clients storage
 _mongo_clients: Dict[str, AsyncMongoDBClient] = {}
 
@@ -167,7 +169,7 @@ class ExternalContextManager(BaseModel):
     prefect_client: Optional[Any] = Field(default=None)
     daos: DAOContext = Field(...)
     db_registry: DBRegistry = Field(...)
-    customer_data_service: Any = Field(...)  #  CustomerDataService
+    customer_data_service: CustomerDataService = Field(...)  #  CustomerDataService
     billing_service: billing_services.BillingService = Field(...)
 
     class Config:

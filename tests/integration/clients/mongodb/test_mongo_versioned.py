@@ -1249,6 +1249,508 @@ class TestMongoVersionedClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(doc6["name"], "Updated")
         self.assertEqual(doc6["created_by"], "new_user")  # Should be updated since not in create_only_fields
 
+    # =========================================================================
+    # Move/Copy Operation Tests
+    # =========================================================================
+
+    async def test_move_document_basic(self):
+        """Test basic move operation for a versioned document."""
+        source_path = self._get_test_path("move_source_doc")
+        dest_path = self._get_test_path("move_dest_doc")
+        
+        # Create and populate source document
+        await self.versioned_client.initialize_document(source_path, initial_version="v1")
+        await self.versioned_client.update_document(source_path, {"name": "Original Doc", "value": 100})
+        await self.versioned_client.update_document(source_path, {"name": "Updated Doc", "value": 200})
+        
+        # Create second version with its own history
+        await self.versioned_client.create_version(source_path, "v2")
+        await self.versioned_client.update_document(source_path, {"name": "V2 Doc", "type": "version2"}, version="v2")
+        
+        # Verify source exists before move
+        source_metadata = await self.versioned_client._get_document_metadata(source_path)
+        self.assertIsNotNone(source_metadata)
+        self.assertEqual(len(source_metadata["versions"]), 2)
+        
+        source_doc_v1 = await self.versioned_client.get_document(source_path, version="v1")
+        source_doc_v2 = await self.versioned_client.get_document(source_path, version="v2")
+        self.assertEqual(source_doc_v1["name"], "Updated Doc")
+        self.assertEqual(source_doc_v2["name"], "V2 Doc")
+        
+        # Move document
+        move_success = await self.versioned_client.move_document(source_path, dest_path, move=True)
+        self.assertTrue(move_success, "Move operation should succeed")
+        
+        # Verify source no longer exists
+        source_metadata_after = await self.versioned_client._get_document_metadata(source_path)
+        self.assertIsNone(source_metadata_after, "Source metadata should not exist after move")
+        
+        source_doc_after = await self.versioned_client.get_document(source_path)
+        self.assertIsNone(source_doc_after, "Source document should not exist after move")
+        
+        # Verify destination exists with all data
+        dest_metadata = await self.versioned_client._get_document_metadata(dest_path)
+        self.assertIsNotNone(dest_metadata, "Destination metadata should exist")
+        self.assertEqual(dest_metadata["active_version"], "v1")
+        self.assertEqual(len(dest_metadata["versions"]), 2)
+        self.assertIn("v1", dest_metadata["versions"])
+        self.assertIn("v2", dest_metadata["versions"])
+        
+        # Verify document content at destination
+        dest_doc_v1 = await self.versioned_client.get_document(dest_path, version="v1")
+        dest_doc_v2 = await self.versioned_client.get_document(dest_path, version="v2")
+        self.assertEqual(dest_doc_v1, source_doc_v1, "V1 content should match original")
+        self.assertEqual(dest_doc_v2, source_doc_v2, "V2 content should match original")
+        
+        # Verify history is preserved
+        dest_history_v1 = await self.versioned_client.get_version_history(dest_path, version="v1")
+        dest_history_v2 = await self.versioned_client.get_version_history(dest_path, version="v2")
+        self.assertEqual(len(dest_history_v1), 2, "V1 should have 2 history items")
+        self.assertEqual(len(dest_history_v2), 1, "V2 should have 1 history item")
+        
+        # Clean up
+        await self.versioned_client.delete_document(dest_path)
+    
+    async def test_copy_document_basic(self):
+        """Test basic copy operation for a versioned document."""
+        source_path = self._get_test_path("copy_source_doc")
+        dest_path = self._get_test_path("copy_dest_doc")
+        
+        # Create and populate source document
+        await self.versioned_client.initialize_document(source_path, initial_version="main")
+        await self.versioned_client.update_document(source_path, {"title": "Source Document", "content": "Original content"})
+        await self.versioned_client.update_document(source_path, {"title": "Updated Source", "content": "Updated content"})
+        
+        # Create branch with different content
+        await self.versioned_client.create_version(source_path, "feature")
+        await self.versioned_client.update_document(source_path, {"title": "Feature Branch", "feature": True}, version="feature")
+        
+        # Copy document (move=False)
+        copy_success = await self.versioned_client.copy_document(source_path, dest_path)
+        self.assertTrue(copy_success, "Copy operation should succeed")
+        
+        # Verify source still exists and is unchanged
+        source_metadata = await self.versioned_client._get_document_metadata(source_path)
+        self.assertIsNotNone(source_metadata, "Source metadata should still exist after copy")
+        
+        source_doc_main = await self.versioned_client.get_document(source_path, version="main")
+        source_doc_feature = await self.versioned_client.get_document(source_path, version="feature")
+        self.assertEqual(source_doc_main["title"], "Updated Source")
+        self.assertEqual(source_doc_feature["title"], "Feature Branch")
+        
+        # Verify destination exists with copied data
+        dest_metadata = await self.versioned_client._get_document_metadata(dest_path)
+        self.assertIsNotNone(dest_metadata, "Destination metadata should exist")
+        self.assertEqual(dest_metadata["active_version"], "main")
+        self.assertEqual(len(dest_metadata["versions"]), 2)
+        
+        # Verify content matches at destination
+        dest_doc_main = await self.versioned_client.get_document(dest_path, version="main")
+        dest_doc_feature = await self.versioned_client.get_document(dest_path, version="feature")
+        self.assertEqual(dest_doc_main, source_doc_main, "Main version content should match")
+        self.assertEqual(dest_doc_feature, source_doc_feature, "Feature version content should match")
+        
+        # Verify history is copied
+        source_history_main = await self.versioned_client.get_version_history(source_path, version="main")
+        dest_history_main = await self.versioned_client.get_version_history(dest_path, version="main")
+        self.assertEqual(len(dest_history_main), len(source_history_main), "History should be copied")
+        
+        # Verify independence: update source after copy
+        await self.versioned_client.update_document(source_path, {"title": "Modified After Copy", "modified": True})
+        
+        source_doc_modified = await self.versioned_client.get_document(source_path, version="main")
+        dest_doc_unchanged = await self.versioned_client.get_document(dest_path, version="main")
+        
+        self.assertEqual(source_doc_modified["title"], "Modified After Copy")
+        self.assertEqual(dest_doc_unchanged["title"], "Updated Source", "Destination should remain unchanged")
+        
+        # Clean up
+        await self.versioned_client.delete_document(source_path)
+        await self.versioned_client.delete_document(dest_path)
+    
+    async def test_move_document_same_path(self):
+        """Test move/copy operation with identical source and destination paths."""
+        doc_path = self._get_test_path("same_path_doc")
+        
+        # Create document
+        await self.versioned_client.initialize_document(doc_path)
+        await self.versioned_client.update_document(doc_path, {"test": "same path operation"})
+        
+        # Move to same path (should succeed with no-op)
+        move_result = await self.versioned_client.move_document(doc_path, doc_path, move=True)
+        self.assertTrue(move_result, "Move to same path should succeed")
+        
+        # Copy to same path (should succeed with warning)
+        copy_result = await self.versioned_client.copy_document(doc_path, doc_path)
+        self.assertTrue(copy_result, "Copy to same path should succeed")
+        
+        # Verify document still exists and is unchanged
+        doc = await self.versioned_client.get_document(doc_path)
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc["test"], "same path operation")
+        
+        # Clean up
+        await self.versioned_client.delete_document(doc_path)
+    
+    async def test_move_document_destination_exists_no_overwrite(self):
+        """Test move operation when destination exists and overwrite is False."""
+        source_path = self._get_test_path("move_src_exists")
+        dest_path = self._get_test_path("move_dest_exists")
+        
+        # Create source document
+        await self.versioned_client.initialize_document(source_path)
+        await self.versioned_client.update_document(source_path, {"source": "data"})
+        
+        # Create destination document
+        await self.versioned_client.initialize_document(dest_path)
+        await self.versioned_client.update_document(dest_path, {"dest": "data"})
+        
+        # Try to move without overwrite (should fail)
+        with self.assertRaises(ValueError) as context:
+            await self.versioned_client.move_document(source_path, dest_path, overwrite_destination=False)
+        
+        self.assertIn("already exists", str(context.exception))
+        
+        # Verify both documents still exist unchanged
+        source_doc = await self.versioned_client.get_document(source_path)
+        dest_doc = await self.versioned_client.get_document(dest_path)
+        
+        self.assertIsNotNone(source_doc)
+        self.assertIsNotNone(dest_doc)
+        self.assertEqual(source_doc["source"], "data")
+        self.assertEqual(dest_doc["dest"], "data")
+        
+        # Clean up
+        await self.versioned_client.delete_document(source_path)
+        await self.versioned_client.delete_document(dest_path)
+    
+    async def test_move_document_destination_exists_with_overwrite(self):
+        """Test move operation when destination exists and overwrite is True."""
+        source_path = self._get_test_path("move_src_overwrite")
+        dest_path = self._get_test_path("move_dest_overwrite")
+        
+        # Create source document with multiple versions
+        await self.versioned_client.initialize_document(source_path, initial_version="v1")
+        await self.versioned_client.update_document(source_path, {"source": "original", "value": 1})
+        await self.versioned_client.create_version(source_path, "v2")
+        await self.versioned_client.update_document(source_path, {"source": "v2_data", "value": 2}, version="v2")
+        
+        # Create destination document (will be overwritten)
+        await self.versioned_client.initialize_document(dest_path, initial_version="old")
+        await self.versioned_client.update_document(dest_path, {"dest": "will_be_overwritten"}, version="old")
+        
+        # Move with overwrite
+        move_success = await self.versioned_client.move_document(
+            source_path, 
+            dest_path, 
+            overwrite_destination=True, 
+            move=True
+        )
+        self.assertTrue(move_success, "Move with overwrite should succeed")
+        
+        # Verify source is gone
+        source_doc = await self.versioned_client.get_document(source_path)
+        self.assertIsNone(source_doc, "Source should be gone after move")
+        
+        # Verify destination has source data (not original dest data)
+        dest_metadata = await self.versioned_client._get_document_metadata(dest_path)
+        self.assertIsNotNone(dest_metadata)
+        self.assertEqual(dest_metadata["active_version"], "v1")  # Source's active version
+        self.assertIn("v1", dest_metadata["versions"])
+        self.assertIn("v2", dest_metadata["versions"])
+        self.assertNotIn("old", dest_metadata["versions"])  # Original dest version should be gone
+        
+        dest_doc_v1 = await self.versioned_client.get_document(dest_path, version="v1")
+        dest_doc_v2 = await self.versioned_client.get_document(dest_path, version="v2")
+        
+        self.assertEqual(dest_doc_v1["source"], "original")
+        self.assertEqual(dest_doc_v2["source"], "v2_data")
+        
+        # Clean up
+        await self.versioned_client.delete_document(dest_path)
+    
+    async def test_move_nonexistent_document(self):
+        """Test move operation on a non-existent document."""
+        source_path = self._get_test_path("nonexistent_source")
+        dest_path = self._get_test_path("nonexistent_dest")
+        
+        # Try to move non-existent document
+        move_result = await self.versioned_client.move_document(source_path, dest_path)
+        self.assertFalse(move_result, "Moving non-existent document should return False")
+        
+        # Verify destination doesn't exist
+        dest_doc = await self.versioned_client.get_document(dest_path)
+        self.assertIsNone(dest_doc, "Destination should not exist after failed move")
+    
+    async def test_copy_with_schema_preservation(self):
+        """Test that copy operation preserves schema information."""
+        source_path = self._get_test_path("schema_copy_source")
+        dest_path = self._get_test_path("schema_copy_dest")
+        
+        # Schema for testing
+        test_schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "value": {"type": "integer", "minimum": 0}
+            },
+            "required": ["name", "value"]
+        }
+        
+        # Create source document with schema
+        await self.versioned_client.initialize_document(source_path, schema=test_schema)
+        await self.versioned_client.update_document(source_path, {"name": "Test", "value": 42}, is_complete=True)
+        
+        # Copy document
+        copy_success = await self.versioned_client.copy_document(source_path, dest_path)
+        self.assertTrue(copy_success)
+        
+        # Verify schema is preserved at destination
+        source_schema = await self.versioned_client.get_schema(source_path)
+        dest_schema = await self.versioned_client.get_schema(dest_path)
+        
+        self.assertEqual(dest_schema, test_schema, "Schema should be preserved in copy")
+        self.assertEqual(dest_schema, source_schema, "Schemas should match")
+        
+        # Verify schema validation works at destination
+        # Valid update should succeed
+        await self.versioned_client.update_document(dest_path, {"name": "Updated", "value": 100}, is_complete=True)
+        
+        # Invalid update should fail
+        with self.assertRaises(ValidationError):
+            await self.versioned_client.update_document(dest_path, {"name": "Invalid", "value": -1}, is_complete=True)
+        
+        # Clean up
+        await self.versioned_client.delete_document(source_path)
+        await self.versioned_client.delete_document(dest_path)
+    
+    async def test_batch_move_documents(self):
+        """Test batch move operation for multiple versioned documents."""
+        # Create multiple source documents
+        move_pairs = []
+        for i in range(3):
+            source_path = self._get_test_path(f"batch_move_src_{i}")
+            dest_path = self._get_test_path(f"batch_move_dest_{i}")
+            move_pairs.append((source_path, dest_path))
+            
+            # Create and populate each source document
+            await self.versioned_client.initialize_document(source_path, initial_version="v1")
+            await self.versioned_client.update_document(source_path, {"index": i, "name": f"Document {i}"})
+            
+            if i == 1:  # Add extra complexity to middle document
+                await self.versioned_client.create_version(source_path, "v2")
+                await self.versioned_client.update_document(source_path, {"extra": "data"}, version="v2")
+        
+        # Perform batch move
+        results = await self.versioned_client.batch_move_documents(move_pairs, move=True)
+        
+        # Verify results
+        self.assertEqual(len(results), 3, "Should return 3 results")
+        self.assertTrue(all(results), "All moves should succeed")
+        
+        # Verify each move
+        for i, (source_path, dest_path) in enumerate(move_pairs):
+            with self.subTest(index=i):
+                # Source should not exist
+                source_doc = await self.versioned_client.get_document(source_path)
+                self.assertIsNone(source_doc, f"Source {i} should not exist after move")
+                
+                # Destination should exist with correct data
+                dest_doc = await self.versioned_client.get_document(dest_path)
+                self.assertIsNotNone(dest_doc, f"Destination {i} should exist")
+                self.assertEqual(dest_doc["index"], i, f"Destination {i} should have correct index")
+                self.assertEqual(dest_doc["name"], f"Document {i}", f"Destination {i} should have correct name")
+                
+                # Special check for document 1 with extra version
+                if i == 1:
+                    dest_metadata = await self.versioned_client._get_document_metadata(dest_path)
+                    self.assertIn("v2", dest_metadata["versions"], "Document 1 should have v2 version")
+                    
+                    dest_doc_v2 = await self.versioned_client.get_document(dest_path, version="v2")
+                    self.assertEqual(dest_doc_v2["extra"], "data", "V2 data should be preserved")
+        
+        # Clean up
+        for _, dest_path in move_pairs:
+            await self.versioned_client.delete_document(dest_path)
+    
+    async def test_batch_copy_documents(self):
+        """Test batch copy operation for multiple versioned documents."""
+        # Create multiple source documents
+        copy_pairs = []
+        for i in range(4):
+            source_path = self._get_test_path(f"batch_copy_src_{i}")
+            dest_path = self._get_test_path(f"batch_copy_dest_{i}")
+            copy_pairs.append((source_path, dest_path))
+            
+            # Create and populate each source document
+            await self.versioned_client.initialize_document(source_path)
+            await self.versioned_client.update_document(source_path, {"id": i, "data": f"copy_test_{i}"})
+        
+        # Perform batch copy
+        results = await self.versioned_client.batch_copy_documents(copy_pairs)
+        
+        # Verify results
+        self.assertEqual(len(results), 4, "Should return 4 results")
+        self.assertTrue(all(results), "All copies should succeed")
+        
+        # Verify each copy
+        for i, (source_path, dest_path) in enumerate(copy_pairs):
+            with self.subTest(index=i):
+                # Source should still exist
+                source_doc = await self.versioned_client.get_document(source_path)
+                self.assertIsNotNone(source_doc, f"Source {i} should still exist after copy")
+                
+                # Destination should exist with matching data
+                dest_doc = await self.versioned_client.get_document(dest_path)
+                self.assertIsNotNone(dest_doc, f"Destination {i} should exist")
+                self.assertEqual(dest_doc, source_doc, f"Destination {i} should match source")
+        
+        # Test independence: modify sources after copy
+        for i, (source_path, dest_path) in enumerate(copy_pairs):
+            await self.versioned_client.update_document(source_path, {"modified": True})
+            
+            source_doc_modified = await self.versioned_client.get_document(source_path)
+            dest_doc_unchanged = await self.versioned_client.get_document(dest_path)
+            
+            self.assertTrue(source_doc_modified.get("modified"), f"Source {i} should be modified")
+            self.assertNotIn("modified", dest_doc_unchanged, f"Destination {i} should be unchanged")
+        
+        # Clean up
+        for source_path, dest_path in copy_pairs:
+            await self.versioned_client.delete_document(source_path)
+            await self.versioned_client.delete_document(dest_path)
+    
+    async def test_batch_move_mixed_results(self):
+        """Test batch move with mix of existing and non-existing sources."""
+        move_pairs = []
+        existing_indices = [0, 2]  # Only create documents for indices 0 and 2
+        
+        for i in range(4):
+            source_path = self._get_test_path(f"mixed_move_src_{i}")
+            dest_path = self._get_test_path(f"mixed_move_dest_{i}")
+            move_pairs.append((source_path, dest_path))
+            
+            # Only create some source documents
+            if i in existing_indices:
+                await self.versioned_client.initialize_document(source_path)
+                await self.versioned_client.update_document(source_path, {"exists": True, "index": i})
+        
+        # Perform batch move
+        results = await self.versioned_client.batch_move_documents(move_pairs, move=True)
+        
+        # Verify results
+        self.assertEqual(len(results), 4, "Should return 4 results")
+        
+        for i, result in enumerate(results):
+            if i in existing_indices:
+                self.assertTrue(result, f"Move {i} should succeed (source exists)")
+            else:
+                self.assertFalse(result, f"Move {i} should fail (source doesn't exist)")
+        
+        # Verify successful moves
+        for i in existing_indices:
+            source_path, dest_path = move_pairs[i]
+            
+            source_doc = await self.versioned_client.get_document(source_path)
+            dest_doc = await self.versioned_client.get_document(dest_path)
+            
+            self.assertIsNone(source_doc, f"Source {i} should not exist after successful move")
+            self.assertIsNotNone(dest_doc, f"Destination {i} should exist after successful move")
+            self.assertTrue(dest_doc["exists"], f"Destination {i} should have correct data")
+        
+        # Verify failed moves don't create destinations
+        for i, result in enumerate(results):
+            if not result:
+                _, dest_path = move_pairs[i]
+                dest_doc = await self.versioned_client.get_document(dest_path)
+                self.assertIsNone(dest_doc, f"Destination {i} should not exist for failed move")
+        
+        # Clean up
+        for i in existing_indices:
+            _, dest_path = move_pairs[i]
+            await self.versioned_client.delete_document(dest_path)
+    
+    async def test_move_document_complex_history(self):
+        """Test move operation with complex version history and restoration."""
+        source_path = self._get_test_path("complex_history_source")
+        dest_path = self._get_test_path("complex_history_dest")
+        
+        # Create document with complex history
+        await self.versioned_client.initialize_document(source_path, initial_version="main")
+        
+        # Build up history in main version
+        states = [
+            {"title": "Initial", "step": 1},
+            {"title": "Step 2", "step": 2, "data": [1, 2]},
+            {"title": "Step 3", "step": 3, "data": [1, 2, 3], "config": {"enabled": True}},
+            {"title": "Step 4", "step": 4, "data": [1, 2, 3, 4], "config": {"enabled": False, "mode": "test"}}
+        ]
+        
+        for state in states:
+            await self.versioned_client.update_document(source_path, state, version="main")
+        
+        # Create feature branch and modify it
+        await self.versioned_client.create_version(source_path, "feature", from_version="main")
+        await self.versioned_client.update_document(source_path, {"feature_flag": True}, version="feature")
+        await self.versioned_client.update_document(source_path, {"title": "Feature Complete"}, version="feature")
+        
+        # Restore main to an earlier state
+        await self.versioned_client.restore(source_path, sequence=1, version="main")  # Back to step 2
+        
+        # Add new history after restore
+        await self.versioned_client.update_document(source_path, {"title": "New Path", "step": 2.5}, version="main")
+        
+        # Get complete state before move
+        source_metadata_before = await self.versioned_client._get_document_metadata(source_path)
+        source_main_before = await self.versioned_client.get_document(source_path, version="main")
+        source_feature_before = await self.versioned_client.get_document(source_path, version="feature")
+        source_history_main_before = await self.versioned_client.get_version_history(source_path, version="main")
+        source_history_feature_before = await self.versioned_client.get_version_history(source_path, version="feature")
+        
+        # Move document
+        move_success = await self.versioned_client.move_document(source_path, dest_path, move=True)
+        self.assertTrue(move_success, "Complex document move should succeed")
+        
+        # Verify complete preservation of structure at destination
+        dest_metadata = await self.versioned_client._get_document_metadata(dest_path)
+        dest_main = await self.versioned_client.get_document(dest_path, version="main")
+        dest_feature = await self.versioned_client.get_document(dest_path, version="feature")
+        dest_history_main = await self.versioned_client.get_version_history(dest_path, version="main")
+        dest_history_feature = await self.versioned_client.get_version_history(dest_path, version="feature")
+        
+        # Verify metadata matches
+        self.assertEqual(dest_metadata["active_version"], source_metadata_before["active_version"])
+        self.assertEqual(dest_metadata["versions"], source_metadata_before["versions"])
+        
+        # Verify document states match
+        self.assertEqual(dest_main, source_main_before, "Main version should match")
+        self.assertEqual(dest_feature, source_feature_before, "Feature version should match")
+        
+        # Verify history preservation and structure
+        self.assertEqual(len(dest_history_main), len(source_history_main_before), "Main history length should match")
+        self.assertEqual(len(dest_history_feature), len(source_history_feature_before), "Feature history length should match")
+        
+        # Verify specific history details
+        for i, (dest_item, source_item) in enumerate(zip(dest_history_main, source_history_main_before)):
+            self.assertEqual(dest_item["sequence"], source_item["sequence"], f"Main history item {i} sequence should match")
+            self.assertEqual(dest_item["patch"], source_item["patch"], f"Main history item {i} patch should match")
+        
+        # Test restoration functionality at destination
+        preview_dest = await self.versioned_client.preview_restore(dest_path, sequence=0, version="main")
+        self.assertEqual(preview_dest["step"], 1, "Should be able to preview first state")
+        
+        # Test that new updates work at destination
+        await self.versioned_client.update_document(dest_path, {"moved": True}, version="main")
+        updated_dest = await self.versioned_client.get_document(dest_path, version="main")
+        self.assertTrue(updated_dest.get("moved"), "Should be able to update moved document")
+        
+        # Clean up
+        await self.versioned_client.delete_document(dest_path)
+        
+        # Verify source is completely gone
+        source_doc_after = await self.versioned_client.get_document(source_path)
+        self.assertIsNone(source_doc_after, "Source should be completely gone after move")
+
 def run_async_tests():
     unittest.main()
 

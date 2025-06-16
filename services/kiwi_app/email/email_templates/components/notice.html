@@ -1,0 +1,23 @@
+{% macro important_notice(content, icon="⏰") %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px; background-color: #fff3cd; padding: 12px; border-radius: 4px; border-left: 4px solid #ffc107;">
+  {{ icon }} <strong>Important:</strong> {{ content }}
+</p>
+{% endmacro %}
+
+{% macro warning_notice(content, icon="⚠️") %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px; background-color: #f8d7da; padding: 12px; border-radius: 4px; border-left: 4px solid #dc3545;">
+  {{ icon }} <strong>Warning:</strong> {{ content }}
+</p>
+{% endmacro %}
+
+{% macro info_notice(content, icon="ℹ️") %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px; background-color: #d1ecf1; padding: 12px; border-radius: 4px; border-left: 4px solid #17a2b8;">
+  {{ icon }} <strong>Info:</strong> {{ content }}
+</p>
+{% endmacro %}
+
+{% macro success_notice(content, icon="✅") %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px; background-color: #d4edda; padding: 12px; border-radius: 4px; border-left: 4px solid #28a745;">
+  {{ icon }} <strong>Success:</strong> {{ content }}
+</p>
+{% endmacro %} 

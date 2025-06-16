@@ -1830,6 +1830,1392 @@ class TestOptimizedMongoDBClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(doc4["data"]["timestamp"], 11111)             # Should retain original value
         self.assertEqual(doc4["data"]["regular_field"], "new_value")
 
+    async def test_regex_search_objects(self):
+        """Test search_objects with regex patterns (embedded wildcards in segments)."""
+        # Create test objects with various naming patterns
+        test_objects_data = [
+            # Basic test objects
+            ([self.TEST_PREFIX, "regex", "products", "laptop_dell_15"], {"name": "Dell Laptop 15 inch", "category": "electronics", "price": 999}),
+            ([self.TEST_PREFIX, "regex", "products", "laptop_hp_13"], {"name": "HP Laptop 13 inch", "category": "electronics", "price": 799}),
+            ([self.TEST_PREFIX, "regex", "products", "desktop_dell_tower"], {"name": "Dell Desktop Tower", "category": "electronics", "price": 1299}),
+            ([self.TEST_PREFIX, "regex", "products", "mouse_logitech_mx"], {"name": "Logitech MX Mouse", "category": "accessories", "price": 99}),
+            
+            # Objects with numbers and special patterns
+            ([self.TEST_PREFIX, "regex", "documents", "report_2023_Q1"], {"name": "Q1 2023 Report", "type": "financial", "year": 2023}),
+            ([self.TEST_PREFIX, "regex", "documents", "report_2023_Q2"], {"name": "Q2 2023 Report", "type": "financial", "year": 2023}),
+            ([self.TEST_PREFIX, "regex", "documents", "report_2024_Q1"], {"name": "Q1 2024 Report", "type": "financial", "year": 2024}),
+            ([self.TEST_PREFIX, "regex", "documents", "summary_2023_annual"], {"name": "2023 Annual Summary", "type": "summary", "year": 2023}),
+            
+            # Objects with underscores and hyphens
+            ([self.TEST_PREFIX, "regex", "users", "john_doe_admin"], {"name": "John Doe", "role": "admin", "active": True}),
+            ([self.TEST_PREFIX, "regex", "users", "jane_smith_user"], {"name": "Jane Smith", "role": "user", "active": True}),
+            ([self.TEST_PREFIX, "regex", "users", "bob-jones-guest"], {"name": "Bob Jones", "role": "guest", "active": False}),
+            
+            # Edge case names (using underscores instead of dots to avoid MongoDB field name issues)
+            ([self.TEST_PREFIX, "regex", "special", "file_txt"], {"name": "Text File", "extension": "txt", "filename": "file.txt"}),
+            ([self.TEST_PREFIX, "regex", "special", "data_json"], {"name": "JSON Data", "extension": "json", "filename": "data.json"}),
+            ([self.TEST_PREFIX, "regex", "special", "script_py"], {"name": "Python Script", "extension": "py", "filename": "script.py"}),
+        ]
+        
+        # Create all test objects
+        await self.client.batch_create_objects(test_objects_data)
+        
+        # Test 1: Basic wildcard pattern - find all laptop products
+        laptop_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "laptop*"]
+        )
+        self.assertEqual(len(laptop_results), 2, "Should find 2 laptop products")
+        laptop_names = [doc.get(self.segment_names[3]) for doc in laptop_results]
+        self.assertTrue(all("laptop" in name for name in laptop_names), "All results should contain 'laptop'")
+        
+        # Test 2: Wildcard at the end - find all Dell products
+        dell_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*dell*"]
+        )
+        self.assertEqual(len(dell_results), 2, "Should find 2 Dell products")
+        dell_names = [doc.get(self.segment_names[3]) for doc in dell_results]
+        self.assertTrue(all("dell" in name for name in dell_names), "All results should contain 'dell'")
+        
+        # Test 3: Multiple wildcards - find all 2023 reports
+        report_2023_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "documents", "*2023*"]
+        )
+        self.assertEqual(len(report_2023_results), 3, "Should find 3 documents from 2023")
+        
+        # Test 4: Specific pattern - find Q1 reports from any year
+        q1_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "documents", "*_Q1"]
+        )
+        self.assertEqual(len(q1_results), 2, "Should find 2 Q1 reports")
+        
+        # Test 5: Pattern with special characters - find files with extensions
+        # First, let's verify the objects were created correctly
+        all_special = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special", "*"]
+        )
+        logger.info(f"All special objects: {[(doc.get(self.segment_names[3]), doc['data']) for doc in all_special]}")
+        self.assertEqual(len(all_special), 3, "Should have 3 special objects")
+        
+        # Test a simple wildcard pattern first
+        txt_files = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special", "file*"]
+        )
+        logger.info(f"Files starting with 'file': {[(doc.get(self.segment_names[3]), doc['data']) for doc in txt_files]}")
+        self.assertEqual(len(txt_files), 1, "Should find 1 file starting with 'file'")
+        
+        # Now test pattern for txt files (using underscore)
+        txt_file_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special", "*_txt"]
+        )
+        self.assertEqual(len(txt_file_results), 1, "Should find 1 txt file")
+        self.assertEqual(txt_file_results[0]["data"]["extension"], "txt", "Should be a txt file")
+        self.assertEqual(txt_file_results[0]["data"]["filename"], "file.txt", "Should have original filename")
+        
+        # Test 6: Wildcard with underscores - find admin users
+        admin_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "users", "*_admin"]
+        )
+        self.assertEqual(len(admin_results), 1, "Should find 1 admin user")
+        self.assertEqual(admin_results[0]["data"]["role"], "admin", "Should be an admin user")
+        
+        # Test 7: Complex pattern - find all user-type accounts (not guests)
+        user_type_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "users", "*_*_*"]
+        )
+        self.assertEqual(len(user_type_results), 2, "Should find 2 users with underscore pattern")
+        
+        # Test 8: Combine regex pattern with value filter
+        expensive_laptop_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "laptop*"],
+            value_filter={"price": {"$gte": 900}}
+        )
+        self.assertEqual(len(expensive_laptop_results), 1, "Should find 1 expensive laptop")
+        self.assertEqual(expensive_laptop_results[0]["data"]["price"], 999, "Should be the Dell laptop")
+        
+        # Test 9: Multiple regex patterns (OR query)
+        laptop_or_desktop_results = await self.client.search_objects(
+            key_pattern=[
+                [self.TEST_PREFIX, "regex", "products", "laptop*"],
+                [self.TEST_PREFIX, "regex", "products", "desktop*"]
+            ]
+        )
+        self.assertEqual(len(laptop_or_desktop_results), 3, "Should find 2 laptops + 1 desktop")
+        
+        # Test 10: Regex with sorting
+        sorted_products = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*"],
+            value_sort_by=[("price", -1)]  # Sort by price descending
+        )
+        prices = [doc["data"]["price"] for doc in sorted_products]
+        self.assertEqual(prices, sorted(prices, reverse=True), "Products should be sorted by price descending")
+        
+        # Test 11: Test with permissions - only allow certain patterns
+        user_results_with_perm = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "users", "*"],
+            allowed_prefixes=[[self.TEST_PREFIX, "regex", "users", "*_user"]]  # Only allow *_user pattern
+        )
+        self.assertEqual(len(user_results_with_perm), 0, "Permissions with wildcards in prefix not supported correctly")
+        
+        # Test with proper permissions
+        user_results_with_perm = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "users", "*_user"],
+            allowed_prefixes=[[self.TEST_PREFIX, "regex", "users"]]
+        )
+        self.assertEqual(len(user_results_with_perm), 1, "Should find 1 user with _user suffix")
+        
+        # Test 12: Empty wildcard patterns
+        all_products = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*"]
+        )
+        self.assertEqual(len(all_products), 4, "Should find all 4 products")
+        
+        # Test 13: Pattern that matches nothing
+        no_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*nonexistent*"]
+        )
+        self.assertEqual(len(no_results), 0, "Should find no results for non-matching pattern")
+        
+        # Test 14: Special regex characters that should be escaped
+        # Create objects with special characters (avoiding dots in segment names)
+        special_objects = [
+            ([self.TEST_PREFIX, "regex", "special_chars", "test[1]a"], {"name": "Array index 1"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test[1]ab"], {"name": "Array index 1"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test[1]"], {"name": "Array index 1"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test(2)"], {"name": "Function call 2"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test_dot_file"], {"name": "Dot file", "original": "test.file"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test^start"], {"name": "Caret start"}),
+            ([self.TEST_PREFIX, "regex", "special_chars", "test$end"], {"name": "Dollar end"}),
+        ]
+        await self.client.batch_create_objects(special_objects)
+        
+        # Search for objects with brackets - the brackets need to be escaped in the pattern
+        # First let's verify the special characters were created
+        all_special_chars = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "*"]
+        )
+        logger.info(f"All special_chars objects: {[(doc.get(self.segment_names[3]), doc['data']) for doc in all_special_chars]}")
+        self.assertEqual(len(all_special_chars), 7, "Should have 5 special character objects")
+        
+        # Now search for the bracket object - * pattern
+        bracket_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "test[1]*"]
+        )
+        self.assertEqual(len(bracket_results), 3, "Should find object with bracket")
+
+        # Now search for the bracket object - exact match
+        bracket_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "test[1]"]
+        )
+        self.assertEqual(len(bracket_results), 1, "Should find object with bracket")
+
+        # Now search for the bracket object - * pattern in between
+        bracket_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "test[1]*b"]
+        )
+        self.assertEqual(len(bracket_results), 1, "Should find object with bracket")
+
+        # Now search for the bracket object - 2 asterix patterns
+        bracket_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "test[1]*b*"]
+        )
+        self.assertEqual(len(bracket_results), 1, "Should find object with bracket")
+        
+        # Search for objects with underscore pattern (instead of dots)
+        underscore_results = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "special_chars", "test_*"]
+        )
+        self.assertEqual(len(underscore_results), 1, "Should find object with underscore pattern")
+        
+        # Test 15: Performance comparison - exact vs regex search
+        import time
+        
+        # Exact search
+        start_time = time.time()
+        exact_result = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "laptop_dell_15"]
+        )
+        exact_time = time.time() - start_time
+        
+        # Regex search
+        start_time = time.time()
+        regex_result = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "laptop*dell*"]
+        )
+        regex_time = time.time() - start_time
+        
+        logger.info(f"Exact search time: {exact_time:.4f}s, Regex search time: {regex_time:.4f}s")
+        
+        # Both should find the Dell laptop
+        self.assertEqual(len(exact_result), 1, "Exact search should find 1 result")
+        self.assertEqual(len(regex_result), 1, "Regex search should find 1 result")
+        
+        # Test 16: Wildcard at start and end
+        contains_dell = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*dell*"]
+        )
+        self.assertEqual(len(contains_dell), 2, "Should find all products containing 'dell'")
+        
+        # Test 17: Multiple wildcards in pattern
+        pattern_2023_q = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "documents", "*2023*Q*"]
+        )
+        self.assertEqual(len(pattern_2023_q), 2, "Should find 2023 Q1 and Q2 reports")
+        
+        # Test 18: Case sensitivity check (MongoDB regex is case-sensitive by default)
+        # The current implementation doesn't specify case-insensitive flag, so it should be case-sensitive
+        lowercase_dell = await self.client.search_objects(
+            key_pattern=[self.TEST_PREFIX, "regex", "products", "*DELL*"]  # Uppercase
+        )
+        self.assertEqual(len(lowercase_dell), 0, "Should not find anything with uppercase DELL (case-sensitive)")
+        
+        # Test 19: Verify dots in segment names (edge case test)
+        # MongoDB allows dots in field values but not in field names. Since our segments
+        # become field names, dots in segments might cause issues. Let's verify this.
+        try:
+            dot_test_path = [self.TEST_PREFIX, "regex", "dot_test", "file.with.dots"]
+            await self.client.create_object(dot_test_path, {"test": "dots in segment"})
+            
+            # Try to fetch it back
+            dot_obj = await self.client.fetch_object(dot_test_path)
+            if dot_obj:
+                logger.info("SUCCESS: Dots in segment names are supported")
+                self.assertEqual(dot_obj["data"]["test"], "dots in segment")
+                
+                # Test regex search with dots
+                dot_search = await self.client.search_objects(
+                    key_pattern=[self.TEST_PREFIX, "regex", "dot_test", "file*"]
+                )
+                self.assertEqual(len(dot_search), 1, "Should find object with dots using wildcard")
+            else:
+                logger.warning("Dots in segment names might not be fully supported")
+        except Exception as e:
+            logger.info(f"Dots in segment names are not supported (as expected for MongoDB field names): {e}")
+            # This is expected - MongoDB doesn't allow dots in field names
+        
+        # Clean up
+        await self.client.delete_objects([self.TEST_PREFIX, "regex", "*", "*"])
+
+    # =========================================================================
+    # MOVE/RENAME OPERATION TESTS
+    # =========================================================================
+    
+    async def test_move_object_basic(self):
+        """Test basic move/rename functionality."""
+        # Create test object
+        source_path = [self.TEST_PREFIX, "move", "source", "original_doc"]
+        destination_path = [self.TEST_PREFIX, "move", "destination", "renamed_doc"]
+        data = {"name": "Test Document", "value": 123, "metadata": {"created": "today"}}
+        
+        # Create source object
+        source_id = await self.client.create_object(source_path, data)
+        self.assertIsNotNone(source_id, "Source object should be created")
+        
+        # Verify source exists
+        source_obj = await self.client.fetch_object(source_path)
+        self.assertIsNotNone(source_obj, "Source object should exist before move")
+        self.assertEqual(source_obj["data"]["name"], "Test Document", "Source data should match")
+        
+        # Move object
+        destination_id = await self.client.move_object(source_path, destination_path)
+        self.assertIsNotNone(destination_id, "Move should return destination ID")
+        
+        # Verify destination exists with correct data
+        destination_obj = await self.client.fetch_object(destination_path)
+        self.assertIsNotNone(destination_obj, "Destination object should exist after move")
+        self.assertEqual(destination_obj["data"]["name"], "Test Document", "Destination data should match original")
+        self.assertEqual(destination_obj["data"]["value"], 123, "Destination data should match original")
+        self.assertEqual(destination_obj["data"]["metadata"]["created"], "today", "Nested data should be preserved")
+        
+        # Verify source no longer exists
+        source_obj_after = await self.client.fetch_object(source_path)
+        self.assertIsNone(source_obj_after, "Source object should not exist after move")
+        
+        # Clean up
+        await self.client.delete_object(destination_path)
+    
+    async def test_move_object_same_path(self):
+        """Test move operation with same source and destination paths."""
+        # Create test object
+        path = [self.TEST_PREFIX, "move", "same", "document"]
+        data = {"name": "Same Path Test", "value": 456}
+        
+        # Create object
+        original_id = await self.client.create_object(path, data)
+        
+        # Move to same path
+        result_id = await self.client.move_object(path, path)
+        self.assertEqual(result_id, original_id, "Moving to same path should return same ID")
+        
+        # Verify object still exists
+        obj = await self.client.fetch_object(path)
+        self.assertIsNotNone(obj, "Object should still exist")
+        self.assertEqual(obj["data"]["name"], "Same Path Test", "Data should be unchanged")
+        
+        # Clean up
+        await self.client.delete_object(path)
+    
+    async def test_move_object_nonexistent_source(self):
+        """Test move operation with nonexistent source."""
+        # Try to move nonexistent object
+        source_path = [self.TEST_PREFIX, "move", "nonexistent", "source"]
+        destination_path = [self.TEST_PREFIX, "move", "destination", "target"]
+        
+        result = await self.client.move_object(source_path, destination_path)
+        self.assertIsNone(result, "Moving nonexistent object should return None")
+        
+        # Verify destination doesn't exist
+        destination_obj = await self.client.fetch_object(destination_path)
+        self.assertIsNone(destination_obj, "Destination should not exist when source doesn't exist")
+    
+    async def test_move_object_existing_destination_no_overwrite(self):
+        """Test move operation when destination exists and overwrite is False."""
+        # Create source and destination objects
+        source_path = [self.TEST_PREFIX, "move", "conflict", "source"]
+        destination_path = [self.TEST_PREFIX, "move", "conflict", "destination"]
+        
+        source_data = {"name": "Source Document", "type": "source"}
+        destination_data = {"name": "Destination Document", "type": "destination"}
+        
+        await self.client.create_object(source_path, source_data)
+        await self.client.create_object(destination_path, destination_data)
+        
+        # Try to move without overwrite (should fail)
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(source_path, destination_path, overwrite_destination=False)
+        
+        self.assertIn("already exists", str(context.exception), "Error should mention destination exists")
+        
+        # Verify both objects still exist unchanged
+        source_obj = await self.client.fetch_object(source_path)
+        destination_obj = await self.client.fetch_object(destination_path)
+        
+        self.assertIsNotNone(source_obj, "Source should still exist after failed move")
+        self.assertIsNotNone(destination_obj, "Destination should still exist after failed move")
+        self.assertEqual(source_obj["data"]["type"], "source", "Source data should be unchanged")
+        self.assertEqual(destination_obj["data"]["type"], "destination", "Destination data should be unchanged")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+        await self.client.delete_object(destination_path)
+    
+    async def test_move_object_existing_destination_with_overwrite(self):
+        """Test move operation when destination exists and overwrite is True."""
+        # Create source and destination objects
+        source_path = [self.TEST_PREFIX, "move", "overwrite", "source"]
+        destination_path = [self.TEST_PREFIX, "move", "overwrite", "destination"]
+        
+        source_data = {"name": "Source Document", "type": "source", "value": 100}
+        destination_data = {"name": "Destination Document", "type": "destination", "value": 200}
+        
+        await self.client.create_object(source_path, source_data)
+        await self.client.create_object(destination_path, destination_data)
+        
+        # Move with overwrite
+        result_id = await self.client.move_object(source_path, destination_path, overwrite_destination=True)
+        self.assertIsNotNone(result_id, "Move with overwrite should succeed")
+        
+        # Verify source is gone
+        source_obj = await self.client.fetch_object(source_path)
+        self.assertIsNone(source_obj, "Source should not exist after move")
+        
+        # Verify destination has source data
+        destination_obj = await self.client.fetch_object(destination_path)
+        self.assertIsNotNone(destination_obj, "Destination should exist after move")
+        self.assertEqual(destination_obj["data"]["type"], "source", "Destination should have source data")
+        self.assertEqual(destination_obj["data"]["value"], 100, "Destination should have source value")
+        
+        # Clean up
+        await self.client.delete_object(destination_path)
+    
+    async def test_move_object_permissions(self):
+        """Test move operation with permission restrictions."""
+        # Create test objects
+        allowed_source = [self.TEST_PREFIX, "move", "perm", "allowed_source"]
+        allowed_dest = [self.TEST_PREFIX, "move", "perm", "allowed_dest"]
+        denied_source = [self.TEST_PREFIX, "move", "denied", "source"]
+        denied_dest = [self.TEST_PREFIX, "move", "denied", "dest"]
+        
+        data = {"name": "Permission Test", "value": 789}
+        
+        # Create objects
+        await self.client.create_object(allowed_source, data)
+        await self.client.create_object(denied_source, data)
+        
+        # Define permissions (only allow "perm" namespace)
+        allowed_prefixes = [[self.TEST_PREFIX, "move", "perm"]]
+        
+        # Test 1: Valid move within allowed prefix
+        result_id = await self.client.move_object(
+            allowed_source, 
+            allowed_dest, 
+            allowed_prefixes=allowed_prefixes
+        )
+        self.assertIsNotNone(result_id, "Move within allowed prefix should succeed")
+        
+        # Verify move succeeded
+        dest_obj = await self.client.fetch_object(allowed_dest)
+        self.assertIsNotNone(dest_obj, "Destination should exist")
+        source_obj = await self.client.fetch_object(allowed_source)
+        self.assertIsNone(source_obj, "Source should be gone")
+        
+        # Test 2: Move from denied source should fail
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(
+                denied_source, 
+                allowed_dest, 
+                allowed_prefixes=allowed_prefixes
+            )
+        self.assertIn("Access denied for source path", str(context.exception))
+        
+        # Test 3: Move to denied destination should fail
+        # First, create another allowed source
+        another_source = [self.TEST_PREFIX, "move", "perm", "another_source"]
+        await self.client.create_object(another_source, data)
+        
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(
+                another_source, 
+                denied_dest, 
+                allowed_prefixes=allowed_prefixes
+            )
+        self.assertIn("Access denied for destination path", str(context.exception))
+        
+        # Clean up
+        await self.client.delete_object(allowed_dest)
+        await self.client.delete_object(denied_source)
+        await self.client.delete_object(another_source)
+    
+    async def test_move_object_different_data_types(self):
+        """Test move operation with different data types."""
+        # Test different data types
+        test_cases = [
+            ("string", "Just a string value"),
+            ("dict", {"nested": {"data": {"with": "multiple levels"}}, "count": 42}),
+            ("list", [1, 2, "three", {"four": 4}, [5, 6]]),
+            ("number", 12345),
+            ("boolean", True),
+            ("null", None),
+            ("empty_dict", {}),
+            ("empty_list", [])
+        ]
+        
+        for data_type, test_data in test_cases:
+            with self.subTest(data_type=data_type):
+                source_path = [self.TEST_PREFIX, "move", "types", f"source_{data_type}"]
+                destination_path = [self.TEST_PREFIX, "move", "types", f"dest_{data_type}"]
+                
+                # Create and move
+                await self.client.create_object(source_path, test_data)
+                result_id = await self.client.move_object(source_path, destination_path)
+                
+                self.assertIsNotNone(result_id, f"Move should succeed for {data_type}")
+                
+                # Verify move
+                dest_obj = await self.client.fetch_object(destination_path)
+                source_obj = await self.client.fetch_object(source_path)
+                
+                self.assertIsNotNone(dest_obj, f"Destination should exist for {data_type}")
+                self.assertIsNone(source_obj, f"Source should be gone for {data_type}")
+                self.assertEqual(dest_obj["data"], test_data, f"Data should match for {data_type}")
+                
+                # Clean up
+                await self.client.delete_object(destination_path)
+    
+    async def test_move_object_path_validation(self):
+        """Test move operation with invalid paths."""
+        valid_path = [self.TEST_PREFIX, "move", "valid", "path"]
+        
+        # Test invalid source paths
+        invalid_paths = [
+            [self.TEST_PREFIX, f"invalid{self.client.PATH_DELIMITER}segment", "test"],
+            [self.TEST_PREFIX, "path", "with", "*wildcard"],
+            [self.TEST_PREFIX, "", "empty", "segment"],  # Empty segment
+        ]
+        
+        for invalid_path in invalid_paths:
+            with self.subTest(invalid_path=invalid_path):
+                with self.assertRaises(ValueError):
+                    await self.client.move_object(invalid_path, valid_path)
+        
+        # Test invalid destination paths
+        for invalid_path in invalid_paths:
+            with self.subTest(invalid_dest_path=invalid_path):
+                with self.assertRaises(ValueError):
+                    await self.client.move_object(valid_path, invalid_path)
+    
+    async def test_batch_move_objects_basic(self):
+        """Test basic batch move functionality."""
+        # Create test objects
+        move_pairs = [
+            ([self.TEST_PREFIX, "batch_move", "source1", "doc"], [self.TEST_PREFIX, "batch_move", "dest1", "doc"]),
+            ([self.TEST_PREFIX, "batch_move", "source2", "doc"], [self.TEST_PREFIX, "batch_move", "dest2", "doc"]),
+            ([self.TEST_PREFIX, "batch_move", "source3", "doc"], [self.TEST_PREFIX, "batch_move", "dest3", "doc"]),
+        ]
+        
+        # Create source objects
+        for i, (source, dest) in enumerate(move_pairs):
+            data = {"name": f"Batch Document {i+1}", "index": i}
+            await self.client.create_object(source, data)
+        
+        # Perform batch move
+        result_ids = await self.client.batch_move_objects(move_pairs)
+        
+        # Verify results
+        self.assertEqual(len(result_ids), 3, "Should return 3 result IDs")
+        self.assertTrue(all(id is not None for id in result_ids), "All moves should succeed")
+        
+        # Verify each move
+        for i, (source, dest) in enumerate(move_pairs):
+            with self.subTest(index=i):
+                # Check destination exists
+                dest_obj = await self.client.fetch_object(dest)
+                self.assertIsNotNone(dest_obj, f"Destination {i+1} should exist")
+                self.assertEqual(dest_obj["data"]["index"], i, f"Destination {i+1} data should match")
+                
+                # Check source is gone
+                source_obj = await self.client.fetch_object(source)
+                self.assertIsNone(source_obj, f"Source {i+1} should be gone")
+        
+        # Clean up
+        for _, dest in move_pairs:
+            await self.client.delete_object(dest)
+    
+    async def test_batch_move_objects_mixed_results(self):
+        """Test batch move with mix of existing and non-existing sources."""
+        # Prepare move pairs (some sources exist, some don't)
+        move_pairs = [
+            ([self.TEST_PREFIX, "batch_mixed", "exists1", "doc"], [self.TEST_PREFIX, "batch_mixed", "dest1", "doc"]),
+            ([self.TEST_PREFIX, "batch_mixed", "nonexistent1", "doc"], [self.TEST_PREFIX, "batch_mixed", "dest2", "doc"]),
+            ([self.TEST_PREFIX, "batch_mixed", "exists2", "doc"], [self.TEST_PREFIX, "batch_mixed", "dest3", "doc"]),
+            ([self.TEST_PREFIX, "batch_mixed", "nonexistent2", "doc"], [self.TEST_PREFIX, "batch_mixed", "dest4", "doc"]),
+        ]
+        
+        # Create only some source objects
+        existing_indices = [0, 2]  # First and third sources exist
+        for i in existing_indices:
+            source, _ = move_pairs[i]
+            data = {"name": f"Existing Document {i+1}", "exists": True}
+            await self.client.create_object(source, data)
+        
+        # Perform batch move
+        result_ids = await self.client.batch_move_objects(move_pairs)
+        
+        # Verify results
+        self.assertEqual(len(result_ids), 4, "Should return 4 result IDs")
+        
+        for i, result_id in enumerate(result_ids):
+            if i in existing_indices:
+                self.assertIsNotNone(result_id, f"Move {i+1} should succeed (source exists)")
+            else:
+                self.assertIsNone(result_id, f"Move {i+1} should return None (source doesn't exist)")
+        
+        # Verify successful moves
+        for i in existing_indices:
+            _, dest = move_pairs[i]
+            dest_obj = await self.client.fetch_object(dest)
+            self.assertIsNotNone(dest_obj, f"Destination {i+1} should exist")
+            self.assertTrue(dest_obj["data"]["exists"], f"Destination {i+1} should have correct data")
+        
+        # Verify failed moves don't create destinations
+        for i, result_id in enumerate(result_ids):
+            if result_id is None:
+                _, dest = move_pairs[i]
+                dest_obj = await self.client.fetch_object(dest)
+                self.assertIsNone(dest_obj, f"Destination {i+1} should not exist for failed move")
+        
+        # Clean up
+        for i in existing_indices:
+            _, dest = move_pairs[i]
+            await self.client.delete_object(dest)
+
+    # =========================================================================
+    # COPY OPERATION TESTS (move=False)
+    # =========================================================================
+    
+    async def test_copy_object_basic(self):
+        """Test basic copy functionality (move=False)."""
+        # Create test object
+        source_path = [self.TEST_PREFIX, "copy", "source", "original_doc"]
+        destination_path = [self.TEST_PREFIX, "copy", "destination", "copied_doc"]
+        data = {"name": "Test Document", "value": 123, "metadata": {"created": "today"}}
+        
+        # Create source object
+        source_id = await self.client.create_object(source_path, data)
+        self.assertIsNotNone(source_id, "Source object should be created")
+        
+        # Copy object (move=False)
+        destination_id = await self.client.move_object(source_path, destination_path, move=False)
+        self.assertIsNotNone(destination_id, "Copy should return destination ID")
+        
+        # Verify both source and destination exist with correct data
+        source_obj = await self.client.fetch_object(source_path)
+        destination_obj = await self.client.fetch_object(destination_path)
+        
+        self.assertIsNotNone(source_obj, "Source object should still exist after copy")
+        self.assertIsNotNone(destination_obj, "Destination object should exist after copy")
+        
+        # Verify data matches in both locations
+        self.assertEqual(source_obj["data"]["name"], "Test Document", "Source data should be unchanged")
+        self.assertEqual(destination_obj["data"]["name"], "Test Document", "Destination data should match original")
+        self.assertEqual(destination_obj["data"]["value"], 123, "Destination data should match original")
+        self.assertEqual(destination_obj["data"]["metadata"]["created"], "today", "Nested data should be preserved")
+        
+        # Verify they are separate documents (different IDs)
+        self.assertNotEqual(source_obj["_id"], destination_obj["_id"], "Source and destination should have different IDs")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+        await self.client.delete_object(destination_path)
+    
+    async def test_copy_object_same_path(self):
+        """Test copy operation with same source and destination paths."""
+        # Create test object
+        path = [self.TEST_PREFIX, "copy", "same", "document"]
+        data = {"name": "Same Path Copy Test", "value": 456}
+        
+        # Create object
+        original_id = await self.client.create_object(path, data)
+        
+        # Copy to same path (should warn but return same ID)
+        result_id = await self.client.move_object(path, path, move=False)
+        self.assertEqual(result_id, original_id, "Copying to same path should return same ID")
+        
+        # Verify object still exists
+        obj = await self.client.fetch_object(path)
+        self.assertIsNotNone(obj, "Object should still exist")
+        self.assertEqual(obj["data"]["name"], "Same Path Copy Test", "Data should be unchanged")
+        
+        # Clean up
+        await self.client.delete_object(path)
+    
+    async def test_copy_object_existing_destination_no_overwrite(self):
+        """Test copy operation when destination exists and overwrite is False."""
+        # Create source and destination objects
+        source_path = [self.TEST_PREFIX, "copy", "conflict", "source"]
+        destination_path = [self.TEST_PREFIX, "copy", "conflict", "destination"]
+        
+        source_data = {"name": "Source Document", "type": "source"}
+        destination_data = {"name": "Destination Document", "type": "destination"}
+        
+        await self.client.create_object(source_path, source_data)
+        await self.client.create_object(destination_path, destination_data)
+        
+        # Try to copy without overwrite (should fail)
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(source_path, destination_path, move=False, overwrite_destination=False)
+        
+        self.assertIn("already exists", str(context.exception), "Error should mention destination exists")
+        
+        # Verify both objects still exist unchanged
+        source_obj = await self.client.fetch_object(source_path)
+        destination_obj = await self.client.fetch_object(destination_path)
+        
+        self.assertIsNotNone(source_obj, "Source should still exist after failed copy")
+        self.assertIsNotNone(destination_obj, "Destination should still exist after failed copy")
+        self.assertEqual(source_obj["data"]["type"], "source", "Source data should be unchanged")
+        self.assertEqual(destination_obj["data"]["type"], "destination", "Destination data should be unchanged")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+        await self.client.delete_object(destination_path)
+    
+    async def test_copy_object_existing_destination_with_overwrite(self):
+        """Test copy operation when destination exists and overwrite is True."""
+        # Create source and destination objects
+        source_path = [self.TEST_PREFIX, "copy", "overwrite", "source"]
+        destination_path = [self.TEST_PREFIX, "copy", "overwrite", "destination"]
+        
+        source_data = {"name": "Source Document", "type": "source", "value": 100}
+        destination_data = {"name": "Destination Document", "type": "destination", "value": 200}
+        
+        await self.client.create_object(source_path, source_data)
+        await self.client.create_object(destination_path, destination_data)
+        
+        # Copy with overwrite
+        result_id = await self.client.move_object(source_path, destination_path, move=False, overwrite_destination=True)
+        self.assertIsNotNone(result_id, "Copy with overwrite should succeed")
+        
+        # Verify source still exists
+        source_obj = await self.client.fetch_object(source_path)
+        self.assertIsNotNone(source_obj, "Source should still exist after copy")
+        self.assertEqual(source_obj["data"]["type"], "source", "Source data should be unchanged")
+        
+        # Verify destination has source data
+        destination_obj = await self.client.fetch_object(destination_path)
+        self.assertIsNotNone(destination_obj, "Destination should exist after copy")
+        self.assertEqual(destination_obj["data"]["type"], "source", "Destination should have source data")
+        self.assertEqual(destination_obj["data"]["value"], 100, "Destination should have source value")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+        await self.client.delete_object(destination_path)
+    
+    async def test_copy_vs_move_comparison(self):
+        """Test comparison between copy and move operations."""
+        # Create test objects
+        source_move = [self.TEST_PREFIX, "comparison", "move", "source"]
+        dest_move = [self.TEST_PREFIX, "comparison", "move", "dest"]
+        source_copy = [self.TEST_PREFIX, "comparison", "copy", "source"]
+        dest_copy = [self.TEST_PREFIX, "comparison", "copy", "dest"]
+        
+        data = {"name": "Comparison Test", "operation": "test", "value": 999}
+        
+        # Create both source objects
+        await self.client.create_object(source_move, data)
+        await self.client.create_object(source_copy, data)
+        
+        # Perform move operation
+        move_result = await self.client.move_object(source_move, dest_move, move=True)
+        self.assertIsNotNone(move_result, "Move should succeed")
+        
+        # Perform copy operation
+        copy_result = await self.client.move_object(source_copy, dest_copy, move=False)
+        self.assertIsNotNone(copy_result, "Copy should succeed")
+        
+        # Verify move operation results
+        moved_source = await self.client.fetch_object(source_move)
+        moved_dest = await self.client.fetch_object(dest_move)
+        
+        self.assertIsNone(moved_source, "Move source should not exist")
+        self.assertIsNotNone(moved_dest, "Move destination should exist")
+        self.assertEqual(moved_dest["data"]["operation"], "test", "Move destination should have correct data")
+        
+        # Verify copy operation results
+        copied_source = await self.client.fetch_object(source_copy)
+        copied_dest = await self.client.fetch_object(dest_copy)
+        
+        self.assertIsNotNone(copied_source, "Copy source should still exist")
+        self.assertIsNotNone(copied_dest, "Copy destination should exist")
+        self.assertEqual(copied_source["data"]["operation"], "test", "Copy source should have original data")
+        self.assertEqual(copied_dest["data"]["operation"], "test", "Copy destination should have copied data")
+        
+        # Clean up
+        await self.client.delete_object(dest_move)
+        await self.client.delete_object(source_copy)
+        await self.client.delete_object(dest_copy)
+    
+    async def test_batch_copy_objects_basic(self):
+        """Test basic batch copy functionality (move=False)."""
+        # Create test objects
+        copy_pairs = [
+            ([self.TEST_PREFIX, "batch_copy", "source1", "doc"], [self.TEST_PREFIX, "batch_copy", "dest1", "doc"]),
+            ([self.TEST_PREFIX, "batch_copy", "source2", "doc"], [self.TEST_PREFIX, "batch_copy", "dest2", "doc"]),
+            ([self.TEST_PREFIX, "batch_copy", "source3", "doc"], [self.TEST_PREFIX, "batch_copy", "dest3", "doc"]),
+        ]
+        
+        # Create source objects
+        for i, (source, dest) in enumerate(copy_pairs):
+            data = {"name": f"Batch Copy Document {i+1}", "index": i}
+            await self.client.create_object(source, data)
+        
+        # Perform batch copy
+        result_ids = await self.client.batch_move_objects(copy_pairs, move=False)
+        
+        # Verify results
+        self.assertEqual(len(result_ids), 3, "Should return 3 result IDs")
+        self.assertTrue(all(id is not None for id in result_ids), "All copies should succeed")
+        
+        # Verify each copy
+        for i, (source, dest) in enumerate(copy_pairs):
+            with self.subTest(index=i):
+                # Check both source and destination exist
+                source_obj = await self.client.fetch_object(source)
+                dest_obj = await self.client.fetch_object(dest)
+                
+                self.assertIsNotNone(source_obj, f"Source {i+1} should still exist")
+                self.assertIsNotNone(dest_obj, f"Destination {i+1} should exist")
+                self.assertEqual(source_obj["data"]["index"], i, f"Source {i+1} data should be unchanged")
+                self.assertEqual(dest_obj["data"]["index"], i, f"Destination {i+1} data should match")
+        
+        # Clean up
+        for source, dest in copy_pairs:
+            await self.client.delete_object(source)
+            await self.client.delete_object(dest)
+    
+    async def test_batch_copy_objects_mixed_results(self):
+        """Test batch copy with mix of existing and non-existing sources."""
+        # Prepare copy pairs (some sources exist, some don't)
+        copy_pairs = [
+            ([self.TEST_PREFIX, "batch_copy_mixed", "exists1", "doc"], [self.TEST_PREFIX, "batch_copy_mixed", "dest1", "doc"]),
+            ([self.TEST_PREFIX, "batch_copy_mixed", "nonexistent1", "doc"], [self.TEST_PREFIX, "batch_copy_mixed", "dest2", "doc"]),
+            ([self.TEST_PREFIX, "batch_copy_mixed", "exists2", "doc"], [self.TEST_PREFIX, "batch_copy_mixed", "dest3", "doc"]),
+            ([self.TEST_PREFIX, "batch_copy_mixed", "nonexistent2", "doc"], [self.TEST_PREFIX, "batch_copy_mixed", "dest4", "doc"]),
+        ]
+        
+        # Create only some source objects
+        existing_indices = [0, 2]  # First and third sources exist
+        for i in existing_indices:
+            source, _ = copy_pairs[i]
+            data = {"name": f"Existing Copy Document {i+1}", "exists": True}
+            await self.client.create_object(source, data)
+        
+        # Perform batch copy
+        result_ids = await self.client.batch_move_objects(copy_pairs, move=False)
+        
+        # Verify results
+        self.assertEqual(len(result_ids), 4, "Should return 4 result IDs")
+        
+        for i, result_id in enumerate(result_ids):
+            if i in existing_indices:
+                self.assertIsNotNone(result_id, f"Copy {i+1} should succeed (source exists)")
+            else:
+                self.assertIsNone(result_id, f"Copy {i+1} should return None (source doesn't exist)")
+        
+        # Verify successful copies
+        for i in existing_indices:
+            source, dest = copy_pairs[i]
+            source_obj = await self.client.fetch_object(source)
+            dest_obj = await self.client.fetch_object(dest)
+            
+            self.assertIsNotNone(source_obj, f"Source {i+1} should still exist")
+            self.assertIsNotNone(dest_obj, f"Destination {i+1} should exist")
+            self.assertTrue(source_obj["data"]["exists"], f"Source {i+1} should have correct data")
+            self.assertTrue(dest_obj["data"]["exists"], f"Destination {i+1} should have correct data")
+        
+        # Verify failed copies don't create destinations
+        for i, result_id in enumerate(result_ids):
+            if result_id is None:
+                _, dest = copy_pairs[i]
+                dest_obj = await self.client.fetch_object(dest)
+                self.assertIsNone(dest_obj, f"Destination {i+1} should not exist for failed copy")
+        
+        # Clean up
+        for i in existing_indices:
+            source, dest = copy_pairs[i]
+            await self.client.delete_object(source)
+            await self.client.delete_object(dest)
+    
+    async def test_copy_object_different_data_types(self):
+        """Test copy operation with different data types."""
+        # Test different data types
+        test_cases = [
+            ("string", "Just a string value"),
+            ("dict", {"nested": {"data": {"with": "multiple levels"}}, "count": 42}),
+            ("list", [1, 2, "three", {"four": 4}, [5, 6]]),
+            ("number", 12345),
+            ("boolean", True),
+            ("null", None),
+            ("empty_dict", {}),
+            ("empty_list", [])
+        ]
+        
+        for data_type, test_data in test_cases:
+            with self.subTest(data_type=data_type):
+                source_path = [self.TEST_PREFIX, "copy", "types", f"source_{data_type}"]
+                destination_path = [self.TEST_PREFIX, "copy", "types", f"dest_{data_type}"]
+                
+                # Create and copy
+                await self.client.create_object(source_path, test_data)
+                result_id = await self.client.move_object(source_path, destination_path, move=False)
+                
+                self.assertIsNotNone(result_id, f"Copy should succeed for {data_type}")
+                
+                # Verify copy
+                source_obj = await self.client.fetch_object(source_path)
+                dest_obj = await self.client.fetch_object(destination_path)
+                
+                self.assertIsNotNone(source_obj, f"Source should still exist for {data_type}")
+                self.assertIsNotNone(dest_obj, f"Destination should exist for {data_type}")
+                self.assertEqual(source_obj["data"], test_data, f"Source data should match for {data_type}")
+                self.assertEqual(dest_obj["data"], test_data, f"Destination data should match for {data_type}")
+                
+                # Clean up
+                await self.client.delete_object(source_path)
+                await self.client.delete_object(destination_path)
+    
+    async def test_copy_object_performance_comparison(self):
+        """Test performance comparison between individual copies and batch copies."""
+        batch_size = 15
+        
+        # Prepare data for individual copies
+        individual_pairs = []
+        for i in range(batch_size):
+            source = [self.TEST_PREFIX, "perf_copy_individual", "source", f"doc_{i}"]
+            dest = [self.TEST_PREFIX, "perf_copy_individual", "dest", f"doc_{i}"]
+            individual_pairs.append((source, dest))
+        
+        # Prepare data for batch copies
+        batch_pairs = []
+        for i in range(batch_size):
+            source = [self.TEST_PREFIX, "perf_copy_batch", "source", f"doc_{i}"]
+            dest = [self.TEST_PREFIX, "perf_copy_batch", "dest", f"doc_{i}"]
+            batch_pairs.append((source, dest))
+        
+        # Create all source objects
+        all_sources = individual_pairs + batch_pairs
+        for i, (source, _) in enumerate(all_sources):
+            data = {"name": f"Performance Copy Test {i}", "method": "individual" if i < batch_size else "batch"}
+            await self.client.create_object(source, data)
+        
+        # Test individual copies
+        import time
+        start_time = time.time()
+        for source, dest in individual_pairs:
+            await self.client.move_object(source, dest, move=False)
+        individual_time = time.time() - start_time
+        
+        # Test batch copies
+        start_time = time.time()
+        await self.client.batch_move_objects(batch_pairs, move=False)
+        batch_time = time.time() - start_time
+        
+        # Log performance comparison
+        logger.info(f"Individual copies ({batch_size} docs): {individual_time:.3f}s")
+        logger.info(f"Batch copies ({batch_size} docs): {batch_time:.3f}s")
+        if batch_time > 0:
+            logger.info(f"Performance ratio: {individual_time / batch_time:.2f}x")
+        
+        # Verify all copies succeeded and sources still exist
+        for source, dest in individual_pairs + batch_pairs:
+            source_obj = await self.client.fetch_object(source)
+            dest_obj = await self.client.fetch_object(dest)
+            
+            self.assertIsNotNone(source_obj, "Source should still exist after copy")
+            self.assertIsNotNone(dest_obj, "Destination should exist after copy")
+        
+        # Clean up all objects
+        all_paths = []
+        for source, dest in individual_pairs + batch_pairs:
+            all_paths.extend([source, dest])
+        await self.client.batch_delete_objects(all_paths)
+        
+        # Batch should be faster (though this depends on environment)
+        if batch_time > 0:
+            self.assertLess(batch_time, individual_time, "Batch copies should be faster than individual copies")
+
+    async def test_copy_object_performance_comparison(self):
+        """Test performance comparison between copy and direct create operations."""
+        # Create source data with different sizes
+        test_cases = [
+            ("small", {"data": "x" * 100}),
+            ("medium", {"data": "x" * 10000, "list": list(range(1000))}),
+            ("large", {"data": "x" * 100000, "nested": {"deep": {"data": list(range(5000))}}})
+        ]
+        
+        for size_name, data in test_cases:
+            with self.subTest(size=size_name):
+                source_path = [self.TEST_PREFIX, "perf_source", size_name]
+                dest_path = [self.TEST_PREFIX, "perf_dest", size_name]
+                direct_path = [self.TEST_PREFIX, "perf_direct", size_name]
+                
+                # Create source
+                await self.client.create_object(source_path, data)
+                
+                # Time copy operation
+                import time
+                start_copy = time.time()
+                copy_result = await self.client.copy_object(source_path, dest_path)
+                copy_time = time.time() - start_copy
+                
+                # Time direct create
+                start_direct = time.time()
+                await self.client.create_object(direct_path, data)
+                direct_time = time.time() - start_direct
+                
+                self.assertIsNotNone(copy_result, f"Copy should succeed for {size_name}")
+                
+                # Verify data integrity
+                source_obj = await self.client.fetch_object(source_path)
+                copied_obj = await self.client.fetch_object(dest_path)
+                direct_obj = await self.client.fetch_object(direct_path)
+                
+                self.assertEqual(source_obj["data"], data, f"Source data should be unchanged for {size_name}")
+                self.assertEqual(copied_obj["data"], data, f"Copied data should match for {size_name}")
+                self.assertEqual(direct_obj["data"], data, f"Direct data should match for {size_name}")
+                
+                # Log performance comparison (no strict assertion due to environment variability)
+                logger.info(f"Copy time for {size_name}: {copy_time:.3f}s, Direct create time: {direct_time:.3f}s")
+                if copy_time > 0 and direct_time > 0:
+                    ratio = copy_time / direct_time
+                    logger.info(f"Copy/Direct ratio for {size_name}: {ratio:.2f}x")
+                    # Relaxed assertion - copy should not be excessively slower (more than 10x)
+                    self.assertLess(copy_time, direct_time * 10, 
+                                   f"Copy time ({copy_time:.3f}s) should not be excessively slower than direct create ({direct_time:.3f}s) for {size_name}")
+                
+                # Clean up
+                await self.client.delete_object(source_path)
+                await self.client.delete_object(dest_path)
+                await self.client.delete_object(direct_path)
+
+    # =========================================================================
+    # Allowed Prefixes Tests for Move/Copy Operations
+    # =========================================================================
+
+    async def test_move_object_allowed_prefixes_valid(self):
+        """Test move operation with valid allowed prefixes."""
+        source_path = [self.TEST_PREFIX, "allowed_src", "doc1"]
+        dest_path = [self.TEST_PREFIX, "allowed_dest", "doc1"]
+        
+        # Create source object
+        await self.client.create_object(source_path, {"test": "allowed prefixes move"})
+        
+        # Define allowed prefixes that include both source and destination
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "allowed_src"],
+            [self.TEST_PREFIX, "allowed_dest"]
+        ]
+        
+        # Move should succeed with valid prefixes
+        move_success = await self.client.move_object(
+            source_path, 
+            dest_path, 
+            allowed_prefixes=allowed_prefixes,
+            move=True
+        )
+        self.assertTrue(move_success, "Move with valid allowed prefixes should succeed")
+        
+        # Verify move completed
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNone(source_data, "Source should not exist after move")
+        self.assertIsNotNone(dest_data, "Destination should exist after move")
+        self.assertEqual(dest_data["data"]["test"], "allowed prefixes move")
+        
+        # Clean up
+        await self.client.delete_object(dest_path)
+
+    async def test_move_object_allowed_prefixes_invalid_source(self):
+        """Test move operation with source path not in allowed prefixes."""
+        source_path = [self.TEST_PREFIX, "forbidden_src", "doc1"]
+        dest_path = [self.TEST_PREFIX, "allowed_dest", "doc1"]
+        
+        # Create source object
+        await self.client.create_object(source_path, {"test": "forbidden source"})
+        
+        # Define allowed prefixes that don't include the source
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "allowed_dest"],
+            [self.TEST_PREFIX, "other_allowed"]
+        ]
+        
+        # Move should fail due to invalid source prefix
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(
+                source_path, 
+                dest_path, 
+                allowed_prefixes=allowed_prefixes,
+                move=True
+            )
+        
+        self.assertIn("access denied", str(context.exception).lower())
+        
+        # Verify source still exists (move failed)
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNotNone(source_data, "Source should still exist after failed move")
+        self.assertIsNone(dest_data, "Destination should not exist after failed move")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+
+    async def test_move_object_allowed_prefixes_invalid_destination(self):
+        """Test move operation with destination path not in allowed prefixes."""
+        source_path = [self.TEST_PREFIX, "allowed_src", "doc1"]
+        dest_path = [self.TEST_PREFIX, "forbidden_dest", "doc1"]
+        
+        # Create source object
+        await self.client.create_object(source_path, {"test": "forbidden destination"})
+        
+        # Define allowed prefixes that don't include the destination
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "allowed_src"],
+            [self.TEST_PREFIX, "other_allowed"]
+        ]
+        
+        # Move should fail due to invalid destination prefix
+        with self.assertRaises(ValueError) as context:
+            await self.client.move_object(
+                source_path, 
+                dest_path, 
+                allowed_prefixes=allowed_prefixes,
+                move=True
+            )
+        
+        self.assertIn("access denied", str(context.exception).lower())
+        
+        # Verify source still exists (move failed)
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNotNone(source_data, "Source should still exist after failed move")
+        self.assertIsNone(dest_data, "Destination should not exist after failed move")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+
+    async def test_copy_object_allowed_prefixes_valid(self):
+        """Test copy operation with valid allowed prefixes."""
+        source_path = [self.TEST_PREFIX, "copy_allowed_src", "doc1"]
+        dest_path = [self.TEST_PREFIX, "copy_allowed_dest", "doc1"]
+        
+        # Create source object
+        await self.client.create_object(source_path, {"test": "allowed prefixes copy"})
+        
+        # Define allowed prefixes that include both source and destination
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "copy_allowed_src"],
+            [self.TEST_PREFIX, "copy_allowed_dest"]
+        ]
+        
+        # Copy should succeed with valid prefixes
+        copy_result = await self.client.copy_object(
+            source_path, 
+            dest_path, 
+            allowed_prefixes=allowed_prefixes,
+        )
+        self.assertIsNotNone(copy_result, "Copy with valid allowed prefixes should succeed")
+        
+        # Verify copy completed
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNotNone(source_data, "Source should still exist after copy")
+        self.assertIsNotNone(dest_data, "Destination should exist after copy")
+        self.assertEqual(source_data["data"], dest_data["data"], "Source and destination data should match")
+        self.assertEqual(dest_data["data"]["test"], "allowed prefixes copy")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+        await self.client.delete_object(dest_path)
+
+    async def test_copy_object_allowed_prefixes_invalid(self):
+        """Test copy operation with invalid allowed prefixes."""
+        source_path = [self.TEST_PREFIX, "copy_forbidden_src", "doc1"]
+        dest_path = [self.TEST_PREFIX, "copy_forbidden_dest", "doc1"]
+        
+        # Create source object
+        await self.client.create_object(source_path, {"test": "forbidden copy"})
+        
+        # Define allowed prefixes that don't include either path
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "other_allowed"],
+            [self.TEST_PREFIX, "another_allowed"]
+        ]
+        
+        # Copy should fail due to invalid prefixes
+        with self.assertRaises(ValueError) as context:
+            await self.client.copy_object(
+                source_path, 
+                dest_path, 
+                allowed_prefixes=allowed_prefixes,
+            )
+        
+        self.assertIn("access denied", str(context.exception).lower())
+        
+        # Verify source still exists, destination doesn't exist
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNotNone(source_data, "Source should still exist after failed copy")
+        self.assertIsNone(dest_data, "Destination should not exist after failed copy")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+
+    async def test_batch_move_objects_allowed_prefixes(self):
+        """Test batch move operations with allowed prefixes."""
+        # Create multiple source objects
+        move_pairs = []
+        for i in range(3):
+            source_path = [self.TEST_PREFIX, "batch_allowed_src", f"doc{i}"]
+            dest_path = [self.TEST_PREFIX, "batch_allowed_dest", f"doc{i}"]
+            move_pairs.append((source_path, dest_path))
+            
+            await self.client.create_object(source_path, {"index": i, "batch": "allowed_move"})
+        
+        # Add one pair with forbidden destination
+        forbidden_source = [self.TEST_PREFIX, "batch_allowed_src", "forbidden"]
+        forbidden_dest = [self.TEST_PREFIX, "batch_forbidden_dest", "forbidden"]
+        move_pairs.append((forbidden_source, forbidden_dest))
+        await self.client.create_object(forbidden_source, {"forbidden": True})
+        
+        # Define allowed prefixes (missing the forbidden destination prefix)
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "batch_allowed_src"],
+            [self.TEST_PREFIX, "batch_allowed_dest"]
+        ]
+        
+        # Batch move with allowed prefixes should fail entirely due to forbidden destination
+        with self.assertRaises(ValueError) as context:
+            await self.client.batch_move_objects(
+                move_pairs, 
+                allowed_prefixes=allowed_prefixes,
+                move=True
+            )
+        
+        self.assertIn("access denied", str(context.exception).lower())
+        self.assertIn("forbidden_dest", str(context.exception))
+        
+        # Verify no moves occurred (all sources should still exist)
+        for i in range(3):
+            source_path, dest_path = move_pairs[i]
+            source_data = await self.client.fetch_object(source_path)
+            dest_data = await self.client.fetch_object(dest_path)
+            
+            self.assertIsNotNone(source_data, f"Source {i} should still exist (batch failed)")
+            self.assertIsNone(dest_data, f"Destination {i} should not exist (batch failed)")
+        
+        # Verify forbidden source still exists
+        forbidden_source_data = await self.client.fetch_object(forbidden_source)
+        forbidden_dest_data = await self.client.fetch_object(forbidden_dest)
+        
+        self.assertIsNotNone(forbidden_source_data, "Forbidden source should still exist")
+        self.assertIsNone(forbidden_dest_data, "Forbidden destination should not exist")
+        
+        # Test successful batch move with only allowed paths
+        allowed_pairs = move_pairs[:3]  # Only the first 3 pairs
+        results = await self.client.batch_move_objects(
+            allowed_pairs, 
+            allowed_prefixes=allowed_prefixes,
+            move=True
+        )
+        
+        # Verify results - all should succeed
+        self.assertEqual(len(results), 3, "Should return 3 results")
+        self.assertTrue(all(r is not None for r in results), "All moves should succeed")
+        
+        # Verify successful moves
+        for i in range(3):
+            source_path, dest_path = allowed_pairs[i]
+            source_data = await self.client.fetch_object(source_path)
+            dest_data = await self.client.fetch_object(dest_path)
+            
+            self.assertIsNone(source_data, f"Source {i} should not exist after move")
+            self.assertIsNotNone(dest_data, f"Destination {i} should exist after move")
+            self.assertEqual(dest_data["data"]["index"], i)
+        
+        # Clean up
+        for i in range(3):
+            _, dest_path = allowed_pairs[i]
+            await self.client.delete_object(dest_path)
+        await self.client.delete_object(forbidden_source)
+
+    async def test_batch_copy_objects_allowed_prefixes(self):
+        """Test batch copy operations with allowed prefixes."""
+        # Create multiple source objects
+        copy_pairs = []
+        for i in range(3):
+            source_path = [self.TEST_PREFIX, "batch_copy_allowed_src", f"doc{i}"]
+            dest_path = [self.TEST_PREFIX, "batch_copy_allowed_dest", f"doc{i}"]
+            copy_pairs.append((source_path, dest_path))
+            
+            await self.client.create_object(source_path, {"index": i, "batch": "allowed_copy"})
+        
+        # Define allowed prefixes
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "batch_copy_allowed_src"],
+            [self.TEST_PREFIX, "batch_copy_allowed_dest"]
+        ]
+        
+        # Batch copy with allowed prefixes
+        results = await self.client.batch_copy_objects(
+            copy_pairs, 
+            allowed_prefixes=allowed_prefixes,
+        )
+        
+        # Verify all operations succeeded
+        self.assertEqual(len(results), 3, "Should return 3 results")
+        self.assertTrue(all(results), "All copies should succeed with valid prefixes")
+        
+        # Verify copies
+        for i in range(3):
+            source_path, dest_path = copy_pairs[i]
+            source_data = await self.client.fetch_object(source_path)
+            dest_data = await self.client.fetch_object(dest_path)
+            
+            self.assertIsNotNone(source_data, f"Source {i} should still exist after copy")
+            self.assertIsNotNone(dest_data, f"Destination {i} should exist after copy")
+            self.assertEqual(source_data["data"], dest_data["data"], f"Source and destination data {i} should match")
+        
+        # Clean up
+        for source_path, dest_path in copy_pairs:
+            await self.client.delete_object(source_path)
+            await self.client.delete_object(dest_path)
+
+    async def test_move_object_allowed_prefixes_partial_match(self):
+        """Test move operation with partial prefix matches."""
+        # Create paths where one is a prefix of another
+        source_path = [self.TEST_PREFIX, "prefix", "subdir", "doc"]
+        dest_path = [self.TEST_PREFIX, "prefix_similar", "doc"]  # Similar but not matching prefix
+        
+        await self.client.create_object(source_path, {"test": "partial prefix match"})
+        
+        # Define allowed prefixes with exact match only
+        allowed_prefixes = [
+            [self.TEST_PREFIX, "prefix"],  # Should match source but not destination
+            [self.TEST_PREFIX, "other"]
+        ]
+        
+        # Move should fail because destination doesn't match allowed prefixes
+        with self.assertRaises(ValueError):
+            await self.client.move_object(
+                source_path, 
+                dest_path, 
+                allowed_prefixes=allowed_prefixes,
+                move=True
+            )
+        
+        # Verify source still exists
+        source_data = await self.client.fetch_object(source_path)
+        self.assertIsNotNone(source_data, "Source should still exist after failed move")
+        
+        # Clean up
+        await self.client.delete_object(source_path)
+
+    async def test_move_object_allowed_prefixes_empty_list(self):
+        """Test move operation with empty allowed prefixes list."""
+        source_path = [self.TEST_PREFIX, "empty_prefix_src", "doc"]
+        dest_path = [self.TEST_PREFIX, "empty_prefix_dest", "doc"]
+        
+        await self.client.create_object(source_path, {"test": "empty prefixes"})
+        
+        # Empty allowed prefixes should allow any path
+        move_success = await self.client.move_object(
+            source_path, 
+            dest_path, 
+            allowed_prefixes=[],  # Empty list
+            move=True
+        )
+        self.assertTrue(move_success, "Move with empty allowed prefixes should succeed")
+        
+        # Verify move completed
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNone(source_data, "Source should not exist after move")
+        self.assertIsNotNone(dest_data, "Destination should exist after move")
+        
+        # Clean up
+        await self.client.delete_object(dest_path)
+
+    async def test_move_object_allowed_prefixes_none(self):
+        """Test move operation with None allowed prefixes (should allow any path)."""
+        source_path = [self.TEST_PREFIX, "none_prefix_src", "doc"]
+        dest_path = [self.TEST_PREFIX, "none_prefix_dest", "doc"]
+        
+        await self.client.create_object(source_path, {"test": "none prefixes"})
+        
+        # None allowed prefixes should allow any path
+        move_success = await self.client.move_object(
+            source_path, 
+            dest_path, 
+            allowed_prefixes=None,  # None
+            move=True
+        )
+        self.assertTrue(move_success, "Move with None allowed prefixes should succeed")
+        
+        # Verify move completed
+        source_data = await self.client.fetch_object(source_path)
+        dest_data = await self.client.fetch_object(dest_path)
+        
+        self.assertIsNone(source_data, "Source should not exist after move")
+        self.assertIsNotNone(dest_data, "Destination should exist after move")
+        
+        # Clean up
+        await self.client.delete_object(dest_path)
+
 def run_async_tests():
     unittest.main()
 

@@ -1320,6 +1320,225 @@ class AsyncMongoVersionedClient:
             
         return result
     
+    async def move_document(
+        self,
+        source_base_path: List[str],
+        destination_base_path: List[str],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False,
+        move: bool = True
+    ) -> bool:
+        """
+        Moves or copies a versioned document from source to destination path.
+        
+        This operation handles the entire document structure:
+        1. Metadata (document configuration, schema, versions list)
+        2. All version data (current state of each version)
+        3. All history items (edit history for each version)
+        
+        Args:
+            source_base_path: Source base path for the document
+            destination_base_path: Destination base path for the document  
+            allowed_prefixes: Optional list of allowed path prefixes for permission checking
+            overwrite_destination: If True, overwrites existing document at destination
+            move: If True, deletes source after copying (move). If False, keeps source (copy)
+            
+        Returns:
+            True if the document was moved/copied successfully
+            
+        Raises:
+            ValueError: If source doesn't exist, destination exists and overwrite_destination is False,
+                       or access is denied
+        """
+        # Check if source and destination are the same
+        if source_base_path == destination_base_path:
+            operation_name = "move" if move else "copy"
+            if move:
+                logger.info(f"Source and destination paths are identical: '{source_base_path}'. No {operation_name} operation needed.")
+                return True
+            else:
+                logger.warning(f"Copy operation with identical source and destination paths: '{source_base_path}'. No operation performed.")
+                return True
+        
+        # Get source document metadata to verify it exists and get structure info
+        source_metadata = await self._get_document_metadata(source_base_path, allowed_prefixes)
+        if not source_metadata:
+            logger.info(f"No document found at source path {source_base_path}")
+            return False
+        
+        # Check if destination exists
+        destination_metadata = await self._get_document_metadata(destination_base_path, allowed_prefixes)
+        if destination_metadata and not overwrite_destination:
+            error_msg = f"Document already exists at destination path '{destination_base_path}' and overwrite_destination is False"
+            logger.warning(error_msg)
+            raise ValueError(error_msg)
+        
+        try:
+            # Collect all paths that need to be moved/copied
+            move_pairs = []
+            
+            # 1. Add metadata path
+            source_metadata_path = self._build_metadata_path(source_base_path)
+            dest_metadata_path = self._build_metadata_path(destination_base_path)
+            move_pairs.append((source_metadata_path, dest_metadata_path))
+            
+            # 2. Add version data paths
+            versions = source_metadata.get("versions", [])
+            for version in versions:
+                source_version_path = self._build_version_path(source_base_path, version)
+                dest_version_path = self._build_version_path(destination_base_path, version)
+                move_pairs.append((source_version_path, dest_version_path))
+                
+                # 3. Add history paths for this version
+                version_data = await self._get_version_data(source_base_path, version, allowed_prefixes)
+                if version_data:
+                    min_sequence = version_data.get(AsyncMongoVersionedClient.MIN_SEQUENCE_KEY, 0)
+                    max_sequence = version_data.get(AsyncMongoVersionedClient.MAX_SEQUENCE_KEY, -1)
+                    
+                    # Add all history items
+                    for sequence in range(min_sequence, max_sequence + 1):
+                        source_history_path = self._build_history_path(source_base_path, version, sequence)
+                        dest_history_path = self._build_history_path(destination_base_path, version, sequence)
+                        move_pairs.append((source_history_path, dest_history_path))
+            
+            # Perform batch move/copy operation
+            operation_name = "move" if move else "copy"
+            logger.info(f"Starting batch {operation_name} of {len(move_pairs)} objects for versioned document from '{source_base_path}' to '{destination_base_path}'")
+            
+            result_ids = await self.client.batch_move_objects(
+                move_pairs, 
+                allowed_prefixes=allowed_prefixes,
+                overwrite_destination=overwrite_destination,
+                move=move
+            )
+            
+            # Check if all operations succeeded
+            successful_operations = sum(1 for result_id in result_ids if result_id is not None)
+            
+            if successful_operations == len(move_pairs):
+                logger.info(f"Successfully {operation_name}d versioned document from '{source_base_path}' to '{destination_base_path}'")
+                return True
+            else:
+                logger.warning(f"Partial {operation_name} completed: {successful_operations}/{len(move_pairs)} operations succeeded")
+                return False
+                
+        except Exception as e:
+            operation_name = "moving" if move else "copying"
+            logger.error(f"Error {operation_name} versioned document from '{source_base_path}' to '{destination_base_path}': {e}")
+            raise
+    
+    async def batch_move_documents(
+        self,
+        move_pairs: List[Tuple[List[str], List[str]]],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False,
+        move: bool = True
+    ) -> List[bool]:
+        """
+        Moves or copies multiple versioned documents in a batch operation.
+        
+        This operation handles moving/copying entire document structures for multiple documents.
+        Each document includes metadata, all versions, and all history items.
+        
+        Args:
+            move_pairs: List of (source_base_path, destination_base_path) tuples
+            allowed_prefixes: Optional list of allowed path prefixes for permission checking
+            overwrite_destination: If True, overwrites existing documents at destinations
+            move: If True, deletes sources after copying (move). If False, keeps sources (copy)
+            
+        Returns:
+            List of boolean results indicating success/failure for each document operation
+            
+        Raises:
+            ValueError: If any path format is invalid, access is denied, or destinations exist
+                       and overwrite_destination is False
+        """
+        if not move_pairs:
+            return []
+        
+        operation_name = "move" if move else "copy"
+        logger.info(f"Starting batch {operation_name} of {len(move_pairs)} versioned documents")
+        
+        results = []
+        
+        for source_base_path, destination_base_path in move_pairs:
+            try:
+                # Move/copy each document individually
+                # We could optimize this further by collecting all underlying paths and doing one big batch operation,
+                # but that would be more complex and this approach is clearer and still efficient
+                success = await self.move_document(
+                    source_base_path,
+                    destination_base_path,
+                    allowed_prefixes=allowed_prefixes,
+                    overwrite_destination=overwrite_destination,
+                    move=move
+                )
+                results.append(success)
+                
+            except Exception as e:
+                logger.error(f"Error in batch {operation_name} for document '{source_base_path}' -> '{destination_base_path}': {e}")
+                results.append(False)
+        
+        successful_operations = sum(results)
+        logger.info(f"Batch {operation_name} completed: {successful_operations}/{len(move_pairs)} documents processed successfully")
+        
+        return results
+    
+    async def copy_document(
+        self,
+        source_base_path: List[str],
+        destination_base_path: List[str],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False
+    ) -> bool:
+        """
+        Copies a versioned document from source to destination path.
+        
+        This is a convenience method that calls move_document with move=False.
+        
+        Args:
+            source_base_path: Source base path for the document
+            destination_base_path: Destination base path for the document
+            allowed_prefixes: Optional list of allowed path prefixes for permission checking
+            overwrite_destination: If True, overwrites existing document at destination
+            
+        Returns:
+            True if the document was copied successfully
+        """
+        return await self.move_document(
+            source_base_path,
+            destination_base_path,
+            allowed_prefixes=allowed_prefixes,
+            overwrite_destination=overwrite_destination,
+            move=False
+        )
+    
+    async def batch_copy_documents(
+        self,
+        copy_pairs: List[Tuple[List[str], List[str]]],
+        allowed_prefixes: Optional[List[List[str]]] = None,
+        overwrite_destination: bool = False
+    ) -> List[bool]:
+        """
+        Copies multiple versioned documents in a batch operation.
+        
+        This is a convenience method that calls batch_move_documents with move=False.
+        
+        Args:
+            copy_pairs: List of (source_base_path, destination_base_path) tuples
+            allowed_prefixes: Optional list of allowed path prefixes for permission checking
+            overwrite_destination: If True, overwrites existing documents at destinations
+            
+        Returns:
+            List of boolean results indicating success/failure for each document operation
+        """
+        return await self.batch_move_documents(
+            copy_pairs,
+            allowed_prefixes=allowed_prefixes,
+            overwrite_destination=overwrite_destination,
+            move=False
+        )
+
     async def get_schema(
         self, 
         base_path: List[str],

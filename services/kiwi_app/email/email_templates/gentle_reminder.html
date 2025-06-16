@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph %}
+{% from "components/lists.html" import render_simple_list %}
+{% from "components/signature.html" import team_signature %}
+{% from "components/preheader.html" import preheader %}
+
+{% block title %}Your KiwiQ Calendar Needs Your Attention{% endblock %}
+
+{% block preheader %}
+{{ preheader("You have drafts and content ideas waiting for your review") }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hello " + user_name + ",") }}
+  
+  {{ paragraph("We noticed you haven't logged into KiwiQ recently. Your content calendar has some items that need your attention:") }}
+  
+  {% set calendar_items = [
+    "<strong>" + draft_posts_count|string + " draft posts</strong> waiting for your review",
+    "<strong>" + new_ideas_count|string + " new content ideas</strong> generated for you",
+    "<strong>" + scheduled_posts_count|string + " scheduled posts</strong> coming up this week"
+  ] %}
+  {{ render_simple_list(calendar_items) }}
+  
+  {{ paragraph("Consistent LinkedIn posting helps maintain your professional presence and audience engagement.") }}
+  
+  {{ render_button("REVIEW MY CALENDAR", calendar_url, is_primary=True, align="center") }}
+  
+  {{ paragraph("We're here to help streamline your content creation process.") }}
+  
+  {{ team_signature() }}
+{% endblock %} 

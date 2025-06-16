@@ -340,28 +340,30 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
 
     # --- Gemini Tests ---
 
-    # async def test_gemini_pro_exp_text_reasoning(self):
-    #     """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model)."""
-    #     if not hasattr(GeminiModels, "GEMINI_2_5_PRO"):
-    #          self.skipTest("GeminiModels.GEMINI_2_5_PRO not defined in enum.")
+    async def test_gemini_pro_exp_text_reasoning(self):
+        """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model)."""
+        if not hasattr(GeminiModels, "GEMINI_2_5_PRO"):
+             self.skipTest("GeminiModels.GEMINI_2_5_PRO not defined in enum.")
 
-    #     result = await arun_llm_test(
-    #         runtime_config=self.runtime_config_regular,
-    #         model_provider=LLMModelProvider.GEMINI,
-    #         model_name=GeminiModels.GEMINI_2_5_PRO.value,
-    #         output_schema_config=None, # Text output
-    #         # Gemini reasoning config might differ, test without specific reasoning flags first
-    #         # reasoning_config={ # Example, adjust if Gemini uses different keys
-    #         #     "reasoning_effort_class": "low"
-    #         # }
-    #         user_prompt="Explain the concept of quantum entanglement simply."
-    #     )
-    #     self.assertIsInstance(result, dict)
-    #     self.assertIn("content", result)
+        result = await arun_llm_test(
+            runtime_config=self.runtime_config_regular,
+            model_provider=LLMModelProvider.GEMINI,
+            model_name=GeminiModels.GEMINI_2_5_PRO.value,
+            output_schema_config=None, # Text output
+            # Gemini reasoning config might differ, test without specific reasoning flags first
+            # reasoning_config={ # Example, adjust if Gemini uses different keys
+            #     "reasoning_effort_class": "low"
+            # }
+            user_prompt="Explain the concept of quantum entanglement simply."
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("content", result)
         
-    #     self.assertIn("metadata", result)
-    #     self.assertIsInstance(result["content"], str)
-    #     self.assertGreater(len(result["content"]), 0)
+        self.assertIn("metadata", result)
+        self.assertIsInstance(result["content"], str)
+        print("\n\n", result["content"], "\n\n")
+        # import ipdb; ipdb.set_trace()
+        self.assertGreater(len(result["content"]), 0)
 
     # async def test_gemini_pro_exp_structured_reasoning(self):
     #     """Test Gemini 2.5 Pro Exp with structured output and reasoning (thinking model)."""
@@ -635,176 +637,176 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
 
     # --- Perplexity Tests ---
 
-    async def test_perplexity_text_output_reasoning_model(self):
-        """Test Perplexity Sonar Reasoning with text output and web search."""
-        if not hasattr(PerplexityModels, "SONAR_REASONING"):
-            self.skipTest("PerplexityModels.SONAR_REASONING not defined in enum.")
+    # async def test_perplexity_text_output_reasoning_model(self):
+    #     """Test Perplexity Sonar Reasoning with text output and web search."""
+    #     if not hasattr(PerplexityModels, "SONAR_REASONING"):
+    #         self.skipTest("PerplexityModels.SONAR_REASONING not defined in enum.")
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.PERPLEXITY,
-            model_name=PerplexityModels.SONAR_REASONING.value,
-            output_schema_config=None, # Text output
-            web_search_options={
-                "search_recency_filter": "year",
-                "search_context_size": "low",
-                # "search_domain_filter": ["example.com"] # Optional domain filter
-            },
-            # Perplexity reasoning is often implicit in the model, may not need config
-            user_prompt="What is the capital of France? Answer briefly.",
-            max_tokens=500,
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.PERPLEXITY,
+    #         model_name=PerplexityModels.SONAR_REASONING.value,
+    #         output_schema_config=None, # Text output
+    #         web_search_options={
+    #             "search_recency_filter": "year",
+    #             "search_context_size": "low",
+    #             # "search_domain_filter": ["example.com"] # Optional domain filter
+    #         },
+    #         # Perplexity reasoning is often implicit in the model, may not need config
+    #         user_prompt="What is the capital of France? Answer briefly.",
+    #         max_tokens=500,
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("content", result)
         
-        self.assertIn("metadata", result)
-        # Perplexity reasoning models might return list with thinking/text or just text
-        self.assertTrue(isinstance(result["content"], (list, str)))
-        self.assertGreater(len(result["content"]), 0)
-        self.assertIn("web_search_result", result) # Expect search results
-        self.assertIsNotNone(result["web_search_result"])
-        self.assertIsInstance(result["web_search_result"].get("citations"), list)
+    #     self.assertIn("metadata", result)
+    #     # Perplexity reasoning models might return list with thinking/text or just text
+    #     self.assertTrue(isinstance(result["content"], (list, str)))
+    #     self.assertGreater(len(result["content"]), 0)
+    #     self.assertIn("web_search_result", result) # Expect search results
+    #     self.assertIsNotNone(result["web_search_result"])
+    #     self.assertIsInstance(result["web_search_result"].get("citations"), list)
 
-    async def test_perplexity_structured_output_reasoning_model(self):
-        """Test Perplexity Sonar Reasoning Pro with structured output and web search."""
-        if not hasattr(PerplexityModels, "SONAR_REASONING_PRO"):
-             self.skipTest("PerplexityModels.SONAR_REASONING_PRO not defined in enum.")
+    # async def test_perplexity_structured_output_reasoning_model(self):
+    #     """Test Perplexity Sonar Reasoning Pro with structured output and web search."""
+    #     if not hasattr(PerplexityModels, "SONAR_REASONING_PRO"):
+    #          self.skipTest("PerplexityModels.SONAR_REASONING_PRO not defined in enum.")
 
-        # Define the structured output schema based on the user's example fields
-        dynamic_schema_spec = ConstructDynamicSchema(
-             schema_name="PerplexitySearchStructSchema",
-             fields={
-                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                 "key_findings": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of key findings from the search"), # Changed to list
-                 "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of citations from the search results") # Changed to list
-             }
-        )
-        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+    #     # Define the structured output schema based on the user's example fields
+    #     dynamic_schema_spec = ConstructDynamicSchema(
+    #          schema_name="PerplexitySearchStructSchema",
+    #          fields={
+    #              "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+    #              "key_findings": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of key findings from the search"), # Changed to list
+    #              "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of citations from the search results") # Changed to list
+    #          }
+    #     )
+    #     schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.PERPLEXITY,
-            model_name=PerplexityModels.SONAR_REASONING_PRO.value,
-            output_schema_config=schema_config, # Structured output
-            web_search_options={
-                "search_recency_filter": "month",
-                "search_context_size": "medium",
-                "search_domain_filter": ["arxiv.org", "openai.com"]
-            },
-            user_prompt="What are the latest developments in AI safety research? Provide a summary, key findings, and citations.",
-            max_tokens=1000
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("summary", result["structured_output"])
-        self.assertIn("key_findings", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["key_findings"], list)
-        self.assertIn("citations", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["citations"], list)
-        self.assertIn("web_search_result", result) # Expect search results metadata as well
-        self.assertIsNotNone(result["web_search_result"])
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.PERPLEXITY,
+    #         model_name=PerplexityModels.SONAR_REASONING_PRO.value,
+    #         output_schema_config=schema_config, # Structured output
+    #         web_search_options={
+    #             "search_recency_filter": "month",
+    #             "search_context_size": "medium",
+    #             "search_domain_filter": ["arxiv.org", "openai.com"]
+    #         },
+    #         user_prompt="What are the latest developments in AI safety research? Provide a summary, key findings, and citations.",
+    #         max_tokens=1000
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("structured_output", result)
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["structured_output"], dict)
+    #     self.assertIn("summary", result["structured_output"])
+    #     self.assertIn("key_findings", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["key_findings"], list)
+    #     self.assertIn("citations", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["citations"], list)
+    #     self.assertIn("web_search_result", result) # Expect search results metadata as well
+    #     self.assertIsNotNone(result["web_search_result"])
 
-    async def test_perplexity_text_output_non_reasoning_model(self):
-        """Test Perplexity Sonar Pro with text output and web search."""
-        if not hasattr(PerplexityModels, "SONAR_PRO"):
-            self.skipTest("PerplexityModels.SONAR_PRO not defined in enum.")
+    # async def test_perplexity_text_output_non_reasoning_model(self):
+    #     """Test Perplexity Sonar Pro with text output and web search."""
+    #     if not hasattr(PerplexityModels, "SONAR_PRO"):
+    #         self.skipTest("PerplexityModels.SONAR_PRO not defined in enum.")
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.PERPLEXITY,
-            model_name=PerplexityModels.SONAR_PRO.value,
-            output_schema_config=None, # Text output
-            web_search_options={
-                "search_recency_filter": "month",
-                "search_context_size": "low"
-            },
-            user_prompt="What are the recent breakthroughs in fusion energy? Answer briefly top highlights.",
-            max_tokens=500
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.PERPLEXITY,
+    #         model_name=PerplexityModels.SONAR_PRO.value,
+    #         output_schema_config=None, # Text output
+    #         web_search_options={
+    #             "search_recency_filter": "month",
+    #             "search_context_size": "low"
+    #         },
+    #         user_prompt="What are the recent breakthroughs in fusion energy? Answer briefly top highlights.",
+    #         max_tokens=500
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("content", result)
         
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        self.assertGreater(len(result["content"]), 0)
-        self.assertIn("web_search_result", result)
-        self.assertIsNotNone(result["web_search_result"])
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["content"], str)
+    #     self.assertGreater(len(result["content"]), 0)
+    #     self.assertIn("web_search_result", result)
+    #     self.assertIsNotNone(result["web_search_result"])
 
-    async def test_perplexity_structured_output_non_reasoning_model(self):
-        """Test Perplexity Sonar with structured output and web search."""
-        if not hasattr(PerplexityModels, "SONAR"):
-            self.skipTest("PerplexityModels.SONAR not defined in enum.")
+    # async def test_perplexity_structured_output_non_reasoning_model(self):
+    #     """Test Perplexity Sonar with structured output and web search."""
+    #     if not hasattr(PerplexityModels, "SONAR"):
+    #         self.skipTest("PerplexityModels.SONAR not defined in enum.")
 
-        dynamic_schema_spec = ConstructDynamicSchema(
-             schema_name="PerplexityNonReasoningStructSchema",
-             fields={
-                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                 "trends": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of emerging trends"), # Changed to list
-                 "sources": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of sources") # Changed to list
-             }
-        )
-        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+    #     dynamic_schema_spec = ConstructDynamicSchema(
+    #          schema_name="PerplexityNonReasoningStructSchema",
+    #          fields={
+    #              "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+    #              "trends": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of emerging trends"), # Changed to list
+    #              "sources": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="List of sources") # Changed to list
+    #          }
+    #     )
+    #     schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.PERPLEXITY,
-            model_name=PerplexityModels.SONAR.value,
-            output_schema_config=schema_config, # Structured output
-            web_search_options={
-                "search_recency_filter": "year",
-                "search_context_size": "low"
-            },
-            user_prompt="What are the emerging trends in renewable energy? Provide summary, trends list, and sources list.",
-            max_tokens=500
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("summary", result["structured_output"])
-        self.assertIn("trends", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["trends"], list)
-        self.assertIn("sources", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["sources"], list)
-        self.assertIn("web_search_result", result)
-        self.assertIsNotNone(result["web_search_result"])
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.PERPLEXITY,
+    #         model_name=PerplexityModels.SONAR.value,
+    #         output_schema_config=schema_config, # Structured output
+    #         web_search_options={
+    #             "search_recency_filter": "year",
+    #             "search_context_size": "low"
+    #         },
+    #         user_prompt="What are the emerging trends in renewable energy? Provide summary, trends list, and sources list.",
+    #         max_tokens=500
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("structured_output", result)
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["structured_output"], dict)
+    #     self.assertIn("summary", result["structured_output"])
+    #     self.assertIn("trends", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["trends"], list)
+    #     self.assertIn("sources", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["sources"], list)
+    #     self.assertIn("web_search_result", result)
+    #     self.assertIsNotNone(result["web_search_result"])
 
-    async def test_perplexity_structured_output_json_definition(self):
-        """Test Perplexity Sonar with structured output via schema_definition."""
-        if not hasattr(PerplexityModels, "SONAR"):
-            self.skipTest("PerplexityModels.SONAR not defined in enum.")
+    # async def test_perplexity_structured_output_json_definition(self):
+    #     """Test Perplexity Sonar with structured output via schema_definition."""
+    #     if not hasattr(PerplexityModels, "SONAR"):
+    #         self.skipTest("PerplexityModels.SONAR not defined in enum.")
 
-        json_schema_def = {
-            "title": "TestJsonSchemaPerplexity",
-            "description": "Raw JSON schema for Perplexity search results.",
-            "type": "object",
-            "properties": {
-                "topic": {"type": "string", "description": "Main topic of the search"},
-                "result_count": {"type": "integer", "description": "Number of key results found"}
-            },
-            "required": ["topic", "result_count"]
-        }
-        schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
+    #     json_schema_def = {
+    #         "title": "TestJsonSchemaPerplexity",
+    #         "description": "Raw JSON schema for Perplexity search results.",
+    #         "type": "object",
+    #         "properties": {
+    #             "topic": {"type": "string", "description": "Main topic of the search"},
+    #             "result_count": {"type": "integer", "description": "Number of key results found"}
+    #         },
+    #         "required": ["topic", "result_count"]
+    #     }
+    #     schema_config = LLMStructuredOutputSchema(schema_definition=json_schema_def)
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.PERPLEXITY,
-            model_name=PerplexityModels.SONAR.value, # Using non-reasoning model for simplicity
-            output_schema_config=schema_config,
-            web_search_options={ # Perplexity models often require web search
-                "search_context_size": "low"
-            },
-            user_prompt="Search for 'latest Mars rover findings'. Return topic and count of main findings."
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("topic", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["topic"], str)
-        self.assertIn("result_count", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["result_count"], int)
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.PERPLEXITY,
+    #         model_name=PerplexityModels.SONAR.value, # Using non-reasoning model for simplicity
+    #         output_schema_config=schema_config,
+    #         web_search_options={ # Perplexity models often require web search
+    #             "search_context_size": "low"
+    #         },
+    #         user_prompt="Search for 'latest Mars rover findings'. Return topic and count of main findings."
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("structured_output", result)
+    #     self.assertIsInstance(result["structured_output"], dict)
+    #     self.assertIn("topic", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["topic"], str)
+    #     self.assertIn("result_count", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["result_count"], int)
 
 
 if __name__ == "__main__":

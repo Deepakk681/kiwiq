@@ -1,0 +1,41 @@
+{% macro render_list(items, style='font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;') %}
+<ul style="{{ style }}">
+  {% for item in items %}
+    {% if item is string %}
+      <li>{{ item|safe }}</li>
+    {% elif item is mapping %}
+      <li>
+        {{ item.text|safe }}
+        {% if item.subitems %}
+          {{ render_list(item.subitems) }}
+        {% endif %}
+      </li>
+    {% endif %}
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro render_simple_list(items) %}
+<ul>
+  {% for item in items %}
+    <li>{{ item|safe }}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro render_nested_list(items) %}
+<ul>
+  {% for item in items %}
+    <li>
+      {{ item.text|safe }}
+      {% if item.children %}
+        <ul>
+          {% for child in item.children %}
+            <li>{{ child|safe }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+{% endmacro %} 

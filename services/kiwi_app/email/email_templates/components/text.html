@@ -1,0 +1,31 @@
+{% macro paragraph(text, style='font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;') %}
+<p style="{{ style }}">{{ text|safe }}</p>
+{% endmacro %}
+
+{% macro inline_link(text, url, style='color: #0867ec; text-decoration: underline;') %}
+<a href="{{ url }}" target="_blank" style="{{ style }}">{{ text|safe }}</a>
+{% endmacro %}
+
+{% macro heading(text, level=2, style='font-family: Helvetica, sans-serif; font-weight: bold; margin: 0; margin-bottom: 16px;') %}
+{% if level == 1 %}
+<h1 style="{{ style }}">{{ text|safe }}</h1>
+{% elif level == 2 %}
+<h2 style="{{ style }}">{{ text|safe }}</h2>
+{% elif level == 3 %}
+<h3 style="{{ style }}">{{ text|safe }}</h3>
+{% else %}
+<h2 style="{{ style }}">{{ text|safe }}</h2>
+{% endif %}
+{% endmacro %}
+
+{% macro paragraph_with_link(text_before, link_text, link_url, text_after='', style='font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;') %}
+<p style="{{ style }}">
+  {{ text_before|safe }}{{ inline_link(link_text, link_url) }}{{ text_after|safe }}
+</p>
+{% endmacro %}
+
+{% macro url_display(url, style='font-family: Helvetica, sans-serif; font-size: 14px; font-weight: normal; margin: 0; margin-bottom: 16px; word-break: break-all; color: #666;') %}
+<p style="{{ style }}">
+  <a href="{{ url }}" style="color: #0867ec; text-decoration: underline;">{{ url }}</a>
+</p>
+{% endmacro %} 

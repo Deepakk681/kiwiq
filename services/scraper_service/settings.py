@@ -70,7 +70,6 @@ class RapidAPISettings(GlobalSettings):
         "company": "/get-company-details", 
         "company_details": "/get-company-details",
         "comments": "/get-post-comments",
-        "reactions": "/get-post-reactions",
         "profile_posts": "/get-profile-posts",
         "company_posts": "/get-company-posts",
         "profile_post_comments": "/get-profile-posts-comments",
@@ -79,7 +78,8 @@ class RapidAPISettings(GlobalSettings):
         "profile_likes": "/get-profile-likes",
         "profile_comments_made": "/get-profile-comments", # Endpoint for comments *made by* the user
         "search_post_by_keyword":"/search-posts",
-        "search_post_by_hashtag":"/search-posts-by-hashtag"
+        "search_post_by_hashtag":"/search-posts-by-hashtag",
+        "post_details":"/get-post",
     }
     
 # Create settings instance

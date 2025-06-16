@@ -29,7 +29,7 @@ class LLMModelProvider(str, Enum):
     """Supported model providers."""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
-    GEMINI = "google_genai"
+    GEMINI = "google_vertexai"  # google_genai  google_vertexai
     FIREWORKS = "fireworks"
     AWS_BEDROCK = "bedrock_converse"
     PERPLEXITY = "perplexity"

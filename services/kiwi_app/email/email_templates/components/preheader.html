@@ -1,0 +1,7 @@
+{% macro preheader(text) %}
+<span class="preheader" style="color: transparent; display: none; height: 0; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; mso-hide: all; visibility: hidden; width: 0;">{{ text }}</span>
+{% endmacro %}
+
+{% macro preheader_with_limit(text, max_length=50) %}
+<span class="preheader" style="color: transparent; display: none; height: 0; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; mso-hide: all; visibility: hidden; width: 0;">{{ text[:max_length] }}{% if text|length > max_length %}...{% endif %}</span>
+{% endmacro %} 

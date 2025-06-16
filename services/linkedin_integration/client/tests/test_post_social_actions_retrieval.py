@@ -33,7 +33,7 @@ from typing import Any
 from urllib.parse import quote
 
 # Import our LinkedInClient and required models
-from linkedin_integration.linkedin_client import LinkedInClient
+from linkedin_integration.client.linkedin_client import LinkedInClient
 from global_config.settings import global_settings
 
 async def test_post_retrieval_and_metrics(linkedin_client: LinkedInClient, post_id: str) -> None:

@@ -699,7 +699,7 @@ async def create_promotion_code(
         )
 
 
-@billing_admin_router.get("/promo-codes", response_model=schemas.PaginatedPromotionCodes, tags=["billing-admin"])
+@billing_admin_router.post("/promo-codes/query", response_model=schemas.PaginatedPromotionCodes, tags=["billing-admin"])
 async def get_promotion_codes(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     credit_type: Optional[CreditType] = Query(None, description="Filter by credit type"),
@@ -1193,8 +1193,8 @@ async def create_subscription_checkout_session(
     plan_id: uuid.UUID,
     is_annual: bool = Query(False, description="Whether to use annual billing"),
     seats_count: int = Query(1, ge=1, description="Number of seats to purchase"),
-    success_url: Optional[str] = Query(None, description="Custom success URL"),
-    cancel_url: Optional[str] = Query(None, description="Custom cancel URL"),
+    # success_url: Optional[str] = Query(None, description="Custom success URL"),
+    # cancel_url: Optional[str] = Query(None, description="Custom cancel URL"),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(dependencies.RequireBillingReadActiveOrg),
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -1220,12 +1220,12 @@ async def create_subscription_checkout_session(
         base_url = _get_base_url(request, "/billing/checkout-result")
         
         # Default URLs if not provided
-        if not success_url:
+        # if not success_url:
             # Include session_id placeholder that Stripe will replace
-            success_url = f"{base_url}?success=true&session_id={{CHECKOUT_SESSION_ID}}"
+        success_url = f"{base_url}?success=true&session_id={{CHECKOUT_SESSION_ID}}"
         
-        if not cancel_url:
-            cancel_url = f"{base_url}?canceled=true"
+        # if not cancel_url:
+        cancel_url = f"{base_url}?canceled=true"
         
         result = await billing_service.create_checkout_session(
             db=db,
@@ -1608,7 +1608,7 @@ async def query_stripe_events(
         )
 
 
-@billing_admin_router.get("/stripe-events/statistics", response_model=schemas.StripeEventStats, tags=["billing-admin"])
+@billing_admin_router.post("/stripe-events/statistics", response_model=schemas.StripeEventStats, tags=["billing-admin"])
 async def get_stripe_event_statistics(
     date_from: Optional[datetime] = Query(None, description="Start date for analysis"),
     date_to: Optional[datetime] = Query(None, description="End date for analysis"),
@@ -1656,9 +1656,9 @@ async def get_stripe_event_statistics(
         )
 
 
-@billing_admin_router.get("/stripe-events/failed", response_model=List[schemas.StripeEventRead], tags=["billing-admin"])
+@billing_admin_router.post("/stripe-events/failed", response_model=List[schemas.StripeEventRead], tags=["billing-admin"])
 async def get_failed_stripe_events(
-    hours_back: int = Query(24, ge=1, le=168, description="How many hours back to look (max 7 days)"),
+    hours_back: int = Query(24, ge=1, le=720, description="How many hours back to look (max 7 days)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return"),
     current_user: User = Depends(get_current_active_superuser),
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -1700,7 +1700,7 @@ async def get_failed_stripe_events(
         )
 
 
-@billing_admin_router.get("/stripe-events/organization/{org_id}", response_model=List[schemas.StripeEventRead], tags=["billing-admin"])
+@billing_admin_router.post("/stripe-events/organization/{org_id}", response_model=List[schemas.StripeEventRead], tags=["billing-admin"])
 async def get_stripe_events_by_organization(
     org_id: uuid.UUID = Path(..., description="Organization ID"),
     event_types: Optional[List[str]] = Query(None, description="Filter by event types"),
@@ -1748,7 +1748,7 @@ async def get_stripe_events_by_organization(
         )
 
 
-@billing_admin_router.get("/stripe-events/{event_id}", response_model=schemas.StripeEventRead, tags=["billing-admin"])
+@billing_admin_router.post("/stripe-events/{event_id}", response_model=schemas.StripeEventRead, tags=["billing-admin"])
 async def get_stripe_event_by_id(
     event_id: str = Path(..., description="Stripe Event ID"),
     current_user: User = Depends(get_current_active_superuser),

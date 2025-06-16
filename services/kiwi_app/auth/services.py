@@ -25,6 +25,12 @@ from kiwi_app.auth.exceptions import (
 from kiwi_app.email import email_verify
 from kiwi_app.settings import settings # Import settings
 
+from kiwi_app.email.email_templates.renderer import (
+    EmailRenderer, 
+    FirstStepsGuideEmailData
+)
+from kiwi_app.email.email_dispatch import email_dispatch, EmailContent, EmailRecipient
+
 # Configure Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
 stripe.api_version = settings.STRIPE_API_VERSION
@@ -448,6 +454,71 @@ class AuthService:
 
         return db_user # Return the found or created user
 
+    async def send_first_steps_guide_email(
+        self,
+        background_tasks: BackgroundTasks,
+        user: models.User,
+    ) -> None:
+        """
+        Send a first steps guide email to a newly verified user.
+        
+        This helper function creates and queues a first steps guide email
+        to help new users get started with the platform after email verification.
+        
+        Args:
+            background_tasks: FastAPI BackgroundTasks instance
+            user: The verified user object
+            request: Request object for base URL generation
+        """
+        try:
+            # Import here to avoid circular imports
+            
+            # Create first steps guide email data
+            email_data = FirstStepsGuideEmailData(
+                user_name=user.full_name or user.email.split('@')[0],  # Fallback to email prefix if no name
+                start_writing_url=settings.URL_CREATE_NEW_POST,  # URL to create first post
+                explore_ideas_url=settings.URL_EXPLORE_CONTENT_IDEAS,   # URL to explore content ideas
+                calendar_url=settings.URL_CONTENT_CALENDAR      # URL to content calendar
+            )
+            
+            # Initialize email renderer
+            email_renderer = EmailRenderer()
+            
+            # Render both HTML and text versions
+            html_content = email_renderer.render_first_steps_guide_email(email_data)
+            text_content = email_renderer.html_to_text(html_content)
+            
+            # Create email content object
+            email_content = EmailContent(
+                subject="🎯 Your Next Steps to Content Success with KiwiQ",
+                html_body=html_content,
+                text_body=text_content,
+                from_name="KiwiQ Team"
+            )
+            
+            # Create recipient object
+            recipient = EmailRecipient(
+                email=user.email,
+                name=user.full_name
+            )
+            
+            # Send email using the dispatch service
+            success = await email_dispatch.send_email_async(
+                background_tasks=background_tasks,
+                recipient=recipient,
+                content=email_content
+            )
+            
+            if success:
+                auth_logger.info(f"First steps guide email task queued for {user.email} ({user.id})")
+            else:
+                auth_logger.warning(f"Failed to queue first steps guide email for {user.email}")
+                
+        except Exception as e:
+            auth_logger.error(f"Error preparing first steps guide email for {user.email}: {e}", exc_info=True)
+            # Don't raise the exception - we don't want to break email verification if guide email fails
+
+    
     async def verify_user_email(self, db: AsyncSession, token: str) -> models.User:
         """
         Verifies an email using a token.

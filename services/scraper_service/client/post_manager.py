@@ -11,7 +11,7 @@ import http.client
 import json
 from scraper_service.client.core_api_client import RapidAPIClient
 from scraper_service.settings import rapid_api_settings
-from scraper_service.client.utils.url_helper import extract_urn_from_url
+from scraper_service.client.utils.url_helper import extract_urn_from_url, build_post_url_from_urn
 from global_config.logger import get_prefect_or_regular_python_logger
 
 from scraper_service.client.schemas.posts_schema import (
@@ -71,22 +71,34 @@ class LinkedinPostFetcher:
         self.rapidapi_host = base_url or rapid_api_settings.RAPID_API_HOST
         self.api_client = RapidAPIClient(self.rapidapi_key, self.rapidapi_host)
         self.logger = get_prefect_or_regular_python_logger(__name__)
-    async def fetch_share_url(self, post_url):
-        """Fetches shareUrl from LinkedIn post API if not available.
+    
+    async def fetch_post_details(self, post_url_or_urn):
+        """Fetches post details from LinkedIn post API if not available.
         
         NOTE: costs 1 credit per request!
         """
+        if not post_url_or_urn:
+            return {"error": "Post URL is required"}
         
-        endpoint = f"/get-post?url={post_url}"
+        if not post_url_or_urn.startswith("https://www.linkedin.com/feed/update/urn:li:activity:"):
+            if not post_url_or_urn.startswith("https://"):
+                urn = post_url_or_urn
+            else:
+                urn = await extract_urn_from_url(post_url_or_urn)
+            
+            post_url_or_urn = await build_post_url_from_urn(urn)
+
+        post_details_api_path = rapid_api_settings.RAPID_API_ENDPOINTS['post_details']
+        endpoint = f"{post_details_api_path}?url={post_url_or_urn}"
         
         response = await self.api_client.make_get_request(endpoint)
 
         if not response.get("success", False):
             self.logger.error(f"Error fetching company posts: {response.get('message')}")
-            return CompanyPostResponse(posts=[])
+            return {"error": "Error fetching post details"}
 
         post_data = response.get("data", [])
-        return post_data.get("shareUrl", "none")
+        return post_data
 
     async def get_company_posts(self, request: Dict[str, Any]) -> Union[List[CompanyPostResponse], Dict[str, Any]]:
         """
@@ -183,10 +195,9 @@ class LinkedinPostFetcher:
                 continue
 
             post_url = raw_post.get("postUrl")
-            share_url = raw_post.get("shareUrl") or await self.fetch_share_url(post_url)
+            share_url = raw_post.get("shareUrl")  #  or await self.fetch_share_url(post_url)
             urn = await extract_urn_from_url(post_url)
             urn = raw_post.get("urn") or urn
-            reaction_target_url = share_url
 
             comments_list = []
             if fetch_comments_flag and urn and i < post_limit:
@@ -201,14 +212,14 @@ class LinkedinPostFetcher:
                     comments_list = comments_result
 
             reactions_list = []
-            if fetch_reactions_flag and reaction_target_url and i < post_limit:
-                self.logger.debug(f"Fetching reactions for company post URL: {reaction_target_url}")
+            if fetch_reactions_flag and i < post_limit:
+                self.logger.debug(f"Fetching reactions for company post URL: {share_url or post_url}")
                 reactions_result = await self.get_post_reactions(
                     PostReactionsRequest(urn=urn),
                     limit=reaction_limit
                 )
                 if isinstance(reactions_result, dict) and "error" in reactions_result:
-                    self.logger.error(f"Failed to fetch reactions for company post {reaction_target_url}: {reactions_result['error']}")
+                    self.logger.error(f"Failed to fetch reactions for company post {share_url or post_url}: {reactions_result['error']}")
                 elif isinstance(reactions_result, list):
                     reactions_list = reactions_result
 
@@ -1021,3 +1032,292 @@ class LinkedinPostFetcher:
         except Exception as e:
             self.logger.error(f"Error sorting posts by postedDateTimestamp: {e}")
         return structured_results
+
+    async def get_post_details_with_enrichment(
+        self,
+        request: Dict[str, Any]
+    ) -> Union[Dict[str, Any], Dict[str, Any]]:
+        """
+        Fetch details for a specific LinkedIn post with optional comments and reactions enrichment.
+
+        Args:
+            request (Dict[str, Any]): Request dictionary containing:
+                - post_url_or_urn (str): LinkedIn post URL or URN.
+                - post_comments (str): "yes"|"no". Fetch comments for the post?
+                - post_reactions (str): "yes"|"no". Fetch reactions for the post?
+                - comment_limit (Optional[int]): Max comments to retrieve. Defaults to DEFAULT_COMMENT_LIMIT.
+                - reaction_limit (Optional[int]): Max reactions to retrieve. Defaults to DEFAULT_REACTION_LIMIT.
+
+        Returns:
+            Union[Dict[str, Any], Dict[str, Any]]: A dictionary containing the post details
+                with optional comments and reactions lists, or a dictionary with an 'error' key on failure.
+                
+        Note:
+            This method costs 1 credit for the base post details, plus additional credits
+            for comments and reactions if requested (based on pagination requirements).
+        """
+        if not request.get('post_url_or_urn'):
+            self.logger.error("Post URL or URN is required to fetch post details.")
+            return {"error": "Post URL or URN is required"}
+
+        # Extract parameters with defaults
+        post_url_or_urn = str(request['post_url_or_urn'])
+        comment_limit = request.get('comment_limit') or rapid_api_settings.DEFAULT_COMMENT_LIMIT
+        reaction_limit = request.get('reaction_limit') or rapid_api_settings.DEFAULT_REACTION_LIMIT
+        fetch_comments_flag = request.get('post_comments', 'no').lower() == "yes"
+        fetch_reactions_flag = request.get('post_reactions', 'no').lower() == "yes"
+
+        self.logger.info(f"Fetching post details for URL: {post_url_or_urn}")
+
+        # --- Fetch Base Post Details ---
+        try:
+            post_details = await self.fetch_post_details(post_url_or_urn)
+            if not post_details or "error" in post_details:
+                self.logger.error(f"Failed to fetch post details for URL: {post_url_or_urn}")
+                return {"error": "Failed to fetch post details"}
+                
+            # Extract URN from the post details or URL for enrichment calls
+            urn = post_details.get("urn") or (post_url_or_urn if (not post_url_or_urn.startswith("https://")) else await extract_urn_from_url(post_url_or_urn))
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching post details for {post_url_or_urn}: {e}")
+            return {"error": f"Error fetching post details: {str(e)}"}
+
+        # --- Fetch Comments (Conditional) ---
+        comments_list = []
+        if fetch_comments_flag and urn:
+            self.logger.debug(f"Fetching comments for post URN: {urn}")
+            try:
+
+                author = post_details.get("author", {})
+                company = post_details.get("company", {})
+                url = author.get("url", company.get("url"))
+                if not company and "company" in url:
+                    company = True
+                
+                # If profile post comments fails, try company post comments
+                if company:
+                    comments_result = await self.get_company_post_comments(
+                        CompanyPostCommentsRequest(post_urn=urn),
+                        limit=comment_limit
+                    )
+                else:
+                    comments_result = await self.get_profile_post_comments(
+                        ProfilePostCommentsRequest(post_urn=urn),
+                        limit=comment_limit
+                    )
+                
+                if isinstance(comments_result, dict) and "error" in comments_result:
+                    self.logger.error(f"Failed to fetch comments for post {urn}: {comments_result['error']}")
+                elif isinstance(comments_result, list):
+                    comments_list = comments_result
+                    # Convert to dict format for consistency with post details structure
+                    comments_list = [comment.model_dump() if hasattr(comment, 'model_dump') else comment for comment in comments_list]
+                    
+            except Exception as e:
+                self.logger.error(f"Error fetching comments for post {urn}: {e}")
+
+        # --- Fetch Reactions (Conditional) ---
+        reactions_list = []
+        if fetch_reactions_flag and urn:
+            self.logger.debug(f"Fetching reactions for post URN: {urn}")
+            try:
+                reactions_result = await self.get_post_reactions(
+                    PostReactionsRequest(urn=urn),
+                    limit=reaction_limit
+                )
+                
+                if isinstance(reactions_result, dict) and "error" in reactions_result:
+                    self.logger.error(f"Failed to fetch reactions for post {urn}: {reactions_result['error']}")
+                elif isinstance(reactions_result, list):
+                    reactions_list = reactions_result
+                    # Convert to dict format for consistency with post details structure
+                    reactions_list = [reaction.model_dump() if hasattr(reaction, 'model_dump') else reaction for reaction in reactions_list]
+                    
+            except Exception as e:
+                self.logger.error(f"Error fetching reactions for post {urn}: {e}")
+
+        # --- Structure Final Response ---
+        result = {
+            **post_details,  # Include all base post details
+            "enriched": True,  # Flag to indicate this includes enrichment
+            "comments": comments_list,  # Add comments list (empty if not requested or failed)
+            "reactions": reactions_list,  # Add reactions list (empty if not requested or failed)
+            "enrichment_stats": {
+                "comments_count": len(comments_list),
+                "reactions_count": len(reactions_list),
+                "comments_requested": fetch_comments_flag,
+                "reactions_requested": fetch_reactions_flag
+            }
+        }
+
+        self.logger.info(f"Successfully fetched post details with {len(comments_list)} comments and {len(reactions_list)} reactions for URL: {post_url_or_urn}")
+        return result
+
+
+async def test_post_manager():
+    """
+    {
+    "resharedPost": {
+        "isBrandPartnership": false,
+        "text": "Today, we\u2019re proud to introduce the new Fi Series 3+ smart collar to the world! With enhanced GPS performance, AI-powered behavior tracking, Apple Watch integration and more, the Series 3+ is our smartest collar yet, and it\u2019s learning more every day.\u00a0 \n\nThank you to every team member who worked tirelessly to bring Series 3+ to life. This launch marks another step forward in our mission to keep dogs as safe and healthy as possible, and we can\u2019t wait to see what\u2019s next from here. \n\n#WeSpeakDog",
+        "author": {},
+        "video": [
+            {
+                "url": "https://dms.licdn.com/playlist/vid/v2/D4E05AQGjSzWnWyNVrw/mp4-720p-30fp-crf28/B4EZcczpjlHkBQ-/0/1748535012167?e=1750240800&v=beta&t=cMi_pFvFZAiIa6-LjECnmtYa2WWHPwnd6wv0CSs4zZE",
+                "poster": "https://media.licdn.com/dms/image/v2/D4E05AQGjSzWnWyNVrw/videocover-low/B4EZcczpjlHkBk-/0/1748535005833?e=1750240800&v=beta&t=05ydAE1FfhEerY0iGK9argUnvPr__FHxG4lcakMoHaU",
+                "duration": 60100,
+                "thumbnails": null,
+                "video": null
+            }
+        ],
+        "company": {},
+        "document": {},
+        "celebration": {},
+        "poll": {},
+        "contentType": "",
+        "article": {
+            "newsletter": {}
+        },
+        "entity": {}
+    },
+    "isBrandPartnership": false,
+    "text": "Has been a blast to build out this leap forward for dogs and their parents with the Fi team. Give it a try, if you love your dog you\u2019ll love what we\u2019ve built.",
+    "totalReactionCount": 37,
+    "likeCount": 31,
+    "empathyCount": 3,
+    "praiseCount": 3,
+    "commentsCount": 3,
+    "shareUrl": "https://www.linkedin.com/posts/darrellstone3_wespeakdog-activity-7335307549467926532-RKcN",
+    "postedAt": "1w",
+    "postedDate": "2025-06-02 14:13:23.217 +0000 UTC",
+    "postedDateTimestamp": 1748873603217,
+    "reposted": true,
+    "urn": "7335307549467926532",
+    "shareUrn": "urn:li:ugcPost:7335307548964663296",
+    "author": {
+        "id": 72453685,
+        "firstName": "Darrell",
+        "lastName": "Stone",
+        "headline": "VP of Product at Fi",
+        "username": "darrellstone3",
+        "url": "https://www.linkedin.com/in/darrellstone3",
+        "profilePictures": [
+            {
+                "width": 100,
+                "height": 100,
+                "url": "https://media.licdn.com/dms/image/v2/D4E03AQE9DiKLEuaRBw/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1672877997618?e=1755129600&v=beta&t=9xv044kN3nEr2jQNOumVnFQvr4_O6kvHyHzG8xSN8mE"
+            },
+            {
+                "width": 200,
+                "height": 200,
+                "url": "https://media.licdn.com/dms/image/v2/D4E03AQE9DiKLEuaRBw/profile-displayphoto-shrink_200_200/profile-displayphoto-shrink_200_200/0/1672877997618?e=1755129600&v=beta&t=yRGvfD_n9qK3_cwl-rwinrgGOXGKQEhVbzDp4RHaD6g"
+            },
+            {
+                "width": 400,
+                "height": 400,
+                "url": "https://media.licdn.com/dms/image/v2/D4E03AQE9DiKLEuaRBw/profile-displayphoto-shrink_400_400/profile-displayphoto-shrink_400_400/0/1672877997618?e=1755129600&v=beta&t=ut63YR4Q639-gq5V97PPPnpBuQdLxPEU7tlJ4hiIlMA"
+            },
+            {
+                "width": 800,
+                "height": 800,
+                "url": "https://media.licdn.com/dms/image/v2/D4E03AQE9DiKLEuaRBw/profile-displayphoto-shrink_800_800/profile-displayphoto-shrink_800_800/0/1672877997618?e=1755129600&v=beta&t=xpgYP2wdqsjyN3iMyrEVPN4Zk6n3YRJ54rHxhmfIQT4"
+            }
+        ],
+        "urn": "ACoAAARRjjUB3H1jzv8Dhulek2yv9xcnUjJLXXA"
+    },
+    "company": {},
+    "document": {},
+    "celebration": {},
+    "poll": {},
+    "contentType": "",
+    "article": {
+        "newsletter": {}
+    },
+    "entity": {}
+}
+
+
+
+
+{
+    "isBrandPartnership": false,
+    "text": "Today, we\u2019re proud to introduce the new Fi Series 3+ smart collar to the world! With enhanced GPS performance, AI-powered behavior tracking, Apple Watch integration and more, the Series 3+ is our smartest collar yet, and it\u2019s learning more every day.\u00a0 \n\nThank you to every team member who worked tirelessly to bring Series 3+ to life. This launch marks another step forward in our mission to keep dogs as safe and healthy as possible, and we can\u2019t wait to see what\u2019s next from here. \n\n#WeSpeakDog",
+    "totalReactionCount": 161,
+    "likeCount": 119,
+    "empathyCount": 18,
+    "praiseCount": 24,
+    "commentsCount": 18,
+    "repostsCount": 38,
+    "shareUrl": "https://www.linkedin.com/posts/fi-smart-dog-collars_wespeakdog-activity-7335304292926451712-97Nw",
+    "postedAt": "1w",
+    "postedDate": "2025-06-02 14:00:26.797 +0000 UTC",
+    "postedDateTimestamp": 1748872826797,
+    "urn": "7335304292926451712",
+    "shareUrn": "urn:li:ugcPost:7333887308447846402",
+    "author": {},
+    "video": [
+        {
+            "url": "https://dms.licdn.com/playlist/vid/v2/D4E05AQGjSzWnWyNVrw/mp4-720p-30fp-crf28/B4EZcczpjlHkBQ-/0/1748535012167?e=1750240800&v=beta&t=cMi_pFvFZAiIa6-LjECnmtYa2WWHPwnd6wv0CSs4zZE",
+            "poster": "https://media.licdn.com/dms/image/v2/D4E05AQGjSzWnWyNVrw/videocover-low/B4EZcczpjlHkBk-/0/1748535005833?e=1750240800&v=beta&t=05ydAE1FfhEerY0iGK9argUnvPr__FHxG4lcakMoHaU",
+            "duration": 60100,
+            "thumbnails": null,
+            "video": null
+        }
+    ],
+    "company": {
+        "id": "urn:li:company:11837825",
+        "name": "Fi",
+        "url": "https://www.linkedin.com/company/fi-smart-dog-collars/",
+        "urn": "urn:li:fs_miniCompany:11837825",
+        "username": "fi-smart-dog-collars",
+        "companyLogo": [
+            {
+                "width": 200,
+                "height": 200,
+                "url": "https://media.licdn.com/dms/image/v2/C4E0BAQG2pii_MEb5ZQ/company-logo_200_200/company-logo_200_200/0/1630609125994/fi_technology_for_dogs_and_their_humans_logo?e=1755129600&v=beta&t=xww66SOw0qp3VlTAKu2inAxlGVxEGsX9PK2DbxrGSZ4"
+            },
+            {
+                "width": 100,
+                "height": 100,
+                "url": "https://media.licdn.com/dms/image/v2/C4E0BAQG2pii_MEb5ZQ/company-logo_100_100/company-logo_100_100/0/1630609125994/fi_technology_for_dogs_and_their_humans_logo?e=1755129600&v=beta&t=mie2uFYE0oND_uHoebylVDYromFMOeIiYGPesCoD8Oc"
+            },
+            {
+                "width": 400,
+                "height": 400,
+                "url": "https://media.licdn.com/dms/image/v2/C4E0BAQG2pii_MEb5ZQ/company-logo_400_400/company-logo_400_400/0/1630609125995/fi_technology_for_dogs_and_their_humans_logo?e=1755129600&v=beta&t=-yd0naON9P7EGDEox8UTzk07JHarhDGqs-ccbntIZ4o"
+            }
+        ]
+    },
+    "document": {},
+    "celebration": {},
+    "poll": {},
+    "contentType": "",
+    "article": {
+        "newsletter": {}
+    },
+    "entity": {}
+}
+
+    """
+    post_manager = LinkedinPostFetcher()
+    url = "7335304292926451712"
+    # https://www.linkedin.com/posts/fi-smart-dog-collars_wespeakdog-activity-7335304292926451712-97Nw
+    # https://www.linkedin.com/feed/update/urn:li:activity:7335304292926451712/
+    # 7335304292926451712
+    # post_details = await post_manager.fetch_post_details(url)
+
+    post_result = await post_manager.get_post_details_with_enrichment({
+        "post_url_or_urn": url,
+        "post_comments": "yes",
+        "comment_limit": 50,
+        "post_reactions": "yes",
+        "reaction_limit": 100,
+    })
+
+    print(json.dumps(post_result, indent=4))
+    import ipdb; ipdb.set_trace()
+
+if __name__ == "__main__":
+    asyncio.run(test_post_manager())
+

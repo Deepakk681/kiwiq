@@ -32,7 +32,7 @@ import json
 from typing import Any, List, Optional
 
 # Import our LinkedInClient and required models
-from linkedin_integration.linkedin_client import (
+from linkedin_integration.client.linkedin_client import (
     LinkedInClient, 
     ShareStatisticsRequest,
     ShareStatisticsResponse

@@ -24,7 +24,7 @@ from linkedin_api.clients.restli.response_formatter import (
 
 from pydantic import BaseModel, Field
 
-from linkedin_integration.caching import dump_to_json, load_and_get_key
+# from linkedin_integration.caching import dump_to_json, load_and_get_key
 
 # from linkedin_integration.models import (
 #     LinkedInAccount, LinkedInPost, 
@@ -1470,60 +1470,60 @@ class LinkedInClient:
             logger.error(f"Error fetching user info: {str(e)}")
             return False, None
     
-    async def _cache_result(self, key: str, result: Any) -> None:
-        """
-        Cache a result using the key.
+    # async def _cache_result(self, key: str, result: Any) -> None:
+    #     """
+    #     Cache a result using the key.
         
-        Args:
-            key: Unique identifier for the cached result
-            result: Data to cache (can be a Pydantic model or other data)
+    #     Args:
+    #         key: Unique identifier for the cached result
+    #         result: Data to cache (can be a Pydantic model or other data)
             
-        Note:
-            This method will only cache results if caching is enabled.
-            Pydantic models are properly serialized to JSON before caching.
-        """
-        if not self.enable_caching:
-            return
+    #     Note:
+    #         This method will only cache results if caching is enabled.
+    #         Pydantic models are properly serialized to JSON before caching.
+    #     """
+    #     if not self.enable_caching:
+    #         return
             
-        # Convert Pydantic models to dict for proper serialization
-        if isinstance(result, BaseModel):
-            result_dict = result.model_dump(by_alias=True)
-            dump_to_json({key: result_dict})
-        elif isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
-            # Handle list of Pydantic models
-            result_dict = [item.model_dump(by_alias=True) for item in result]
-            dump_to_json({key: result_dict})
-        elif isinstance(result, dict) and any(isinstance(value, BaseModel) for value in result.values()):
-            # Handle dict with Pydantic model values
-            result_dict = {k: v.model_dump(by_alias=True) if isinstance(v, BaseModel) else v 
-                          for k, v in result.items()}
-            dump_to_json({key: result_dict})
-        else:
-            # Handle regular data
-            dump_to_json({key: result})
+    #     # Convert Pydantic models to dict for proper serialization
+    #     if isinstance(result, BaseModel):
+    #         result_dict = result.model_dump(by_alias=True)
+    #         dump_to_json({key: result_dict})
+    #     elif isinstance(result, list) and all(isinstance(item, BaseModel) for item in result):
+    #         # Handle list of Pydantic models
+    #         result_dict = [item.model_dump(by_alias=True) for item in result]
+    #         dump_to_json({key: result_dict})
+    #     elif isinstance(result, dict) and any(isinstance(value, BaseModel) for value in result.values()):
+    #         # Handle dict with Pydantic model values
+    #         result_dict = {k: v.model_dump(by_alias=True) if isinstance(v, BaseModel) else v 
+    #                       for k, v in result.items()}
+    #         dump_to_json({key: result_dict})
+    #     else:
+    #         # Handle regular data
+    #         dump_to_json({key: result})
     
-    async def _get_cached_result(self, key: str) -> Optional[Any]:
-        """
-        Get a cached result using the key.
+    # async def _get_cached_result(self, key: str) -> Optional[Any]:
+    #     """
+    #     Get a cached result using the key.
         
-        Args:
-            key: Unique identifier for the cached result
+    #     Args:
+    #         key: Unique identifier for the cached result
             
-        Returns:
-            Any: The cached result if found and caching is enabled, None otherwise.
-                 Pydantic models are properly reconstructed from cached JSON.
-        """
-        if not self.enable_caching:
-            return None
+    #     Returns:
+    #         Any: The cached result if found and caching is enabled, None otherwise.
+    #              Pydantic models are properly reconstructed from cached JSON.
+    #     """
+    #     if not self.enable_caching:
+    #         return None
             
-        try:
-            cached_data = load_and_get_key(key)
-            if cached_data is None:
-                return None
+    #     try:
+    #         cached_data = load_and_get_key(key)
+    #         if cached_data is None:
+    #             return None
                 
-            return cached_data
-        except (FileNotFoundError, json.JSONDecodeError):
-            return None
+    #         return cached_data
+    #     except (FileNotFoundError, json.JSONDecodeError):
+    #         return None
     
     async def _paginated_fetch(
         self,

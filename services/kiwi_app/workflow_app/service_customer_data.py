@@ -2450,6 +2450,148 @@ class CustomerDataService:
                 detail=f"Failed to list documents: {str(e)}",
             )
 
+    async def system_search_documents(
+        self,
+        namespace_pattern: str = "*",
+        docname_pattern: str = "*",
+        text_search_query: Optional[str] = None,
+        value_filter: Optional[Dict[str, Any]] = None,
+        skip: int = 0,
+        limit: int = 1000,
+        sort_by: Optional[schemas.CustomerDataSortBy] = None,
+        sort_order: Optional[schemas.SortOrder] = schemas.SortOrder.DESC,
+    ) -> List[schemas.CustomerDocumentSearchResult]:
+        """
+        System-level search for documents across all organizations and users.
+        This method bypasses permission checks and is intended for system operations
+        like cron jobs and maintenance tasks.
+        
+        WARNING: This method should only be called from trusted system contexts.
+        
+        Args:
+            namespace_pattern: Namespace pattern with wildcards (default: "*")
+            docname_pattern: Document name pattern with wildcards (default: "*")
+            text_search_query: Optional text search query
+            value_filter: Optional data field filters (e.g., {"scheduled_date": "2024-01-15"})
+            skip: Number of documents to skip (default: 0)
+            limit: Maximum number of documents to return (default: 1000)
+            sort_by: Field to sort results by
+            sort_order: Order to sort results (ASC or DESC)
+            
+        Returns:
+            List of document search results without permission filtering
+        """
+        customer_data_logger.info(
+            f"System search initiated - namespace: {namespace_pattern}, "
+            f"docname: {docname_pattern}, value_filter: {value_filter}"
+        )
+        
+        try:
+            # Build patterns to search across all organizations and users
+            patterns = []
+            
+            # Pattern for all organization documents (both shared and user-specific)
+            # Format: [org_id, user_id, namespace, docname]
+            patterns.append(["*", "*", namespace_pattern, docname_pattern])
+            
+            # Also include system documents
+            patterns.append([CustomerDataService.SYSTEM_DOC_PLACEHOLDER, "*", namespace_pattern, docname_pattern])
+            
+            # Define sort options
+            sort_direction = 1 if sort_order == schemas.SortOrder.ASC else -1
+            value_sort_by = None
+            
+            if sort_by:
+                if sort_by == schemas.CustomerDataSortBy.CREATED_AT:
+                    value_sort_by = [("created_at", sort_direction)]
+                elif sort_by == schemas.CustomerDataSortBy.UPDATED_AT:
+                    value_sort_by = [("updated_at", sort_direction)]
+            
+            # Build key patterns for search
+            key_patterns = []
+            for pattern in patterns:
+                # Add version segment wildcards for versioned document support
+                key_pattern = pattern + ["*"] + [None] * (len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES) - 1)
+                key_patterns.append(key_pattern)
+            
+            customer_data_logger.debug(f"System search patterns: {key_patterns}")
+            
+            # Execute search without permission prefixes (system has access to all)
+            docs = await self.versioned_mongo_client.client.search_objects(
+                key_pattern=key_patterns,
+                text_search_query=text_search_query,
+                value_filter=value_filter,
+                allowed_prefixes=None,  # No permission filtering for system searches
+                skip=skip,
+                limit=limit,
+                value_sort_by=value_sort_by
+            )
+            
+            customer_data_logger.info(f"System search found {len(docs)} documents")
+            
+            # Process results into search result objects
+            result = []
+            for doc in docs:
+                doc_path = self.versioned_mongo_client.client._segments_to_path(doc)
+                
+                if not isinstance(doc_path, (list, tuple)) or len(doc_path) < 4:
+                    customer_data_logger.warning(f"Skipping invalid doc_path in system search: {doc_path}")
+                    continue
+                
+                # Extract path components
+                org_id_str, user_id_str, namespace, docname = doc_path[:4]
+                
+                # Check if document is versioned
+                is_versioned = doc.get(self.mongo_client.DOC_TYPE_KEY) == self.mongo_client.DOC_TYPE_VERSIONED
+                is_versioning_metadata = is_versioned
+                version = None
+                if len(doc_path) > 4:
+                    version = doc_path[4]
+                    is_versioning_metadata = False
+                
+                # Determine document properties
+                is_shared = user_id_str == self.SHARED_DOC_PLACEHOLDER
+                is_system = org_id_str == CustomerDataService.SYSTEM_DOC_PLACEHOLDER
+                
+                # Extract document data
+                data_dict = doc.get("data", {}) or {}
+                if isinstance(data_dict, dict):
+                    data = {k: v for k, v in data_dict.items() if k not in AsyncMongoVersionedClient.INTERNAL_KEYS}
+                    data = data.get(AsyncMongoVersionedClient.DOCUMENT_KEY, data)
+                else:
+                    data = data_dict
+                
+                # Create metadata object
+                metadata = schemas.CustomerDocumentSearchResultMetadata(
+                    id=f"{org_id_str}:{user_id_str}:{namespace}:{docname}",  # doc.get("_id"),
+                    org_id=uuid.UUID(org_id_str) if not is_system and org_id_str != "*" else None,
+                    user_id_or_shared_placeholder=user_id_str,
+                    namespace=namespace,
+                    docname=docname,
+                    is_versioned=is_versioned,
+                    is_shared=is_shared,
+                    is_system_entity=is_system,
+                    version=version,
+                    is_versioning_metadata=is_versioning_metadata,
+                )
+                
+                search_result = schemas.CustomerDocumentSearchResult(
+                    metadata=metadata,
+                    data=data,
+                )
+                
+                result.append(search_result)
+            
+            customer_data_logger.info(f"System search returning {len(result)} results")
+            return result
+            
+        except Exception as e:
+            customer_data_logger.error(f"Error in system document search: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to perform system document search: {str(e)}"
+            )
+
     async def delete_objects_by_pattern(
         self,
         org_id: uuid.UUID,
@@ -2540,3 +2682,624 @@ class CustomerDataService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete objects: {str(e)}"
             )
+
+    # --- Move/Copy Document Methods --- #
+    
+    async def _move_or_copy_document(
+        self,
+        source_org_id: uuid.UUID,
+        source_namespace: str,
+        source_docname: str,
+        source_is_shared: bool,
+        destination_org_id: uuid.UUID,
+        destination_namespace: str,
+        destination_docname: str,
+        destination_is_shared: bool,
+        user: User,
+        move: bool,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        source_is_system_entity: bool = False,
+        destination_is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
+    ) -> bool:
+        """
+        Move or copy a document from source to destination path.
+        Automatically detects if the document is versioned or unversioned.
+        
+        Args:
+            source_org_id: Source organization ID
+            source_namespace: Source document namespace
+            source_docname: Source document name
+            source_is_shared: Whether source is a shared document
+            destination_org_id: Destination organization ID
+            destination_namespace: Destination document namespace
+            destination_docname: Destination document name
+            destination_is_shared: Whether destination should be a shared document
+            user: User object performing the operation
+            move: If True, move the document (delete source). If False, copy (keep source)
+            overwrite_destination: If True, overwrites existing document at destination
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            source_is_system_entity: Whether source is a system entity (superusers only)
+            destination_is_system_entity: Whether destination should be a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            True if the document was moved/copied successfully
+            
+        Raises:
+            HTTPException: If access is denied, document not found, or operation fails
+        """
+        operation_name = "move" if move else "copy"
+        
+        # Permission checks for acting on behalf of another user or system entities
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        if (source_is_system_entity or destination_is_system_entity) and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Only superusers can {operation_name} system entities"
+            )
+        
+        # Build source and destination base paths
+        source_base_path = self._build_base_path(
+            org_id=source_org_id,
+            namespace=source_namespace,
+            docname=source_docname,
+            is_shared=source_is_shared,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=source_is_system_entity
+        )
+        
+        destination_base_path = self._build_base_path(
+            org_id=destination_org_id,
+            namespace=destination_namespace,
+            docname=destination_docname,
+            is_shared=destination_is_shared,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=destination_is_system_entity
+        )
+        
+        # Get allowed prefixes for permission checking
+        # For copy operations, source is read-only; for move operations, source is a mutation
+        source_allowed_prefixes = self._get_allowed_prefixes(
+            org_id=source_org_id,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=move,  # Move operations modify source, copy operations don't
+            is_system_entity=source_is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
+        )
+        
+        # Destination is always a mutation (create/update)
+        dest_allowed_prefixes = self._get_allowed_prefixes(
+            org_id=destination_org_id,
+            user=user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_mutation=True,
+            is_system_entity=destination_is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
+        )
+        
+        # Combine allowed prefixes for comprehensive permission checking
+        combined_prefixes = list(set(source_allowed_prefixes + dest_allowed_prefixes))
+        
+        try:
+            # Check if source document exists and determine if it's versioned
+            source_metadata = await self.get_document_metadata(
+                org_id=source_org_id,
+                namespace=source_namespace,
+                docname=source_docname,
+                is_shared=source_is_shared,
+                user=user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=source_is_system_entity,
+                is_called_from_workflow=is_called_from_workflow,
+            )
+            
+            if not source_metadata:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Source document '{source_namespace}/{source_docname}' not found"
+                )
+            
+            customer_data_logger.info(
+                f"{operation_name.capitalize()}ing document from '{'/'.join(source_base_path)}' to '{'/'.join(destination_base_path)}' "
+                f"(versioned: {source_metadata.is_versioned})"
+            )
+            
+            # Delegate to appropriate client based on document type
+            if source_metadata.is_versioned:
+                if not self.versioned_mongo_client:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Versioned MongoDB client is required for versioned documents"
+                    )
+                
+                result = await self.versioned_mongo_client.move_document(
+                    source_base_path=source_base_path,
+                    destination_base_path=destination_base_path,
+                    allowed_prefixes=combined_prefixes,
+                    overwrite_destination=overwrite_destination,
+                    move=move
+                )
+            else:
+                result = await self.mongo_client.move_object(
+                    source_path=source_base_path,
+                    destination_path=destination_base_path,
+                    allowed_prefixes=combined_prefixes,
+                    overwrite_destination=overwrite_destination,
+                    move=move
+                )
+                
+            if result:
+                customer_data_logger.info(
+                    f"Successfully {operation_name}d document from '{'/'.join(source_base_path)}' to '{'/'.join(destination_base_path)}'"
+                )
+            else:
+                customer_data_logger.warning(
+                    f"Failed to {operation_name} document from '{'/'.join(source_base_path)}' to '{'/'.join(destination_base_path)}'"
+                )
+                
+            return bool(result)
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            customer_data_logger.error(f"Error {operation_name}ing document: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to {operation_name} document: {str(e)}"
+            )
+    
+    async def move_document(
+        self,
+        source_org_id: uuid.UUID,
+        source_namespace: str,
+        source_docname: str,
+        source_is_shared: bool,
+        destination_org_id: uuid.UUID,
+        destination_namespace: str,
+        destination_docname: str,
+        destination_is_shared: bool,
+        user: User,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        source_is_system_entity: bool = False,
+        destination_is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
+    ) -> bool:
+        """
+        Move a document from source to destination path.
+        Automatically detects if the document is versioned or unversioned.
+        
+        Args:
+            source_org_id: Source organization ID
+            source_namespace: Source document namespace
+            source_docname: Source document name
+            source_is_shared: Whether source is a shared document
+            destination_org_id: Destination organization ID
+            destination_namespace: Destination document namespace
+            destination_docname: Destination document name
+            destination_is_shared: Whether destination should be a shared document
+            user: User object performing the operation
+            overwrite_destination: If True, overwrites existing document at destination
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            source_is_system_entity: Whether source is a system entity (superusers only)
+            destination_is_system_entity: Whether destination should be a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            True if the document was moved successfully
+            
+        Raises:
+            HTTPException: If access is denied, document not found, or operation fails
+        """
+        return await self._move_or_copy_document(
+            source_org_id=source_org_id,
+            source_namespace=source_namespace,
+            source_docname=source_docname,
+            source_is_shared=source_is_shared,
+            destination_org_id=destination_org_id,
+            destination_namespace=destination_namespace,
+            destination_docname=destination_docname,
+            destination_is_shared=destination_is_shared,
+            user=user,
+            move=True,
+            overwrite_destination=overwrite_destination,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            source_is_system_entity=source_is_system_entity,
+            destination_is_system_entity=destination_is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
+        )
+    
+    async def copy_document(
+        self,
+        source_org_id: uuid.UUID,
+        source_namespace: str,
+        source_docname: str,
+        source_is_shared: bool,
+        destination_org_id: uuid.UUID,
+        destination_namespace: str,
+        destination_docname: str,
+        destination_is_shared: bool,
+        user: User,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        source_is_system_entity: bool = False,
+        destination_is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
+    ) -> bool:
+        """
+        Copy a document from source to destination path.
+        Automatically detects if the document is versioned or unversioned.
+        
+        Args:
+            source_org_id: Source organization ID
+            source_namespace: Source document namespace
+            source_docname: Source document name
+            source_is_shared: Whether source is a shared document
+            destination_org_id: Destination organization ID
+            destination_namespace: Destination document namespace
+            destination_docname: Destination document name
+            destination_is_shared: Whether destination should be a shared document
+            user: User object performing the operation
+            overwrite_destination: If True, overwrites existing document at destination
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            source_is_system_entity: Whether source is a system entity (superusers only)
+            destination_is_system_entity: Whether destination should be a system entity (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            True if the document was copied successfully
+            
+        Raises:
+            HTTPException: If access is denied, document not found, or operation fails
+        """
+        return await self._move_or_copy_document(
+            source_org_id=source_org_id,
+            source_namespace=source_namespace,
+            source_docname=source_docname,
+            source_is_shared=source_is_shared,
+            destination_org_id=destination_org_id,
+            destination_namespace=destination_namespace,
+            destination_docname=destination_docname,
+            destination_is_shared=destination_is_shared,
+            user=user,
+            move=False,
+            overwrite_destination=overwrite_destination,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            source_is_system_entity=source_is_system_entity,
+            destination_is_system_entity=destination_is_system_entity,
+            is_called_from_workflow=is_called_from_workflow,
+        )
+    
+    async def _batch_move_or_copy_documents(
+        self,
+        operations: List[schemas.DocumentOperation],
+        user: User,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_called_from_workflow: bool = False,
+    ) -> List[schemas.DocumentOperationResult]:
+        """
+        Move or copy multiple documents in a batch operation.
+        Automatically detects document types and groups operations by versioned/unversioned.
+        Segments operations by type (move/copy) and processes them efficiently.
+        
+        Args:
+            operations: List of document operations (move and/or copy)
+            user: User object performing the operations
+            overwrite_destination: If True, overwrites existing documents at destinations
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            List of operation results
+            
+        Raises:
+            HTTPException: If access is denied or operations fail
+        """
+        if not operations:
+            return []
+        
+        # Permission checks for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+        
+        # Segment operations by type
+        move_operations = [op for op in operations if op.operation_type == schemas.DocumentOperationType.MOVE]
+        copy_operations = [op for op in operations if op.operation_type == schemas.DocumentOperationType.COPY]
+        
+        customer_data_logger.info(f"Starting batch operations: {len(move_operations)} moves, {len(copy_operations)} copies")
+        
+        all_results: List[schemas.DocumentOperationResult] = []
+        
+        # Process each operation type
+        for is_move, ops_list in [(True, move_operations), (False, copy_operations)]:
+            if not ops_list:
+                continue
+                
+            operation_name = "move" if is_move else "copy"
+            customer_data_logger.debug(f"Processing {len(ops_list)} {operation_name} operations")
+            
+            # Process this batch of operations
+            batch_results = await self._process_move_or_copy_operation_batch(
+                operations=ops_list,
+                user=user,
+                move=is_move,
+                overwrite_destination=overwrite_destination,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_called_from_workflow=is_called_from_workflow,
+            )
+            all_results.extend(batch_results)
+        
+        # # Sort results to maintain original order
+        # operation_order = {id(op): i for i, op in enumerate(operations)}
+        # all_results.sort(key=lambda r: operation_order.get(
+        #     id(next((op for op in operations 
+        #             if (op.source_org_id == r.source_org_id and 
+        #                 op.source_namespace == r.source_namespace and 
+        #                 op.source_docname == r.source_docname and
+        #                 op.destination_org_id == r.destination_org_id and
+        #                 op.destination_namespace == r.destination_namespace and
+        #                 op.destination_docname == r.destination_docname)), None)), 
+        #     len(operations)
+        # ))
+        
+        total_successful = sum(1 for result in all_results if result.success)
+        customer_data_logger.info(f"Batch operations completed: {total_successful}/{len(operations)} operations successful")
+        
+        return all_results
+    
+    async def _process_move_or_copy_operation_batch(
+        self,
+        operations: List[schemas.DocumentOperation],
+        user: User,
+        move: bool,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_called_from_workflow: bool = False,
+    ) -> List[schemas.DocumentOperationResult]:
+        """
+        Process a batch of operations of the same type (all move or all copy).
+        
+        Args:
+            operations: List of document operations of the same type
+            user: User object performing the operations
+            move: If True, move documents (delete sources). If False, copy (keep sources)
+            overwrite_destination: If True, overwrites existing documents at destinations
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            List of operation results
+        """
+        if not operations:
+            return []
+        
+        operation_name = "move" if move else "copy"
+        operation_type = schemas.DocumentOperationType.MOVE if move else schemas.DocumentOperationType.COPY
+        
+        results: List[schemas.DocumentOperationResult] = []
+        versioned_operations: List[Tuple[int, List[str], List[str]]] = []  # (original_index, source_path, dest_path)
+        unversioned_operations: List[Tuple[int, List[str], List[str]]] = []
+        
+        # First pass: categorize operations and build paths
+        for i, operation in enumerate(operations):
+            try:
+                # Permission checks for system entities
+                if (operation.source_is_system_entity or operation.destination_is_system_entity) and not user.is_superuser:
+                    results.append(schemas.DocumentOperationResult(
+                        operation_type=operation_type,
+                        source_org_id=operation.source_org_id,
+                        source_namespace=operation.source_namespace,
+                        source_docname=operation.source_docname,
+                        destination_org_id=operation.destination_org_id,
+                        destination_namespace=operation.destination_namespace,
+                        destination_docname=operation.destination_docname,
+                        success=False,
+                        error_message=f"Only superusers can {operation_name} system entities"
+                    ))
+                    continue
+                
+                # Build source base path
+                source_base_path = self._build_base_path(
+                    org_id=operation.source_org_id,
+                    namespace=operation.source_namespace,
+                    docname=operation.source_docname,
+                    is_shared=operation.source_is_shared,
+                    user=user,
+                    on_behalf_of_user_id=on_behalf_of_user_id,
+                    is_system_entity=operation.source_is_system_entity
+                )
+                
+                destination_base_path = self._build_base_path(
+                    org_id=operation.destination_org_id,
+                    namespace=operation.destination_namespace,
+                    docname=operation.destination_docname,
+                    is_shared=operation.destination_is_shared,
+                    user=user,
+                    on_behalf_of_user_id=on_behalf_of_user_id,
+                    is_system_entity=operation.destination_is_system_entity
+                )
+                
+                # Check if source document exists and determine type
+                source_metadata = await self.get_document_metadata(
+                    org_id=operation.source_org_id,
+                    namespace=operation.source_namespace,
+                    docname=operation.source_docname,
+                    is_shared=operation.source_is_shared,
+                    user=user,
+                    on_behalf_of_user_id=on_behalf_of_user_id,
+                    is_system_entity=operation.source_is_system_entity,
+                    is_called_from_workflow=is_called_from_workflow,
+                )
+                
+                if not source_metadata:
+                    results.append(schemas.DocumentOperationResult(
+                        operation_type=operation_type,
+                        source_org_id=operation.source_org_id,
+                        source_namespace=operation.source_namespace,
+                        source_docname=operation.source_docname,
+                        destination_org_id=operation.destination_org_id,
+                        destination_namespace=operation.destination_namespace,
+                        destination_docname=operation.destination_docname,
+                        success=False,
+                        error_message=f"Source document '{operation.source_namespace}/{operation.source_docname}' not found"
+                    ))
+                    continue
+                
+                # Categorize operation based on document type
+                if source_metadata.is_versioned:
+                    versioned_operations.append((i, source_base_path, destination_base_path))
+                else:
+                    unversioned_operations.append((i, source_base_path, destination_base_path))
+                
+                # Add placeholder result (will be updated later)
+                results.append(schemas.DocumentOperationResult(
+                    operation_type=operation_type,
+                    source_org_id=operation.source_org_id,
+                    source_namespace=operation.source_namespace,
+                    source_docname=operation.source_docname,
+                    destination_org_id=operation.destination_org_id,
+                    destination_namespace=operation.destination_namespace,
+                    destination_docname=operation.destination_docname,
+                    success=False,  # Will be updated
+                    error_message=None
+                ))
+                
+            except Exception as e:
+                customer_data_logger.error(f"Error processing {operation_name} operation {i}: {str(e)}", exc_info=True)
+                results.append(schemas.DocumentOperationResult(
+                    operation_type=operation_type,
+                    source_org_id=operation.source_org_id,
+                    source_namespace=operation.source_namespace,
+                    source_docname=operation.source_docname,
+                    destination_org_id=operation.destination_org_id,
+                    destination_namespace=operation.destination_namespace,
+                    destination_docname=operation.destination_docname,
+                    success=False,
+                    error_message=f"Error processing operation: {str(e)}"
+                ))
+        
+        # Get combined allowed prefixes for all operations
+        all_org_ids = {op.source_org_id for op in operations} | {op.destination_org_id for op in operations}
+        combined_prefixes = []
+        for org_id in all_org_ids:
+            # For move operations, source is a mutation; for copy operations, source is read-only
+            source_prefixes = self._get_allowed_prefixes(
+                org_id=org_id,
+                user=user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_mutation=move,  # Move operations modify source, copy operations don't
+                is_system_entity=any(op.source_is_system_entity or op.destination_is_system_entity for op in operations),
+                is_called_from_workflow=is_called_from_workflow,
+            )
+            # Destination is always a mutation (create/update)
+            dest_prefixes = self._get_allowed_prefixes(
+                org_id=org_id,
+                user=user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_mutation=True,
+                is_system_entity=any(op.source_is_system_entity or op.destination_is_system_entity for op in operations),
+                is_called_from_workflow=is_called_from_workflow,
+            )
+            combined_prefixes.extend(source_prefixes + dest_prefixes)
+        
+        combined_prefixes = list(set(combined_prefixes))
+
+        # Execute versioned operations
+        if versioned_operations and self.versioned_mongo_client:
+            try:
+                versioned_pairs = [(source_path, dest_path) for _, source_path, dest_path in versioned_operations]
+                versioned_results = await self.versioned_mongo_client.batch_move_documents(
+                    move_pairs=versioned_pairs,
+                    allowed_prefixes=combined_prefixes,
+                    overwrite_destination=overwrite_destination,
+                    move=move
+                )
+                
+                # Update results for versioned operations
+                for (original_index, _, _), success in zip(versioned_operations, versioned_results):
+                    results[original_index].success = success
+                    if not success:
+                        results[original_index].error_message = f"Versioned {operation_name} operation failed"
+                        
+            except Exception as e:
+                customer_data_logger.error(f"Error in batch versioned {operation_name}: {str(e)}", exc_info=True)
+                for original_index, _, _ in versioned_operations:
+                    results[original_index].success = False
+                    results[original_index].error_message = f"Versioned {operation_name} failed: {str(e)}"
+        
+        # Execute unversioned operations
+        if unversioned_operations:
+            try:
+                unversioned_pairs = [(source_path, dest_path) for _, source_path, dest_path in unversioned_operations]
+                unversioned_results = await self.mongo_client.batch_move_objects(
+                    move_pairs=unversioned_pairs,
+                    allowed_prefixes=combined_prefixes,
+                    overwrite_destination=overwrite_destination,
+                    move=move
+                )
+                
+                # Update results for unversioned operations
+                for (original_index, _, _), result_id in zip(unversioned_operations, unversioned_results):
+                    success = result_id is not None
+                    results[original_index].success = success
+                    if not success:
+                        results[original_index].error_message = f"Unversioned {operation_name} operation failed"
+                        
+            except Exception as e:
+                customer_data_logger.error(f"Error in batch unversioned {operation_name}: {str(e)}", exc_info=True)
+                for original_index, _, _ in unversioned_operations:
+                    results[original_index].success = False
+                    results[original_index].error_message = f"Unversioned {operation_name} failed: {str(e)}"
+        
+        successful_count = sum(1 for result in results if result.success)
+        customer_data_logger.debug(f"Batch {operation_name} completed: {successful_count}/{len(operations)} operations successful")
+        
+        return results
+    
+    async def batch_move_or_copy_document_operations(
+        self,
+        operations: List[schemas.DocumentOperation],
+        user: User,
+        overwrite_destination: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_called_from_workflow: bool = False,
+    ) -> List[schemas.DocumentOperationResult]:
+        """
+        Perform multiple document operations (move and/or copy) in a batch.
+        Automatically detects document types and groups operations by versioned/unversioned.
+        
+        Args:
+            operations: List of document operations (can mix move and copy operations)
+            user: User object performing the operations
+            overwrite_destination: If True, overwrites existing documents at destinations
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_called_from_workflow: Whether this operation is called from a workflow
+            
+        Returns:
+            List of operation results
+            
+        Raises:
+            HTTPException: If access is denied or operations fail
+        """
+        return await self._batch_move_or_copy_documents(
+            operations=operations,
+            user=user,
+            overwrite_destination=overwrite_destination,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_called_from_workflow=is_called_from_workflow,
+        )

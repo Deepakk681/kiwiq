@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "components/button.html" import render_button %}
+{% from "components/text.html" import paragraph %}
+{% from "components/signature.html" import team_signature %}
+{% from "components/preheader.html" import preheader_with_limit %}
+
+{% block title %}KiwiQ Notification{% endblock %}
+
+{% block preheader %}
+{{ preheader_with_limit(message, 50) }}
+{% endblock %}
+
+{% block content %}
+  {{ paragraph("Hi " + user_name) }}
+  
+  {{ paragraph(message) }}
+  
+  {% if action_button_text and action_button_url %}
+    {{ render_button(action_button_text, action_button_url, is_primary=True, align="center") }}
+  {% endif %}
+  
+  {{ team_signature() }}
+{% endblock %} 

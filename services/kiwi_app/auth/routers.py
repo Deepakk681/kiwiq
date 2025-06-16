@@ -53,14 +53,14 @@ router = APIRouter(
 # auth_service = services.auth_service
 
 # Helper function to set the refresh token cookie
-def _set_refresh_cookie(response: Response, token: str):
+def _set_cookie(response: Response, token: str, cookie_name: str, max_age_seconds: int):
     response.set_cookie(
-        key=settings.REFRESH_COOKIE_NAME,
+        key=cookie_name,
         value=token,
-        httponly=settings.REFRESH_COOKIE_HTTPONLY,
-        secure=settings.REFRESH_COOKIE_SECURE,
-        samesite=settings.REFRESH_COOKIE_SAMESITE,
-        max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600 # In seconds
+        httponly=settings.COOKIE_HTTPONLY,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=max_age_seconds # In seconds
     )
 
 def _get_base_url(request: Request, dev_env_suffix: str = ""):
@@ -105,7 +105,8 @@ async def register_user_endpoint(
         raise HTTPException(status_code=500, detail="An internal error occurred during registration.")
 
 # NOTE: change settings.AUTH_TOKEN_URL if this URL path changes!
-@router.post("/login/token", response_model=schemas.AccessTokenResponse, tags=["auth"]) # Response model now implicitly just the access token
+# "/login/token
+@router.post("/login", response_model=schemas.AccessTokenResponse, tags=["auth"]) # Response model now implicitly just the access token
 async def login_for_access_token_endpoint(
     response: Response, # Inject Response object to set cookie
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -122,10 +123,12 @@ async def login_for_access_token_endpoint(
         auth_logger.info(f"User successfully authenticated: {user.email}")
 
         # Set refresh token in HttpOnly cookie
-        _set_refresh_cookie(response, str(refresh_token_obj.token))
+        _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
+        _set_cookie(response, str(access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         # Return access token in response body
-        return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
+        return {"status": "success"}
+        # return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
 
     except (CredentialsException, InactiveUserException, UserNotVerifiedException) as e:
         raise e # Re-raise authentication specific exceptions
@@ -165,10 +168,12 @@ async def refresh_token_endpoint(
         )
 
         # Set the *new* refresh token in the cookie
-        _set_refresh_cookie(response, str(new_refresh_token_obj.token))
+        _set_cookie(response, str(new_refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
+        _set_cookie(response, str(new_access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         # Return the *new* access token
-        return schemas.AccessTokenResponse(access_token=new_access_token_str, token_type="bearer")
+        return {"status": "success"}
+        # return schemas.AccessTokenResponse(access_token=new_access_token_str, token_type="bearer")
 
     except CredentialsException as e:
         # If refresh fails (invalid, expired, revoked), clear the cookie
@@ -262,16 +267,25 @@ async def request_email_verification_endpoint(
 
 @router.get("/verify-email", status_code=status.HTTP_200_OK, tags=["auth"])
 async def verify_email_endpoint(
+    background_tasks: BackgroundTasks, # Add background tasks for first steps email
     token: str = Query(...),
     db: AsyncSession = Depends(get_async_db_dependency),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service) # Inject service
 ):
     """
     Verify user's email address using the provided token.
+    After successful verification, sends a first steps guide email.
     """
     try:
         user = await auth_service.verify_user_email(db=db, token=token)
         auth_logger.info(f"Email successfully verified for user: {user.email}")
+        
+        # Send first steps guide email after successful verification
+        await auth_service.send_first_steps_guide_email(
+            background_tasks=background_tasks,
+            user=user,
+        )
+        
         # Optional: Redirect to a frontend page on success?
         # return RedirectResponse(url="/login?verified=true")
         return {"message": "Email successfully verified."}
@@ -435,10 +449,12 @@ async def linkedin_callback_endpoint(
         auth_logger.info(f"User successfully authenticated via LinkedIn: {user.email}")
 
         # Set refresh token cookie
-        _set_refresh_cookie(response, str(refresh_token_obj.token))
+        _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
+        _set_cookie(response, str(access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         # Return access token
-        return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
+        return {"status": "success"}
+        # return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -771,7 +787,7 @@ async def update_organization_billing_email_endpoint(
 # === Admin/Superuser Endpoints (Example) ===
 
 
-@router.delete("/users", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
+@router.delete("/admin/users", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
 async def delete_user_account_endpoint(
     delete_request: schemas.UserDeleteRequest,
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -856,7 +872,7 @@ async def admin_register_user_endpoint(
         auth_logger.exception(f"Unexpected error during admin registration of user {user_admin_in.email} by admin {current_admin.email}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred during admin user registration.")
 
-@router.get("/users", response_model=List[schemas.UserReadWithSuperuserStatus], tags=["admin"])
+@router.post("/admin/users", response_model=List[schemas.UserReadWithSuperuserStatus], tags=["admin"])
 async def list_users_endpoint(
     skip: int = Query(0, ge=0, description="Number of users to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of users to return"),
@@ -895,7 +911,7 @@ async def list_users_endpoint(
             detail="An error occurred while retrieving the user list"
         )
 
-@router.get("/organizations", response_model=List[schemas.OrganizationRead], tags=["admin"])
+@router.post("/admin/organizations", response_model=List[schemas.OrganizationRead], tags=["admin"])
 async def list_organizations_endpoint(
     skip: int = Query(0, ge=0, description="Number of organizations to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of organizations to return"),
@@ -935,7 +951,7 @@ async def list_organizations_endpoint(
         )
 
 
-@router.post("/roles", response_model=schemas.RoleCreate, status_code=status.HTTP_201_CREATED, tags=["admin"])
+@router.post("/admin/roles", response_model=schemas.RoleCreate, status_code=status.HTTP_201_CREATED, tags=["admin"])
 async def create_role_endpoint(
     role_in: schemas.RoleCreate,
     db: AsyncSession = Depends(get_async_db_dependency),

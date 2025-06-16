@@ -622,6 +622,7 @@ class CustomerDocumentMetadata(BaseModel):
     instead of organization-specific paths. The is_shared flag indicates whether the document
     is shared within the organization or specific to a user.
     """
+    id: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     # scope: str # e.g., 'shared', 'user' - Replaced by user_id + is_shared logic
     user_id_or_shared_placeholder: str = Field(..., description="The user ID or '_shared_' placeholder.")
@@ -969,3 +970,51 @@ class ChatThreadListQuery(CommonListQuery):
     workflow_version: Optional[str] = Field(None, description="Filter threads by workflow version")
     user_id: Optional[uuid.UUID] = Field(None, description="Filter threads by owner (superuser only, others can only see their own threads)")
     tag: Optional[str] = Field(None, description="Filter threads by tag")
+
+class DocumentOperationType(str, Enum):
+    """Enum for document operation types."""
+    MOVE = "move"
+    COPY = "copy"
+
+
+class DocumentOperation(BaseModel):
+    """
+    Schema for a single document operation (move or copy).
+    """
+    operation_type: DocumentOperationType = Field(..., description="Type of operation: 'move' or 'copy'")
+    source_org_id: uuid.UUID = Field(..., description="Source organization ID")
+    source_namespace: str = Field(..., description="Source document namespace")
+    source_docname: str = Field(..., description="Source document name")
+    source_is_shared: bool = Field(default=False, description="Whether source is a shared document")
+    destination_org_id: uuid.UUID = Field(..., description="Destination organization ID")
+    destination_namespace: str = Field(..., description="Destination document namespace")
+    destination_docname: str = Field(..., description="Destination document name")
+    destination_is_shared: bool = Field(default=False, description="Whether destination should be a shared document")
+    source_is_system_entity: bool = Field(default=False, description="Whether source is a system entity")
+    destination_is_system_entity: bool = Field(default=False, description="Whether destination should be a system entity")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DocumentOperationResult(BaseModel):
+    """
+    Schema for the result of a document operation (move or copy).
+    """
+    operation_type: DocumentOperationType = Field(..., description="Type of operation that was performed: 'move' or 'copy'")
+    source_org_id: uuid.UUID = Field(..., description="Source organization ID")
+    source_namespace: str = Field(..., description="Source document namespace")
+    source_docname: str = Field(..., description="Source document name")
+    destination_org_id: uuid.UUID = Field(..., description="Destination organization ID")
+    destination_namespace: str = Field(..., description="Destination document namespace")
+    destination_docname: str = Field(..., description="Destination document name")
+    success: bool = Field(..., description="Whether the operation was successful")
+    error_message: Optional[str] = Field(None, description="Error message if the operation failed")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Legacy aliases for backward compatibility
+DocumentMoveOperation = DocumentOperation
+DocumentCopyOperation = DocumentOperation
+DocumentMoveResult = DocumentOperationResult
+DocumentCopyResult = DocumentOperationResult

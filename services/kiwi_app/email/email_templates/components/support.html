@@ -1,0 +1,30 @@
+{% macro support_contact(footer_data) %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;">
+  Questions? Visit our <a href="{{ footer_data.help_center_url }}" target="_blank" style="color: #0867ec; text-decoration: underline;">Help Center</a> or contact <a href="mailto:{{ footer_data.support_email }}" style="color: #0867ec; text-decoration: underline;">{{ footer_data.support_email }}</a>
+</p>
+{% endmacro %}
+
+{% macro support_team_message(footer_data) %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;">
+  If you have any questions, please don't hesitate to contact our support team at <a href="mailto:{{ footer_data.support_email }}" style="color: #0867ec; text-decoration: underline;">{{ footer_data.support_email }}</a>
+</p>
+{% endmacro %}
+
+{% macro support_24_7(footer_data) %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;">
+  Need help? Our support team is available 24/7 at <a href="mailto:{{ footer_data.support_email }}" style="color: #0867ec; text-decoration: underline;">{{ footer_data.support_email }}</a>
+</p>
+{% endmacro %}
+
+{% macro notification_preferences() %}
+<p style="font-family: Helvetica, sans-serif; font-size: 14px; color: #9a9ea6; margin: 0; margin-bottom: 16px;">
+  <a href="#" style="color: #9a9ea6; text-decoration: underline;">Manage notification preferences</a> | 
+  <a href="#" style="color: #9a9ea6; text-decoration: underline;">Unsubscribe</a>
+</p>
+{% endmacro %}
+
+{% macro render_support() %}
+<p style="font-family: Helvetica, sans-serif; font-size: 16px; font-weight: normal; margin: 0; margin-bottom: 16px;">
+  Questions? Visit our <a href="https://help.kiwiq.ai" target="_blank" style="color: #0867ec; text-decoration: underline;">Help Center</a> or contact <a href="mailto:support@kiwiq.ai" style="color: #0867ec; text-decoration: underline;">support@kiwiq.ai</a>
+</p>
+{% endmacro %} 
