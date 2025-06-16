@@ -590,7 +590,15 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
                         "input_docname_field": "brief_docname"
                     },
                     "output_field_name": "content_brief"
-                }
+                },
+                {
+                "filename_config": {
+                    "input_namespace_field_pattern": "knowledge_base_{item}", 
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "knowledge_base_analysis"
+                },
+                "output_field_name": "knowledge_base_analysis"
+            }
             ],
             "entity_username": null
         },
@@ -880,6 +888,14 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
                     "static_docname": "linkedin_scraped_posts_doc"
                 },
                 "output_field_name": "scraped_posts"
+            },
+            {
+                "filename_config": {
+                    "input_namespace_field_pattern": "knowledge_base_{item}", 
+                    "input_namespace_field": "entity_username",
+                    "static_docname": "knowledge_base_analysis"
+                },
+                "output_field_name": "knowledge_base_analysis"
             }
         ],
         "past_context_posts_limit": 20,
