@@ -15,6 +15,7 @@ from db.session import get_async_session, get_async_db_dependency # Added get_as
 # Change relative to absolute imports
 from kiwi_app.email import email_verify
 from kiwi_app.auth import crud, models, schemas, security, dependencies, linkedin, utils, services # Added email_verify
+from kiwi_app.auth.csrf import setup_auth_cookies_with_csrf, clear_auth_cookies, validate_csrf_protection # Import CSRF utilities
 # from kiwi_app.auth.utils import auth_logger
 from kiwi_app.utils import get_kiwi_logger
 
@@ -54,33 +55,6 @@ router = APIRouter(
 
 # Get the instantiated service (REMOVED - Use Dependency Injection)
 # auth_service = services.auth_service
-
-# Helper function to set the refresh token cookie
-def _set_cookie(response: Response, token: str, cookie_name: str, max_age_seconds: int):
-    response.set_cookie(
-        key=cookie_name,
-        domain=settings.COOKIE_DOMAIN,
-        value=token,
-        httponly=settings.COOKIE_HTTPONLY,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        max_age=max_age_seconds, # In seconds
-        path="/"  # Explicitly set path for consistency
-    )
-
-def _delete_cookie(response: Response, cookie_name: str):
-    # When deleting cookies, we must match the exact attributes used when setting them
-    # Set the cookie with max_age=0 to delete it (more reliable than delete_cookie)
-    response.set_cookie(
-        key=cookie_name,
-        value="",  # Empty value
-        domain=settings.COOKIE_DOMAIN,
-        httponly=settings.COOKIE_HTTPONLY,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        max_age=0,  # This will delete the cookie
-        expires=0   # Also set expires to ensure deletion
-    )
 
 
 def _get_base_url(request: Request, dev_env_suffix: str = ""):
@@ -131,37 +105,73 @@ async def login_for_access_token_endpoint(
     response: Response, # Inject Response object to set cookie
     db: AsyncSession = Depends(get_async_db_dependency),
     keep_me_logged_in: bool = Query(True, description="If True, will keep user logged in for 30 days"),
+    refresh_token_from_cookie: Optional[str] = Cookie(None, alias=settings.REFRESH_COOKIE_NAME),
     form_data: OAuth2PasswordRequestForm = Depends(),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service)
 ) -> schemas.AccessTokenResponse: # Use a specific response schema for clarity
     """
-    Authenticate user, return access token in body and refresh token in secure HttpOnly cookie.
+    Authenticate user with CSRF protection, return status and set secure cookies.
+    
+    This endpoint:
+    1. Authenticates the user with email/password
+    2. Generates JWT access and refresh tokens
+    3. Sets secure HttpOnly cookies for tokens
+    4. Sets CSRF token cookie (readable by JavaScript)
+    5. Returns success status
+    
+    The CSRF token cookie enables the frontend to include the token in request headers
+    for CSRF protection on subsequent authenticated requests.
+    
+    Returns:
+        AccessTokenResponse with status="success"
+        
+    Cookies Set:
+        - access_token: HttpOnly, secure JWT access token
+        - refresh_token: HttpOnly, secure JWT refresh token (if keep_me_logged_in=True)
+        - XSRF-TOKEN: Secure CSRF token (readable by JavaScript)
+        
+    Security Features:
+        - CSRF protection via double-submit cookie pattern
+        - HttpOnly cookies prevent XSS attacks on tokens
+        - Secure flag ensures HTTPS-only transmission in production
+        - SameSite=Lax prevents CSRF while allowing legitimate navigation
     """
     try:
         user = await auth_service.authenticate_user(db=db, email=form_data.username, password=form_data.password)
+        
+        try:
+            if refresh_token_from_cookie:
+                # If refresh token is provided and keep_me_logged_in is False, invalidate the refresh token
+                await auth_service.invalidate_refresh_token(db=db, token_uuid=uuid.UUID(refresh_token_from_cookie))
+        except Exception as e:
+            auth_logger.exception(f"Error invalidating refresh token during login for user: {user.email}", exc_info=e)
+
         # Generate both tokens
         access_token_str, refresh_token_obj = await auth_service.generate_tokens_for_user(db=db, user=user, keep_me_logged_in=keep_me_logged_in)
         auth_logger.info(f"User successfully authenticated: {user.email}")
 
-        # Set refresh token in HttpOnly cookie
-        if keep_me_logged_in:
-            _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
-        else:
-            _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
-        _set_cookie(response, str(access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        # Set up all authentication cookies with CSRF protection
+        csrf_token = setup_auth_cookies_with_csrf(
+            response=response,
+            access_token=access_token_str,
+            refresh_token_obj=refresh_token_obj,
+            keep_me_logged_in=keep_me_logged_in
+        )
 
-        # response.
+        auth_logger.info(f"Authentication cookies set with CSRF protection for user: {user.email}")
 
-        # Return access token in response body
+        # Return success status (CSRF token is available in cookie for frontend)
         return {"status": "success"}
-        # return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
 
     except (CredentialsException, InactiveUserException, UserNotVerifiedException) as e:
+        # Clear any potentially set cookies on authentication failure
+        clear_auth_cookies(response)
         raise e # Re-raise authentication specific exceptions
     except Exception as e:
+        # Clear any potentially set cookies on unexpected error
+        clear_auth_cookies(response)
         auth_logger.exception(f"Unexpected error during login for user: {form_data.username}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred during login.")
-
 
 
 # --- NEW: Refresh Token Endpoint --- #
@@ -170,13 +180,36 @@ async def login_for_access_token_endpoint(
 async def refresh_token_endpoint(
     response: Response, # Inject Response to set new cookie
     # user: models.User = Depends(dependencies.get_current_active_user),  # This won't work since access token is probably expired!
+    csrf_validation: None = Depends(validate_csrf_protection),
     refresh_token_from_cookie: Optional[str] = Cookie(None, alias=settings.REFRESH_COOKIE_NAME), # Get from cookie
     db: AsyncSession = Depends(get_async_db_dependency),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service)
 ) -> schemas.AccessTokenResponse:
     """
-    Get a new access token using the refresh token stored in the HttpOnly cookie.
-    Implements refresh token rotation.
+    Get new access and CSRF tokens using the refresh token stored in HttpOnly cookie.
+    
+    This endpoint:
+    1. Validates the refresh token from the cookie
+    2. Implements refresh token rotation (old token revoked, new token issued)
+    3. Generates new access token
+    4. Sets new secure cookies with CSRF protection
+    5. Returns success status
+    
+    The new CSRF token enables continued protection for subsequent authenticated requests.
+    
+    Returns:
+        AccessTokenResponse with status="success"
+        
+    Cookies Set:
+        - access_token: New HttpOnly, secure JWT access token
+        - refresh_token: New HttpOnly, secure JWT refresh token
+        - XSRF-TOKEN: New secure CSRF token (readable by JavaScript)
+        
+    Security Features:
+        - Refresh token rotation prevents token replay attacks
+        - New CSRF token issued with each refresh
+        - All cookies cleared on any validation failure
+        - Comprehensive error logging for security monitoring
     """
     if not refresh_token_from_cookie:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token cookie")
@@ -193,18 +226,23 @@ async def refresh_token_endpoint(
             db=db, old_token_uuid=old_token_uuid
         )
 
-        # Set the *new* refresh token in the cookie
-        _set_cookie(response, str(new_refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
-        _set_cookie(response, str(new_access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        # Set up all authentication cookies with new CSRF protection
+        csrf_token = setup_auth_cookies_with_csrf(
+            response=response,
+            access_token=new_access_token_str,
+            refresh_token_obj=new_refresh_token_obj,
+            keep_me_logged_in=True  # Refresh implies user wants to stay logged in
+        )
 
-        # Return the *new* access token
+        auth_logger.info("Token refresh successful with new CSRF protection")
+
+        # Return success status (new CSRF token is available in cookie for frontend)
         return {"status": "success"}
-        # return schemas.AccessTokenResponse(access_token=new_access_token_str, token_type="bearer")
 
     except CredentialsException as e:
-        # If refresh fails (invalid, expired, revoked), clear the cookie
-        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
-        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        # If refresh fails (invalid, expired, revoked), clear all cookies
+        clear_auth_cookies(response)
+        auth_logger.warning(f"Refresh token validation failed: {e.detail}")
         # Return an error response with the modified response object to include cookie headers
         response.status_code = status.HTTP_401_UNAUTHORIZED
         return JSONResponse(
@@ -215,9 +253,8 @@ async def refresh_token_endpoint(
     except Exception as e:
         # Log unexpected errors
         auth_logger.exception(f"Unexpected error during token refresh", exc_info=e)
-        # Clear potentially compromised/invalid cookie on error
-        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
-        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        # Clear potentially compromised/invalid cookies on error
+        clear_auth_cookies(response)
         # Return an error response with the modified response object to include cookie headers
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
         return JSONResponse(
@@ -260,9 +297,8 @@ async def logout_endpoint(
                 # Log but continue with logout process even if token invalidation fails
                 auth_logger.exception(f"Error invalidating refresh token during logout: {current_user.email}", exc_info=e)
         
-        # Always clear the cookie, even if token invalidation had an issue
-        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
-        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
+        # Always clear all cookies, even if token invalidation had an issue
+        clear_auth_cookies(response)
         
         auth_logger.info(f"User successfully logged out: {current_user.email}")
         # Don't return a new Response object - let FastAPI use the modified response
@@ -272,9 +308,8 @@ async def logout_endpoint(
     except Exception as e:
         # Log unexpected errors
         auth_logger.exception(f"Unexpected error during logout for user: {current_user.email}", exc_info=e)
-        # Still try to clear cookie on error
-        _delete_cookie(response, settings.ACCESS_TOKEN_COOKIE_NAME)
-        _delete_cookie(response, settings.REFRESH_COOKIE_NAME)
+        # Still try to clear all cookies on error
+        clear_auth_cookies(response)
         # Don't return a new Response object - let FastAPI use the modified response
         response.status_code = status.HTTP_204_NO_CONTENT
         return response
@@ -494,13 +529,18 @@ async def linkedin_callback_endpoint(
         access_token_str, refresh_token_obj = await auth_service.generate_tokens_for_user(db=db, user=user)
         auth_logger.info(f"User successfully authenticated via LinkedIn: {user.email}")
 
-        # Set refresh token cookie
-        _set_cookie(response, str(refresh_token_obj.token), cookie_name=settings.REFRESH_COOKIE_NAME, max_age_seconds=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600)
-        _set_cookie(response, str(access_token_str), cookie_name=settings.ACCESS_TOKEN_COOKIE_NAME, max_age_seconds=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        # Set up all authentication cookies with CSRF protection
+        csrf_token = setup_auth_cookies_with_csrf(
+            response=response,
+            access_token=access_token_str,
+            refresh_token_obj=refresh_token_obj,
+            keep_me_logged_in=True  # LinkedIn login implies user wants to stay logged in
+        )
 
-        # Return access token
+        auth_logger.info(f"LinkedIn authentication cookies set with CSRF protection for user: {user.email}")
+
+        # Return success status (CSRF token is available in cookie for frontend)
         return {"status": "success"}
-        # return schemas.AccessTokenResponse(access_token=access_token_str, token_type="bearer")
     except HTTPException as e:
         raise e
     except Exception as e:

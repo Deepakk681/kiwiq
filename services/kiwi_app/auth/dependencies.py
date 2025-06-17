@@ -22,6 +22,7 @@ from kiwi_app.auth.exceptions import (
     # InvalidOrgHeaderException,
     RoleNotFoundException,
 )
+from kiwi_app.auth.csrf import validate_csrf_protection # Import CSRF utilities
 from kiwi_app.settings import settings 
 
 # --- DAO Dependency Factories --- #
@@ -115,18 +116,45 @@ async def _check_permissions_for_org(
 async def get_current_user(
     db: AsyncSession = Depends(get_async_db_dependency),
     # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
-    token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
+    access_token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
+    csrf_validation: None = Depends(validate_csrf_protection),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
-    Dependency to get the current user from the JWT token (UUID sub).
+    Dependency to get the current user from the JWT token (UUID sub) with CSRF protection.
+    
+    This function validates both the JWT access token and CSRF protection before
+    returning the authenticated user. CSRF validation ensures that requests are
+    coming from the legitimate frontend application.
+    
     Loads basic user info, but *not* detailed org/role/permission links by default.
     Those are loaded dynamically by permission checkers when needed.
+    
+    Args:
+        db: Database session
+        access_token: JWT access token from cookie
+        csrf_validation: CSRF validation dependency
+        user_dao: User data access object
+        
+    Returns:
+        models.User: The authenticated user
+        
+    Raises:
+        CredentialsException: If token is missing or invalid
+        HTTPException: If CSRF validation fails (403 Forbidden)
+        UserNotFoundException: If user associated with token not found
+        
+    Security Notes:
+        - Validates JWT token signature and expiration
+        - Validates CSRF tokens match between cookie and header
+        - CSRF validation prevents cross-site request forgery attacks
+        - Returns 403 for CSRF failures (authorization issue, not authentication)
     """
-    if not token:
+    # Validate access token first
+    if not access_token:
         raise CredentialsException(detail="No token found in cookie.")
     try:
-        token_data = security.decode_access_token(token)
+        token_data = security.decode_access_token(access_token)
     except CredentialsException as e:
         raise e
 
@@ -169,19 +197,21 @@ async def get_current_user_non_dependency(
 async def get_current_active_user_with_orgs(
     db: AsyncSession = Depends(get_async_db_dependency),
     # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
-    token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
+    access_token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
+    csrf_validation: None = Depends(validate_csrf_protection),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
-    Dependency to get the current active user with all organization relationships loaded.
+    Dependency to get the current active user with all organization relationships loaded and CSRF protection.
     
-    This dependency directly validates the token and loads the user with organization
+    This dependency directly validates the token, CSRF protection, and loads the user with organization
     relationships, rather than building on get_current_active_user. It performs token
-    validation, user lookup, and relationship loading in a single function.
+    validation, CSRF validation, user lookup, and relationship loading in a single function.
     
     Args:
         db: Database session
-        token: JWT access token from the request
+        access_token: JWT access token from cookie
+        csrf_validation: CSRF validation dependency
         user_dao: User data access object
         
     Returns:
@@ -189,14 +219,22 @@ async def get_current_active_user_with_orgs(
         
     Raises:
         CredentialsException: If the token is invalid
+        HTTPException: If CSRF validation fails (403 Forbidden)
         UserNotFoundException: If the user cannot be found
         InactiveUserException: If the user is not active
         UserNotVerifiedException: If the user is not verified
+        
+    Security Notes:
+        - Validates JWT token signature and expiration
+        - Validates CSRF tokens match between cookie and header
+        - CSRF validation prevents cross-site request forgery attacks
+        - Returns 403 for CSRF failures (authorization issue, not authentication)
     """
-    if not token:
+    # Validate access token first
+    if not access_token:
         raise CredentialsException(detail="No token found in cookie.")
     try:
-        token_data = security.decode_access_token(token)
+        token_data = security.decode_access_token(access_token)
     except CredentialsException as e:
         raise e
     

@@ -98,6 +98,9 @@ class Settings(GlobalSettings):
     # --- Cookie Settings --- #
     ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
+    CSRF_TOKEN_COOKIE_NAME: str = "XSRF-TOKEN"  # Standard name for CSRF cookie, readable by JavaScript
+    CSRF_TOKEN_HEADER_NAME: str = "X-XSRF-TOKEN"
+    CSRF_TOKEN_LENGTH: int = 32  # Length in bytes for token generation
     COOKIE_SECURE: bool = global_settings.APP_ENV in ["PROD", "STAGE"] # Set to False for local HTTP development ONLY
     COOKIE_DOMAIN: Optional[str] = ".kiwiq.ai" if global_settings.APP_ENV in ["PROD", "STAGE"] else None
     COOKIE_HTTPONLY: bool = True

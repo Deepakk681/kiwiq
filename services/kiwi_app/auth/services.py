@@ -179,15 +179,16 @@ class AuthService:
     
     
 
-    async def _create_refresh_token(self, db: AsyncSession, *, user_id: uuid.UUID) -> models.RefreshToken:
+    async def _create_refresh_token(self, db: AsyncSession, *, user_id: uuid.UUID, expires_at: Optional[datetime] = None) -> models.RefreshToken:
         """Creates a new refresh token, stores it, and returns the model."""
-        expires_at = datetime_now_utc() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+        if expires_at is None:
+            expires_at = datetime_now_utc() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token_obj = await self.refresh_token_dao.create_token(
             db, user_id=user_id, expires_at=expires_at
         )
         return refresh_token_obj
 
-    async def generate_tokens_for_user(self, db: AsyncSession, user: models.User, keep_me_logged_in: bool = True) -> Tuple[str, models.RefreshToken]:
+    async def generate_tokens_for_user(self, db: AsyncSession, user: models.User, keep_me_logged_in: bool = True, expires_at: Optional[datetime] = None) -> Tuple[str, models.RefreshToken]:
         """
         Generates a new JWT access token and a new refresh token for a user.
         Stores the refresh token.
@@ -199,7 +200,7 @@ class AuthService:
         if not keep_me_logged_in:
             return access_token, None
         
-        refresh_token_obj = await self._create_refresh_token(db, user_id=user.id)
+        refresh_token_obj = await self._create_refresh_token(db, user_id=user.id, expires_at=expires_at)
 
         return access_token, refresh_token_obj
 
@@ -230,7 +231,7 @@ class AuthService:
         await self.refresh_token_dao.revoke_token(db, token_obj=old_token_obj)
 
         # 4. Generate new tokens
-        new_access_token, new_refresh_token_obj = await self.generate_tokens_for_user(db, user=old_token_obj.user)
+        new_access_token, new_refresh_token_obj = await self.generate_tokens_for_user(db, user=old_token_obj.user, expires_at=old_token_obj.expires_at)
         auth_logger.info(f"Refresh token rotated successfully for user {old_token_obj.user.email} (Old: {old_token_uuid}, New: {new_refresh_token_obj.token})")
 
         return new_access_token, new_refresh_token_obj

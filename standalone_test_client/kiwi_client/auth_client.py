@@ -2,7 +2,7 @@
 # poetry run python -m kiwi_client.auth_client
 
 Provides an authenticated HTTP client for interacting with the API.
-Handles login, token storage via cookies, and setting necessary headers.
+Handles login, token storage via cookies, CSRF protection, and setting necessary headers.
 """
 import httpx
 import logging
@@ -44,9 +44,15 @@ class AuthenticatedClient:
     Manages an authenticated httpx session for API testing.
 
     Handles login, manages authentication via cookies (access token and refresh token),
-    and provides an authenticated httpx.AsyncClient instance. The backend automatically
-    sets access_token and refresh_token cookies after successful login.
+    CSRF protection via double-submit cookie pattern, and provides an authenticated 
+    httpx.AsyncClient instance. The backend automatically sets access_token, 
+    refresh_token, and XSRF-TOKEN cookies after successful login.
     """
+    
+    # CSRF configuration constants - should match backend settings
+    CSRF_TOKEN_COOKIE_NAME = "XSRF-TOKEN"
+    CSRF_TOKEN_HEADER_NAME = "X-XSRF-TOKEN"
+    
     def __init__(
         self,
         base_url: str = API_BASE_URL,
@@ -74,7 +80,7 @@ class AuthenticatedClient:
             timeout=30.0 # Set a reasonable timeout
         )
         self._is_authenticated: bool = False
-        logger.info("AuthenticatedClient initialized.")
+        logger.info("AuthenticatedClient initialized with CSRF protection support.")
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -105,10 +111,40 @@ class AuthenticatedClient:
             return self._client.cookies.get("refresh_token")
         return None
 
+    @property
+    def csrf_token(self) -> Optional[str]:
+        """Returns the current CSRF token from cookies, if available."""
+        if self._client and self._client.cookies:
+            return self._client.cookies.get(self.CSRF_TOKEN_COOKIE_NAME)
+        return None
+
+    def _update_csrf_header(self) -> None:
+        """
+        Updates the CSRF header based on the CSRF token cookie.
+        
+        This implements the double-submit cookie pattern for CSRF protection:
+        - The CSRF token is stored in a cookie (readable by JavaScript)  
+        - The same token must be sent in the X-XSRF-TOKEN header
+        - The backend validates that both values match
+        """
+        csrf_token = self.csrf_token
+        if csrf_token:
+            self._client.headers[self.CSRF_TOKEN_HEADER_NAME] = csrf_token
+            logger.debug(f"CSRF header updated: {self.CSRF_TOKEN_HEADER_NAME} = {csrf_token[:8]}...")
+        else:
+            # Remove CSRF header if no token is available
+            self._client.headers.pop(self.CSRF_TOKEN_HEADER_NAME, None)
+            logger.debug("No CSRF token found in cookies - CSRF header removed")
+
     async def _update_org_header(self) -> None:
         """Updates the X-Active-Org header in the client."""
         self._client.headers["X-Active-Org"] = self._active_org_id
         logger.debug(f"X-Active-Org header set to: {self._active_org_id}")
+
+    async def _update_headers(self) -> None:
+        """Updates both organization and CSRF headers."""
+        await self._update_org_header()
+        self._update_csrf_header()
 
     async def login(self) -> None:
         """
@@ -137,11 +173,13 @@ class AuthenticatedClient:
             #     logger.error("Login response did not contain an access token.")
             #     raise AuthenticationError("Login failed: No access token received.")
 
-            # Set org header after successful login
-            await self._update_org_header()
+            # Set headers after successful login (org + CSRF)
+            await self._update_headers()
 
             self._is_authenticated = True
-            logger.info(f"Login successful for user: {self._email}. Authentication cookies set by server.")
+            logger.info(f"Login successful for user: {self._email}. Authentication and CSRF cookies set by server.")
+            logger.debug(f"Available cookies: {list(self._client.cookies.keys())}")
+            logger.debug(f"CSRF token available: {self.csrf_token is not None}")
 
         except httpx.RequestError as e:
             logger.error(f"Login request failed: {e}", exc_info=True)
@@ -162,7 +200,7 @@ class AuthenticatedClient:
             self._is_authenticated = False
             raise AuthenticationError(f"Login failed due to an unexpected error: {e}")
 
-    async def refresh_token(self) -> bool:
+    async def refresh_access_token(self) -> bool:
         """
         Attempts to refresh the access token using the refresh token cookie.
         The backend handles token rotation and updates both access_token and
@@ -187,7 +225,11 @@ class AuthenticatedClient:
             #     logger.error("Token refresh response did not contain a new access token.")
             #     return False
 
-            logger.info("Access token refreshed successfully. New authentication cookies set by server.")
+            # Update headers after successful refresh (new CSRF token may be issued)
+            self._update_csrf_header()
+
+            logger.info("Access token refreshed successfully. New authentication and CSRF cookies set by server.")
+            logger.debug(f"CSRF token after refresh: {self.csrf_token is not None}")
             return True
 
         except httpx.HTTPStatusError as e:
@@ -338,6 +380,16 @@ class AuthenticatedClient:
             logger.exception(f"Unexpected error updating organization {org_id_str}")
             raise
 
+    async def update_headers(self) -> None:
+        """
+        Manually update all headers (organization and CSRF).
+        
+        Useful when you want to ensure headers are current, especially
+        after operations that might update cookies.
+        """
+        await self._update_headers()
+        logger.info("Headers updated manually")
+
     async def close(self) -> None:
         """Closes the underlying httpx client."""
         await self._client.aclose()
@@ -363,8 +415,11 @@ async def main():
         async with auth_client:
             print(f"Login successful. Using Org ID: {auth_client.active_org_id}")
             client = auth_client.client # Get the authenticated client
-            print("Headers:", client.headers)
+            print("Headers:", dict(client.headers))
             print("Cookies:", dict(client.cookies))
+            print(f"CSRF Token: {auth_client.csrf_token[:8] + '...' if auth_client.csrf_token else 'None'}")
+            print(f"Access Token: {auth_client.access_token[:8] + '...' if auth_client.access_token else 'None'}")
+            print(f"Refresh Token: {auth_client.refresh_token[:8] + '...' if auth_client.refresh_token else 'None'}")
 
             # Example: Make an authenticated request (replace with a valid endpoint)
             try:
@@ -380,10 +435,12 @@ async def main():
 
             # Example: Test token refresh (optional, uncomment to test)
             print("Testing token refresh...")
-            refreshed = await auth_client.refresh_token()
+            refreshed = await auth_client.refresh_access_token()
             if refreshed:
                 print("Token refreshed successfully.")
                 print("Updated Cookies:", dict(client.cookies))
+                print(f"Updated CSRF Token: {auth_client.csrf_token[:8] + '...' if auth_client.csrf_token else 'None'}")
+                print("Updated Headers:", dict(client.headers))
             else:
                 print("Token refresh failed.")
                 
