@@ -621,6 +621,13 @@ async def main_test_idea_to_brief_workflow():
             # Validate strategy structure based on ContentStrategySchema
             assert 'title' in strategy, "Strategy is missing 'title' field"
             
+            # Validate target audience
+            assert 'target_audience' in strategy, "Strategy is missing 'target_audience' field"
+            audience = strategy['target_audience']
+            assert 'primary' in audience, "Target audience missing 'primary' field"
+            assert isinstance(audience['primary'], str), "'primary' audience should be a string"
+            # secondary and tertiary are optional
+            
             # Validate foundation elements
             assert 'foundation_elements' in strategy, "Strategy is missing 'foundation_elements' field"
             foundation = strategy['foundation_elements']
@@ -644,6 +651,13 @@ async def main_test_idea_to_brief_workflow():
                 assert 'sub_topic' in pillar, "Content pillar missing 'sub_topic' field"
                 assert isinstance(pillar['sub_topic'], list), "Content pillar 'sub_topic' should be a list"
             
+            # Validate post performance analysis (optional field)
+            if 'post_performance_analysis' in strategy and strategy['post_performance_analysis'] is not None:
+                performance = strategy['post_performance_analysis']
+                assert 'current_engagement' in performance, "Post performance analysis missing 'current_engagement' field"
+                assert 'content_that_resonates' in performance, "Post performance analysis missing 'content_that_resonates' field"
+                assert 'audience_response' in performance, "Post performance analysis missing 'audience_response' field"
+            
             # Validate implementation
             assert 'implementation' in strategy, "Strategy is missing 'implementation' field"
             implementation = strategy['implementation']
@@ -665,8 +679,11 @@ async def main_test_idea_to_brief_workflow():
             # Log success message
             print(f"✓ Content strategy validated successfully")
             print(f"✓ Strategy title: {strategy.get('title', 'unknown')}")
+            print(f"✓ Primary audience: {audience.get('primary', 'unknown')}")
             print(f"✓ Core beliefs: {', '.join(foundation.get('core_beliefs', []))[:100]}...")
             print(f"✓ Content pillars: {len(strategy.get('content_pillars', []))} defined")
+            if 'post_performance_analysis' in strategy and strategy['post_performance_analysis']:
+                print(f"✓ Post performance analysis included")
         
         return True
 
@@ -689,12 +706,41 @@ async def main_test_idea_to_brief_workflow():
     print(f"--- {test_name} Finished --- ")
     if final_run_outputs and 'generated_output' in final_run_outputs:
         strategy = final_run_outputs['generated_output']
-        print(f"Target Audience: {strategy.get('target_audience', 'unknown')}")
-        print(f"Content Purpose: {strategy.get('content_purpose', 'unknown')}")
-        print(f"Content Format: {strategy.get('content_format', 'unknown')}")
-        print(f"Tone and Style: {strategy.get('tone_and_style', 'unknown')}")
-        print(f"Relevant Trends: {', '.join(strategy.get('relevant_trends', []))}")
-        print(f"Posting Frequency: {strategy.get('posting_schedule', {}).get('frequency', 'unknown')}")
+        # Log based on actual schema structure
+        print(f"Strategy Title: {strategy.get('title', 'unknown')}")
+        
+        # Target audience information
+        target_audience = strategy.get('target_audience', {})
+        print(f"Primary Audience: {target_audience.get('primary', 'unknown')}")
+        if target_audience.get('secondary'):
+            print(f"Secondary Audience: {target_audience.get('secondary')}")
+        if target_audience.get('tertiary'):
+            print(f"Tertiary Audience: {target_audience.get('tertiary')}")
+        
+        # Foundation elements
+        foundation = strategy.get('foundation_elements', {})
+        print(f"Areas of Expertise: {', '.join(foundation.get('expertise', []))}")
+        print(f"Core Beliefs: {len(foundation.get('core_beliefs', []))} beliefs defined")
+        print(f"Strategy Objectives: {len(foundation.get('objectives', []))} objectives defined")
+        
+        # Content pillars
+        content_pillars = strategy.get('content_pillars', [])
+        print(f"Content Pillars: {len(content_pillars)} pillars defined")
+        for i, pillar in enumerate(content_pillars[:3], 1):  # Show first 3 pillars
+            print(f"  Pillar {i}: {pillar.get('name', 'unknown')}")
+        
+        # Implementation timeline
+        implementation = strategy.get('implementation', {})
+        thirty_day = implementation.get('thirty_day_targets', {})
+        ninety_day = implementation.get('ninety_day_targets', {})
+        print(f"30-day Goal: {thirty_day.get('goal', 'unknown')}")
+        print(f"90-day Goal: {ninety_day.get('goal', 'unknown')}")
+        
+        # Post performance analysis (if included)
+        if strategy.get('post_performance_analysis'):
+            print(f"Post Performance Analysis: Included")
+        else:
+            print(f"Post Performance Analysis: Not included")
 
 if __name__ == "__main__":
     try:

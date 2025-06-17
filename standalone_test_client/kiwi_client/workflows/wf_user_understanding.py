@@ -370,11 +370,11 @@ workflow_graph_schema = {
 }
 
 # --- Test Execution Logic ---
-async def main_test_idea_to_brief_workflow():
+async def main_test_user_understanding_workflow():
     """
-    Test for Idea to Brief Workflow.
+    Test for User Understanding Workflow.
     """
-    test_name = "Idea to Brief Workflow Test"
+    test_name = "User Understanding Workflow Test"
     print(f"--- Starting {test_name} --- ")
 
     # Example Inputs
@@ -799,7 +799,7 @@ async def main_test_idea_to_brief_workflow():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main_test_idea_to_brief_workflow())
+        asyncio.run(main_test_user_understanding_workflow())
     except KeyboardInterrupt:
         print("\nExecution interrupted.")
     except Exception as e:

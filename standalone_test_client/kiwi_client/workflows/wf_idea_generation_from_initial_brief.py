@@ -198,7 +198,7 @@ workflow_graph_schema = {
         # Writes: merged_data containing final_merged_posts_for_prompt and total_briefs_needed -> $graph_state
         },
 
-        # --- 9. Construct Brief Prompt (Inside Map Branch) ---
+        # --- 9. Construct Initial Ideas Prompt ---
         "construct_initial_ideas_prompt": {
             "node_id": "construct_initial_ideas_prompt",
             "node_name": "prompt_constructor",
@@ -229,8 +229,7 @@ workflow_graph_schema = {
             },
         },
 
-
-        # --- 10. Generate Ideas (LLM - Inside Map Branch) ---
+        # --- 10. Generate Ideas (LLM) ---
         "generate_ideas": {
             "node_id": "generate_ideas",
             "node_name": "llm",
@@ -336,7 +335,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- Construct Additional Brief Prompt ---
+        # --- Construct Additional Ideas Regeneration Prompt ---
         "construct_ideas_regeneration_prompt": {
             "node_id": "construct_ideas_regeneration_prompt",
             "node_name": "prompt_constructor",
@@ -354,8 +353,8 @@ workflow_graph_schema = {
                 },
                 }
             }
-            # Reads: updated_brief from state
-            # Writes: additional_brief_prompt, system_prompt
+            # Reads: current_feedback_text from state
+            # Writes: additional_brief_prompt
         },
 
 
@@ -378,7 +377,7 @@ workflow_graph_schema = {
                                 ]
                             }
                         ],
-                        "filter_mode": "allow"  # Only allow concepts that match the condition
+                        "filter_mode": "allow"  # Only allow ideas that match the condition
                     },
                     # {
                     #     # Remove selected concepts from filtered data!
@@ -401,7 +400,7 @@ workflow_graph_schema = {
         },
 
 
-        # --- 9. Construct Brief Prompt (Inside Map Branch) ---
+        # --- 11. Construct Content Brief Prompt ---
         "construct_update_content_brief_prompt": {
             "node_id": "construct_update_content_brief_prompt",
             "node_name": "prompt_constructor",
@@ -444,7 +443,8 @@ workflow_graph_schema = {
                     "max_tokens": LLM_MAX_TOKENS
                 },
                 "output_schema": {
-                    "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA
+                    "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA,
+                    "convert_loaded_schema_to_pydantic": False
                 },
             }
         },
@@ -579,13 +579,14 @@ workflow_graph_schema = {
             # --- Map Iteration -> Construct Prompt (Private Edge) ---
         { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_ideas_prompt",
             "mappings": [
-                { "src_field": "merged_data", "dst_field": "merged_posts" },
+                { "src_field": "final_merged_posts_for_prompt", "dst_field": "merged_posts" },
             ]
         },
 
+        # --- Context Preparation -> State (Store Merged Posts) ---
         { "src_node_id": "prepare_generation_context", "dst_node_id": "$graph_state",
             "mappings": [
-                { "src_field": "merged_data", "dst_field": "merged_posts" },
+                { "src_field": "final_merged_posts_for_prompt", "dst_field": "merged_posts" },
             ]
         },
 
@@ -605,14 +606,14 @@ workflow_graph_schema = {
 
         # --- State -> Generate Ideas ---
         { "src_node_id": "$graph_state", "dst_node_id": "generate_ideas", "mappings": [
-            { "src_field": "messages_history", "dst_field": "messages_history"}
+            { "src_field": "generate_ideas_messages_history", "dst_field": "messages_history"}
           ]
         },
 
         # --- Generate Ideas -> Store & State ---
         { "src_node_id": "generate_ideas", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "current_generated_ideas"},
-            { "src_field": "current_messages", "dst_field": "messages_history"}
+            { "src_field": "current_messages", "dst_field": "generate_ideas_messages_history"}
           ]
         },
 
@@ -702,9 +703,16 @@ workflow_graph_schema = {
           ]
         },
 
+        # --- State -> Generate Updated Content Brief (Message History) ---
+        { "src_node_id": "$graph_state", "dst_node_id": "generated_updated_content_brief", "mappings": [
+            { "src_field": "generated_updated_content_brief_messages_history", "dst_field": "messages_history"}
+          ]
+        },
+
         # --- Generate Updated Brief -> State ---
         { "src_node_id": "generated_updated_content_brief", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "updated_brief"},
+            { "src_field": "current_messages", "dst_field": "generated_updated_content_brief_messages_history"}
           ]
         },
 
@@ -746,7 +754,8 @@ workflow_graph_schema = {
             "reducer": {
                 # NOTE: If you set collect_values reducer here, it distorts / nests the concepts structure and fails the FILTER NODE!
                 # "current_generated_ideas": "collect_values",
-                # "messages_history": "add_messages"
+                "generate_ideas_messages_history": "add_messages",
+                "generated_updated_content_brief_messages_history": "add_messages"
             }
         }
     }

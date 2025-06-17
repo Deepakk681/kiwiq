@@ -12,7 +12,11 @@ from kiwi_client.workflows.document_models.customer_docs import (
     CONTENT_BRIEF_NAMESPACE_TEMPLATE,
     CONTENT_BRIEF_IS_VERSIONED,
     CONTENT_BRIEF_DEFAULT_VERSION,
-    CONTENT_BRIEF_FINAL_VERSION
+    CONTENT_BRIEF_FINAL_VERSION,
+    # Knowledge Base Analysis
+    USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+    USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE,
+    USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
 )
 from kiwi_client.workflows.llm_inputs.content_generation import (
     POST_CREATION_FEEDBACK_USER_PROMPT,
@@ -21,7 +25,7 @@ from kiwi_client.workflows.llm_inputs.content_generation import (
     USER_FEEDBACK_INITIAL_USER_PROMPT,
     USER_FEEDBACK_SYSTEM_PROMPT,
     USER_FEEDBACK_ADDITIONAL_USER_PROMPT,
-    POST_LLM_OUTPUT_SCHEMA,
+    POST_LLM_OUTPUT_SCHEMA
 )
 
 llm_provider = "anthropic"
@@ -85,24 +89,21 @@ workflow_graph_schema = {
           "initial_generation_prompt": {
             "id": "initial_generation_prompt",
             "template": POST_CREATION_INITIAL_USER_PROMPT,
-            # "Generate the post now as JSON matching the schema: {schema_definition}",
             "variables": {
               "brief": None, # Required from input_node via edge mapping
               "user_dna": None, # Default if not found via construct_options
-              # "schema_definition": f"{LinkedInPostSchemaDefinition}", # Required (placeholder for actual schema JSON string or loaded 
-              # "schema_definition": None # Required via construct_options
+              "knowledge_base_analysis": None, # Added for factual context
             },
             "construct_options": { # P1 Sourcing: Map variables to paths within node's input fields
                "user_dna": "user_dna", # Look inside the mapped 'user_dna_doc' input field
                "brief": "content_brief", # Look inside the mapped 'brief_docname' input field
-            #    "schema_definition": "schema_def_string" # Look inside the mapped 'schema_def_string' input field
+               "knowledge_base_analysis": "knowledge_base_analysis", # Added for factual context
             }
           },
           "system_prompt": {  # NOTE: this can directly be set in the LLM node too! But putting it here for using template variables!
             "id": "system_prompt",
             "template": POST_CREATION_SYSTEM_PROMPT,
             "variables": {
-            #   "original_post": None, # Required from $graph_state
             }
           }
         }
@@ -185,6 +186,11 @@ workflow_graph_schema = {
                         # If not provided, defaults to last segment of src_path
                         "dst_path": "brief_id"
                     },
+                    {
+                        # Add scheduled_date from content_brief
+                        "src_path": "content_brief.scheduled_date",
+                        "dst_path": "scheduled_date"
+                    }
                 ],
                 "versioning": {
                     "is_versioned": CONTENT_DRAFT_IS_VERSIONED,
@@ -421,6 +427,7 @@ workflow_graph_schema = {
                 "current_feedback_text": None, # Required from transform_feedback_output
                 "rewrite_instructions": None, # Required from transform_feedback_output
                 "current_post_draft": None, # Required from transform_feedback_output
+                "knowledge_base_analysis": None, # Added for factual context
                 # "user_style": "default", # Default if not found via construct_options
                 # "schema_definition": None # Required via construct_options
                 # "schema_definition": f"{LinkedInPostSchemaDefinition}" # Required (placeholder for actual schema JSON string or loaded value)
@@ -429,6 +436,7 @@ workflow_graph_schema = {
                 "rewrite_instructions": "rewrite_instructions", # Look inside the mapped 'feedback_directives' input field
                 "current_feedback_text": "current_feedback_text", # Look inside the mapped 'feedback_directives' input field
                 "current_post_draft": "current_post_draft", # Look inside the mapped 'feedback_directives' input field
+                "knowledge_base_analysis": "knowledge_base_analysis", # Added for factual context
                 # NOTE: user_style, brief not required here probably since they wil be available from previous `message_history`!
                 # "user_style": "user_dna_doc.style_preference", # Look inside the mapped 'user_dna_doc' input field
                 # "brief": "brief_docname", # Look inside the mapped 'brief_docname' input field
@@ -460,10 +468,10 @@ workflow_graph_schema = {
         { "src_field": "post_uuid", "dst_field": "post_uuid", "description": "Store the draft name for later use (e.g., saving)."},
         { "src_field": "brief_docname", "dst_field": "brief_docname", "description": "Store the initial brief globally."},
         { "src_field": "entity_username", "dst_field": "entity_username", "description": "Pass the LinkedIn username for scraping."},
-
+        { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs", "description": "Store the context document configurations globally."}
       ]
     },
-    # Input -> Load User DNA: Control flow trigger
+    # Input -> Load All Context Docs: Explicit mappings
     { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "description": "Trigger loading user data after input." ,
      "mappings": [
         { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
@@ -477,15 +485,15 @@ workflow_graph_schema = {
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "user_dna", "dst_field": "user_dna", "description": "Store the loaded user DNA document globally."},
         { "src_field": "content_brief", "dst_field": "content_brief", "description": "Store the loaded content brief globally."},
-        
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", "description": "Store the loaded knowledge base analysis globally."}
       ]
     },
     # Load User DNA -> Construct Initial Prompt: Provide user data for prompt construction
     { "src_node_id": "load_all_context_docs", "dst_node_id": "construct_initial_prompt", "mappings": [
         { "src_field": "user_dna", "dst_field": "user_dna", "description": "Pass user DNA for extracting style preference."},
         { "src_field": "content_brief", "dst_field": "content_brief", "description": "Pass the content brief for prompt construction."},
-      ]
-    },
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", "description": "Pass knowledge base analysis for factual context."}
+    ]},
 
     # --- First Generation Path ---
     # Construct Initial Prompt -> Generate Content: Provide the user and system prompts
@@ -496,7 +504,7 @@ workflow_graph_schema = {
     },
     # State (Messages) -> Generate Content: Provide conversation history if any (unlikely on first run)
     { "src_node_id": "$graph_state", "dst_node_id": "generate_content", "mappings": [
-        { "src_field": "messages_history", "dst_field": "messages_history", "description": "Pass existing message history for context."}
+        { "src_field": "generate_content_messages_history", "dst_field": "messages_history", "description": "Pass existing message history for context."}
       ]
     },
 
@@ -511,12 +519,11 @@ workflow_graph_schema = {
         { "src_field": "post_uuid", "dst_field": "post_uuid", "description": "Pass the draft name needed by the node's target_path config."},
         { "src_field": "content_brief", "dst_field": "content_brief"},
         { "src_field": "entity_username", "dst_field": "entity_username"}
-
       ]
     },
     { "src_node_id": "store_draft", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "paths_processed", "dst_field": "paths_processed", "description": "Pass the paths processed by the node."},
-
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data", "description": "Pass the passthrough data of the draft."}
       ]
     },
     # Generate Content -> Capture Approval: Send generated content for human review
@@ -533,7 +540,7 @@ workflow_graph_schema = {
     # --- Update State Post-Generation ---
     # Generate Content -> State: Update global state with results and context
     { "src_node_id": "generate_content", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "current_messages", "dst_field": "messages_history", "description": "Update message history with the latest interaction."},
+        { "src_field": "current_messages", "dst_field": "generate_content_messages_history", "description": "Update message history with the latest interaction."},
         { "src_field": "metadata", "dst_field": "generation_metadata", "description": "Store LLM metadata (e.g., token usage, iteration count)."},
         { "src_field": "structured_output", "dst_field": "current_post_draft", "description": "Store the latest generated post draft globally."}
       ]
@@ -599,7 +606,9 @@ workflow_graph_schema = {
         { "src_field": "current_post_draft", "dst_field": "current_post_draft", 
           "description": "Pass latest draft for context."},
         { "src_field": "user_dna", "dst_field": "user_dna", 
-          "description": "Pass user DNA for style context."}
+          "description": "Pass user DNA for style context."},
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", 
+          "description": "Pass knowledge base analysis for factual context in feedback interpretation."}
       ]
     },
     # Initial Prompt Constructor -> Interpret Feedback: Send constructed prompt
@@ -615,7 +624,9 @@ workflow_graph_schema = {
         { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
         { "src_field": "current_post_draft", "dst_field": "current_post_draft",
-          "description": "Pass the current post draft for context."}
+          "description": "Pass the current post draft for context."},
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", 
+          "description": "Pass knowledge base analysis for factual context in feedback interpretation."}
       ]
     },
     
@@ -629,7 +640,7 @@ workflow_graph_schema = {
 
     # State -> Interpret Feedback: Provide necessary context for feedback analysis
     { "src_node_id": "$graph_state", "dst_node_id": "interpret_feedback", "mappings": [
-        { "src_field": "feedback_messages_history", "dst_field": "messages_history", "description": "Pass message history for LLM context."},
+        { "src_field": "interpret_feedback_messages_history", "dst_field": "messages_history", "description": "Pass message history for LLM context."},
         # { "src_field": "current_feedback_text", "dst_field": "user_prompt", "description": "Pass the user's feedback as the main input user_prompt for analysis."} # Assuming the LLM node expects 'prompt_for_feedback_analysis' based on its config comments
       ]
     },
@@ -643,12 +654,14 @@ workflow_graph_schema = {
         { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
         { "src_field": "current_post_draft", "dst_field": "current_post_draft",
-          "description": "Pass the current post draft for context."}
+          "description": "Pass the current post draft for context."},
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", 
+          "description": "Pass knowledge base analysis for factual context in rewrite."}
       ]
     },
     # Interpret Feedback -> State: Update message history and metadata after analysis LLM call
     { "src_node_id": "interpret_feedback", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "current_messages", "dst_field": "feedback_messages_history", "description": "Update message history with the feedback analysis interaction."},
+        { "src_field": "current_messages", "dst_field": "interpret_feedback_messages_history", "description": "Update message history with the feedback analysis interaction."},
         # { "src_field": "metadata", "dst_field": "feedback_generation_metadata", "description": "Update LLM metadata (overwrites previous if reducer is 'replace')."}
       ]
     },
@@ -662,7 +675,8 @@ workflow_graph_schema = {
     # State -> Finalize Post: Provide the final draft content and name for saving
     { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
         { "src_field": "current_post_draft", "dst_field": "final_post_content", "description": "Pass the final approved post content for saving."},
-        { "src_field": "paths_processed", "dst_field": "final_post_paths", "description": "Pass the path(s) or ID(s) of the finalized stored document(s)."} # Assuming Store node outputs 'paths_processed'
+        { "src_field": "paths_processed", "dst_field": "final_post_paths", "description": "Pass the path(s) or ID(s) of the finalized stored document(s)."}, # Assuming Store node outputs 'paths_processed'
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data", "description": "Pass the passthrough data of the draft."}
       ]
     },
   ],
@@ -682,9 +696,16 @@ workflow_graph_schema = {
 #        # Other state keys like post_uuid, brief_docname, user_dna_doc are typically written once, so default 'replace' is fine.
 #      }
 #   }
+
+  "metadata": {
+      "$graph_state": {
+          "reducer": {
+              "generate_content_messages_history": "add_messages",
+              "interpret_feedback_messages_history": "add_messages"
+          }
+      }
+  }
 }
-
-
 # --- Test Execution Logic ---
 
 # --- Inputs for the Post Creation Workflow ---
@@ -746,6 +767,13 @@ async def validate_content_workflow_output(outputs: Optional[Dict[str, Any]]) ->
         assert 'post_text' in post_content, "Validation Failed: 'post_text' missing in content."
         assert 'hashtags' in post_content, "Validation Failed: 'hashtags' missing in content."
         assert isinstance(post_content['hashtags'], list), "Validation Failed: 'hashtags' should be a list."
+        
+        # Validate that the post text incorporates knowledge base analysis
+        post_text = post_content['post_text']
+        assert len(post_text) > 0, "Validation Failed: Post text is empty"
+        # Check for factual information and company-specific details
+        assert any(keyword in post_text.lower() for keyword in ['according to', 'research shows', 'studies indicate', 'data suggests']), \
+            "Validation Failed: Post should include factual information from knowledge base"
     
     logger.info("✓ Output structure validation passed.")
     return True
@@ -754,7 +782,7 @@ async def validate_content_workflow_output(outputs: Optional[Dict[str, Any]]) ->
 async def main_test_content_workflow_with_client():
     """
     Tests the Post Creation Workflow using the run_workflow_test helper function.
-    Includes setup for user DNA and content brief, handles HITL steps with pre-defined inputs,
+    Includes setup for user DNA, content brief, and knowledge base analysis, handles HITL steps with pre-defined inputs,
     validates output, and performs cleanup.
     """
     test_name = "Content Workflow Test"
@@ -775,6 +803,10 @@ async def main_test_content_workflow_with_client():
     # Define draft storage namespace based on the template
     draft_storage_namespace = CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username)
 
+    # Define knowledge base analysis namespace
+    knowledge_base_namespace = USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=test_entity_username)
+    knowledge_base_docname = USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE.format(item=test_entity_username)
+
     # Define test context document configurations
     test_context_docs = [{
             "filename_config": {
@@ -792,6 +824,14 @@ async def main_test_content_workflow_with_client():
             },
             "output_field_name": "content_brief"  # Field where the loaded brief will be stored
         },
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+            },
+            "output_field_name": "knowledge_base_analysis"  # Field where the loaded knowledge base analysis will be stored
+        }
     ]
 
     # Define workflow input parameters
@@ -799,7 +839,7 @@ async def main_test_content_workflow_with_client():
         "post_uuid": test_post_uuid,
         "brief_docname": brief_docname,
         "customer_context_doc_configs": test_context_docs,
-        "entity_username": test_entity_username,
+        "entity_username": test_entity_username
     }
 
     # Define the setup documents to be created before workflow execution
@@ -848,6 +888,7 @@ async def main_test_content_workflow_with_client():
                 "call_to_action": "Share your experience with B2B content strategy in the comments",
                 "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"],
                 "evidence_and_examples": ["Recent McKinsey report on B2B marketing", "HubSpot study on SaaS content"],
+                "scheduled_date": "2025-05-26T10:00:00Z",
                 "structure_outline": {
                     "opening_hook": "Most B2B companies treat content as a checkbox, not a conversion tool",
                     "core_perspective": "Effective B2B content aligns with specific stages of the customer journey",
@@ -868,6 +909,45 @@ async def main_test_content_workflow_with_client():
             'is_shared': False,
             'is_versioned': CONTENT_BRIEF_IS_VERSIONED,
             'initial_version': CONTENT_BRIEF_DEFAULT_VERSION,
+            'is_system_entity': False
+        },
+        
+        # Knowledge Base Analysis Document
+        {
+            'namespace': knowledge_base_namespace,
+            'docname': knowledge_base_docname,
+            'initial_data': {
+                "company_facts": {
+                    "industry": "B2B SaaS",
+                    "specialization": "Content Marketing and Strategy",
+                    "key_achievements": [
+                        "Helped 50+ B2B SaaS companies improve content ROI",
+                        "Developed content strategies resulting in 3x conversion rates",
+                        "Created frameworks for technical content accessibility"
+                    ]
+                },
+                "market_research": {
+                    "key_statistics": [
+                        "73% of B2B buyers don't read most downloaded content",
+                        "Companies with documented content strategies show 3x higher conversion rates",
+                        "Technical content accessibility increases C-suite engagement by 200%"
+                    ],
+                    "source_studies": [
+                        "McKinsey B2B Marketing Report 2024",
+                        "HubSpot SaaS Content Study 2024",
+                        "Gartner Technical Content Accessibility Research"
+                    ]
+                },
+                "best_practices": [
+                    "Align content with specific customer journey stages",
+                    "Make technical content accessible to non-technical decision makers",
+                    "Use quantifiable results in case studies",
+                    "Implement the 3T approach: Target, Tailor, Track"
+                ]
+            },
+            'is_shared': False,
+            'is_versioned': USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
+            'initial_version': "default",
             'is_system_entity': False
         }
     ]
@@ -890,6 +970,14 @@ async def main_test_content_workflow_with_client():
             'is_versioned': CONTENT_BRIEF_IS_VERSIONED,
             'is_system_entity': False
         },
+        # Clean up Knowledge Base Analysis document
+        {
+            'namespace': knowledge_base_namespace,
+            'docname': knowledge_base_docname,
+            'is_shared': False,
+            'is_versioned': USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
+            'is_system_entity': False
+        },
         # Clean up Draft document that the workflow creates
         {
             'namespace': draft_storage_namespace,
@@ -901,6 +989,11 @@ async def main_test_content_workflow_with_client():
     ]
 
     # Pre-defined HITL inputs for the two expected stops in this workflow
+    # Configured to test multiple LLM iterations for message history:
+    # 1st call: Initial content generation (generate_content_messages_history)
+    # 2nd call: Feedback interpretation (interpret_feedback_messages_history) 
+    # 3rd call: Content regeneration (generate_content_messages_history continues)
+    # 4th call: Final approval after regeneration
     predefined_hitl_inputs: List[Dict[str, Any]] = [
         # Input for the first HITL stop (request revisions)
         {
@@ -912,14 +1005,14 @@ async def main_test_content_workflow_with_client():
             }
         },
         {
-            "approval_status": "needs_work",
+            "approval_status": "needs_work", 
             "feedback_text": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?",
             "updated_post_draft": {
                 "post_text": "73% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
                 "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
             }
         },
-        # Input for the second HITL stop (approve)
+        # Input for the final HITL stop (approve)
         {
             "approval_status": "approved",
             "feedback_text": "",

@@ -1,12 +1,10 @@
-from typing import Dict, Any, Optional, List, Union, ClassVar, Type
+from typing import Dict, Any, Optional, List, Union, ClassVar, Type, Literal
 import json
 from enum import Enum
 
 # Using Pydantic for easier schema generation
 from pydantic import BaseModel, Field
 
-
-### GENERATION SCHEMA ###
 
 class ProfessionalIdentitySchema(BaseModel):
     """Professional background and identity"""
@@ -104,59 +102,100 @@ class UserDNA(BaseModel):
     analytics_insights: AnalyticsInsightsSchema = Field(description="Analytical insights about content")
     success_metrics: SuccessMetricsSchema = Field(description="Metrics to measure success")
 
-GENERATION_SCHEMA = UserDNA.model_json_schema()
+USER_DNA_DOC = UserDNA.model_json_schema()
 
-########################
+class StrategyAudienceSchema(BaseModel):
+    """Target audience segments for strategy"""
+    primary: str = Field(description="Primary audience")
+    secondary: Optional[str] = Field(description="Secondary audience")
+    tertiary: Optional[str] = Field(description="Tertiary audience")
 
-### USER PROMPT TEMPLATE ###
-USER_PROMPT_TEMPLATE = """
+class FoundationElementsSchema(BaseModel):
+    """Foundational elements of the strategy"""
+    expertise: List[str] = Field(description="Areas of expertise")
+    core_beliefs: List[str] = Field(description="Core beliefs")
+    objectives: List[str] = Field(description="Strategy objectives")
 
-Analyze following information about the user to build their User DNA.
+class PostPerformanceAnalysisSchema(BaseModel):
+    """Analysis of post performance"""
+    current_engagement: str = Field(description="Current engagement levels")
+    content_that_resonates: str = Field(description="Content types that resonate with audience")
+    audience_response: str = Field(description="How audience responds to content")
 
-**Available Data to Analyze:**
+class ContentPillarSchema(BaseModel):
+    """Content pillar definitions"""
+    name: str = Field(description="Pillar name")
+    pillar: str = Field(description="Pillar theme")
+    sub_topic: List[str] = Field(description="Sub-topics within pillar")
 
-- LinkedIn Profile Data: {linkedin_profile}
-- Content Analysis Results: {content_analysis}
-- User Preferences: {user_preferences}
-- Content Pillars: {content_pillars}
-- Core Beliefs and Perspectives: {core_beliefs_perspectives}
-- Sources Analysis: {user_source_analysis}
-- Building Blocks Methodology: {building_blocks}
-- AI Copilot Guidelines: {methodology_implementation}
+class ThirtyDayTargetsSchema(BaseModel):
+    """30-day goals"""
+    goal: str = Field(description="Overall goal for the 30 days")
+    method: str = Field(description="Method to achieve the goal")
+    targets: str = Field(description="Quantitative targets such as number of posts, number of likes, number of comments, number of shares, etc. based on the goal.")
 
-**Instructions for Using the Above Documents:**
+class NinetyDayTargetsSchema(BaseModel):
+    """90-day goals"""
+    goal: str = Field(description="Overall goal for the 30 days")
+    method: str = Field(description="Method to achieve the goal")
+    targets: str = Field(description="Quantitative targets such as number of posts, number of likes, number of comments, number of shares, etc. based on the goal.")
 
-- Use the **LinkedIn Profile Data** to understand the user's professional background, experience, education, and positioning on the platform. This will inform their industry focus, career stage, and potential influence.
-- Use **Content Preferences** to define their goals, audience focus, and posting rhythm. These reflect how the user wants to show up on LinkedIn and what success looks like for them.
-- Use **Content Pillars** to capture the primary domains the user wants to focus on in their content strategy. These will map to the user's thematic expertise.
-- Use **Core Beliefs and Perspectives** to surface the user's worldview, operating principles, and unique angles — all essential to understanding their authentic voice.
-- Use **Content Analysis Results** to identify patterns in their current or past LinkedIn content: tone, types of posts, engagement levels, performance gaps, and high-performing themes. This helps define their current content personality and areas for refinement.
-- Use **Content Source Analysis** to assess what type of raw material the user already draws from (e.g., conversations, client work, readings, industry commentary) — which informs both their natural storytelling inputs and content creation ease.
-- Apply the **Building Blocks Methodology** to understand how the user's ideas can be modularized into different strategic content units (authority, story, tactical, point of view, etc.).
-- Apply the **AI Copilot Guidelines** to anticipate how this user is likely to collaborate with an AI content agent — what aspects they'll likely want automated, what decisions they'll want to stay involved in, and how feedback and iteration should be handled.
+class ImplementationSchema(BaseModel):
+    """Implementation details"""
+    thirty_day_targets: ThirtyDayTargetsSchema = Field(description="30-day goals")
+    ninety_day_targets: NinetyDayTargetsSchema = Field(description="90-day goals")
 
-**Important Guidelines for Missing Information:**
-- For any field where information is not available, use "[Information Not Available]" instead of null
+class ContentStrategySchema(BaseModel):
+    """Content strategy document derived from user DNA (AI-generated)"""
+    title: str = Field(description="Strategy title")
+    foundation_elements: FoundationElementsSchema = Field(description="Foundational elements of the strategy")
+    core_perspectives: List[str] = Field(description="Core content perspectives")
+    content_pillars: List[ContentPillarSchema] = Field(description="Content pillar definitions")
+    implementation: ImplementationSchema = Field(description="Implementation details")
 
-**Task:**
+CONTENT_STRATEGY_DOC = ContentStrategySchema.model_json_schema()
 
-Create a comprehensive **User DNA profile** for the user, based only on the data provided in the documents listed above. The final output must match the required JSON schema for User DNA exactly — do not include any information outside of the schema or fabricate missing details.
 
-All details must be based directly on the source data. Do not summarize or generalize unless explicitly instructed. The User DNA should provide a precise foundation for all future content generation and strategic guidance.
+class SelectedGoalSchema(BaseModel):
+    """Schema for a selected content goal"""
+    goal_id: str = Field(description="Unique identifier for the goal")
+    name: str = Field(description="Name of the goal")
+    description: str = Field(description="Detailed description of the goal")
 
-**Respond ONLY with the JSON object matching the specified schema.**
-"""
+class GoalsSchema(BaseModel):
+    """Schema for content goals configuration"""
+    selected: List[SelectedGoalSchema] = Field(description="List of pre-selected goals")
+    custom_goals: Optional[List[str]] = Field(None, description="List of user-defined custom goals")
 
-### SYSTEM PROMPT TEMPLATE ###
-SYSTEM_PROMPT_TEMPLATE = """
-You are an expert in professional branding and LinkedIn strategy. Gather and analyze information about the user to build their User DNA profile. Use the provided LinkedIn profile, content analysis, and additional materials to complete the User DNA Template. Focus on extracting meaningful insights that can inform an effective User DNA.
+class PostingScheduleSchema(BaseModel):
+    """Schema for content posting schedule configuration"""
+    posts_per_week: int = Field(description="Number of posts to publish per week")
+    posting_days: List[Literal["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]] = Field(description="Days of the week when posts should be published")
+    exclude_weekends: bool = Field(True, description="Whether to exclude weekend days from posting schedule")
 
-**Important Guidelines for Missing Information:**
-- For any field where information is not available, use "[Information Not Available]" instead of null
+class AutomationLevelSchema(BaseModel):
+    """Schema for content automation configuration"""
+    time_commitment_minutes: str = Field(description="Expected time commitment in minutes for content creation")
 
-Respond strictly with the JSON output conforming to the schema:
+class AudienceSegmentSchema(BaseModel):
+    """Schema for defining a target audience segment"""
+    name: str = Field(description="Name of the audience segment")
+    description: str = Field(description="Detailed description of the audience segment")
+    industry: Optional[str] = Field(None, description="Target industry for this segment")
+    experience_level: Optional[str] = Field(None, description="Target experience level")
+    position: Optional[str] = Field(None, description="Target job position")
+    company_size: Optional[str] = Field(None, description="Target company size")
+    investment_focus: Optional[str] = Field(None, description="Investment focus area")
+    knowledge_level: Optional[str] = Field(None, description="Expected knowledge level of the audience")
 
-```json
-{schema}
-```
-"""
+class AudienceSchema(BaseModel):
+    """Schema for audience configuration"""
+    segments: List[AudienceSegmentSchema] = Field(description="List of target audience segments")
+
+class UserPreferencesSchema(BaseModel):
+    """Schema for user content preferences"""
+    audience: AudienceSchema = Field(description="Target audience configuration")
+    posting_schedule: PostingScheduleSchema = Field(description="Content posting schedule configuration")
+    automation_level: AutomationLevelSchema = Field(description="Content automation configuration")
+
+USER_PREFERENCES_DOC = UserPreferencesSchema.model_json_schema()

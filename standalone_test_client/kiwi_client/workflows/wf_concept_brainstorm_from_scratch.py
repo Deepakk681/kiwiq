@@ -39,8 +39,6 @@ from kiwi_client.workflows.document_models.customer_docs import (
     CONCEPT_IS_VERSIONED
 )
 
-from kiwi_client.workflows.llm_inputs.content_calendar_brief import BRIEF_LLM_OUTPUT_SCHEMA
-
 from kiwi_client.workflows.llm_inputs.concept_brainstorm_from_scratch import (
     INITIAL_CONCEPTS_USER_PROMPT,
     INITIAL_CONCEPTS_SYSTEM_PROMPT,
@@ -51,6 +49,7 @@ from kiwi_client.workflows.llm_inputs.concept_brainstorm_from_scratch import (
     USER_INPUT_INTERPRETATION_SYSTEM_PROMPT,
     USER_INPUT_INTERPRETATION_USER_PROMPT,
     USER_INPUT_INTERPRETATION_SCHEMA,
+    BRIEF_LLM_OUTPUT_SCHEMA
 )
 
 
@@ -62,7 +61,7 @@ LLM_TEMPERATURE = 0.8
 LLM_MAX_TOKENS = 4000
 
 # Workflow Defaults
-PAST_CONTEXT_POSTS_LIMIT = 20  # Limit for context posts
+PAST_CONTEXT_POSTS_LIMIT = 10  # Limit for context posts
 
 # # --- Pydantic Schemas for LLM Outputs ---
 # class ContentBriefSchema(BaseModel):
@@ -457,7 +456,8 @@ workflow_graph_schema = {
                     "max_tokens": LLM_MAX_TOKENS
                 },
                 "output_schema": {
-                    "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA
+                    "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA,
+                    "convert_loaded_schema_to_pydantic": False
                 },
             }
         },
@@ -615,8 +615,15 @@ workflow_graph_schema = {
           ]
         },
 
+        # --- State -> Interpret User Input (Message History) ---
+        { "src_node_id": "$graph_state", "dst_node_id": "interpret_user_input", "mappings": [
+            { "src_field": "interpret_user_input_messages_history", "dst_field": "messages_history"}
+          ]
+        },
+
         { "src_node_id": "interpret_user_input", "dst_node_id": "$graph_state", "mappings": [
-            { "src_field": "structured_output", "dst_field": "interpreted_user_input" }
+            { "src_field": "structured_output", "dst_field": "interpreted_user_input" },
+            { "src_field": "current_messages", "dst_field": "interpret_user_input_messages_history"}
           ]
         },
 
@@ -654,14 +661,14 @@ workflow_graph_schema = {
 
         # --- State -> Generate Concepts ---
         { "src_node_id": "$graph_state", "dst_node_id": "generate_concepts", "mappings": [
-            { "src_field": "messages_history", "dst_field": "messages_history"}
+            { "src_field": "generate_concepts_messages_history", "dst_field": "messages_history"}
           ]
         },
 
         # --- Generate Concepts -> Store & State ---
         { "src_node_id": "generate_concepts", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "current_generated_concepts"},
-            { "src_field": "current_messages", "dst_field": "messages_history"}
+            { "src_field": "current_messages", "dst_field": "generate_concepts_messages_history"}
           ]
         },
 
@@ -751,10 +758,16 @@ workflow_graph_schema = {
           ]
         },
 
+        # --- State -> Generate Content Brief (Message History) ---
+        { "src_node_id": "$graph_state", "dst_node_id": "generated_content_brief", "mappings": [
+            { "src_field": "generated_content_brief_messages_history", "dst_field": "messages_history"}
+          ]
+        },
+
         # --- Generate Updated Brief -> State ---
         { "src_node_id": "generated_content_brief", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "updated_brief"},
-            # { "src_field": "current_messages", "dst_field": "brief_messages_history"}
+            { "src_field": "current_messages", "dst_field": "generated_content_brief_messages_history"}
           ]
         },
 
@@ -812,7 +825,9 @@ workflow_graph_schema = {
             "reducer": {
                 # NOTE: If you set collect_values reducer here, it distorts / nests the concepts structure and fails the FILTER NODE!
                 # "current_generated_concepts": "collect_values",
-                # "messages_history": "add_messages"
+                "interpret_user_input_messages_history": "add_messages",
+                "generate_concepts_messages_history": "add_messages", 
+                "generated_content_brief_messages_history": "add_messages"
             }
         }
     }
@@ -869,13 +884,233 @@ async def main_test_concept_to_brief_workflow():
             'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
             'docname': USER_DNA_DOCNAME,
             'initial_data': {
-                "professional_background": "Marketing executive with 15+ years experience in tech",
-                "expertise_areas": ["Digital Marketing", "Brand Strategy", "Team Leadership"],
-                "target_audience": "Marketing professionals and business leaders",
-                "content_goals": "Establish thought leadership and drive engagement",
-                "personal_style": "Conversational but authoritative",
-                "personal_brand_statement": "Helping leaders navigate digital transformation through strategic marketing insights",
-                "ideal_voice_tone": "Confident, insightful, and approachable"
+                "professional_identity": {
+                    "full_name": "Test User",
+                    "job_title": "Founder and CEO",
+                    "industry_sector": "Business Consulting and Services (RevOps/Sales Operations)",
+                    "company_name": "Revology Consulting",
+                    "company_size": "Small (early‑stage startup)",
+                    "years_of_experience": 10,
+                    "professional_certifications": [],
+                    "areas_of_expertise": [
+                        "RevOps consulting and implementation",
+                        "Sales operations strategy and enablement",
+                        "Tech stack assessment, consolidation, and optimization",
+                        "CRM expertise (Salesforce, HubSpot implementation and optimization)",
+                        "Sales engagement tools (Outreach, SalesLoft)",
+                        "Business process optimization and automation",
+                        "Metrics identification and tracking",
+                        "Email personalization and outreach strategies",
+                        "Cross‑departmental alignment (sales and marketing)",
+                        "Tech stack security auditing and vulnerability assessment",
+                        "Leading vs. lagging indicator frameworks for business measurement"
+                    ],
+                    "career_milestones": [
+                        "Founded Revology Consulting (December 2024)",
+                        "Senior RevOps Consultant at Skaled Consulting (2021‑Present)",
+                        "Worked with ~80 different clients over 5 years on RevOps",
+                        "Worked with notable companies including OpenAI, UiPath, SurveyMonkey",
+                        "Roles at Groupon, Microsoft, Verizon, Zebra Technologies",
+                        "Scientific background with transition to operations roles"
+                    ],
+                    "professional_bio": "Test User is the Founder and CEO of Revology Consulting, a firm specializing in helping companies streamline their revenue operations. With an analytical foundation (Master's in Genetics and Genetic Manipulation) and over a decade in operations roles, she helps businesses optimize their tech stack, sales processes, and revenue operations to drive efficiency and growth. Her expertise spans multiple industries, company sizes, and global markets, giving her unique insights into operational excellence across diverse business contexts."
+                },
+                "linkedin_profile_analysis": {
+                    "follower_count": 1495,
+                    "connection_count": None,
+                    "profile_headline_analysis": "All things RevOps | Founder & CEO | Simplifying Processes and Demystifying Tech",
+                    "about_section_summary": "Focuses on expertise in revenue operations, helping companies integrate and optimize tech stacks, sales processes, and enablement strategies to drive efficiency and scalability. Emphasizes enhancing workflows, building scalable systems, and driving measurable results with focus on reducing inefficiencies and creating data‑driven processes.",
+                    "engagement_metrics": {
+                        "average_likes_per_post": 76,
+                        "average_comments_per_post": 40,
+                        "average_shares_per_post": 0
+                    },
+                    "top_performing_content_pillars": [
+                        "Business & Entrepreneurship",
+                        "Workplace Culture & Employee Experience",
+                        "Community & Networking"
+                    ],
+                    "content_posting_frequency": "Inconsistent historically; moving forward: RevOps education/brand awareness, weekly Founder Friday, tool spotlights, and event recaps (2 per week)",
+                    "content_types_used": [
+                        "Text posts with emoji bullets",
+                        "Milestone updates with specific metrics",
+                        "Personal narratives with reflections",
+                        "Lists with emoji markers",
+                        "Short, direct posts for simple updates",
+                        "Security‑focused content with lock emojis (🔓)",
+                        "Contrast formats highlighting what works vs. what doesn't",
+                        "Relatable analogies connecting with everyday experiences"
+                    ],
+                    "network_composition": [
+                        "Predominantly US‑based connections (~90%)",
+                        "Connections in UK, Europe, and globally (including Singapore)",
+                        "Mix of B2B and B2C companies",
+                        "Focus on companies using Salesforce and HubSpot",
+                        "Strong ties to RevOps, sales operations, and SaaS sectors",
+                        "Growing network of agency owners"
+                    ]
+                },
+                "brand_voice_and_style": {
+                    "communication_style": "Straightforward, authoritative yet approachable",
+                    "tone_preferences": [
+                        "Enthusiastic",
+                        "Confident but not overly technical",
+                        "Occasionally vulnerable/authentic",
+                        "Celebratory for achievements",
+                        "Reflective when sharing lessons",
+                        "Definitive on security vulnerabilities",
+                        "Direct in content body"
+                    ],
+                    "vocabulary_level": "Professional but accessible; uses industry‑specific terms without excessive jargon; occasionally employs scientific references, relatable analogies, and humor with cultural references.",
+                    "sentence_structure_preferences": "Mix of short declarative statements for impact and longer explanatory sentences for complex topics; questions mainly used as CTAs at post ends; bulleted lists; preference for direct statements in body.",
+                    "content_format_preferences": [
+                        "Emoji‑bulleted lists",
+                        "Achievement markers with visual indicators",
+                        "Short paragraphs (2‑3 sentences)",
+                        "Clear headline formats for announcements",
+                        "\"Statement‑Problem‑Solution\" advice structure",
+                        "Contrasting sections with emojis (✅ vs. 🚫)",
+                        "Leading vs. lagging indicator differentiation"
+                    ],
+                    "emoji_usage": "Frequent emoji use, especially in milestone posts (average 14.3 per post in Business & Entrepreneurship); common emojis include 🎉, ✅, 🚀, ❤️, 🔓; 4‑14 emojis per post depending on content.",
+                    "hashtag_usage": "Moderate; placed at post ends; present in 55‑62% of posts; uses relevant industry tags; strong preference for #WhoStillHasYourPasswords in security content.",
+                    "storytelling_approach": "Personal founder narratives with practical takeaways; celebratory announcements; personal declarations for community posts; combines vulnerability with expertise; uses plant care and scientific metaphors for business."
+                },
+                "content_strategy_goals": {
+                    "primary_goal": "Increase brand awareness for Revology Consulting and position Mahak as a trusted RevOps expert",
+                    "secondary_goals": [
+                        "Educate audience about RevOps, especially in Europe",
+                        "Document and share founder journey and weekly lessons",
+                        "Develop strategic partnerships with complementary businesses",
+                        "Generate business through referrals",
+                        "Grow Mahak's personal brand",
+                        "Establish reputation for tech stack security expertise"
+                    ],
+                    "target_audience_demographics": "SMBs (<5 M USD revenue, <200 employees) primarily B2B; similar B2C companies; users of Salesforce and HubSpot; agency owners",
+                    "ideal_reader_personas": [
+                        "SMB decision‑makers needing RevOps expertise",
+                        "Operations leaders optimizing tech stack",
+                        "Founders focused on operational excellence",
+                        "Sales and marketing leaders seeking alignment"
+                    ],
+                    "audience_pain_points": [
+                        "Poor tech stack optimization",
+                        "Bad email personalization practices",
+                        "Measuring wrong metrics",
+                        "Lack of sales and marketing alignment",
+                        "Excessive manual processes",
+                        "Security risks from unmonitored tool access",
+                        "Over‑focus on lagging indicators",
+                        "Neglected security risks in tech stack integrations",
+                        "Unmonitored tool access security vulnerabilities",
+                        "Customer engagement patterns not tracked properly",
+                        "Using insecure platforms for sensitive data"
+                    ],
+                    "value_proposition_to_audience": "Expertise in identifying and solving operational inefficiencies; tech stack optimization to reduce redundancy and cost; proper metrics selection; task automation; global perspective; practical advice; security auditing expertise; frameworks for leading indicators.",
+                    "call_to_action_preferences": [
+                        "Direct engagement in comments",
+                        "Open invitations for connections",
+                        "Occasional discussion questions"
+                    ],
+                    "content_pillar_themes": [
+                        "RevOps education and best practices",
+                        "Founder journey insights (Founder Friday)",
+                        "Tool spotlights and collaborations",
+                        "Event recaps and insights",
+                        "Tech stack security and vulnerability assessments",
+                        "Leading vs. lagging indicator frameworks"
+                    ],
+                    "topics_of_interest": [
+                        "Tech stack audits and optimization",
+                        "Metrics selection and tracking",
+                        "Email personalization strategies",
+                        "Sales and marketing alignment challenges and solutions",
+                        "Automation opportunities and implementation",
+                        "Data security in operations",
+                        "Tool comparison and selection criteria",
+                        "Revology product developments (speedy setup)",
+                        "Tech stack security vulnerabilities",
+                        "Integration security risks with CRMs",
+                        "Leading vs. lagging indicators contrast",
+                        "Plant care metaphors for business growth",
+                        "Client feedback collection and implementation"
+                    ]
+                },
+                "personal_context": {
+                    "personal_values": [
+                        "Efficiency and optimization",
+                        "Authenticity and cultural pride",
+                        "Cross‑cultural understanding and global perspective",
+                        "Analytical thinking",
+                        "Continuous learning and knowledge sharing",
+                        "Continuous improvement through feedback",
+                        "Growth through consistency and patience"
+                    ],
+                    "professional_mission_statement": "Helping companies streamline revenue operations by integrating and optimizing tech stack and processes to reduce inefficiencies, empower teams, and create data‑driven processes that support long‑term growth.",
+                    "content_creation_challenges": [
+                        "Consistency and structure in content",
+                        "Strategic approach to content pillars",
+                        "Time management balancing content creation with running business",
+                        "Desire for specific, detailed feedback on content",
+                        "Rapid implementation of constructive feedback",
+                        "Appreciation for high ratings with actionable feedback"
+                    ],
+                    "personal_story_elements_for_content": [
+                        "Cultural background and international perspective",
+                        "Scientific/analytical foundation (Master's in Genetics)",
+                        "Global experience with clients across regions",
+                        "Early‑stage founder experiences and challenges",
+                        "Plant care and gardening metaphors for business growth",
+                        "Scientific method applied to client feedback",
+                        "Collecting and implementing feedback via Typeform",
+                        "Dropping \"golden nuggets\" during focused training"
+                    ],
+                    "notable_life_experiences": [
+                        "Transition from science to operations roles",
+                        "Working across multiple countries and cultures",
+                        "Observations of regional work culture differences",
+                        "Recent marriage and related cultural traditions",
+                        "Connection to plant care and growth enthusiasm"
+                    ],
+                    "inspirations_and_influences": None,
+                    "books_resources_they_reference": None,
+                    "quotes_they_resonate_with": None
+                },
+                "analytics_insights": {
+                    "optimal_content_length": "Business & Entrepreneurship ~217 words; Community & Networking ~112; Professional Growth ~127; Sales & Marketing ~87; Workplace Culture ~187; hooks 5–8 words for impact",
+                    "audience_geographic_distribution": "~90% US‑based, some UK presence, international reach including Singapore",
+                    "engagement_time_patterns": None,
+                    "keyword_performance_analysis": "Engagement drivers: \"community\", \"culture\", \"modern outbound\", \"RevOps\", \"Revology Consulting\", security‑related terms, #WhoStillHasYourPasswords, leading/lagging indicators terminology",
+                    "competitor_benchmarking": None,
+                    "growth_rate_metrics": "7 clients, 3 partnerships, £77,100 closed deals within first 3 months"
+                },
+                "success_metrics": {
+                    "content_performance_kpis": [
+                        "Engagement metrics by post type",
+                        "Follower growth",
+                        "Brand recognition for Revology",
+                        "Content quality feedback ratings (9–10/10)"
+                    ],
+                    "engagement_quality_metrics": [
+                        "Comments and meaningful conversations",
+                        "Quality engagement from target audience",
+                        "Styling preference feedback"
+                    ],
+                    "conversion_goals": [
+                        "Generate new business through referrals",
+                        "Establish and grow partnerships",
+                        "Drive awareness of Revology's services"
+                    ],
+                    "brand_perception_goals": [
+                        "Establish Revology's market reputation",
+                        "Position Mahak as a trusted RevOps expert",
+                        "Increase knowledge of RevOps in Europe",
+                        "Authoritative yet approachable brand",
+                        "Reputation for tech stack security expertise"
+                    ],
+                    "timeline_for_expected_results": "3–6 months",
+                    "benchmarking_standards": "Previous post performance and business growth metrics serve as baseline; content rated on 10‑point feedback scale"
+                }
             }, 
             'is_versioned': USER_DNA_IS_VERSIONED, 
             'is_shared': False,
@@ -887,21 +1122,21 @@ async def main_test_concept_to_brief_workflow():
             'docname': LINKEDIN_POST_DOCNAME,
             'initial_data': [
                 {
-                    "urn": "post-12345",
-                    "text": "Excited to share my thoughts on digital marketing trends for 2023. The landscape is evolving rapidly with AI integration becoming mainstream. What trends are you most excited about? #DigitalMarketing #AIinMarketing #2023Trends",
-                    "publish_date": "2023-05-15T10:00:00Z",
-                    "reaction_count": 150,
-                    "comment_count": 24
+                    "urn": "post-revops-1",
+                    "text": "🔓 Security audit time! Just discovered a client had 47 people with admin access to their Salesforce instance. 47! That's not access management, that's access chaos. ✅ What we fixed: Proper role hierarchy, regular access reviews, automated deprovisioning. 🚫 What we found: Shared passwords, ex-employees still active, no MFA. #WhoStillHasYourPasswords #RevOps #TechStackSecurity",
+                    "publish_date": "2024-01-15T10:00:00Z",
+                    "reaction_count": 89,
+                    "comment_count": 23
                 },
                 {
-                    "urn": "post-67890",
-                    "text": "Leadership in the age of remote work presents unique challenges. I've found that regular check-ins, clear expectations, and embracing flexibility have been key to maintaining team cohesion. What strategies have worked for your remote leadership? #RemoteWork #LeadershipTips #TeamManagement",
-                    "publish_date": "2023-05-08T14:30:00Z",
-                    "reaction_count": 210,
-                    "comment_count": 32
+                    "urn": "post-revops-2",
+                    "text": "🎉 Founder Friday update! Week 3 of Revology Consulting and I'm learning that building systems for clients is very different from building systems for your own business. The irony? I'm great at optimizing other people's tech stacks but spent 2 hours yesterday trying to connect my own CRM to my email tool. 😅 Lesson learned: Even RevOps experts need to practice what they preach. What's one system you know you should optimize but keep putting off? #FounderFriday #RevOps #Entrepreneurship",
+                    "publish_date": "2024-01-12T14:30:00Z",
+                    "reaction_count": 156,
+                    "comment_count": 41
                 }
             ], 
-            'is_versioned': False,
+            'is_versioned': False,  # Assuming scraped posts are not versioned
             'is_shared': False
         },
         # Mock Draft Posts
@@ -909,43 +1144,27 @@ async def main_test_concept_to_brief_workflow():
             'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
             'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-1'),
             'initial_data': {
-                "title": "Thoughts on AI in Marketing",
-                "content": "AI is transforming how we approach marketing campaigns. From personalized content to predictive analytics, the possibilities are endless. However, the human touch remains essential. How are you balancing AI and human creativity in your marketing strategy? #AIMarketing #MarketingStrategy #DigitalTransformation",
-                "created_at": "2023-06-01T10:00:00Z",
-                "updated_at": "2023-06-02T14:30:00Z",
-                "status": "draft",
-                "content_pillar": "Digital Transformation",
-                "target_audience": "Marketing professionals",
-                "key_messages": [
-                    "AI enhances but doesn't replace human creativity",
-                    "Personalization is key to modern marketing",
-                    "Balance technology with authentic connection"
-                ]
+                "title": "Leading vs Lagging Indicators in RevOps",
+                "content": "🎯 Stop measuring what happened. Start measuring what's happening. Most RevOps teams are drowning in lagging indicators: ✅ Revenue closed ✅ Deal velocity ✅ Win rates But missing the leading indicators that actually drive those outcomes: 🚀 Pipeline quality scores 🚀 Engagement velocity 🚀 Process adherence rates The difference? Lagging indicators tell you if you hit your target. Leading indicators tell you if you're aiming correctly. What leading indicators are you tracking in your RevOps? #RevOps #Metrics #DataDriven",
+                "created_at": "2024-01-20T10:00:00Z",
+                "updated_at": "2024-01-21T14:30:00Z",
             }, 
             'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 
             'is_shared': False,
-            'initial_version': 'draft'
+            'initial_version': 'draft'  # Required for versioned documents
         },
         {
             'namespace': CONTENT_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
             'docname': CONTENT_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-2'),
             'initial_data': {
-                "title": "Leadership Lessons from 2023",
-                "content": "This year has taught me valuable lessons about remote leadership. Adaptability, empathy, and clear communication have been more important than ever. As we look ahead, I believe the hybrid workplace will continue to evolve. What leadership qualities do you think will be most crucial in the coming year? #LeadershipInsights #FutureOfWork #HybridWorkplace",
-                "created_at": "2023-06-05T09:15:00Z",
-                "updated_at": "2023-06-05T16:45:00Z",
-                "status": "draft",
-                "content_pillar": "Leadership Insights",
-                "target_audience": "Team leaders and managers",
-                "key_messages": [
-                    "Adaptability is essential in uncertain times",
-                    "Empathy forms the foundation of effective leadership",
-                    "Communication must be intentional in remote settings"
-                ]
+                "title": "Tech Stack Consolidation Reality Check",
+                "content": "💡 Your tech stack isn't a collection. It's an ecosystem. Just helped a client reduce their sales tools from 12 to 4. The result? 🎉 40% faster onboarding 🎉 60% fewer integration issues 🎉 £2,400/month in savings The secret wasn't finding the 'perfect' tool. It was finding tools that actually talk to each other. Before consolidating, ask: ✅ Does this tool integrate natively? ✅ Can it replace 2+ existing tools? ✅ Will it scale with our growth? Your tech stack should amplify your team, not complicate their lives. What's one tool you could eliminate today? #TechStack #RevOps #Efficiency",
+                "created_at": "2024-01-18T09:15:00Z",
+                "updated_at": "2024-01-19T16:45:00Z"
             }, 
             'is_versioned': CONTENT_DRAFT_IS_VERSIONED, 
             'is_shared': False,
-            'initial_version': 'draft'
+            'initial_version': 'draft'  # Required for versioned documents
         },
     ]
 

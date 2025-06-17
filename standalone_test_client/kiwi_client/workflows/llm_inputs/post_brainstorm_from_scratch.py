@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 POST_CREATION_INITIAL_USER_PROMPT = """
 Work on LinkedIn post on behalf of the user using your deep understanding of them, how they think, how they communicate, and how they like to be perceived. 
@@ -10,6 +11,8 @@ User Understanding: {user_dna}
 
 Past Posts Context: {merged_posts}
 
+Knowledge Base Analysis: {knowledge_base_analysis}
+
 Instructions:
 1. Use the user's input as the core topic/idea for the post
 2. Ensure the post aligns with the user's style, tone, and preferences from their DNA
@@ -17,6 +20,9 @@ Instructions:
 4. Make sure to use the tone that user prefers
 5. Use your understanding of user's industry to draft post
 6. Include relevant hashtags that align with the user's style and topic
+7. Use the knowledge base analysis ONLY for factual information and company-specific details
+8. Do not over-rely on the knowledge base analysis - it should complement, not dominate the content
+9. IMPORTANT: Keep the default values for 'status' (should remain "draft") and 'scheduled_date' (should remain None) - do not modify these fields
 """
 
 POST_CREATION_FEEDBACK_USER_PROMPT = """
@@ -29,6 +35,9 @@ Current Draft: {current_post_draft}
 
 Original Feedback: {current_feedback_text}
 Rewrite Instructions: {rewrite_instructions}
+
+IMPORTANT: When rewriting the post, preserve the default values for 'status' (should remain "draft") and 'scheduled_date' (should remain None) - do not modify these fields.
+
 Please rewrite the LinkedIn post accordingly.
 """
 
@@ -38,17 +47,26 @@ You are a LinkedIn post generator. You are given:
 1. User's input describing what they want to post about
 2. User's DNA document containing their style, preferences, and expertise
 3. Past posts for context and consistency
+4. Knowledge base analysis for factual information and company-specific details
 
 Your task is to generate a LinkedIn post that:
 - Addresses the user's input topic/idea
 - Matches the user's style and preferences
 - Maintains consistency with their past content
 - Uses appropriate tone and hashtags
+- Incorporates factual information from knowledge base analysis when relevant, but does not over-rely on it
 
 If you are given feedback, you should rewrite it based on the user's feedback while maintaining these principles.
+
+IMPORTANT: Always preserve the default values in the schema:
+- 'status' field should always remain "draft"
+- 'scheduled_date' field should always remain null/None
+Do not modify these fields under any circumstances.
 """
 
 class PostDraftSchema(BaseModel):
+    status: str = Field(default="draft", description="The status of the draft. This field should not be modified by the LLM.")
+    scheduled_date: Optional[datetime] = Field(None, description="Scheduled date for the post in datetime format UTC TZ", format="date-time")
     post_text: str = Field(..., description="The main body of the LinkedIn post.")
     hashtags: List[str] = Field(..., description="Suggested hashtags.")
 
@@ -64,6 +82,7 @@ You have been provided with:
 2. Feedback from the user about that draft.
 3. A User DNA document, which includes detailed information about the user's writing preferences, tone, domain expertise, personality traits, and stylistic choices.
 4. Past posts for context and consistency.
+5. Knowledge base analysis for factual information and company-specific details.
 """
 
 
@@ -79,6 +98,7 @@ You must:
    - The user's style and preferences as described in their DNA
    - The consistency with their past posts
    - The original user input that initiated the post
+   - The factual information from knowledge base analysis (use sparingly)
 4. Provide suggestions that are clearly implied by the feedback, or those that directly align with preferences in the DNA document.
 5. Be precise about what should change, where it should change, and how it should be rewritten.
 
@@ -93,6 +113,8 @@ How to use the provided context:
 - User DNA Document: Use this to ground your interpretation in the user's voice. If the user prefers a bold tone, avoid recommending softer language. If the user tends to write in first person, don't suggest a third-person rewrite. If their DNA emphasizes "industry leadership," consider how the feedback might be interpreted through that lens.
 
 - Past Posts: Use these to ensure consistency in style, tone, and approach while avoiding repetition.
+
+- Knowledge Base Analysis: Use this ONLY for factual information and company-specific details. Do not let it dominate the content or style decisions.
 
 ---
 
@@ -123,6 +145,11 @@ User Feedback:
 
 User DNA Document (Preferences and Style):
 {user_dna_doc}
+
+---
+
+Knowledge Base Analysis:
+{knowledge_base_analysis}
 """
 
 USER_FEEDBACK_ADDITIONAL_USER_PROMPT= """
@@ -133,6 +160,8 @@ Now, the user has provided additional feedback on this version.
 Your task is to interpret the new feedback using the **same instructions and structure as before**, and write a fresh set of **rewrite directives**.
 
 Use the **original context** (user DNA, original draft, previous feedback, past posts) to stay consistent with the user's tone, preferences, and intent.
+
+Remember to use the knowledge base analysis information sparingly and only for factual context.
 
 ---
 

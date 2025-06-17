@@ -78,7 +78,7 @@ LLM_TEMPERATURE = 0.8
 LLM_MAX_TOKENS = 4000
 
 # Workflow Defaults
-PAST_CONTEXT_POSTS_LIMIT = 20  # Limit for context posts
+PAST_CONTEXT_POSTS_LIMIT = 10  # Limit for context posts
 
 # # --- Pydantic Schemas for LLM Outputs ---
 # class ContentBriefSchema(BaseModel):
@@ -628,14 +628,14 @@ workflow_graph_schema = {
 
         # --- State -> Generate Concepts ---
         { "src_node_id": "$graph_state", "dst_node_id": "generate_concepts", "mappings": [
-            { "src_field": "messages_history", "dst_field": "messages_history"}
+            { "src_field": "generate_concepts_messages_history", "dst_field": "messages_history"}
           ]
         },
 
         # --- Generate Concepts -> Store & State ---
         { "src_node_id": "generate_concepts", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "current_generated_concepts"},
-            { "src_field": "current_messages", "dst_field": "messages_history"}
+            { "src_field": "current_messages", "dst_field": "generate_concepts_messages_history"}
           ]
         },
 
@@ -771,7 +771,8 @@ workflow_graph_schema = {
             "reducer": {
                 # NOTE: If you set collect_values reducer here, it distorts / nests the concepts structure and fails the FILTER NODE!
                 # "current_generated_concepts": "collect_values",
-                # "messages_history": "add_messages"
+                "generate_concepts_messages_history": "add_messages",
+                "generated_updated_content_brief_messages_history": "add_messages"
             }
         }
     }

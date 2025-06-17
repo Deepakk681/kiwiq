@@ -39,8 +39,6 @@ from kiwi_client.workflows.document_models.customer_docs import (
     IDEA_IS_VERSIONED
 )
 
-from kiwi_client.workflows.llm_inputs.content_calendar_brief import BRIEF_LLM_OUTPUT_SCHEMA
-
 from kiwi_client.workflows.llm_inputs.idea_brainstorm_from_scratch import (
     INITIAL_IDEAS_USER_PROMPT,
     INITIAL_IDEAS_SYSTEM_PROMPT,
@@ -51,6 +49,7 @@ from kiwi_client.workflows.llm_inputs.idea_brainstorm_from_scratch import (
     USER_INPUT_INTERPRETATION_SYSTEM_PROMPT,
     USER_INPUT_INTERPRETATION_USER_PROMPT,
     USER_INPUT_INTERPRETATION_SCHEMA,
+    BRIEF_LLM_OUTPUT_SCHEMA
 )
 
 
@@ -62,7 +61,7 @@ LLM_TEMPERATURE = 0.8
 LLM_MAX_TOKENS = 4000
 
 # Workflow Defaults
-PAST_CONTEXT_POSTS_LIMIT = 20  # Limit for context posts
+PAST_CONTEXT_POSTS_LIMIT = 10  # Limit for context posts
 
 # # --- Pydantic Schemas for LLM Outputs ---
 # class ContentBriefSchema(BaseModel):
@@ -290,41 +289,6 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 5. Store Ideas ---
-        "store_ideas": {
-            "node_id": "store_ideas",
-            "node_name": "store_customer_data",
-            "node_config": {
-                    "global_versioning": {
-                        "is_versioned": IDEA_IS_VERSIONED,
-                        "operation": "upsert_versioned", # Must not exist yet
-                    },
-                    "store_configs": [
-                        {
-                            "input_field_path": "structured_output", # Field name in node input containing the value to save
-                            "target_path": {
-                                "filename_config": {
-                                    "input_namespace_field_pattern": IDEA_NAMESPACE_TEMPLATE, 
-                                    "input_namespace_field": "entity_username",
-                                    "static_docname": IDEA_DOCNAME, # Field in node's input containing the value
-                                }
-                            },
-                            "extra_fields": [
-                                {
-                                    # Required: Path to value in input data
-                                    "src_path": "initial_brief.uuid",
-                                    
-                                    # Optional: Path where value should be placed in stored object
-                                    # If not provided, defaults to last segment of src_path
-                                    "dst_path": "brief_id"
-                                },
-                            ],
-                            "generate_uuid": True,
-                        }
-                    ]
-                }
-            },
-
         # --- 6. Human Review ---
         "capture_user_choice": {
             "node_id": "capture_user_choice",
@@ -519,41 +483,6 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 12. Store Ideas with Brief ID ---
-        "save_ideas_with_brief_id": {
-            "node_id": "save_ideas_with_brief_id",
-            "node_name": "store_customer_data",
-            "node_config": {
-                "global_versioning": { "is_versioned": IDEA_IS_VERSIONED, "operation": "upsert_versioned" },
-                "global_is_shared": False,
-                "store_configs": [
-                    {
-                        # Store the ideas with brief_id from first save operation
-                        "input_field_path": "selected_ideas.ideas",
-                        "target_path": {
-                            "filename_config": {
-                                "input_namespace_field_pattern": IDEA_NAMESPACE_TEMPLATE, 
-                                "input_namespace_field": "entity_username",
-                                "static_docname": IDEA_DOCNAME,
-                            }
-                        },
-                        "generate_uuid": True,
-                        "extra_fields": [
-                            {
-                                # Use the UUID from the first save operation's passthrough_data
-                                "src_path": "first_node_data.updated_brief.uuid",
-                                "dst_path": "brief_id"
-                            }
-                        ],
-                        "versioning": {
-                            "is_versioned": IDEA_IS_VERSIONED,
-                            "operation": "upsert_versioned",
-                        }
-                    }
-                ],
-            }
-        },
-
         # --- 13. Output Node ---
         "output_node": {
             "node_id": "output_node",
@@ -643,8 +572,15 @@ workflow_graph_schema = {
           ]
         },
 
+        # --- State -> Interpret User Input (Message History) ---
+        { "src_node_id": "$graph_state", "dst_node_id": "interpret_user_input", "mappings": [
+            { "src_field": "interpret_user_input_messages_history", "dst_field": "messages_history"}
+          ]
+        },
+
         { "src_node_id": "interpret_user_input", "dst_node_id": "$graph_state", "mappings": [
-            { "src_field": "structured_output", "dst_field": "interpreted_user_input" }
+            { "src_field": "structured_output", "dst_field": "interpreted_user_input" },
+            { "src_field": "current_messages", "dst_field": "interpret_user_input_messages_history"}
           ]
         },
 
@@ -682,38 +618,20 @@ workflow_graph_schema = {
 
         # --- State -> Generate Ideas ---
         { "src_node_id": "$graph_state", "dst_node_id": "generate_ideas", "mappings": [
-            { "src_field": "messages_history", "dst_field": "messages_history"}
+            { "src_field": "generate_ideas_messages_history", "dst_field": "messages_history"}
           ]
         },
 
-        # --- Generate Ideas -> Store & State ---
+        # --- Generate Ideas -> State & Direct to User Choice ---
         { "src_node_id": "generate_ideas", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "current_generated_ideas"},
-            { "src_field": "current_messages", "dst_field": "messages_history"}
+            { "src_field": "current_messages", "dst_field": "generate_ideas_messages_history"}
           ]
         },
 
-        { "src_node_id": "generate_ideas", "dst_node_id": "store_ideas", "mappings": [
-            { "src_field": "structured_output", "dst_field": "structured_output"}
-          ]
-        },
-
-        # --- State -> Store Ideas ---
-        { "src_node_id": "$graph_state", "dst_node_id": "store_ideas", "mappings": [
-            { "src_field": "initial_brief", "dst_field": "initial_brief"},
-            { "src_field": "entity_username", "dst_field": "entity_username"},
-          ]
-        },
-
-        # --- Store Ideas -> User Choice ---
-        { "src_node_id": "store_ideas", "dst_node_id": "capture_user_choice", "mappings": [
-            { "src_field": "paths_processed", "dst_field": "draft_paths_processed"}
-          ]
-        },
-
-        # --- State -> User Choice ---
-        { "src_node_id": "$graph_state", "dst_node_id": "capture_user_choice", "mappings": [
-            { "src_field": "current_generated_ideas", "dst_field": "ideas_for_review"}
+        # --- Generate Ideas -> User Choice (Direct connection, bypassing automatic storage) ---
+        { "src_node_id": "generate_ideas", "dst_node_id": "capture_user_choice", "mappings": [
+            { "src_field": "structured_output", "dst_field": "ideas_for_review"}
           ]
         },
 
@@ -780,10 +698,16 @@ workflow_graph_schema = {
           ]
         },
 
+        # --- State -> Generate Content Brief (Message History) ---
+        { "src_node_id": "$graph_state", "dst_node_id": "generated_content_brief", "mappings": [
+            { "src_field": "generated_content_brief_messages_history", "dst_field": "messages_history"}
+          ]
+        },
+
         # --- Generate Updated Brief -> State ---
         { "src_node_id": "generated_content_brief", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "structured_output", "dst_field": "updated_brief"},
-            # { "src_field": "current_messages", "dst_field": "brief_messages_history"}
+            { "src_field": "current_messages", "dst_field": "generated_content_brief_messages_history"}
           ]
         },
 
@@ -799,26 +723,14 @@ workflow_graph_schema = {
             { "src_field": "entity_username", "dst_field": "entity_username"}
         ]},
 
-        # --- Save Brief -> Save Ideas ---
-        { "src_node_id": "save_content_brief", "dst_node_id": "save_ideas_with_brief_id", "mappings": [
-            { "src_field": "passthrough_data", "dst_field": "first_node_data"}
+        # --- Save Brief -> Output (Direct connection, bypassing idea storage) ---
+        { "src_node_id": "save_content_brief", "dst_node_id": "output_node", "mappings": [
+            { "src_field": "paths_processed", "dst_field": "final_brief_paths_processed"}
           ]
         },
 
         { "src_node_id": "save_content_brief", "dst_node_id": "$graph_state", "mappings": [
             { "src_field": "paths_processed", "dst_field": "final_brief_paths_processed"}
-          ]
-        },
-        
-        # --- State -> Save Ideas ---
-        { "src_node_id": "$graph_state", "dst_node_id": "save_ideas_with_brief_id", "mappings": [
-            { "src_field": "selected_ideas", "dst_field": "selected_ideas"},
-            { "src_field": "entity_username", "dst_field": "entity_username"}
-        ]},
-
-        # --- Save Ideas -> Output ---
-        { "src_node_id": "save_ideas_with_brief_id", "dst_node_id": "output_node", "mappings": [
-            { "src_field": "paths_processed", "dst_field": "idea_paths_processed"}
           ]
         },
 
@@ -841,7 +753,9 @@ workflow_graph_schema = {
             "reducer": {
                 # NOTE: If you set collect_values reducer here, it distorts / nests the concepts structure and fails the FILTER NODE!
                 # "current_generated_concepts": "collect_values",
-                # "messages_history": "add_messages"
+                "interpret_user_input_messages_history": "add_messages",
+                "generate_ideas_messages_history": "add_messages",
+                "generated_content_brief_messages_history": "add_messages"
             }
         }
     }
@@ -981,27 +895,22 @@ async def main_test_idea_to_brief_workflow():
     # Define cleanup docs
     cleanup_docs = [
         {'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': USER_DNA_DOCNAME, 'is_versioned': USER_DNA_IS_VERSIONED, 'is_shared': False},
-        {'namespace': IDEA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': IDEA_DOCNAME, 'is_versioned': IDEA_IS_VERSIONED, 'is_shared': False},
         {'namespace': CONTENT_BRIEF_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': CONTENT_BRIEF_DOCNAME, 'is_versioned': CONTENT_BRIEF_IS_VERSIONED, 'is_shared': False},
         {'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=test_entity_username), 'docname': LINKEDIN_POST_DOCNAME, 'is_versioned': False, 'is_shared': False},
     ]
 
-    # Predefined HITL inputs - leaving empty to allow for interactive testing
-    # In actual testing, you can provide predefined inputs like:
-    # {"approval_status": "select_concepts", "selected_concepts": ["concept_1", "concept_2"]}
-    predefined_hitl_inputs = []
-    
+   
     # VALID HUMAN INPUTS FOR MANUAL TESTING:
-    # {"approval_status": "select_concepts", "selected_concepts": ["concept_01"]}
+    # {"approval_status": "select_ideas", "selected_ideas": ["idea_01"]}
     # {"approval_status": "regenerate", "feedback_text": "Please generate more contrarian concepts"}
     # {"approval_status": "restart_from_idea_generation"}
+    predefined_hitl_inputs = []
 
     # Output validation function
     async def validate_brief_output(outputs):
         """Validates the workflow output to ensure it meets expected structure and content requirements."""
         assert outputs is not None, "Validation Failed: Workflow returned no outputs."
         assert 'final_brief_content' in outputs, "Validation Failed: 'final_brief_content' missing."
-        assert 'idea_paths_processed' in outputs, "Validation Failed: 'idea_paths_processed' missing."
         
         # Validate the content brief structure
         if 'final_brief_content' in outputs:

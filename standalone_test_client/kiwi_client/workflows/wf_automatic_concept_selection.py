@@ -852,7 +852,9 @@ workflow_graph_schema = {
             "reducer": {
                 # NOTE: If you set collect_values reducer here, it distorts / nests the concepts structure and fails the FILTER NODE!
                 # "current_generated_concepts": "collect_values",
-                # "messages_history": "add_messages"
+                "messages_history": "add_messages",
+                "evaluate_concepts_messages_history": "add_messages",
+
             }
         }
     }

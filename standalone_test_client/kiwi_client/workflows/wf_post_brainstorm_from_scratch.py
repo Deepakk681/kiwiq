@@ -10,6 +10,10 @@ from kiwi_client.workflows.document_models.customer_docs import (
     # LinkedIn scraping
     LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE,
     LINKEDIN_POST_DOCNAME,
+    # Knowledge Base Analysis
+    USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+    USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE,
+    USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
 )
 from kiwi_client.workflows.llm_inputs.post_brainstorm_from_scratch import (
     POST_CREATION_FEEDBACK_USER_PROMPT,
@@ -147,11 +151,13 @@ workflow_graph_schema = {
               "user_input": None, # Required from input_node via edge mapping
               "user_dna": None, # Default if not found via construct_options
               "merged_posts": None, # Required from prepare_generation_context
+              "knowledge_base_analysis": None, # Added for factual context
             },
             "construct_options": { # P1 Sourcing: Map variables to paths within node's input fields
                "user_dna": "user_dna", # Look inside the mapped 'user_dna_doc' input field
                "user_input": "user_input", # Look inside the mapped 'user_input' input field
                "merged_posts": "merged_posts", # Look inside the mapped 'merged_posts' input field
+               "knowledge_base_analysis": "knowledge_base_analysis", # Added for factual context
             }
           },
           "system_prompt": {  # NOTE: this can directly be set in the LLM node too! But putting it here for using template variables!
@@ -184,6 +190,7 @@ workflow_graph_schema = {
         # Define the structured output for the post
         "output_schema": {
           "schema_definition": POST_LLM_OUTPUT_SCHEMA,
+          "convert_loaded_schema_to_pydantic": False
           # "dynamic_schema_spec": {
           #   "schema_name": "LinkedInPost",
           #   "fields": {
@@ -382,11 +389,13 @@ workflow_graph_schema = {
                     "current_feedback_text": None,
                     "current_post_draft": None,
                     "user_dna_doc": None,
+                    "knowledge_base_analysis": None, # Added for factual context
                 },
                 "construct_options": {
                     "current_feedback_text": "current_feedback_text",
                     "current_post_draft": "current_post_draft",
                     "user_dna_doc": "user_dna",
+                    "knowledge_base_analysis": "knowledge_base_analysis", # Added for factual context
                 }
             },
             }
@@ -506,71 +515,69 @@ workflow_graph_schema = {
         { "src_field": "user_input", "dst_field": "user_input", "description": "Store the initial user input globally."},
         { "src_field": "entity_username", "dst_field": "entity_username", "description": "Pass the LinkedIn username for scraping."},
         { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit", "description": "Store the limit for past posts."},
-      ]
-    },
-    # Input -> Load User DNA: Control flow trigger
-    { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "description": "Trigger loading user data after input." ,
-     "mappings": [
-        { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
-        { "src_field": "entity_username", "dst_field": "entity_username"},
-        { "src_field": "user_input", "dst_field": "user_input"},
+        { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs", "description": "Store the context document configurations globally."}
       ]
     },
 
-    # Input -> Load Draft Posts
-    { "src_node_id": "input_node", "dst_node_id": "load_draft_posts",
-        "mappings": [
-            { "src_field": "entity_username", "dst_field": "entity_username" },
-        ],
+    # Input -> Load All Context Docs: Explicit mappings
+    { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "description": "Trigger loading user data after input." ,
+     "mappings": [
+        { "src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs", "description": "Pass document configurations for loading."},
+        { "src_field": "entity_username", "dst_field": "entity_username", "description": "Pass entity username for document loading."}
+      ]
     },
+
 
     # Load User DNA -> State: Store loaded user data
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "user_dna", "dst_field": "user_dna", "description": "Store the loaded user DNA document globally."},
         { "src_field": "scraped_posts", "dst_field": "scraped_posts", "description": "Store the loaded scraped posts globally."},
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", "description": "Store the loaded knowledge base analysis globally."}
       ]
     },
+
+    # Load All Context Docs -> Load Draft Posts
+    { "src_node_id": "load_all_context_docs", "dst_node_id": "load_draft_posts", "mappings": []},
+    
+    # State -> Load Draft Posts
+    { "src_node_id": "$graph_state", "dst_node_id": "load_draft_posts", "mappings": [
+        { "src_field": "entity_username", "dst_field": "entity_username" }
+    ]},
 
     # Load Draft Posts -> State
     { "src_node_id": "load_draft_posts", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "draft_posts", "dst_field": "draft_posts", "description": "Store the loaded draft posts globally."}
-      ]
-    },
+    ]},
 
     # Add direct connections from load nodes
     { "src_node_id": "load_all_context_docs", "dst_node_id": "prepare_generation_context"},
     { "src_node_id": "load_draft_posts", "dst_node_id": "prepare_generation_context"},
-    # --- Context Preparation ---
+
     # State -> Prepare Generation Context
     { "src_node_id": "$graph_state", "dst_node_id": "prepare_generation_context", "mappings": [
         { "src_field": "draft_posts", "dst_field": "draft_posts" },
         { "src_field": "scraped_posts", "dst_field": "scraped_posts" },
-        { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
+        { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" }
     ]},
 
-    { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_prompt",
-            "mappings": [
-                { "src_field": "merged_data", "dst_field": "merged_posts" },
-            ]
-    },
+    # Prepare Generation Context -> Construct Initial Prompt
+    { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_initial_prompt", "mappings": [
+        { "src_field": "merged_data", "dst_field": "merged_posts" }
+    ]},
 
     # Add output edge to store merged data
-    { "src_node_id": "prepare_generation_context", "dst_node_id": "$graph_state",
-        "mappings": [
-            { "src_field": "merged_data", "dst_field": "merged_posts", "description": "Store the merged and limited posts for context."},
-        ]
-    },
+    { "src_node_id": "prepare_generation_context", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "merged_data", "dst_field": "merged_posts", "description": "Store the merged and limited posts for context."}
+    ]},
 
-    # --- First Generation Path ---
     # State -> Construct Initial Prompt
     { "src_node_id": "$graph_state", "dst_node_id": "construct_initial_prompt", "mappings": [
         { "src_field": "user_dna", "dst_field": "user_dna", "description": "Pass user DNA for extracting style preference."},
         { "src_field": "user_input", "dst_field": "user_input", "description": "Pass the user input for prompt construction."},
-        # { "src_field": "merged_posts", "dst_field": "merged_posts", "description": "Pass the merged posts for context."},
-      ]
-    },
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", "description": "Pass knowledge base analysis for factual context."}
+    ]},
 
-    # Construct Initial Prompt -> Generate Content: Provide the user and system prompts
+    # Construct Initial Prompt -> Generate Content
     { "src_node_id": "construct_initial_prompt", "dst_node_id": "generate_content", "mappings": [
         { "src_field": "initial_generation_prompt", "dst_field": "user_prompt", "description": "Pass the main generation prompt to the LLM."},
         { "src_field": "system_prompt", "dst_field": "system_prompt", "description": "Pass the system prompt/instructions to the LLM."}
@@ -578,29 +585,30 @@ workflow_graph_schema = {
 
     # State -> Generate Content (for message history)
     { "src_node_id": "$graph_state", "dst_node_id": "generate_content", "mappings": [
-            { "src_field": "messages_history", "dst_field": "messages_history"}
-          ]
-    },
+        { "src_field": "generate_content_messages_history", "dst_field": "messages_history"}
+    ]},
 
-    # --- Parallel Branches Post-Generation ---
-    # Generate Content -> Store Draft: Send generated content for initial draft storage
-    { "src_node_id": "generate_content", "dst_node_id": "store_draft", "mappings": [
-        { "src_field": "structured_output", "dst_field": "structured_output", "description": "Pass the generated post content for saving as a draft. (Parallel Branch 1)"}
-      ]
-    },
-    # State -> Store Draft: Provide draft name for saving
+    # Generate Content -> State: Update global state with results and context
+    { "src_node_id": "generate_content", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "structured_output", "dst_field": "current_generation_output", "description": "Store generation output for synchronization."},
+        { "src_field": "current_messages", "dst_field": "generate_content_messages_history", "description": "Update message history with the latest interaction."},
+        { "src_field": "metadata", "dst_field": "generation_metadata", "description": "Store LLM metadata (e.g., token usage, iteration count)."},
+        { "src_field": "structured_output", "dst_field": "current_post_draft", "description": "Store the latest generated post draft globally."}
+    ]},
+
+    # Update store_draft to use synchronized output
     { "src_node_id": "$graph_state", "dst_node_id": "store_draft", "mappings": [
+        { "src_field": "current_generation_output", "dst_field": "structured_output", "description": "Use synchronized generation output."},
         { "src_field": "post_uuid", "dst_field": "post_uuid", "description": "Pass the draft name needed by the node's target_path config."},
-        { "src_field": "content_brief", "dst_field": "content_brief"},
         { "src_field": "entity_username", "dst_field": "entity_username"}
+    ]},
 
-      ]
-    },
+    # Store Draft -> State
     { "src_node_id": "store_draft", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "paths_processed", "dst_field": "paths_processed", "description": "Pass the paths processed by the node."},
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data", "description": "Pass the passthrough data of the draft."}
+    ]},
 
-      ]
-    },
     # Generate Content -> Capture Approval: Send generated content for human review
     { "src_node_id": "generate_content", "dst_node_id": "capture_approval", "mappings": [
         { "src_field": "structured_output", "dst_field": "draft_for_review", "description": "Pass the generated post content for HITL review. (Parallel Branch 2)"}
@@ -609,17 +617,7 @@ workflow_graph_schema = {
 
     { "src_node_id": "$graph_state", "dst_node_id": "capture_approval", "mappings": [
         { "src_field": "paths_processed", "dst_field": "draft_paths_processed"}
-      ]
-    },
-
-    # --- Update State Post-Generation ---
-    # Generate Content -> State: Update global state with results and context
-    { "src_node_id": "generate_content", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "current_messages", "dst_field": "messages_history", "description": "Update message history with the latest interaction."},
-        { "src_field": "metadata", "dst_field": "generation_metadata", "description": "Store LLM metadata (e.g., token usage, iteration count)."},
-        { "src_field": "structured_output", "dst_field": "current_post_draft", "description": "Store the latest generated post draft globally."}
-      ]
-    },
+    ]},
 
     # --- Approval and Routing ---
     # Capture Approval -> Route on Approval: Send approval status for routing decision
@@ -681,7 +679,9 @@ workflow_graph_schema = {
         { "src_field": "current_post_draft", "dst_field": "current_post_draft", 
           "description": "Pass latest draft for context."},
         { "src_field": "user_dna", "dst_field": "user_dna", 
-          "description": "Pass user DNA for style context."}
+          "description": "Pass user DNA for style context."},
+        { "src_field": "knowledge_base_analysis", "dst_field": "knowledge_base_analysis", 
+          "description": "Pass knowledge base analysis for factual context in feedback interpretation."}
       ]
     },
     # Initial Prompt Constructor -> Interpret Feedback: Send constructed prompt
@@ -711,7 +711,7 @@ workflow_graph_schema = {
 
     # State -> Interpret Feedback: Provide necessary context for feedback analysis
     { "src_node_id": "$graph_state", "dst_node_id": "interpret_feedback", "mappings": [
-        { "src_field": "feedback_messages_history", "dst_field": "messages_history", "description": "Pass message history for LLM context."},
+        { "src_field": "interpret_feedback_messages_history", "dst_field": "messages_history", "description": "Pass message history for LLM context."},
         # { "src_field": "current_feedback_text", "dst_field": "user_prompt", "description": "Pass the user's feedback as the main input user_prompt for analysis."} # Assuming the LLM node expects 'prompt_for_feedback_analysis' based on its config comments
       ]
     },
@@ -730,7 +730,7 @@ workflow_graph_schema = {
     },
     # Interpret Feedback -> State: Update message history and metadata after analysis LLM call
     { "src_node_id": "interpret_feedback", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "current_messages", "dst_field": "feedback_messages_history", "description": "Update message history with the feedback analysis interaction."},
+        { "src_field": "current_messages", "dst_field": "interpret_feedback_messages_history", "description": "Update message history with the feedback analysis interaction."},
         # { "src_field": "metadata", "dst_field": "feedback_generation_metadata", "description": "Update LLM metadata (overwrites previous if reducer is 'replace')."}
       ]
     },
@@ -744,7 +744,8 @@ workflow_graph_schema = {
     # State -> Finalize Post: Provide the final draft content and name for saving
     { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
         { "src_field": "current_post_draft", "dst_field": "final_post_content", "description": "Pass the final approved post content for saving."},
-        { "src_field": "paths_processed", "dst_field": "final_post_paths", "description": "Pass the path(s) or ID(s) of the finalized stored document(s)."} # Assuming Store node outputs 'paths_processed'
+        { "src_field": "paths_processed", "dst_field": "final_post_paths", "description": "Pass the path(s) or ID(s) of the finalized stored document(s)."},
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data", "description": "Pass the passthrough data of the draft."} # Assuming Store node outputs 'paths_processed'
       ]
     },
   ],
@@ -764,6 +765,15 @@ workflow_graph_schema = {
 #        # Other state keys like post_uuid, brief_docname, user_dna_doc are typically written once, so default 'replace' is fine.
 #      }
 #   }
+
+  "metadata": {
+      "$graph_state": {
+          "reducer": {
+              "generate_content_messages_history": "add_messages",
+              "interpret_feedback_messages_history": "add_messages"
+          }
+      }
+  }
 }
 
 
@@ -870,6 +880,14 @@ async def main_test_content_workflow_with_client():
             },
             "output_field_name": "scraped_posts" # Expect output containing LinkedIn posts
         },
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE, 
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+            },
+            "output_field_name": "knowledge_base_analysis"  # Field where the loaded analysis will be stored
+        }
     ]
 
     # Define workflow input parameters
@@ -970,6 +988,37 @@ async def main_test_content_workflow_with_client():
             'is_shared': False,
             'initial_version': 'draft'
         },
+        {
+            'namespace': USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=test_entity_username),
+            'docname': USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+            'initial_data': {
+                "company_facts": {
+                    "industry": "B2B SaaS",
+                    "specialization": "Digital Marketing Solutions",
+                    "key_metrics": {
+                        "customer_success_rate": "85%",
+                        "average_roi": "3.5x",
+                        "market_share": "12%"
+                    }
+                },
+                "market_insights": {
+                    "trends": [
+                        "AI-driven personalization",
+                        "Account-based marketing",
+                        "Data-driven decision making"
+                    ],
+                    "challenges": [
+                        "Integration complexity",
+                        "Data privacy concerns",
+                        "ROI measurement"
+                    ]
+                }
+            },
+            'is_shared': False,
+            'is_versioned': USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
+            'initial_version': "default",
+            'is_system_entity': False
+        }
     ]
 
     # Define the documents that should be cleaned up after workflow execution
@@ -1012,10 +1061,22 @@ async def main_test_content_workflow_with_client():
             'is_shared': False,
             'is_versioned': CONTENT_DRAFT_IS_VERSIONED,
             'is_system_entity': False
+        },
+        {
+            'namespace': USER_KNOWLEDGE_BASE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=test_entity_username),
+            'docname': USER_KNOWLEDGE_BASE_ANALYSIS_DOCNAME_TEMPLATE,
+            'is_shared': False,
+            'is_versioned': USER_KNOWLEDGE_BASE_ANALYSIS_IS_VERSIONED,
+            'is_system_entity': False
         }
     ]
 
     # Pre-defined HITL inputs for the two expected stops in this workflow
+    # Configured to test multiple LLM iterations for message history:
+    # 1st call: Initial content generation (generate_content_messages_history)
+    # 2nd call: Feedback interpretation (interpret_feedback_messages_history) 
+    # 3rd call: Content regeneration (generate_content_messages_history continues)
+    # 4th call: Final approval after regeneration
     predefined_hitl_inputs: List[Dict[str, Any]] = [
         # Input for the first HITL stop (request revisions)
         {

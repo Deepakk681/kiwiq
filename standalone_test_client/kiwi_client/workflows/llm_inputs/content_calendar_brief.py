@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, List, Union, ClassVar, Type
 import json
 from enum import Enum
 
-from datetime import date
+from datetime import date, datetime
 
 # Using Pydantic for easier schema generation
 from pydantic import BaseModel, Field
@@ -10,26 +10,119 @@ from pydantic import BaseModel, Field
 
 BRIEF_USER_PROMPT_TEMPLATE = """Generate content brief for a LinkedIn post.
 
-**Context:**
-           - Content Strategy:(this is provide you the understanding of users content strategy and goals) {strategy_doc}
-           - User Preferences:(this is provide you the understanding user’s goals and target audience)Ensure these briefs align with these {user_preferences}
-           - Customer Context Docs Summary/Highlights:(this will provide you the understanding of users style preferences)
- {user_dna}
-           - Recent User Posts (Drafts/Scraped):(use these to make a unique post that is relevant to the user's audience, make sure you are not repeating the same post and you are not using the same angle/hook) {merged_posts}
-           - Posting Schedule: The user prefers to post on days mentioned in user preferences. 
-Try that scheduled_time in your brief falls on one of these days. 
-           Important:- You can use this current data (date of today) to suggest the scheduled date for the post: {current_datetime}. Important: You have to create post brief for upcoming week (week starts from Monday), so provide the date that lies in the upcoming week.
-           
-**Task:**
-           Create a compelling content brief focusing on a specific topic relevant to the user's expertise and target audience, drawing inspiration from the provided context. Ensure the brief is actionable and aligns with the user's brand voice (implied from context). Define the topic, angle, key points, and optionally a CTA and hashtags. Focus on using the information from the context to create a brief that is relevant to the user's audience.
+**Rules:**
+- Do NOT fabricate facts or statistics. If specific factual input is missing in the provided documents, leave those parts as null or empty.
+- Use the **exact content pillar name** from the provided `strategy_doc` when assigning a pillar to the brief.
+- Do NOT repeat angles, hooks, or structure outlines from previous posts in `merged_posts`. Rephrase creatively.
+- Use `merged_posts` to learn the **style, adjectives, tone**, and **post length pattern** that the user typically prefers.
+- Align to the **style, tone, CTA, and hook preferences** inferred from `user_dna`, especially the fields:  
+  - `brand_voice_and_style.tone_preferences`  
+  - `brand_voice_and_style.communication_style`  
+  - `content_strategy_goals.call_to_action_preferences`
 
+**TIMEZONE AND SCHEDULING REQUIREMENTS:**
+1. **Date Selection:**
+   - Current Date: {current_datetime}
+   - CRITICAL: NEVER select a date that is in the past or before the current date
+   - Only suggest posting dates from the **upcoming week** (starting from tomorrow)
+   - Date must fall on a preferred day listed in `user_preferences`
+   - If today is the last day of the week, start from next Monday
+
+2. **Timezone Handling:**
+   - Use complete timezone information from `user_timezone`:
+     - iana_identifier: Technical timezone code
+     - display_name: User-friendly name
+     - current_offset: Current offset (including DST if applicable)
+     - supports_dst: Whether timezone uses daylight saving time
+
+3. **Optimal Posting Times:**
+   - Choose from these peak LinkedIn engagement windows in user's local timezone:
+     - **Morning slot**: 8:00 AM - 10:00 AM (peak professional start-of-day activity)
+     - **Afternoon slot**: 12:00 PM - 3:00 PM (lunch break and mid-day professional browsing)
+   - Select specific time within these windows based on user's audience and industry
+   - Convert final scheduled time to UTC using current_offset
+   - Account for daylight saving time if supports_dst is true
+
+4. **Output Format:**
+   - scheduled_date must be in ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ)
+   - Double-check that the generated datetime is:
+     a) Not in the past
+     b) Within the upcoming week
+     c) On a preferred posting day
+     d) In UTC format
+
+**Context:**
+- Content Strategy: {strategy_doc}
+- User Preferences: {user_preferences}
+- User Timezone Information: {user_timezone}
+- Customer Context (User DNA Summary): {user_dna}
+- Recent User Posts (Drafts/Scraped): {merged_posts}
+- Today's Date: {current_datetime}
+
+**Task:**
+Create a compelling and differentiated content brief aligned to the user's expertise, audience pain points, and tone, based on the above context.
+
+Include:
+- A clearly defined **topic**
+- A unique **angle or lens**
+- **Core perspective** and **key points**
+- Actionable structure with strategic value for the reader
+- Optionally, a CTA and relevant hashtags
 
 Respond ONLY with the JSON object matching the specified schema. Ensure 'brief_id' reflects the current iteration number.
 """
 
-BRIEF_SYSTEM_PROMPT_TEMPLATE = "You are an expert LinkedIn content strategist. Generate detailed and actionable content brief(s) based on the provided user context and Optional: previous briefs. Don't generate more than 1 brief at a time and ensure each brief is different from the previous ones. Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```"
+BRIEF_SYSTEM_PROMPT_TEMPLATE = """You are an expert LinkedIn content strategist with advanced timezone handling capabilities.
 
-BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE = "Generate one more content brief. Ensure it's different from your previous briefs.\n\nBe sure to follow the same schema and quality standards as your previous generations"
+Your job is to generate a high-quality, unique content brief for a LinkedIn post using structured user data. You must:
+
+**Content Requirements:**
+- NEVER invent facts or statistics. If relevant details are not present in the documents (`strategy_doc`, `user_dna`, or `merged_posts`), leave those fields null.
+- Use content pillars exactly as defined in `strategy_doc.content_pillars[*].name`.
+- Avoid repeating hooks or post angles from `merged_posts`, though you may infer tone, sentence style, and post format from them.
+- Align content with user's tone, vocabulary level, and audience from the User DNA fields.
+
+**Timezone and Scheduling Requirements:**
+1. **Timezone Information Processing:**
+   - Process complete timezone information including:
+     - iana_identifier: Technical timezone code (e.g., "Europe/London")
+     - display_name: User-friendly name (e.g., "British Time - London")  
+     - utc_offset: Standard offset (e.g., "+00:00")
+     - current_offset: Current offset accounting for DST (e.g., "+01:00")
+     - supports_dst: Whether timezone uses daylight saving time
+
+2. **Date Selection:**
+   - Current Date: {current_datetime}
+   - CRITICAL: NEVER select a date that is in the past or before the current date
+   - Choose dates within the upcoming week (starting from tomorrow)
+   - Align with user's preferred posting days from user_preferences
+   - If today is the last day of the week, start from next Monday
+   - Validate final date is:
+     a) Not in the past
+     b) Within the upcoming week
+     c) On a preferred posting day
+
+3. **Time Selection:**
+   - Select from LinkedIn's peak engagement windows in user's local timezone:
+     - **Morning window**: 8:00 AM - 10:00 AM (professionals checking LinkedIn at work start)
+     - **Lunch window**: 12:00 PM - 3:00 PM (mid-day professional browsing and lunch break activity)
+   - Pick specific time within these windows based on typical LinkedIn activity patterns
+   - Convert final scheduling to UTC using current_offset
+   - Account for daylight saving time transitions if applicable
+
+4. **Output Format:**
+   - scheduled_date must be in ISO 8601 UTC format: YYYY-MM-DDTHH:MM:SSZ
+   - Final validation: Ensure the generated datetime is not in the past
+
+Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```"""
+
+BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE = """Generate one additional content brief.
+
+Ensure:
+- It is distinct in topic, angle, and hook from all previously generated briefs.
+- It respects all schema fields and draws only from the provided documents.
+- It uses different content pillar from the previous briefs or what best aligns with the user's content strategy.
+- No invented facts. Leave unspecified values as null."""
 
 # --- Pydantic Schemas for LLM Outputs ---
 
@@ -37,7 +130,6 @@ class TargetAudienceSchema(BaseModel):
     """Target audience information for brief"""
     primary: str = Field(description="Primary target audience")
     secondary: Optional[str] = Field(None, description="Secondary target audience")
-
 
 class StructureOutlineSchema(BaseModel):
     """Outline of post structure"""
@@ -49,7 +141,6 @@ class StructureOutlineSchema(BaseModel):
     strategic_takeaway: str = Field(description="Strategic takeaway for reader")
     engagement_question: str = Field(description="Question to drive engagement")
 
-
 class PostLengthSchema(BaseModel):
     """Target post length range"""
     min: int = Field(description="Minimum length")
@@ -59,7 +150,7 @@ class ContentBriefSchema(BaseModel):
     """Detailed content brief based on selected concept (AI-generated)"""
     # uuid: str = Field(description="Unique identifier for the brief")
     title: str = Field(description="Brief title")
-    scheduled_date: str = Field(description="Scheduled date for the post in YYYY-MM-DD format")
+    scheduled_date: datetime = Field(description="Scheduled date for the post in datetime format UTC TZ", format="date-time")
     content_pillar: str = Field(description="Content pillar category")
     target_audience: TargetAudienceSchema = Field(description="Target audience information")
     core_perspective: str = Field(description="Core perspective for the post")

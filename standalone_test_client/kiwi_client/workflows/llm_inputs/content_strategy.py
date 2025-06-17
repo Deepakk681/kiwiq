@@ -37,7 +37,7 @@ class ThirtyDayTargetsSchema(BaseModel):
 
 class NinetyDayTargetsSchema(BaseModel):
     """90-day goals"""
-    goal: str = Field(description="Overall goal for the 30 days")
+    goal: str = Field(description="Overall goal for the 90 days")
     method: str = Field(description="Method to achieve the goal")
     targets: str = Field(description="Quantitative targets such as number of posts, number of likes, number of comments, number of shares, etc. based on the goal.")
 
@@ -49,9 +49,11 @@ class ImplementationSchema(BaseModel):
 class ContentStrategySchema(BaseModel):
     """Content strategy document derived from user DNA (AI-generated)"""
     title: str = Field(description="Strategy title")
+    target_audience: StrategyAudienceSchema = Field(description="Target audience segments")
     foundation_elements: FoundationElementsSchema = Field(description="Foundational elements of the strategy")
     core_perspectives: List[str] = Field(description="Core content perspectives")
     content_pillars: List[ContentPillarSchema] = Field(description="Content pillar definitions")
+    post_performance_analysis: Optional[PostPerformanceAnalysisSchema] = Field(description="Analysis of current post performance", default=None)
     implementation: ImplementationSchema = Field(description="Implementation details")
 
 GENERATION_SCHEMA = ContentStrategySchema.model_json_schema()

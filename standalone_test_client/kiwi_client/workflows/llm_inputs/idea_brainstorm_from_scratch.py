@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Union
-
+from datetime import datetime
 
 
 INITIAL_IDEAS_USER_PROMPT = """Pitch 4 post ideas for LinkedIn posts based on the following documents:
@@ -77,6 +77,8 @@ The brief must include:
 - A clear call to action relevant to the topic and audience
 - A list of relevant hashtags (5–7)
 
+**IMPORTANT:** Keep the "scheduled_date" field to None (do not provide any date value).
+
 Respond ONLY with the JSON object matching the specified schema.
 """
 
@@ -130,3 +132,45 @@ class UserInputInterpretationSchema(BaseModel):
 USER_INPUT_INTERPRETATION_SCHEMA = UserInputInterpretationSchema.model_json_schema()
 
 
+class TargetAudienceSchema(BaseModel):
+    """Target audience information for brief"""
+    primary: str = Field(description="Primary target audience")
+    secondary: Optional[str] = Field(None, description="Secondary target audience")
+
+
+class StructureOutlineSchema(BaseModel):
+    """Outline of post structure"""
+    opening_hook: str = Field(description="Opening hook to grab attention")
+    common_misconception: str = Field(description="Common misconception to address")
+    core_perspective: str = Field(description="Core perspective to present")
+    supporting_evidence: str = Field(description="Supporting evidence for perspective")
+    practical_framework: str = Field(description="Practical framework or application")
+    strategic_takeaway: str = Field(description="Strategic takeaway for reader")
+    engagement_question: str = Field(description="Question to drive engagement")
+
+
+class PostLengthSchema(BaseModel):
+    """Target post length range"""
+    min: int = Field(description="Minimum length")
+    max: int = Field(description="Maximum length")
+
+class ContentBriefSchema(BaseModel):
+    """Detailed content brief based on selected concept (AI-generated)"""
+    # uuid: str = Field(description="Unique identifier for the brief")
+    title: str = Field(description="Brief title")
+    scheduled_date: Optional[datetime] = Field(None, description="Scheduled date for the post in datetime format UTC TZ", format="date-time")
+    content_pillar: str = Field(description="Content pillar category")
+    target_audience: TargetAudienceSchema = Field(description="Target audience information")
+    core_perspective: str = Field(description="Core perspective for the post")
+    post_objectives: List[str] = Field(description="Objectives of the post")
+    key_messages: List[str] = Field(description="Key messages to convey")
+    evidence_and_examples: List[str] = Field(description="Supporting evidence and examples")
+    tone_and_style: str = Field(description="Tone and style guidelines")
+    structure_outline: StructureOutlineSchema = Field(description="Outline of post structure")
+    suggested_hook_options: List[str] = Field(description="Suggested hook options")
+    call_to_action: str = Field(description="Call to action")
+    hashtags: List[str] = Field(description="Suggested hashtags")
+    post_length: PostLengthSchema = Field(description="Target post length range")
+
+
+BRIEF_LLM_OUTPUT_SCHEMA = ContentBriefSchema.model_json_schema()

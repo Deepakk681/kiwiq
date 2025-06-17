@@ -713,6 +713,7 @@ workflow_graph_schema = {
 
     # --- 7. Output Node ---
     "output_node": {
+      "enable_node_fan_in": True,
       "node_id": "output_node",
       "node_name": "output_node",
       "node_config": {},

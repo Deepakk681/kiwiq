@@ -469,8 +469,16 @@ workflow_graph_schema = {
         { "src_field": "theme_system_prompt", "dst_field": "system_prompt"}
       ]
     },
+
+    # --- State -> Extract Themes (Message History) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "extract_themes", "mappings": [
+        { "src_field": "extract_themes_messages_history", "dst_field": "messages_history"}
+      ]
+    },
+
     { "src_node_id": "extract_themes", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "structured_output", "dst_field": "extracted_themes", "description": "Store extracted themes structure."},
+        { "src_field": "current_messages", "dst_field": "extract_themes_messages_history", "description": "Update message history with theme extraction interaction."}
       ]
     },
     
@@ -497,9 +505,17 @@ workflow_graph_schema = {
         { "src_field": "classify_system_prompt", "dst_field": "system_prompt"}
       ]
     },
+
+    # --- State -> Classify Batch (Message History) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "classify_batch", "mappings": [
+        { "src_field": "classify_batch_messages_history", "dst_field": "messages_history"}
+      ]
+    },
+
     { "src_node_id": "classify_batch", "dst_node_id": "$graph_state", "mappings": [
         # Store the list of classifications *from this batch*
-        { "src_field": "structured_output", "dst_field": "all_classifications_batches", "description": "Collect classification results from each batch."}
+        { "src_field": "structured_output", "dst_field": "all_classifications_batches", "description": "Collect classification results from each batch."},
+        { "src_field": "current_messages", "dst_field": "classify_batch_messages_history", "description": "Update message history with classification interaction."}
       ]
     },
 
@@ -556,8 +572,16 @@ workflow_graph_schema = {
         { "src_field": "analyze_system_prompt", "dst_field": "system_prompt"}
       ]
     },
+
+    # --- State -> Analyze Theme Group (Message History) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "analyze_theme_group", "mappings": [
+        { "src_field": "analyze_theme_group_messages_history", "dst_field": "messages_history"}
+      ]
+    },
+
     { "src_node_id": "analyze_theme_group", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "structured_output", "dst_field": "all_theme_reports", "description": "Collect all theme analysis reports."}
+        { "src_field": "structured_output", "dst_field": "all_theme_reports", "description": "Collect all theme analysis reports."},
+        { "src_field": "current_messages", "dst_field": "analyze_theme_group_messages_history", "description": "Update message history with theme analysis interaction."}
       ]
     },
 
@@ -606,6 +630,10 @@ workflow_graph_schema = {
           # Collect results from parallel branches
           "all_classifications_batches": "collect_values", # Collect lists of lists from each batch classification
           "all_theme_reports": "collect_values",   # Collect report objects from each theme analysis
+          # Message histories for LLM nodes
+          "extract_themes_messages_history": "add_messages",
+          "classify_batch_messages_history": "add_messages", 
+          "analyze_theme_group_messages_history": "add_messages"
           # Other state variables
         #   "entity_username": "replace",
         #   "prepared_posts_list": "replace", # Store the prepared posts list
