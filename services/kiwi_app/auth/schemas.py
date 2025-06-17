@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator # Use Field for validation
 from datetime import datetime
 
@@ -180,16 +180,15 @@ class UserLogin(BaseModel):
     username: EmailStr # Using email as the username
     password: str
 
-# --- Token Schemas ---
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
 
 class TokenData(BaseModel):
     # Use user *ID* (UUID) in the token subject for uniqueness
+    token_type: Literal["access", "password_reset", "email_verification", "magic_link", ] = "access"
     sub: uuid.UUID # Changed from email to UUID
+    csrf_token: Optional[str] = None
+    additional_claims: Dict[str, Any] = {}
     # Optional claim to specifically allow password reset
-    password_reset: Optional[bool] = None
+    # password_reset: Optional[bool] = None
 
 class AccessTokenResponse(BaseModel):
     """Response containing only the access token."""

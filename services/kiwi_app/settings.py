@@ -11,6 +11,7 @@ class Settings(GlobalSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 10
+    MAGIC_LINK_TOKEN_EXPIRE_MINUTES: int = 10
     
     EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES: int = 1440
 
@@ -111,6 +112,7 @@ class Settings(GlobalSettings):
     AUTH_REFRESH_URL: str = "/auth/refresh"
     AUTH_VERIFY_EMAIL_URL: str = "/auth/verify-email"
     AUTH_VERIFY_PASSWORD_RESET_TOKEN_URL: str = "/auth/verify-password-reset-token"
+    MAGIC_LOGIN_URL: str = "/auth/magic-login"
     REDIRECT_BASE_URL: str = "https://kiwiq-frontend.vercel.app"  # "http://localhost:3000"
     # Frontend URLs for first steps guide email
     # These URLs are used in the first steps guide email sent after email verification
@@ -122,6 +124,7 @@ class Settings(GlobalSettings):
     # TODO: FIXME: fill these up in production to redirect correctly to the SPA to handle verification / password reset!
     VERIFY_EMAIL_SPA_URL: Optional[str] = None
     VERIFY_PASSWORD_RESET_TOKEN_SPA_URL: Optional[str] = None
+    MAGIC_LOGIN_SPA_URL: Optional[str] = None
     # NOTE: if API prefix var name changes, change it here: `security.py` to set `OAuth2PasswordBearer``
     # NOTE: also used in verify email url!
     API_V1_PREFIX: str = "/api/v1"

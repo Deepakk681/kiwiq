@@ -136,6 +136,12 @@ class NotificationEmailData(BaseEmailData):
     action_button_url: Optional[str] = Field(default=None, description="CTA button URL")
 
 
+class MagicLoginLinkEmailData(BaseEmailData):
+    """Data model for magic login link emails."""
+    magic_login_url: str = Field(description="Magic login URL with embedded token")
+    expiry_minutes: int = Field(default=10, description="Link expiry time in minutes")
+
+
 # ==============================================================================
 # EMAIL RENDERER CLASS
 # ==============================================================================
@@ -408,6 +414,19 @@ class EmailRenderer:
         """
         return self._render_template('notification.html', data, **kwargs)
     
+    def render_magic_login_link_email(self, data: MagicLoginLinkEmailData, **kwargs) -> str:
+        """
+        Render a magic login link email.
+        
+        Args:
+            data: MagicLoginLinkEmailData instance with magic login details
+            **kwargs: Additional template variables
+            
+        Returns:
+            Rendered magic login link email HTML
+        """
+        return self._render_template('magic_login_link.html', data, **kwargs)
+    
 
 
 
@@ -628,6 +647,30 @@ if __name__ == "__main__":
     print(f"   Text length: {len(notification_text):,} characters")
     print(f"   Saved to: {notification_html_file} & {notification_text_file}")
     
+    # Example: Magic login link
+    print("\n📧 Example 9: Magic Login Link Email")
+    print("-" * 30)
+    
+    magic_login_data = MagicLoginLinkEmailData(
+        user_name="Sarah Johnson",
+        magic_login_url="https://app.kiwiq.com/magic-login?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9&csrf=abc123",
+        expiry_minutes=10
+    )
+    
+    magic_login_html = renderer.render_magic_login_link_email(magic_login_data)
+    magic_login_text = renderer.html_to_text(magic_login_html)
+    
+    magic_login_html_file = samples_dir / "magic_login_link_email.html"
+    magic_login_text_file = samples_dir / "magic_login_link_email.txt"
+    magic_login_html_file.write_text(magic_login_html)
+    magic_login_text_file.write_text(magic_login_text)
+    
+    print(f"✅ Magic login link email rendered successfully!")
+    print(f"   HTML length: {len(magic_login_html):,} characters")
+    print(f"   Text length: {len(magic_login_text):,} characters")
+    print(f"   Includes browser security warning and CSRF protection")
+    print(f"   Saved to: {magic_login_html_file} & {magic_login_text_file}")
+    
     print("\n" + "=" * 60)
     print("🎯 All email examples rendered with email-specific models!")
     print("📝 Each email type now has its own dedicated data structure.")
@@ -636,6 +679,7 @@ if __name__ == "__main__":
     print("   📧 Open the HTML files in a web browser to see visual emails")
     print("   📄 Open the TXT files to see clean text-only versions")
     print("   🔗 Text versions include extracted links in readable format")
+    print("   🔐 Magic login links include security warnings and CSRF protection")
     
     # Create an index file for easy viewing
     index_html = """<!DOCTYPE html>
@@ -735,6 +779,14 @@ if __name__ == "__main__":
             <div class="format-links">
                 <a href="general_notification_email.html">📧 View HTML</a>
                 <a href="general_notification_email.txt" class="text">📄 View Text</a>
+            </div>
+        </li>
+        <li>
+            <div class="email-title">Magic Login Link Email</div>
+            <div class="description">Secure passwordless login with CSRF protection and browser security warnings</div>
+            <div class="format-links">
+                <a href="magic_login_link_email.html">📧 View HTML</a>
+                <a href="magic_login_link_email.txt" class="text">📄 View Text</a>
             </div>
         </li>
     </ul>

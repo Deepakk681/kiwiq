@@ -3,7 +3,7 @@ from typing_extensions import Annotated, Doc
 import uuid
 import logging # Import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Union, Any, Dict, List, cast
+from typing import Optional, Union, Any, Dict, List, cast, Tuple
 
 import jwt # Using PyJWT now
 from jwt import PyJWTError
@@ -17,6 +17,8 @@ from kiwi_app.auth.schemas import TokenData
 from kiwi_app.auth.exceptions import CredentialsException
 # from kiwi_app.auth.constants import Permissions, get_permission_description
 from kiwi_app.auth.utils import auth_logger # Import the specific logger
+
+from kiwi_app.auth.csrf import generate_csrf_token
 
 # Get a logger for this module
 # logger = logging.getLogger(__name__)
@@ -178,7 +180,8 @@ def get_password_hash(password: str) -> str:
 def create_access_token(
     subject: Union[str, Any], # Subject is now UUID
     expires_delta: Optional[timedelta] = None,
-    additional_claims: Optional[Dict[str, Any]] = None
+    additional_claims: Optional[Dict[str, Any]] = None,
+    token_type: Optional[str] = "access"
 ) -> str:
     """
     Creates a JWT access token.
@@ -187,7 +190,7 @@ def create_access_token(
         subject: The subject of the token (user ID - UUID).
         expires_delta: Optional timedelta for token expiration.
         additional_claims: Optional dictionary of extra data to include in the payload.
-
+        token_type: The type of token to create.
     Returns:
         The encoded JWT access token string.
     """
@@ -202,6 +205,7 @@ def create_access_token(
     to_encode = {
         "exp": expire,
         "sub": subject_str,
+        "token_type": token_type,
     }
     if additional_claims:
         to_encode.update(additional_claims)
@@ -209,15 +213,41 @@ def create_access_token(
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def decode_access_token(token: str) -> TokenData:
+def create_magic_link_token(subject: Union[str, Any], csrf_token: str, keep_me_logged_in: bool = True) -> Tuple[str, str]:
+    """
+    Creates a JWT magic link token with an embedded CSRF token.
+
+    Args:
+        subject: The subject of the token (user ID - UUID).
+        csrf_token: The CSRF token to embed in the token.
+        keep_me_logged_in: Whether to keep the user logged in for an extended period.
+
+    Returns:
+        A tuple containing the encoded JWT magic link token string and the CSRF token.
+    """
+    
+    # csrf_token = generate_csrf_token()
+    expires = timedelta(minutes=settings.MAGIC_LINK_TOKEN_EXPIRE_MINUTES)
+    
+    magic_token = create_access_token(
+        subject=subject,
+        expires_delta=expires,
+        additional_claims={"csrf_token": csrf_token, "keep_me_logged_in": keep_me_logged_in},
+        token_type="magic_link"
+    )
+    auth_logger.info(f"Generated magic link token with CSRF protection for subject: {subject}")
+    return magic_token, csrf_token
+
+def decode_access_token(token: str, expected_token_type: Optional[str] = None) -> TokenData:
     """
     Decodes a JWT access token and validates its claims using PyJWT.
 
     Args:
         token: The encoded JWT access token string.
+        expected_token_type: The expected token type. If None, no validation is done.
 
     Raises:
-        CredentialsException: If the token is invalid, expired, or claims are malformed.
+        CredentialsException: If the token is invalid, expired, token type is unexpected, or claims are malformed.
 
     Returns:
         The validated token data (payload) as a TokenData object.
@@ -234,9 +264,10 @@ def decode_access_token(token: str) -> TokenData:
 
         # Extract claims
         token_sub_str: Optional[str] = payload.get("sub")
-        token_password_reset: Optional[bool] = payload.get("password_reset", None)
+        # token_password_reset: Optional[bool] = payload.get("password_reset", None)
         if token_sub_str is None:
             raise CredentialsException(detail="Token subject (sub) is missing.")
+            
 
         # Convert subject back to UUID
         try:
@@ -250,7 +281,21 @@ def decode_access_token(token: str) -> TokenData:
 
         # Use Pydantic model for validation of expected structure
         # Pass only the sub field now
-        token_data = TokenData(sub=token_sub_uuid, password_reset=token_password_reset)
+        token_data = TokenData(sub=token_sub_uuid) #, password_reset=token_password_reset)
+
+        token_type: Optional[str] = payload.get("token_type", None)
+        if token_type:
+            token_data.token_type = token_type
+        if expected_token_type is not None and token_data.token_type != expected_token_type:
+            raise CredentialsException(detail=f"Invalid token type. Expected {expected_token_type}, got {token_type}")
+
+        csrf_token: Optional[str] = payload.get("csrf_token")
+        if csrf_token:
+            token_data.csrf_token = csrf_token
+
+        additional_claims: Optional[Dict[str, Any]] = {k:v for k,v in payload.items() if k not in ["exp", "sub", "token_type", "csrf_token"]}
+        if additional_claims:
+            token_data.additional_claims = additional_claims
 
     except jwt.ExpiredSignatureError:
         auth_logger.info(f"Attempted use of expired token. Sub: {payload.get('sub', 'N/A') if 'payload' in locals() else 'ErrorBeforePayload'}")

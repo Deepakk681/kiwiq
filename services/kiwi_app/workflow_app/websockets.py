@@ -14,7 +14,7 @@ from db.session import get_async_db_dependency
 from global_config.logger import get_logger
 
 # Auth Dependencies - using standard auth instead of custom tokens
-from kiwi_app.auth.dependencies import _check_permissions_for_org, get_current_user_non_dependency, get_user_dao
+from kiwi_app.auth.dependencies import _check_permissions_for_org, get_current_user_from_token_non_dependency, get_user_dao
 from kiwi_app.workflow_app.constants import WorkflowPermissions
 from kiwi_app.auth.models import User
 
@@ -302,7 +302,7 @@ async def websocket_endpoint(
         
     try:
         # logger.debug(f"Attempting to authenticate user with token")
-        user = await get_current_user_non_dependency(db, access_token)
+        user, token_data = await get_current_user_from_token_non_dependency(db, access_token)
         if not user:
             logger.warning(f"Invalid token for WebSocket connection to run {run_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -509,7 +509,7 @@ async def notifications_websocket_endpoint(
     # Authenticate the user from the token
     try:
         # logger.debug(f"Attempting to authenticate user with token")
-        user = await get_current_user_non_dependency(db, access_token)
+        user, token_data = await get_current_user_from_token_non_dependency(db, access_token)
         if not user:
             logger.warning("Invalid token for WebSocket general notifications connection")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

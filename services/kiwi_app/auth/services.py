@@ -119,6 +119,8 @@ class AuthService:
             raise CredentialsException(detail="Incorrect email or password")
         if not user.is_active:
             raise InactiveUserException()
+        if not user.is_verified:
+            raise UserNotVerifiedException()
         # NOTE: We don't check verification here anymore, separate endpoints handle it.
         return user
     
@@ -195,7 +197,7 @@ class AuthService:
         Returns the access token string and the RefreshToken database object.
         """
         # Create access token
-        access_token = security.create_access_token(subject=user.id)
+        access_token = security.create_access_token(subject=user.id, token_type="access")
         # Create and store refresh token
         if not keep_me_logged_in:
             return access_token, None

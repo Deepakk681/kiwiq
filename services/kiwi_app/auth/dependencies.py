@@ -1,7 +1,7 @@
 # TODO: CRITICAL: handle lifecycle of connections dependencies!
 
 import uuid
-from typing import Set, List, Optional, AsyncGenerator
+from typing import Set, List, Optional, AsyncGenerator, Tuple
 import logging # Keep standard logging import if needed elsewhere
 
 from fastapi import Depends, HTTPException, status, Request, Security, Header, Path, Cookie # Added Header, Path
@@ -19,11 +19,13 @@ from kiwi_app.auth.exceptions import (
     InactiveUserException,
     UserNotVerifiedException,
     PermissionDeniedException,
+    CSRFTokenException,
     # InvalidOrgHeaderException,
     RoleNotFoundException,
 )
-from kiwi_app.auth.csrf import validate_csrf_protection # Import CSRF utilities
+from kiwi_app.auth.csrf import validate_csrf_protection, validate_csrf_token # Import CSRF utilities
 from kiwi_app.settings import settings 
+from kiwi_app.auth.schemas import TokenData
 
 # --- DAO Dependency Factories --- #
 # These simply return new instances of the DAOs.
@@ -154,7 +156,7 @@ async def get_current_user(
     if not access_token:
         raise CredentialsException(detail="No token found in cookie.")
     try:
-        token_data = security.decode_access_token(access_token)
+        token_data = security.decode_access_token(access_token, expected_token_type="access")
     except CredentialsException as e:
         raise e
 
@@ -168,31 +170,53 @@ async def get_current_user(
         raise UserNotFoundException(detail="User associated with token not found")
     return user
 
-async def get_current_user_non_dependency(
+
+async def get_current_user_from_token_non_dependency(
     db: AsyncSession,
     token: str,  # oauth2_authorization_code_scheme  oauth2_scheme
-) -> models.User:
+    expected_token_type: str = "access",
+    csrf_validation_token: Optional[str] = None,
+) -> Tuple[models.User, TokenData]:
     """
     Dependency to get the current user from the JWT token (UUID sub).
     Loads basic user info, but *not* detailed org/role/permission links by default.
     Those are loaded dynamically by permission checkers when needed.
     """
     try:
-        token_data = security.decode_access_token(token)
+        token_data = security.decode_access_token(token, expected_token_type=expected_token_type)
     except CredentialsException as e:
         raise e
+    
+    if csrf_validation_token is not None:
+        if not (token_data.csrf_token and validate_csrf_token(cookie_token=csrf_validation_token, header_token=token_data.csrf_token)):
+            raise CSRFTokenException()
+
 
     # Fetch user by UUID using the injected DAO
     # Do not load relationships here by default for performance.
     user_dao = get_user_dao()
     user = await user_dao.get(db, id=token_data.sub)
 
+    if not user.is_active:
+        raise InactiveUserException()
+    if not user.is_verified:
+        raise UserNotVerifiedException()
+
     # Explicit relationship loading removed - handled by permission checks if needed
 
     if user is None:
         raise UserNotFoundException(detail="User associated with token not found")
-    return user
+    return user, token_data
 
+
+# async def get_current_active_verified_user_non_dependency(
+#     db: AsyncSession,
+#     token: str,
+#     expected_token_type: str = "access"
+# ) -> models.User:
+#     """
+#     Dependency to get the current active verified user from the JWT token (UUID sub).
+#     """
 
 async def get_current_active_user_with_orgs(
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -234,7 +258,7 @@ async def get_current_active_user_with_orgs(
     if not access_token:
         raise CredentialsException(detail="No token found in cookie.")
     try:
-        token_data = security.decode_access_token(access_token)
+        token_data = security.decode_access_token(access_token, expected_token_type="access")
     except CredentialsException as e:
         raise e
     

@@ -16,6 +16,11 @@ class InactiveUserException(HTTPException):
     def __init__(self, detail: str = "Inactive user"):
         super().__init__(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
+class CSRFTokenException(HTTPException):
+    """Custom exception for CSRF token mismatch."""
+    def __init__(self, detail: str = "CSRF token missing or mismatch"):
+        super().__init__(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
 class UserNotVerifiedException(HTTPException):
     """Custom exception for users whose email is not verified."""
     def __init__(self, detail: str = "User email not verified"):

@@ -23,7 +23,8 @@ from kiwi_app.email.email_dispatch import email_dispatch, EmailContent, EmailRec
 from kiwi_app.email.email_templates.renderer import (
     EmailRenderer, 
     AccountConfirmationEmailData, 
-    PasswordResetEmailData
+    PasswordResetEmailData,
+    MagicLoginLinkEmailData
 )
 
 
@@ -83,7 +84,7 @@ async def trigger_send_verification_email(
         expires_delta = timedelta(minutes=settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES)
         # Create JWT with user ID as subject
         # No additional claims needed for verification currently
-        token = create_access_token(subject=user.id, expires_delta=expires_delta)
+        token = create_access_token(subject=user.id, expires_delta=expires_delta, token_type="email_verification")
         auth_logger.debug(f"Generated verification JWT for user {user.email} ({user.id}). Expires in {expires_delta}.")
     except Exception as e:
         # Catch potential errors during JWT creation (e.g., config issues)
@@ -161,7 +162,7 @@ async def verify_email_token(db: AsyncSession, token: str) -> Optional[models.Us
     try:
         # Decode and validate the JWT using the security utility
         # This handles signature verification and expiry check
-        token_data = decode_access_token(token)
+        token_data = decode_access_token(token, expected_token_type="email_verification")
         user_id = token_data.sub # Extract user ID (UUID) from 'sub' claim
 
         if not user_id:
@@ -232,7 +233,8 @@ async def trigger_send_password_reset_email(
         token = create_access_token(
             subject=user.id,
             expires_delta=expires_delta,
-            additional_claims=additional_claims
+            additional_claims=additional_claims,
+            token_type="password_reset"
         )
         auth_logger.debug(f"Generated password reset JWT for user {user.email} ({user.id}). Expires in {expires_delta}.")
     except Exception as e:
@@ -314,12 +316,12 @@ async def verify_password_reset_token(token: str) -> TokenData:
 
     try:
         # Decode and validate the JWT (handles signature, expiry)
-        token_data = decode_access_token(token)
+        token_data = decode_access_token(token, expected_token_type="password_reset")
 
-        # Crucially, check if this token was intended for password reset
-        if not token_data.password_reset:
-            auth_logger.warning(f"Token valid but not marked for password reset. User ID: {token_data.sub}")
-            raise CredentialsException(detail="Invalid token type. Not for password reset.")
+        # # Crucially, check if this token was intended for password reset
+        # if token_data.token_type != "password_reset":
+        #     auth_logger.warning(f"Token valid but not marked for password reset. User ID: {token_data.sub}")
+        #     raise CredentialsException(detail="Invalid token type. Not for password reset.")
 
         auth_logger.info(f"Password reset token successfully verified for user ID: {token_data.sub}")
         return token_data
@@ -333,3 +335,86 @@ async def verify_password_reset_token(token: str) -> TokenData:
         # Catch unexpected errors
         auth_logger.error(f"Unexpected error during password reset token verification: {e}", exc_info=True)
         raise CredentialsException(detail="Could not validate password reset token due to an internal error.")
+
+
+# --- Magic Login Link Email Utilities --- #
+
+async def trigger_send_magic_login_email(
+    background_tasks: BackgroundTasks,
+    user: models.User,
+    base_url: str,
+    magic_token: str,
+) -> Optional[str]:
+    """
+    Generates a JWT magic login token with CSRF protection, constructs the link,
+    and adds the actual email sending to background tasks using the new template system.
+    
+    The magic link must be used in the same browser where it was requested for security reasons.
+    This is enforced through browser fingerprinting and CSRF token validation.
+
+    Args:
+        background_tasks: FastAPI BackgroundTasks instance.
+        user: The user object.
+        base_url: Base URL for link generation (e.g., frontend URL).
+
+    Returns:
+        The magic login JWT if generated and email task added, otherwise None.
+        
+    Security considerations:
+        - Token includes embedded CSRF protection
+        - Short expiry time (default from settings)
+        - Single-use token design
+        - Browser-specific validation required
+    """
+
+    # Construct the magic login link (pointing to frontend magic login handler)
+    # The frontend will validate the token and CSRF, then call the backend magic login endpoint
+    URL = base_url
+    magic_login_link = f"{URL}?token={magic_token}"
+    if settings.MAGIC_LOGIN_SPA_URL:
+        magic_login_link = f"{settings.MAGIC_LOGIN_SPA_URL}?token={magic_token}"
+
+    try:
+        # Create email content using the new template system
+        email_data = MagicLoginLinkEmailData(
+            user_name=user.full_name or user.email.split('@')[0],  # Fallback to email prefix if no name
+            magic_login_url=magic_login_link,
+            expiry_hours=settings.MAGIC_LINK_TOKEN_EXPIRE_MINUTES // 60 or 1  # Convert minutes to hours
+        )
+        
+        # Render both HTML and text versions
+        html_content = email_renderer.render_magic_login_link_email(email_data)
+        text_content = email_renderer.html_to_text(html_content)
+        
+        # Create email content object
+        email_content = EmailContent(
+            subject="Your Magic Login Link for KiwiQ",
+            html_body=html_content,
+            text_body=text_content,
+            from_name="KiwiQ Team"
+        )
+        
+        # Create recipient object
+        recipient = EmailRecipient(
+            email=user.email,
+            name=user.full_name
+        )
+        
+        # Send email using the dispatch service
+        success = await email_dispatch.send_email_async(
+            background_tasks=background_tasks,
+            recipient=recipient,
+            content=email_content
+        )
+        
+        if success:
+            auth_logger.info(f"Magic login email task queued for {user.email} ({user.id})")
+        else:
+            auth_logger.warning(f"Failed to queue magic login email for {user.email}")
+            
+    except Exception as e:
+        auth_logger.error(f"Error preparing magic login email for {user.email}: {e}", exc_info=True)
+        # Still return the token - useful for testing or manual verification if needed
+        return magic_token
+
+    return magic_token

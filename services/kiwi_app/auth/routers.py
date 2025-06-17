@@ -15,7 +15,7 @@ from db.session import get_async_session, get_async_db_dependency # Added get_as
 # Change relative to absolute imports
 from kiwi_app.email import email_verify
 from kiwi_app.auth import crud, models, schemas, security, dependencies, linkedin, utils, services # Added email_verify
-from kiwi_app.auth.csrf import setup_auth_cookies_with_csrf, clear_auth_cookies, validate_csrf_protection # Import CSRF utilities
+from kiwi_app.auth.csrf import setup_auth_cookies_with_csrf, clear_auth_cookies, validate_csrf_protection, set_csrf_cookie, generate_csrf_token # Import CSRF utilities
 # from kiwi_app.auth.utils import auth_logger
 from kiwi_app.utils import get_kiwi_logger
 
@@ -33,11 +33,12 @@ from kiwi_app.auth.exceptions import (
     RoleNotFoundException,
     PermissionDeniedException,
     OrganizationSeatLimitExceededException,
+    CSRFTokenException,
 )
 from kiwi_app.settings import settings # Import settings for cookie config
 # Keep schema imports as they are if direct
 from kiwi_app.auth.schemas import (
-    Token, UserReadWithOrgs, UserRead, UserCreate, OrganizationRead, OrganizationCreate, RoleRead, RoleCreate, UserAssignRole, RequestEmailVerification,
+    UserReadWithOrgs, UserRead, UserCreate, OrganizationRead, OrganizationCreate, RoleRead, RoleCreate, UserAssignRole, RequestEmailVerification,
     # Add new password schemas
     AccessTokenResponse, UserChangePassword, RequestPasswordReset, ResetPassword,
     UserAdminCreate, UserReadWithSuperuserStatus, # Added for admin user creation
@@ -173,6 +174,104 @@ async def login_for_access_token_endpoint(
         auth_logger.exception(f"Unexpected error during login for user: {form_data.username}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred during login.")
 
+@router.post("/request-magic-login", status_code=status.HTTP_202_ACCEPTED, tags=["auth"])
+async def request_magic_login_email(
+    response: Response,  # Inject Response to set CSRF cookie
+    request_data: schemas.RequestEmailVerification,  # Reuse this schema as it only contains email
+    request: Request,  # Need request for base_url
+    background_tasks: BackgroundTasks,
+    keep_me_logged_in: bool = Query(True, description="If True, will keep user logged in for 30 days after magic login"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    user_dao: crud.UserDAO = Depends(dependencies.get_user_dao)
+):
+    """
+    Request a magic login link to be sent via email (Requires Cookies enabled for CSRF token checks).
+    
+    This endpoint:
+    1. Validates the user exists and can receive magic login links
+    2. Generates a magic link token with CSRF protection
+    3. Sets the CSRF token cookie for browser validation
+    4. Sends the magic login email via background tasks
+    5. Returns success response without revealing if user exists
+    
+    The magic link must be used in the same browser where it was requested
+    due to CSRF token validation requirements.
+    
+    Args:
+        request_data: Contains the email address to send magic link to
+        keep_me_logged_in: Whether to keep user logged in for extended period
+        
+    Returns:
+        202 Accepted with generic message (prevents email enumeration)
+        
+    Cookies Set:
+        - XSRF-TOKEN: CSRF token that must match the token in the magic link
+        
+    Security Features:
+        - Generic response prevents email enumeration attacks
+        - CSRF token prevents magic link use across different browsers
+        - Token expiration provides time-bound security
+        - Comprehensive error logging for security monitoring
+    """
+    
+    response = JSONResponse(
+        content={"message": "If an account with this email exists, a magic login link will be sent."}, 
+        status_code=status.HTTP_202_ACCEPTED
+    )
+
+    csrf_token = generate_csrf_token()
+    # Set CSRF cookie for browser validation
+    # Use access token expiration time for consistency
+    csrf_cookie_max_age = settings.MAGIC_LINK_TOKEN_EXPIRE_MINUTES * 60
+
+    set_csrf_cookie(response, csrf_token, csrf_cookie_max_age)
+
+    try:
+        # Find user by email
+        user = await user_dao.get_by_email(db, email=request_data.email)
+        if not user:
+            # Don't reveal if email exists - return generic success message
+            auth_logger.info(f"Magic login requested for non-existent email: {request_data.email}")
+            raise UserNotFoundException()
+        
+        # Check if user is active (can be unverified but must be active)
+        if not user.is_active:
+            auth_logger.warning(f"Magic login requested for inactive user: {user.email}")
+            # Still return generic message to prevent enumeration
+            raise InactiveUserException()
+        # check if user is verified
+        if not user.is_verified:
+            auth_logger.warning(f"Magic login requested for unverified user: {user.email}")
+            raise UserNotVerifiedException()
+        
+        # Generate magic link token with CSRF protection
+        magic_token, csrf_token = security.create_magic_link_token(
+            subject=user.id,
+            csrf_token=csrf_token,
+            keep_me_logged_in=keep_me_logged_in
+        )
+
+        # Construct base URL pointing to the magic login verification endpoint
+        base_url = _get_base_url(request, settings.MAGIC_LOGIN_URL)
+        
+        # Send magic login email via background tasks
+        await email_verify.trigger_send_magic_login_email(
+            background_tasks=background_tasks,
+            user=user,
+            base_url=base_url,
+            magic_token=magic_token,
+        )
+        
+        auth_logger.info(f"Magic login email requested and queued for user: {user.email}")
+        
+        # Return generic success message
+        return response
+        
+    except Exception as e:
+        # Log the error but still return generic success to prevent enumeration
+        auth_logger.exception(f"Error requesting magic login for {request_data.email}", exc_info=e)
+        
+        return response
 
 # --- NEW: Refresh Token Endpoint --- #
 # NOTE: change `kiwi_app.settings.AUTH_REFRESH_URL` if changing this path!
@@ -375,6 +474,50 @@ async def verify_email_endpoint(
     except Exception as e:
         auth_logger.exception(f"Unexpected error during email verification with token: {token[:8]}...", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred during email verification.")
+
+@router.get("/magic-login", status_code=status.HTTP_200_OK, tags=["auth"])
+async def magic_login_endpoint(
+    response: Response,
+    token: str = Query(..., description="The magic link token from the email"),
+    csrf_cookie: Optional[str] = Cookie(None, alias=settings.CSRF_TOKEN_COOKIE_NAME),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service),
+):
+    """
+    Logs a user in using a magic link token.
+
+    This endpoint verifies the magic link token, and if valid, logs the user in
+    by generating new access and refresh tokens and setting them in secure cookies.
+    """
+    try:
+        
+        # The dependency has already decoded the token and extracted the CSRF token.
+        # Now we decode it again to get the user ID.
+        if not csrf_cookie:
+            raise CSRFTokenException()
+        
+        user, token_data = await dependencies.get_current_user_from_token_non_dependency(db=db, token=token, expected_token_type="magic_link", csrf_validation_token=csrf_cookie)
+
+        access_token_str, refresh_token_obj = await auth_service.generate_tokens_for_user(db=db, user=user)
+
+        setup_auth_cookies_with_csrf(
+            response=response,
+            access_token=access_token_str,
+            refresh_token_obj=refresh_token_obj,
+            keep_me_logged_in=token_data.additional_claims.get("keep_me_logged_in", True),
+        )
+
+        auth_logger.info(f"User {user.email} successfully logged in via magic link.")
+        return {"status": "success"}
+    except (CredentialsException, UserNotFoundException, InactiveUserException, UserNotVerifiedException) as e:
+        # clear_auth_cookies(response)
+        raise e
+    except CSRFTokenException as e:
+        raise CSRFTokenException(detail="CSRF token mismatch, magic link must be used in the same browser it was requested from.")
+    except Exception as e:
+        # clear_auth_cookies(response)
+        auth_logger.exception(f"Unexpected error during magic link login", exc_info=e)
+        raise HTTPException(status_code=500, detail="An internal error occurred during magic link login.")
 
 # --- Password Management Endpoints ---
 
