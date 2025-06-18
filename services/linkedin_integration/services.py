@@ -5,6 +5,7 @@ This module implements the business logic for LinkedIn OAuth operations,
 following KiwiQ's established service patterns with dependency injection.
 """
 
+import asyncio
 import uuid
 from typing import Optional, Tuple, Dict, Any, List
 from datetime import datetime, timedelta
@@ -89,10 +90,11 @@ class LinkedinOauthService:
         auth_client = self._get_auth_client(redirect_uri=redirect_uri)
         
         # The library method handles URL encoding and construction.
-        authorization_url = auth_client.generate_member_auth_url(
-            scopes=LINKEDIN_SCOPES,
-            state=state_token
-        )
+        # authorization_url = auth_client.generate_member_auth_url(
+        #     scopes=LINKEDIN_SCOPES,
+        #     state=state_token
+        # )
+        authorization_url = await asyncio.to_thread(auth_client.generate_member_auth_url, scopes=LINKEDIN_SCOPES, state=state_token)
         
         logger.info(f"Generated LinkedIn auth URL for user: {user_id or 'anonymous'}")
         
@@ -165,7 +167,8 @@ class LinkedinOauthService:
             
             # Exchange code for tokens
             auth_client = self._get_auth_client(redirect_uri)
-            token_response = auth_client.exchange_auth_code_for_access_token(code)
+            token_response = await asyncio.to_thread(auth_client.exchange_auth_code_for_access_token, code)
+            # token_response = auth_client.exchange_auth_code_for_access_token(code)
             
             if token_response.status_code != 200:
                 logger.error(f"Token exchange failed: {str(token_response.response)}")
@@ -917,9 +920,10 @@ class LinkedinOauthService:
         try:
             # Use LinkedIn auth client to refresh token
             auth_client = self._get_auth_client()
-            response = auth_client.exchange_refresh_token_for_access_token(
-                oauth_record.refresh_token
-            )
+            # response = auth_client.exchange_refresh_token_for_access_token(
+            #     oauth_record.refresh_token
+            # )
+            response = await asyncio.to_thread(auth_client.exchange_refresh_token_for_access_token, oauth_record.refresh_token)
             
             if response.status_code != 200:
                 logger.error(f"Token refresh failed: {str(response.response)}")

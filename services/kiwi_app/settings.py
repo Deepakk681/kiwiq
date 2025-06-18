@@ -28,6 +28,7 @@ class Settings(GlobalSettings):
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_API_VERSION: str = "202505"
+    LINKEDIN_API_MEMBER_ANALYTICS_VERSION: str = "202506"
     LINKEDIN_REDIRECT_URL: str = ""
     LINKEDIN_ACCESS_TOKEN: str = ""  # NOTE: only for testing!
 
