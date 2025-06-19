@@ -685,7 +685,7 @@ class LinkedinOauthService:
         state_data: Dict[str, Any],
         background_tasks: BackgroundTasks,
         base_url: str
-    ) -> Tuple[User, models.LinkedinUserOauth]:
+    ) -> Tuple[User, models.LinkedinUserOauth, bool]:
         """
         Complete registration with LinkedIn data.
         
@@ -700,7 +700,7 @@ class LinkedinOauthService:
             base_url: Base URL for email links
             
         Returns:
-            Tuple of (User, LinkedinUserOauth)
+            Tuple of (User, LinkedinUserOauth, needs_email_verification (bool))
             
         Raises:
             LinkedInOauthException: For registration errors
@@ -712,27 +712,34 @@ class LinkedinOauthService:
         if not oauth_record_pending:
             raise exceptions.LinkedInOauthException("Pending LinkedIn OAuth record not found.")
         
+        skip_email = state_data.get("email_verified", False)
+        user_provided_email_verified = registration_data.email == state_data.get("email") and skip_email
+        needs_email_verification = not user_provided_email_verified
+        
         # Create user registration data
-        user_create = auth_schemas.UserCreate(
+        user_create = auth_schemas.UserAdminCreate(
             email=registration_data.email,
             full_name=registration_data.full_name,
             password=None,  # No password for OAuth users
+            is_verified=user_provided_email_verified,
             # agree_to_terms=registration_data.agree_to_terms
         )
         
         # Register new user (skip email verification if LinkedIn verified)
-        skip_email = state_data.get("email_verified", False)
+        # logger.info(f"\n\n$$$$$ DEBUG: state_data: {state_data}\n\n")
+        
         user = await self.auth_service.register_new_user(
             db=db,
             user_in=user_create,
             background_tasks=background_tasks,
-            base_url=base_url if not skip_email else None,
-            registered_by_admin=False,
-            is_verified=True,
+            base_url=base_url,
+            registered_by_admin=True,
+            send_email_for_verification=needs_email_verification,
+            send_first_steps_guide=not needs_email_verification,
         )
         
-        if skip_email and not user.is_verified:
-            await self.user_dao.update(db, db_obj=user, obj_in=auth_schemas.UserUpdate(is_verified=True))
+        # if user_provided_email_verified and not user.is_verified:
+        #     await self.user_dao.update(db, db_obj=user, obj_in=auth_schemas.UserUpdate(is_verified=True))
         
         # Create organization if provided
         if registration_data.organization_name:
@@ -758,7 +765,7 @@ class LinkedinOauthService:
         
         logger.info(f"Completed LinkedIn registration for user {user.email}")
         
-        return user, oauth_record
+        return user, oauth_record, needs_email_verification
     
     async def link_existing_account(
         self,
@@ -1002,4 +1009,212 @@ class LinkedinOauthService:
             access_token=oauth_record.access_token
         )
         
-        return client 
+        return client
+
+    async def admin_delete_oauth_by_linkedin_id(
+        self,
+        db: AsyncSession,
+        linkedin_id: str,
+        reason: Optional[str] = None
+    ) -> schemas.AdminDeleteLinkedinOauthResponse:
+        """
+        Admin method to delete LinkedIn OAuth record by LinkedIn ID.
+        
+        This method is for administrative purposes and includes comprehensive
+        logging and validation for audit trails.
+        
+        Args:
+            db: Database session
+            linkedin_id: LinkedIn user ID (sub)
+            reason: Optional reason for deletion
+            
+        Returns:
+            AdminDeleteLinkedinOauthResponse with deletion status
+        """
+        try:
+            # Get the record first to capture details for response
+            oauth_record = await self.linkedin_oauth_dao.get(db, linkedin_id)
+            
+            if oauth_record:
+                user_id = oauth_record.user_id
+                
+                # Log the admin action with reason
+                log_message = f"ADMIN: Deleting LinkedIn OAuth {linkedin_id}"
+                if user_id:
+                    log_message += f" for user {user_id}"
+                if reason:
+                    log_message += f" - Reason: {reason}"
+                
+                logger.warning(log_message)
+                
+                # Perform the deletion
+                deleted = await self.linkedin_oauth_dao.admin_delete_by_linkedin_id(
+                    db, linkedin_id
+                )
+                
+                return schemas.AdminDeleteLinkedinOauthResponse(
+                    success=True,
+                    deleted=deleted,
+                    linkedin_id=linkedin_id,
+                    user_id=user_id,
+                    message=f"LinkedIn OAuth record {linkedin_id} deleted successfully"
+                )
+            else:
+                logger.info(f"ADMIN: LinkedIn OAuth record {linkedin_id} not found for deletion")
+                return schemas.AdminDeleteLinkedinOauthResponse(
+                    success=True,
+                    deleted=False,
+                    linkedin_id=linkedin_id,
+                    message=f"LinkedIn OAuth record {linkedin_id} not found"
+                )
+                
+        except Exception as e:
+            logger.error(f"ADMIN: Error deleting LinkedIn OAuth {linkedin_id}: {e}", exc_info=True)
+            return schemas.AdminDeleteLinkedinOauthResponse(
+                success=False,
+                deleted=False,
+                linkedin_id=linkedin_id,
+                message=f"Failed to delete LinkedIn OAuth record: {str(e)}"
+            )
+    
+    async def admin_delete_oauth_by_user_id(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        reason: Optional[str] = None
+    ) -> schemas.AdminDeleteLinkedinOauthResponse:
+        """
+        Admin method to delete LinkedIn OAuth record by user ID.
+        
+        This method is for administrative purposes and includes comprehensive
+        logging and validation for audit trails.
+        
+        Args:
+            db: Database session
+            user_id: KIWIQ user UUID
+            reason: Optional reason for deletion
+            
+        Returns:
+            AdminDeleteLinkedinOauthResponse with deletion status
+        """
+        try:
+            # Get the record first to capture details for response
+            oauth_record = await self.linkedin_oauth_dao.get_by_user_id(db, user_id)
+            
+            if oauth_record:
+                linkedin_id = oauth_record.id
+                
+                # Log the admin action with reason
+                log_message = f"ADMIN: Deleting LinkedIn OAuth for user {user_id} (linkedin_id={linkedin_id})"
+                if reason:
+                    log_message += f" - Reason: {reason}"
+                
+                logger.warning(log_message)
+                
+                # Perform the deletion
+                deleted = await self.linkedin_oauth_dao.admin_delete_by_user_id(
+                    db, user_id
+                )
+                
+                return schemas.AdminDeleteLinkedinOauthResponse(
+                    success=True,
+                    deleted=deleted,
+                    linkedin_id=linkedin_id,
+                    user_id=user_id,
+                    message=f"LinkedIn OAuth record for user {user_id} deleted successfully"
+                )
+            else:
+                logger.info(f"ADMIN: No LinkedIn OAuth record found for user {user_id}")
+                return schemas.AdminDeleteLinkedinOauthResponse(
+                    success=True,
+                    deleted=False,
+                    user_id=user_id,
+                    message=f"No LinkedIn OAuth record found for user {user_id}"
+                )
+                
+        except Exception as e:
+            logger.error(f"ADMIN: Error deleting LinkedIn OAuth for user {user_id}: {e}", exc_info=True)
+            return schemas.AdminDeleteLinkedinOauthResponse(
+                success=False,
+                deleted=False,
+                user_id=user_id,
+                message=f"Failed to delete LinkedIn OAuth record: {str(e)}"
+            )
+    
+    async def admin_list_oauth_records(
+        self,
+        db: AsyncSession,
+        limit: int = 100,
+        offset: int = 0
+    ) -> schemas.AdminLinkedinOauthListResponse:
+        """
+        Admin method to list LinkedIn OAuth records with pagination.
+        
+        This method provides administrative overview of all LinkedIn OAuth
+        connections with user information for management purposes.
+        
+        Args:
+            db: Database session
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            
+        Returns:
+            AdminLinkedinOauthListResponse with paginated records
+        """
+        try:
+            # Get records with user information
+            records = await self.linkedin_oauth_dao.admin_get_all_oauth_records(
+                db, limit=limit + 1, offset=offset, include_user_info=True
+            )
+            
+            # Check if there are more records for pagination
+            has_more = len(records) > limit
+            if has_more:
+                records = records[:limit]  # Remove the extra record
+            
+            # Transform to response format
+            list_items = []
+            for record in records:
+                user_email = None
+                user_full_name = None
+                
+                if record.user:
+                    user_email = record.user.email
+                    user_full_name = record.user.full_name
+                
+                list_items.append(schemas.AdminLinkedinOauthListItem(
+                    id=record.id,
+                    user_id=record.user_id,
+                    user_email=user_email,
+                    user_full_name=user_full_name,
+                    oauth_state=str(getattr(record.oauth_state, "value", record.oauth_state)),
+                    scopes=record.get_scopes_list(),
+                    token_expires_at=record.token_expires_at,
+                    is_expired=record.is_access_token_expired(),
+                    created_at=record.created_at,
+                    updated_at=record.updated_at
+                ))
+            
+            # Get total count for pagination info
+            # Note: In production, you might want to cache this or use a more efficient count query
+            all_records = await self.linkedin_oauth_dao.admin_get_all_oauth_records(
+                db, limit=None, offset=0, include_user_info=False
+            )
+            total_count = len(all_records)
+            
+            logger.info(f"ADMIN: Retrieved {len(list_items)} LinkedIn OAuth records (limit={limit}, offset={offset})")
+            
+            return schemas.AdminLinkedinOauthListResponse(
+                records=list_items,
+                total_count=total_count,
+                limit=limit,
+                offset=offset,
+                has_more=has_more
+            )
+            
+        except Exception as e:
+            logger.error(f"ADMIN: Error listing LinkedIn OAuth records: {e}", exc_info=True)
+            raise exceptions.LinkedInOauthException(
+                "Failed to retrieve LinkedIn OAuth records",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 

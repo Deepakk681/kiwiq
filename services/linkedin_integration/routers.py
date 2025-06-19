@@ -344,11 +344,12 @@ async def complete_linkedin_registration(
         base_url = settings.VERIFY_EMAIL_SPA_URL if settings.APP_ENV in ["PROD", "STAGE"] else _get_base_url(request, settings.AUTH_VERIFY_EMAIL_URL)
         
         # Complete registration
-        user, oauth_record = await service.complete_registration(
+        user, oauth_record, needs_email_verification = await service.complete_registration(
             db, registration_data, state_data, background_tasks, base_url
         )
         
         # Generate auth tokens
+        # if not needs_email_verification:
         access_token, refresh_token = await auth_service.generate_tokens_for_user(
             db=db,
             user=user,
@@ -367,7 +368,7 @@ async def complete_linkedin_registration(
         _clear_linkedin_oauth_state_cookie(response)
         
         logger.info(f"Completed LinkedIn registration for user {user.id}")
-        return {"status": "success"}
+        return {"status": "success", "action_required": "We've sent you an email for verification, please check your inbox." if needs_email_verification else "You're all set and logged in!"}
         
     except exceptions.LinkedInStateException as e:
         # This can still be raised by the service layer for logic errors
@@ -709,3 +710,145 @@ async def refresh_linkedin_token(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to refresh token"
         ) 
+
+
+# Admin endpoints (require superuser privileges)
+@linkedin_oauth_router.delete("/admin/oauth/by-linkedin-id", response_model=schemas.AdminDeleteLinkedinOauthResponse, tags=["linkedin-oauth-admin"])
+async def admin_delete_oauth_by_linkedin_id(
+    delete_request: schemas.AdminDeleteLinkedinOauthByLinkedinId,
+    current_user: User = Depends(get_current_active_verified_user),
+    csrf_check: None = Depends(validate_csrf_protection),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: services.LinkedinOauthService = Depends(dependencies.get_linkedin_oauth_service)
+):
+    """
+    Admin endpoint to delete LinkedIn OAuth record by LinkedIn ID.
+    
+    This endpoint is restricted to superusers and includes comprehensive
+    logging and audit trails for administrative actions.
+    
+    Args:
+        delete_request: Deletion request with LinkedIn ID and confirmation
+        
+    Returns:
+        AdminDeleteLinkedinOauthResponse with deletion status
+        
+    Raises:
+        HTTPException: 403 if not superuser, 400 if confirmation not provided
+    """
+    # Check superuser privileges
+    if not current_user.is_superuser:
+        logger.warning(f"Non-superuser {current_user.email} attempted to delete LinkedIn OAuth {delete_request.linkedin_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser privileges required for this operation"
+        )
+    
+    # Validate confirmation
+    if not delete_request.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation required to delete LinkedIn OAuth record"
+        )
+    
+    logger.warning(f"ADMIN: Superuser {current_user.email} deleting LinkedIn OAuth {delete_request.linkedin_id}")
+    
+    result = await service.admin_delete_oauth_by_linkedin_id(
+        db, 
+        linkedin_id=delete_request.linkedin_id,
+        reason=delete_request.reason
+    )
+    
+    return result
+
+
+@linkedin_oauth_router.delete("/admin/oauth/by-user-id", response_model=schemas.AdminDeleteLinkedinOauthResponse, tags=["linkedin-oauth-admin"])
+async def admin_delete_oauth_by_user_id(
+    delete_request: schemas.AdminDeleteLinkedinOauthByUserId,
+    current_user: User = Depends(get_current_active_verified_user),
+    csrf_check: None = Depends(validate_csrf_protection),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: services.LinkedinOauthService = Depends(dependencies.get_linkedin_oauth_service)
+):
+    """
+    Admin endpoint to delete LinkedIn OAuth record by user ID.
+    
+    This endpoint is restricted to superusers and includes comprehensive
+    logging and audit trails for administrative actions.
+    
+    Args:
+        delete_request: Deletion request with user ID and confirmation
+        
+    Returns:
+        AdminDeleteLinkedinOauthResponse with deletion status
+        
+    Raises:
+        HTTPException: 403 if not superuser, 400 if confirmation not provided
+    """
+    # Check superuser privileges
+    if not current_user.is_superuser:
+        logger.warning(f"Non-superuser {current_user.email} attempted to delete LinkedIn OAuth for user {delete_request.user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser privileges required for this operation"
+        )
+    
+    # Validate confirmation
+    if not delete_request.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation required to delete LinkedIn OAuth record"
+        )
+    
+    logger.warning(f"ADMIN: Superuser {current_user.email} deleting LinkedIn OAuth for user {delete_request.user_id}")
+    
+    result = await service.admin_delete_oauth_by_user_id(
+        db,
+        user_id=delete_request.user_id,
+        reason=delete_request.reason
+    )
+    
+    return result
+
+
+@linkedin_oauth_router.get("/admin/oauth/list", response_model=schemas.AdminLinkedinOauthListResponse, tags=["linkedin-oauth-admin"])
+async def admin_list_oauth_records(
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    offset: int = Query(0, ge=0, description="Number of records to skip"),
+    current_user: User = Depends(get_current_active_verified_user),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: services.LinkedinOauthService = Depends(dependencies.get_linkedin_oauth_service)
+):
+    """
+    Admin endpoint to list all LinkedIn OAuth records with pagination.
+    
+    This endpoint is restricted to superusers and provides administrative
+    overview of all LinkedIn OAuth connections.
+    
+    Args:
+        limit: Maximum number of records to return (1-500)
+        offset: Number of records to skip for pagination
+        
+    Returns:
+        AdminLinkedinOauthListResponse with paginated records
+        
+    Raises:
+        HTTPException: 403 if not superuser
+    """
+    # Check superuser privileges
+    if not current_user.is_superuser:
+        logger.warning(f"Non-superuser {current_user.email} attempted to list LinkedIn OAuth records")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser privileges required for this operation"
+        )
+    
+    logger.info(f"ADMIN: Superuser {current_user.email} listing LinkedIn OAuth records (limit={limit}, offset={offset})")
+    
+    result = await service.admin_list_oauth_records(
+        db,
+        limit=limit,
+        offset=offset
+    )
+    
+    return result 

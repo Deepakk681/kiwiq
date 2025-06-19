@@ -9,7 +9,7 @@ import stripe # Add BackgroundTasks
 
 from kiwi_app.auth import crud, models, schemas, security # Added email_verify
 from kiwi_app.auth.utils import auth_logger, datetime_now_utc # Import datetime_now_utc
-from kiwi_app.auth.constants import DefaultRoles, Permissions, DEFAULT_FIRST_USER_ORG_SUFFIX
+from kiwi_app.auth.constants import DefaultRoles, Permissions, DEFAULT_FIRST_USER_ORG_SUFFIX, DEFAULT_ORG_NAME
 from kiwi_app.auth.exceptions import (
     EmailAlreadyExistsException,
     UserNotFoundException,
@@ -52,7 +52,7 @@ class AuthService:
         self.refresh_token_dao = refresh_token_dao # Store DAO instance
 
     async def register_new_user(
-        self, db: AsyncSession, user_in: schemas.UserCreate | schemas.UserAdminCreate, background_tasks: BackgroundTasks, base_url: str, registered_by_admin: bool = False, is_verified: bool = False,
+        self, db: AsyncSession, user_in: schemas.UserCreate | schemas.UserAdminCreate, background_tasks: BackgroundTasks, base_url: str, registered_by_admin: bool = False, send_email_for_verification: bool = False, send_first_steps_guide: bool = False,
     ) -> models.User:
         """
         Handles user registration, creates a default organization, assigns admin role,
@@ -83,7 +83,7 @@ class AuthService:
         await self.user_dao.add_user_to_org(db=db, user=new_user, organization=default_org, role=admin_role)
 
         # 5. Trigger verification email using background tasks
-        if not registered_by_admin and not is_verified:
+        if send_email_for_verification:
             try:
                 await email_verify.trigger_send_verification_email(
                     background_tasks=background_tasks,
@@ -98,6 +98,9 @@ class AuthService:
                 # For now, we continue registration but log the error.
         else:
             auth_logger.info(f"User {new_user.email} registered by admin, skipping email verification.")
+        
+        if send_first_steps_guide:
+            await self.send_first_steps_guide_email(background_tasks, new_user)
 
         # Reload user with relationships for the response
         # (get_by_email in DAO already loads relations)
@@ -149,7 +152,7 @@ class AuthService:
             HTTPException: If database update fails
         """
         # 1. Verify the current password
-        if not security.verify_password(current_password, user.hashed_password):
+        if user.is_verified and not security.verify_password(current_password, user.hashed_password):
             raise CredentialsException(detail="Current password is incorrect")
         
         # 2. Hash the new password
@@ -495,9 +498,12 @@ class AuthService:
         Creates a new organization and assigns the creator as admin.
         Automatically sets the primary_billing_email to the creator's email.
         """
-        existing_org = await self.org_dao.get_by_name(db, name=org_in.name)
-        if existing_org:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization name already exists")
+        # existing_org = await self.org_dao.get_by_name(db, name=org_in.name)
+        # if existing_org:
+        if org_in.name == DEFAULT_ORG_NAME:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This organization name already exists. Please use a different name.")
+            # else:
+            #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization name already exists")
 
         # Create the organization first
         new_org = await self.org_dao.create(db=db, obj_in=org_in)
@@ -1236,7 +1242,7 @@ class AuthService:
         
         # 4. Update the user's email address
         try:
-            email_update = schemas.UserAdminUpdate(email=new_email)
+            email_update = schemas.UserAdminUpdate(email=new_email, is_verified=True)
             updated_user = await self.user_dao.update(db, db_obj=user, obj_in=email_update)
             
             auth_logger.info(f"Email successfully changed from {old_email} to {new_email} for user {user.id}")

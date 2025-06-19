@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import List, Optional, Set
+from typing import List, Optional, Set, TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import String as SQLAlchemyString, Text, JSON, Boolean, Index, ForeignKey, text
@@ -9,6 +9,10 @@ from sqlmodel import Field, Relationship, SQLModel, Column
 
 from kiwi_app.auth.utils import datetime_now_utc
 from kiwi_app.settings import settings
+
+# Type checking imports to avoid circular imports
+if TYPE_CHECKING:
+    from linkedin_integration.models import LinkedinUserOauth
 
 table_prefix = f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}"
 
@@ -144,6 +148,7 @@ class User(SQLModel, table=True):
 
     organization_links: List[UserOrganizationRole] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
     refresh_tokens: List["RefreshToken"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    linkedin_oauth: Optional["LinkedinUserOauth"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
 # --- NEW: Refresh Token Model --- #
 class RefreshToken(SQLModel, table=True):

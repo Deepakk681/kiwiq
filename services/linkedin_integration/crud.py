@@ -11,6 +11,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_, delete, update, func
 
 from kiwi_app.auth.base_crud import BaseDAO
@@ -464,4 +465,137 @@ class LinkedinOauthDAO(BaseDAO[models.LinkedinUserOauth, None, None]):
             )
         
         result = await db.execute(statement)
-        return result.scalars().all() 
+        return result.scalars().all()
+    
+    async def admin_delete_by_linkedin_id(
+        self,
+        db: AsyncSession,
+        linkedin_id: str,
+        commit: bool = True
+    ) -> bool:
+        """
+        Admin method to delete LinkedIn OAuth record by LinkedIn ID.
+        
+        This method is for administrative purposes and includes detailed logging
+        for audit purposes. It permanently removes the OAuth connection.
+        
+        Args:
+            db: Database session
+            linkedin_id: LinkedIn user ID (sub)
+            commit: Whether to commit the transaction
+            
+        Returns:
+            True if deleted, False if not found
+            
+        Raises:
+            Exception: For database errors
+        """
+        try:
+            oauth_record = await self.get(db, linkedin_id)
+            if oauth_record:
+                # Get user info for logging before deletion
+                user_info = f"user_id={oauth_record.user_id}" if oauth_record.user_id else "no_user_linked"
+                
+                await db.delete(oauth_record)
+                if commit:
+                    await db.commit()
+                
+                logger.warning(f"ADMIN: Deleted LinkedIn OAuth record {linkedin_id} ({user_info})")
+                return True
+            
+            logger.info(f"ADMIN: LinkedIn OAuth record {linkedin_id} not found for deletion")
+            return False
+            
+        except Exception as e:
+            if commit:
+                await db.rollback()
+            logger.error(f"ADMIN: Error deleting LinkedIn OAuth by LinkedIn ID {linkedin_id}: {e}")
+            raise
+    
+    async def admin_delete_by_user_id(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        commit: bool = True
+    ) -> bool:
+        """
+        Admin method to delete LinkedIn OAuth record by KIWIQ user ID.
+        
+        This method is for administrative purposes and includes detailed logging
+        for audit purposes. It permanently removes the OAuth connection for a user.
+        
+        Args:
+            db: Database session
+            user_id: KIWIQ user UUID
+            commit: Whether to commit the transaction
+            
+        Returns:
+            True if deleted, False if not found
+            
+        Raises:
+            Exception: For database errors
+        """
+        try:
+            oauth_record = await self.get_by_user_id(db, user_id)
+            if oauth_record:
+                linkedin_id = oauth_record.id
+                
+                await db.delete(oauth_record)
+                if commit:
+                    await db.commit()
+                
+                logger.warning(f"ADMIN: Deleted LinkedIn OAuth record for user {user_id} (linkedin_id={linkedin_id})")
+                return True
+            
+            logger.info(f"ADMIN: No LinkedIn OAuth record found for user {user_id}")
+            return False
+            
+        except Exception as e:
+            if commit:
+                await db.rollback()
+            logger.error(f"ADMIN: Error deleting LinkedIn OAuth by user ID {user_id}: {e}")
+            raise
+    
+    async def admin_get_all_oauth_records(
+        self,
+        db: AsyncSession,
+        limit: Optional[int] = 100,
+        offset: int = 0,
+        include_user_info: bool = False
+    ) -> List[models.LinkedinUserOauth]:
+        """
+        Admin method to get all LinkedIn OAuth records with pagination.
+        
+        This method is for administrative overview and includes optional
+        user information joining.
+        
+        Args:
+            db: Database session
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            include_user_info: Whether to include user relationship data
+            
+        Returns:
+            List of LinkedinUserOauth records
+        """
+        try:
+            statement = select(self.model)
+            
+            if include_user_info:
+                from kiwi_app.auth.models import User
+                statement = statement.options(selectinload(self.model.user))
+            
+            if limit:
+                statement = statement.limit(limit)
+            
+            statement = statement.offset(offset)
+            
+            result = await db.execute(statement)
+            records = result.scalars().all()
+            
+            logger.info(f"ADMIN: Retrieved {len(records)} LinkedIn OAuth records (limit={limit}, offset={offset})")
+            return records
+            
+        except Exception as e:
+            logger.error(f"ADMIN: Error retrieving LinkedIn OAuth records: {e}")
+            raise 

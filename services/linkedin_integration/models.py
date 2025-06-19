@@ -151,7 +151,7 @@ class LinkedinUserOauth(SQLModel, table=True):
     )
     
     # 1:1 Relationship to User model
-    user: User = Relationship()
+    user: User = Relationship(back_populates="linkedin_oauth")
     
     def is_access_token_expired(self) -> bool:
         """
@@ -228,4 +228,4 @@ class LinkedinUserOauth(SQLModel, table=True):
 
 
 LinkedinUserOauth.model_rebuild()
-
+User.model_rebuild()

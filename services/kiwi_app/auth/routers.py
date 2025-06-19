@@ -1158,7 +1158,9 @@ async def admin_register_user_endpoint(
             user_in=user_admin_in, # Pass data as dict
             background_tasks=background_tasks,
             base_url=None, # Pass base_url, though email won't be sent
-            registered_by_admin=True # Explicitly true for admin registration
+            registered_by_admin=True, # Explicitly true for admin registration
+            send_email_for_verification=False, # Explicitly true for admin registration
+            send_first_steps_guide=False, # Explicitly true for admin registration
         )
         auth_logger.info(f"User {user.email} successfully registered by admin {current_admin.email}. Verified: {user.is_verified}, Superuser: {user.is_superuser}")
         return user

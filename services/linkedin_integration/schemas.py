@@ -47,7 +47,7 @@ class CompleteLinkedinRegistration(BaseModel):
 class LinkExistingAccount(BaseModel):
     """Schema for linking LinkedIn to existing KIWIQ account"""
     email: EmailStr = Field(..., description="Email of existing KIWIQ account")
-    password: str = Field(..., description="Password for verification")
+    password: Optional[str] = Field(None, description="Password for verification (Optional, circumvents email verification)")
 
 
 class LinkLinkedinAccount(BaseModel):
@@ -205,3 +205,56 @@ class OauthVerificationResponse(BaseModel):
 class LinkedInInitiateResponse(BaseModel):
     """Response for initiating the LinkedIn OAuth flow."""
     authorization_url: str = Field(..., description="The URL to redirect the user to for LinkedIn authorization.")
+
+
+# Admin schemas for LinkedIn OAuth management
+class AdminDeleteLinkedinOauthByLinkedinId(BaseModel):
+    """Schema for admin deletion of LinkedIn OAuth by LinkedIn ID"""
+    linkedin_id: str = Field(..., description="LinkedIn user ID (sub) to delete")
+    confirm: bool = Field(..., description="Confirmation flag - must be true")
+    reason: Optional[str] = Field(None, max_length=500, description="Optional reason for deletion")
+
+
+class AdminDeleteLinkedinOauthByUserId(BaseModel):
+    """Schema for admin deletion of LinkedIn OAuth by user ID"""
+    user_id: uuid.UUID = Field(..., description="KIWIQ user ID to delete LinkedIn OAuth for")
+    confirm: bool = Field(..., description="Confirmation flag - must be true")
+    reason: Optional[str] = Field(None, max_length=500, description="Optional reason for deletion")
+
+
+class AdminDeleteLinkedinOauthResponse(BaseModel):
+    """Response schema for admin LinkedIn OAuth deletion"""
+    success: bool = Field(..., description="Whether the deletion was successful")
+    deleted: bool = Field(..., description="Whether a record was actually deleted")
+    linkedin_id: Optional[str] = Field(None, description="LinkedIn ID that was deleted")
+    user_id: Optional[uuid.UUID] = Field(None, description="User ID that was affected")
+    message: str = Field(..., description="Status message")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminLinkedinOauthListItem(BaseModel):
+    """Schema for admin list view of LinkedIn OAuth records"""
+    id: str = Field(..., description="LinkedIn ID (sub)")
+    user_id: Optional[uuid.UUID] = Field(None, description="Associated KIWIQ user ID")
+    user_email: Optional[str] = Field(None, description="Associated user email")
+    user_full_name: Optional[str] = Field(None, description="Associated user full name")
+    oauth_state: str = Field(..., description="Current OAuth state")
+    scopes: List[str] = Field(default_factory=list, description="LinkedIn permissions")
+    token_expires_at: Optional[datetime] = Field(None, description="Access token expiration")
+    is_expired: bool = Field(..., description="Whether the access token is expired")
+    created_at: datetime = Field(..., description="OAuth record creation time")
+    updated_at: datetime = Field(..., description="Last update time")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminLinkedinOauthListResponse(BaseModel):
+    """Response schema for admin LinkedIn OAuth list"""
+    records: List[AdminLinkedinOauthListItem] = Field(default_factory=list)
+    total_count: int = Field(..., description="Total number of records (for pagination)")
+    limit: int = Field(..., description="Records per page limit")
+    offset: int = Field(..., description="Number of records skipped")
+    has_more: bool = Field(..., description="Whether there are more records available")
+    
+    model_config = ConfigDict(from_attributes=True)
