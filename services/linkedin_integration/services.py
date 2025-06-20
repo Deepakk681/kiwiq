@@ -330,7 +330,7 @@ class LinkedinOauthService:
             )
 
             if not existing_user.is_verified:
-                await self.user_dao.update(db, db_obj=existing_user, obj_in=auth_schemas.UserUpdate(is_verified=True))
+                await self.user_dao.update(db, db_obj=existing_user, obj_in=auth_schemas.UserAdminUpdate(is_verified=True))
             
             logger.info(f"LinkedIn account linked to existing user: {existing_user.email}")
             

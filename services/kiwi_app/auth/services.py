@@ -1122,7 +1122,11 @@ class AuthService:
             HTTPException: If there's a database or email sending error
         """
         # 1. Verify current password for security
-        is_valid_password = security.verify_password(current_password, user.hashed_password)
+        if user.is_verified:
+            is_valid_password = security.verify_password(current_password, user.hashed_password)
+        else:  # if user is not verified, we don't need to verify the password
+            is_valid_password = True
+
         if not is_valid_password:
             auth_logger.warning(f"Email change request failed for {user.email}: incorrect current password")
             raise CredentialsException(detail="Current password is incorrect")
@@ -1264,6 +1268,101 @@ class AuthService:
             message="Email address successfully changed. Please log in again with your new email address.",
             new_email=new_email
         )
+
+    async def get_user_organizations_by_email(
+        self,
+        db: AsyncSession,
+        *,
+        user_email: str,
+    ) -> models.User:
+        """
+        Admin endpoint to retrieve all organizations for a specific user by email.
+        
+        This method allows administrators to look up all organizations that a user
+        belongs to along with their roles in each organization. This is useful for
+        admin interfaces, user management, and debugging user access issues.
+        
+        Args:
+            db: Database session
+            user_email: Email address of the user to look up organizations for
+            current_user: The admin user making the request
+            
+        Returns:
+            models.User: User object with organization_links, organizations, and roles loaded
+            
+        Raises:
+            PermissionDeniedException: If the current user is not a superuser/admin
+            UserNotFoundException: If the target user doesn't exist
+            HTTPException: If there's a database error during lookup
+        """
+        
+        # 2. Find the target user by email
+        target_user = await self.user_dao.get_by_email(db, email=user_email)
+        if not target_user:
+            raise UserNotFoundException(detail=f"User with email {user_email} not found")
+        
+        # 3. Get user with organization links loaded
+        try:
+            # Fetch the user with all organization relationships loaded
+            user_with_orgs = await self.user_dao.get(
+                db,
+                id=target_user.id,
+                load_relations=[
+                    (models.User, "organization_links"),                      # Load User -> UserOrganizationRole links
+                    (models.UserOrganizationRole, "organization_links.organization"),  # Load Organization from each link
+                    (models.UserOrganizationRole, "organization_links.role")          # Load Role from each link
+                ]
+            )
+            
+            if not user_with_orgs:
+                # Should not happen since we already found the user, but handle defensively
+                auth_logger.error(f"Failed to reload user {user_email} with organization relationships")
+                raise HTTPException(status_code=500, detail="Failed to load user organization data")
+            return user_with_orgs
+            
+        except Exception as e:
+            auth_logger.error(f"Database error loading organizations for user {user_email}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve user organizations due to a database error"
+            )
+        
+        # # 4. Extract the loaded organization links
+        # org_links: List[models.UserOrganizationRole] = getattr(user_with_orgs, "organization_links", [])
+        # if not hasattr(user_with_orgs, "organization_links"):
+        #     auth_logger.error(f"User model does not have the expected 'organization_links' relationship attribute for user {user_email}. Cannot retrieve organizations.")
+        #     return [] # Return empty list rather than error
+        
+        # # 5. Transform the loaded data into the expected schema format
+        # result: List[schemas.UserOrganizationRoleReadWithUser] = []
+        # user_model_dump = user_with_orgs.model_dump() # Dump user once for reuse
+        
+        # for link in org_links:
+        #     # Perform defensive checks to ensure the DAO loaded the required relationships
+        #     if not link.organization:
+        #         auth_logger.warning(f"Organization relationship not loaded for UserOrganizationRole link (User: {user_email}, Org ID: {link.organization_id}) despite load_relations. Skipping entry.")
+        #         continue
+        #     if not link.role:
+        #         auth_logger.warning(f"Role relationship not loaded for UserOrganizationRole link (User: {user_email}, Org ID: {link.organization_id}) despite load_relations. Skipping entry.")
+        #         continue
+            
+        #     # Create the response object with full details
+        #     try:
+        #         user_org_entry = schemas.UserOrganizationRoleReadWithUser(
+        #             user=user_model_dump,  # Use the user dump from earlier
+        #             organization=link.organization.model_dump(),
+        #             role=link.role.model_dump(),  # Assumes Role schema includes permissions if needed
+        #             created_at=link.created_at
+        #         )
+        #         result.append(user_org_entry)
+        #     except Exception as e:
+        #         # Catch potential validation errors if model_dump() output doesn't match schema
+        #         auth_logger.error(f"Schema validation failed for organization {getattr(link.organization, 'name', 'Unknown')} for user {user_email}: {e}", exc_info=True)
+        #         # Skip this entry rather than failing the entire request
+        #         continue
+        
+        # auth_logger.info(f"Admin {current_user.email} retrieved {len(result)} organizations for user {user_email}")
+        # return result
 
 # Instantiate service for use in routers/dependencies
 # auth_service = AuthService() 

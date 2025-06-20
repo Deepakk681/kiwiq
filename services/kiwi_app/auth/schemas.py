@@ -243,7 +243,7 @@ class RequestEmailChange(BaseModel):
         current_password: Current password for security verification
     """
     new_email: EmailStr = Field(..., description="New email address to change to")
-    current_password: str = Field(..., description="Current password for security verification")
+    current_password: Optional[str] = Field(None, description="Current password for security verification")
 
 class ConfirmEmailChange(BaseModel):
     """

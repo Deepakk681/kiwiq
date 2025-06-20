@@ -86,7 +86,8 @@ async def register_user_endpoint(
             user_in=user_in, # Pass data as dict
             background_tasks=background_tasks, # Pass background tasks
             base_url=base_url,
-            registered_by_admin=False # Explicitly false for regular registration
+            registered_by_admin=False, # Explicitly false for regular registration
+            send_email_for_verification=True,
         )
         auth_logger.info(f"User successfully registered: {user.email}")
         return user
@@ -824,6 +825,23 @@ async def list_my_organizations(
 
     return current_user_with_orgs
 
+
+@router.get("/admin/users/organizations", response_model=schemas.UserReadWithOrgs, tags=["admin"])
+async def list_user_organizations(
+    # No specific permission needed to list own memberships
+    db: AsyncSession = Depends(get_async_db_dependency), # Need DB session to reload
+    current_superuser: models.User = Depends(dependencies.get_current_active_superuser),
+    user_email: str = Query(...),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service), # Inject service
+):
+    """
+    List all organizations a user is a member of, including their role.
+    Requires the user's relationships to be loaded.
+    Requires the current user to be a superuser.
+    """
+    user_with_orgs = await auth_service.get_user_organizations_by_email(db=db, user_email=user_email)
+
+    return user_with_orgs
 
 # === Organization & Role Management Endpoints ===
 
