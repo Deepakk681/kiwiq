@@ -162,6 +162,55 @@ class UserReadWithOrgs(UserRead):
     # Include organization memberships with roles
     organization_links: List[UserOrganizationRoleRead] = []
 
+class UserReadWithOrgsFiltered(UserRead):
+    """
+    User read schema with filtered organization links.
+    
+    This schema is used when we need to return a user with a filtered subset
+    of their organization links (e.g., only active organizations) without
+    modifying the underlying ORM object.
+    """
+    # Include organization memberships with roles
+    organization_links: List[UserOrganizationRoleRead] = []
+    
+    @classmethod
+    def from_orm_with_filter(cls, user: Any, show_inactive: bool = False) -> "UserReadWithOrgsFiltered":
+        """
+        Create instance from ORM object with optional organization filtering.
+        
+        Args:
+            user: The ORM User object with loaded organization_links
+            show_inactive: If True, include all orgs. If False, only include active orgs.
+            
+        Returns:
+            UserReadWithOrgsFiltered instance with appropriately filtered links
+        """
+        # Convert base user fields
+        user_data = {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_verified": user.is_verified,
+            "linkedin_id": user.linkedin_id,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "organization_links": []
+        }
+        
+        # Filter organization links if needed
+        if hasattr(user, 'organization_links') and user.organization_links:
+            for link in user.organization_links:
+                # Include all links if show_inactive=True, otherwise only active orgs
+                if show_inactive or (link.organization and link.organization.is_active):
+                    user_data["organization_links"].append(UserOrganizationRoleRead(
+                        organization=OrganizationRead.model_validate(link.organization.model_dump()),
+                        role=RoleRead.model_validate(link.role.model_dump()),
+                        created_at=link.created_at
+                    ))
+        
+        return cls(**user_data)
+
 class UserUpdate(BaseModel):
     # Fields users can update about themselves
     full_name: Optional[str] = None

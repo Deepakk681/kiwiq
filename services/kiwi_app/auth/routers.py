@@ -791,7 +791,7 @@ async def update_users_me_endpoint(
     updated_user = await user_dao.update(db=db, db_obj=current_user, obj_in=update_data)
     return updated_user
 
-@router.get("/users/me/organizations", response_model=schemas.UserReadWithOrgs, tags=["users"])
+@router.get("/users/me/organizations", response_model=schemas.UserReadWithOrgsFiltered, tags=["users"])
 async def list_my_organizations(
     current_user_with_orgs: models.User = Depends(dependencies.get_current_active_user_with_orgs),
     # No specific permission needed to list own memberships
@@ -806,17 +806,11 @@ async def list_my_organizations(
     Args:
         show_inactive: If True, include inactive organizations. If False (default), only show active organizations.
     """
-    # If user only wants active organizations, filter the current user's organization links
-    if not show_inactive and current_user_with_orgs.organization_links:
-        # Filter out inactive organizations from the loaded organization links
-        current_user_with_orgs.organization_links = [
-            link for link in current_user_with_orgs.organization_links
-            if link.organization and link.organization.is_active
-        ]
-        
-        auth_logger.debug(f"Filtered to active organizations only for user {current_user_with_orgs.email}")
-
-    return current_user_with_orgs
+    # Use the new schema method to create a filtered response without modifying the ORM object
+    return schemas.UserReadWithOrgsFiltered.from_orm_with_filter(
+        current_user_with_orgs, 
+        show_inactive=show_inactive
+    )
 
 
 @router.get("/admin/users/organizations", response_model=schemas.UserReadWithOrgs, tags=["admin"])
