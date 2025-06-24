@@ -1,3 +1,4 @@
+import json
 import uuid
 import logging # Keep standard logging import if needed elsewhere, but we use the specific logger
 from typing import Optional, List, Set, Tuple
@@ -374,31 +375,38 @@ class AuthService:
         db: AsyncSession,
         *,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        active_only: bool = True
     ) -> List[models.Organization]:
         """
-        Retrieve a list of organizations with pagination.
+        Retrieve a list of organizations with pagination and active filtering.
         
         This method fetches multiple organization records from the database with
-        pagination support. It's useful for admin interfaces or when
-        displaying organization listings.
+        pagination support and optional filtering by active status. By default,
+        only active organizations are returned to hide deactivated ones from
+        regular interfaces.
         
         Args:
             db: Database session
             skip: Number of records to skip (for pagination)
             limit: Maximum number of records to return
+            active_only: If True, only return active organizations. If False, return all.
             
         Returns:
-            List[models.Organization]: A list of organization objects
+            List[models.Organization]: A list of organization objects matching the criteria
             
         Note:
-            This method uses the base get_multi method from the DAO pattern
-            which handles the pagination logic.
+            This method uses the enhanced get_multi_with_active_filter method from the DAO
+            which handles the active status filtering logic.
         """
-        auth_logger.info(f"Listing organizations with skip={skip}, limit={limit}")
+        auth_logger.info(f"Listing organizations with skip={skip}, limit={limit}, active_only={active_only}")
         try:
-            organizations = await self.org_dao.get_multi(db=db, skip=skip, limit=limit)
-            auth_logger.debug(f"Retrieved {len(organizations)} organizations")
+            organizations = await self.org_dao.get_multi_with_active_filter(
+                db=db, skip=skip, limit=limit, active_only=active_only
+            )
+            filter_desc = "active" if active_only else "all"
+            # auth_logger.info(f"Retrieved {len(organizations)} {filter_desc} organizations: {json.dumps([org.model_dump(mode='json') for org in organizations])}")
+            auth_logger.debug(f"Retrieved {len(organizations)} {filter_desc} organizations")
             return organizations
         except Exception as e:
             auth_logger.error(f"Error listing organizations: {e}", exc_info=True)
@@ -1363,6 +1371,141 @@ class AuthService:
         
         # auth_logger.info(f"Admin {current_user.email} retrieved {len(result)} organizations for user {user_email}")
         # return result
+
+    async def deactivate_organization(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        current_user: models.User
+    ) -> models.Organization:
+        """
+        Deactivate an organization after verifying permissions.
+        
+        This method sets an organization's is_active status to False, effectively
+        hiding it from regular user interfaces while preserving all data. The
+        organization and its data remain in the database but are marked as inactive.
+        
+        Args:
+            db: Database session
+            org_id: UUID of the organization to deactivate
+            current_user: The user requesting the deactivation
+            
+        Returns:
+            models.Organization: The deactivated organization
+            
+        Raises:
+            OrganizationNotFoundException: If the organization doesn't exist
+            PermissionDeniedException: If the user lacks the required permission
+            HTTPException: If there's a database error during deactivation
+        """
+        # 1. Check if organization exists
+        target_org = await self.org_dao.get(db, id=org_id)
+        if not target_org:
+            auth_logger.warning(f"Attempted to deactivate non-existent organization: {org_id}")
+            raise OrganizationNotFoundException()
+        
+        # 2. Check if user has permission to update the organization
+        # await self._check_permission(db, user=current_user, org_id=org_id, required_permission=Permissions.ORG_UPDATE)
+        
+        # 3. Perform the deactivation
+        try:
+            updated_org = await self.org_dao.update_organization_status(
+                db=db, 
+                org_id=org_id, 
+                is_active=False
+            )
+            
+            if updated_org:
+                auth_logger.info(
+                    f"Organization '{updated_org.name}' (ID: {org_id}) deactivated by user '{current_user.email}'"
+                )
+                return updated_org
+            else:
+                # Should not happen if we already verified the org exists
+                auth_logger.error(f"Failed to deactivate organization {org_id} - update returned None")
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to deactivate organization due to a database error"
+                )
+                
+        except Exception as e:
+            auth_logger.error(
+                f"Database error deactivating organization {org_id}: {e}", 
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to deactivate organization due to a database error"
+            )
+
+    async def reactivate_organization(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        current_user: models.User
+    ) -> models.Organization:
+        """
+        Reactivate an organization after verifying permissions.
+        
+        This method sets an organization's is_active status to True, making it
+        visible again in regular user interfaces. This is useful for restoring
+        organizations that were temporarily deactivated.
+        
+        Args:
+            db: Database session
+            org_id: UUID of the organization to reactivate
+            current_user: The user requesting the reactivation
+            
+        Returns:
+            models.Organization: The reactivated organization
+            
+        Raises:
+            OrganizationNotFoundException: If the organization doesn't exist
+            PermissionDeniedException: If the user lacks the required permission
+            HTTPException: If there's a database error during reactivation
+        """
+        # 1. Check if organization exists (don't filter by active status for reactivation)
+        target_org = await self.org_dao.get(db, id=org_id)
+        if not target_org:
+            auth_logger.warning(f"Attempted to reactivate non-existent organization: {org_id}")
+            raise OrganizationNotFoundException()
+        
+        # 2. Check if user has permission to update the organization
+        # Note: For reactivation, we check permissions even if org is inactive
+        # await self._check_permission(db, user=current_user, org_id=org_id, required_permission=Permissions.ORG_UPDATE)
+        
+        # 3. Perform the reactivation
+        try:
+            updated_org = await self.org_dao.update_organization_status(
+                db=db, 
+                org_id=org_id, 
+                is_active=True
+            )
+            
+            if updated_org:
+                auth_logger.info(
+                    f"Organization '{updated_org.name}' (ID: {org_id}) reactivated by user '{current_user.email}'"
+                )
+                return updated_org
+            else:
+                # Should not happen if we already verified the org exists
+                auth_logger.error(f"Failed to reactivate organization {org_id} - update returned None")
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Failed to reactivate organization due to a database error"
+                )
+                
+        except Exception as e:
+            auth_logger.error(
+                f"Database error reactivating organization {org_id}: {e}", 
+                exc_info=True
+            )
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to reactivate organization due to a database error"
+            )
 
 # Instantiate service for use in routers/dependencies
 # auth_service = AuthService() 

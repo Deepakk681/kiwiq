@@ -232,9 +232,7 @@ class OrganizationSubscription(SQLModel, table=True):
     # Foreign keys to existing auth models
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
     plan_id: uuid.UUID = Field(
         default=None,
@@ -296,15 +294,11 @@ class CreditPurchase(SQLModel, table=True):
     # Foreign keys
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
     user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", ondelete="SET NULL"), index=True, nullable=True),
         description="User who initiated the purchase"
     )
     
@@ -427,15 +421,11 @@ class PromotionCodeUsage(SQLModel, table=True):
     )
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
     user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", ondelete="SET NULL"), index=True, nullable=True),
         description="User who applied the promotion code"
     )
     
@@ -469,9 +459,7 @@ class OrganizationNetCredits(SQLModel, table=True):
     # Foreign keys - org_id + credit_type combination must be unique
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
 
     # Credit details - credit_type is part of the unique constraint
@@ -514,9 +502,7 @@ class OrganizationCredits(SQLModel, table=True):
     # Foreign keys
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
     
     # Credit details
@@ -573,17 +559,13 @@ class UsageEvent(SQLModel, table=True):
     # Make this optional so if user is deleted, it is set to null
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}org.id", ondelete="CASCADE"), index=True, nullable=True),
     )
     
     # Make this optional so if user is deleted, it is set to null
     user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", 
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", ondelete="SET NULL"), index=True, nullable=True),
     )
     
     # Event details

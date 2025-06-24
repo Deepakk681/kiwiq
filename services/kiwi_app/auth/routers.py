@@ -796,32 +796,25 @@ async def list_my_organizations(
     current_user_with_orgs: models.User = Depends(dependencies.get_current_active_user_with_orgs),
     # No specific permission needed to list own memberships
     db: AsyncSession = Depends(get_async_db_dependency), # Need DB session to reload
-    user_dao: crud.UserDAO = Depends(dependencies.get_user_dao) # Inject DAO for direct update
+    user_dao: crud.UserDAO = Depends(dependencies.get_user_dao), # Inject DAO for direct update
+    show_inactive: bool = Query(False, description="Include inactive organizations in the results")
 ):
     """
     List all organizations the current user is a member of, including their role.
-    Requires the user's relationships to be loaded.
+    By default, only active organizations are returned unless specifically requested.
+    
+    Args:
+        show_inactive: If True, include inactive organizations. If False (default), only show active organizations.
     """
-    # # The get_current_user dependency might not load relationships by default anymore
-    # # We need to ensure they are loaded here for the response model.
-    # # Option 1: Reload the user with relationships
-    # user_with_orgs = await user_dao.get(db, id=current_user.id, load_relations=["organization_links", "organization_links.organization", "organization_links.role"])
-    # if not user_with_orgs:
-    #     raise HTTPException(status_code=404, detail="User not found") # Should not happen
-
-    # # Need to iterate to load nested relations if not handled by DAO get
-    # # This can be inefficient (N+1 problem if not handled carefully by SQLModel/SQLAlchemy relationship loading)
-    # links_to_return = []
-    # if user_with_orgs.organization_links:
-    #     for link in user_with_orgs.organization_links:
-    #         # Ensure nested organization and role->permissions are loaded
-    #         await db.refresh(link, relationship_names=["organization", "role"])
-    #         if link.role:
-    #             await db.refresh(link.role, relationship_names=["permissions"])
-    #         links_to_return.append(link)
-
-    # print(current_user_with_orgs.organization_links)
-    # import ipdb; ipdb.set_trace()
+    # If user only wants active organizations, filter the current user's organization links
+    if not show_inactive and current_user_with_orgs.organization_links:
+        # Filter out inactive organizations from the loaded organization links
+        current_user_with_orgs.organization_links = [
+            link for link in current_user_with_orgs.organization_links
+            if link.organization and link.organization.is_active
+        ]
+        
+        auth_logger.debug(f"Filtered to active organizations only for user {current_user_with_orgs.email}")
 
     return current_user_with_orgs
 
@@ -898,13 +891,14 @@ async def get_organization_users_endpoint(
         auth_logger.exception(f"Error retrieving users for org {org_id} by user {current_user.email}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred.")
 
-@router.delete("/organizations/{org_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["organizations"])
+@router.delete("/organizations/{org_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
 async def delete_organization_endpoint(
     org_id: uuid.UUID = Path(..., description="The ID of the organization to delete"),
     db: AsyncSession = Depends(get_async_db_dependency),
     active_org_id: uuid.UUID = Depends(dependencies.get_active_org_id),
     # Only superusers can delete organizations
-    current_user: models.User = Depends(dependencies.SpecificOrgPermissionChecker([Permissions.ORG_DELETE])),
+    current_superuser: models.User = Depends(dependencies.get_current_active_superuser),
+    # current_user: models.User = Depends(dependencies.SpecificOrgPermissionChecker([Permissions.ORG_DELETE])),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service)
 ):
     """
@@ -926,18 +920,18 @@ async def delete_organization_endpoint(
             - 403 if user lacks permission (handled by dependency)
             - 500 for unexpected errors
     """
-    if active_org_id == org_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the active organization.")
-    if active_org_id is None and (not current_user.is_superuser):
+    # if active_org_id == org_id:
+    #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the active organization.")
+    if active_org_id is None and (not current_superuser.is_superuser):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active organization not set and user is not a superuser.")
     try:
-        await auth_service.delete_organization(db=db, org_id=org_id, current_user=current_user)
-        auth_logger.info(f"Organization {org_id} deleted by superuser '{current_user.email}'")
+        await auth_service.delete_organization(db=db, org_id=org_id, current_user=current_superuser)
+        auth_logger.info(f"Organization {org_id} deleted by superuser '{current_superuser.email}'")
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except OrganizationNotFoundException as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.detail)
     except Exception as e:
-        auth_logger.exception(f"Error deleting organization {org_id} by superuser {current_user.email}", exc_info=e)
+        auth_logger.exception(f"Error deleting organization {org_id} by superuser {current_superuser.email}", exc_info=e)
         raise HTTPException(status_code=500, detail="An internal error occurred while deleting the organization.")
 
 
@@ -1107,6 +1101,121 @@ async def update_organization_billing_email_endpoint(
             detail="An error occurred while updating the organization billing email"
         )
 
+@router.patch("/organizations/{org_id}/deactivate", response_model=schemas.OrganizationRead, tags=["organizations"])
+async def deactivate_organization_endpoint(
+    org_id: uuid.UUID = Path(..., description="The ID of the organization to deactivate"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    # Check permission using the SpecificOrgPermissionChecker for the org_id in path
+    current_user: models.User = Depends(dependencies.SpecificOrgPermissionChecker([Permissions.ORG_UPDATE])),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    Deactivate an organization.
+    
+    This endpoint allows authorized users to deactivate an organization, which hides it
+    from regular user interfaces while preserving all data. The organization can be
+    reactivated later if needed.
+    
+    Deactivated organizations:
+    - Are hidden from regular organization listings
+    - Preserve all user memberships and data
+    - Can still be accessed by direct ID for administrative purposes
+    - Can be reactivated by users with appropriate permissions
+    
+    Args:
+        org_id: UUID of the organization to deactivate
+        
+    Returns:
+        OrganizationRead: The deactivated organization
+        
+    Raises:
+        HTTPException: 
+            - 404 if organization not found
+            - 403 if user lacks permission (handled by dependency)
+            - 500 for unexpected errors
+    """
+    try:
+        # Call the service method to handle the deactivation logic
+        updated_org = await auth_service.deactivate_organization(
+            db=db, 
+            org_id=org_id, 
+            current_user=current_user
+        )
+        
+        auth_logger.info(f"Organization {org_id} deactivated by user '{current_user.email}'")
+        return updated_org
+        
+    except OrganizationNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Organization not found"
+        )
+    except PermissionDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.detail
+        )
+    except Exception as e:
+        auth_logger.exception(f"Error deactivating organization {org_id} by user {current_user.email}", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deactivating the organization"
+        )
+
+@router.patch("/organizations/{org_id}/reactivate", response_model=schemas.OrganizationRead, tags=["organizations"])
+async def reactivate_organization_endpoint(
+    org_id: uuid.UUID = Path(..., description="The ID of the organization to reactivate"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    # Check permission using the SpecificOrgPermissionChecker for the org_id in path
+    current_user: models.User = Depends(dependencies.SpecificOrgPermissionChecker([Permissions.ORG_UPDATE])),
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+):
+    """
+    Reactivate a previously deactivated organization.
+    
+    This endpoint allows authorized users to reactivate an organization that was
+    previously deactivated, making it visible again in regular user interfaces.
+    
+    Args:
+        org_id: UUID of the organization to reactivate
+        
+    Returns:
+        OrganizationRead: The reactivated organization
+        
+    Raises:
+        HTTPException: 
+            - 404 if organization not found
+            - 403 if user lacks permission (handled by dependency)
+            - 500 for unexpected errors
+    """
+    try:
+        # Call the service method to handle the reactivation logic
+        updated_org = await auth_service.reactivate_organization(
+            db=db, 
+            org_id=org_id, 
+            current_user=current_user
+        )
+        
+        auth_logger.info(f"Organization {org_id} reactivated by user '{current_user.email}'")
+        return updated_org
+        
+    except OrganizationNotFoundException as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Organization not found"
+        )
+    except PermissionDeniedException as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.detail
+        )
+    except Exception as e:
+        auth_logger.exception(f"Error reactivating organization {org_id} by user {current_user.email}", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while reactivating the organization"
+        )
+
 # === Admin/Superuser Endpoints (Example) ===
 
 
@@ -1240,36 +1349,47 @@ async def list_users_endpoint(
 async def list_organizations_endpoint(
     skip: int = Query(0, ge=0, description="Number of organizations to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum number of organizations to return"),
+    include_inactive: bool = Query(True, description="Include inactive organizations in the results"),
     db: AsyncSession = Depends(get_async_db_dependency),
     current_user: models.User = Depends(dependencies.get_current_active_superuser),
     auth_service: services.AuthService = Depends(dependencies.get_auth_service)
 ):
     """
-    List all organizations with pagination, for admin interface.
+    List all organizations with pagination and active status filtering, for admin interface.
     
-    This endpoint provides a paginated list of all organizations in the system.
+    This endpoint provides a paginated list of organizations in the system with the ability
+    to include or exclude inactive organizations from the results.
     
     Args:
         skip: Number of organizations to skip (for pagination)
         limit: Maximum number of organizations to return (for pagination)
+        include_inactive: If True, include inactive organizations. If False (default), only show active organizations.
         db: Database session
-        current_user: The authenticated user making the request
+        current_user: The authenticated superuser making the request
         auth_service: Service for organization-related operations
         
     Returns:
-        List[OrganizationRead]: A list of organization objects with their basic information
+        List[OrganizationRead]: A list of organization objects matching the filter criteria
         
     Raises:
         HTTPException: 
             - 401 if the user is not authenticated (handled by dependency)
+            - 403 if the user is not a superuser (handled by dependency)
             - 500 for unexpected errors
     """
     try:
-        organizations = await auth_service.list_organizations(db=db, skip=skip, limit=limit)
-        auth_logger.info(f"Organization list retrieved by user: {current_user.email}")
+        # Pass active_only=False if include_inactive is True, otherwise active_only=True (default behavior)
+        organizations = await auth_service.list_organizations(
+            db=db, 
+            skip=skip, 
+            limit=limit, 
+            active_only=not include_inactive
+        )
+        filter_desc = "all" if include_inactive else "active"
+        auth_logger.info(f"Organization list ({filter_desc}) retrieved by superuser: {current_user.email}")
         return organizations
     except Exception as e:
-        auth_logger.exception(f"Error listing organizations for user {current_user.email}", exc_info=e)
+        auth_logger.exception(f"Error listing organizations for superuser {current_user.email}", exc_info=e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while retrieving the organization list"

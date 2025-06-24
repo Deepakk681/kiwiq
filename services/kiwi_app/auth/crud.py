@@ -399,6 +399,131 @@ class OrganizationDAO(BaseDAO[models.Organization, schemas.OrganizationCreate, s
             auth_logger.error(f"Error counting users for organization {org_id}: {e}", exc_info=True)
             raise
 
+    async def get_active_organizations(
+        self, 
+        db: AsyncSession, 
+        *, 
+        skip: int = 0, 
+        limit: int = 100
+    ) -> Sequence[models.Organization]:
+        """
+        Get multiple active organizations with pagination.
+        
+        This method fetches only organizations where is_active=True, which is useful
+        for regular user interfaces where inactive organizations should be hidden.
+        
+        Args:
+            db: Database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Sequence of active organization objects
+        """
+        try:
+            statement = select(self.model).where(
+                self.model.is_active == True
+            ).offset(skip).limit(limit).order_by(self.model.created_at.desc())
+            
+            result = await db.exec(statement)
+            organizations = result.scalars().all()
+            
+            auth_logger.debug(f"Retrieved {len(organizations)} active organizations")
+            return organizations
+            
+        except Exception as e:
+            auth_logger.error(f"Error getting active organizations: {e}", exc_info=True)
+            raise
+
+    async def get_multi_with_active_filter(
+        self, 
+        db: AsyncSession, 
+        *, 
+        skip: int = 0, 
+        limit: int = 100,
+        active_only: bool = True
+    ) -> Sequence[models.Organization]:
+        """
+        Get multiple organizations with optional active filtering and pagination.
+        
+        This method provides flexible organization retrieval with the ability to
+        filter by active status. Useful for admin interfaces where you might want
+        to see all organizations or just active ones.
+        
+        Args:
+            db: Database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            active_only: If True, only return active organizations. If False, return all.
+            
+        Returns:
+            Sequence of organization objects matching the filter criteria
+        """
+        try:
+            statement = select(self.model)
+            
+            if active_only:
+                statement = statement.where(self.model.is_active == True)
+                
+            statement = statement.offset(skip).limit(limit).order_by(self.model.created_at.desc())
+            
+            result = await db.exec(statement)
+            organizations = result.scalars().all()
+            
+            filter_desc = "active" if active_only else "all"
+            auth_logger.debug(f"Retrieved {len(organizations)} {filter_desc} organizations")
+            return organizations
+            
+        except Exception as e:
+            auth_logger.error(f"Error getting organizations with filter: {e}", exc_info=True)
+            raise
+
+    async def update_organization_status(
+        self, 
+        db: AsyncSession, 
+        *, 
+        org_id: uuid.UUID, 
+        is_active: bool
+    ) -> Optional[models.Organization]:
+        """
+        Update an organization's active status.
+        
+        This method allows setting an organization as active or inactive.
+        Inactive organizations are typically hidden from regular user interfaces
+        but remain accessible to administrators.
+        
+        Args:
+            db: Database session
+            org_id: Organization ID to update
+            is_active: New active status (True for active, False for inactive)
+            
+        Returns:
+            Updated organization or None if not found
+            
+        Raises:
+            Exception: If there's a database error during update
+        """
+        try:
+            # Get the organization
+            org = await self.get(db, id=org_id)
+            if not org:
+                auth_logger.warning(f"Attempted to update status for non-existent organization: {org_id}")
+                return None
+            
+            # Update the active status
+            org.is_active = is_active
+            db.add(org)
+            await db.commit()
+            await db.refresh(org)
+            
+            status_text = "active" if is_active else "inactive"
+            auth_logger.info(f"Updated organization {org_id} status to: {status_text}")
+            return org
+            
+        except Exception as e:
+            auth_logger.error(f"Error updating organization status for {org_id}: {e}", exc_info=True)
+            raise
+
 
 class UserDAO(BaseDAO[models.User, schemas.UserCreate, schemas.UserAdminUpdate]): # Use AdminUpdate for full updates
     def __init__(self):
@@ -412,6 +537,41 @@ class UserDAO(BaseDAO[models.User, schemas.UserCreate, schemas.UserAdminUpdate])
         ).where(self.model.email == email)
         result = await db.exec(statement)
         return result.scalars().first()
+
+    async def get_by_email_with_active_orgs(self, db: AsyncSession, email: str) -> Optional[models.User]:
+        """
+        Get user by email, loading only active organization links and roles.
+        
+        This method is similar to get_by_email but filters out inactive organizations
+        from the loaded relationships, which is useful for regular user interfaces
+        where inactive organizations should be hidden.
+        
+        Args:
+            db: Database session
+            email: User email to search for
+            
+        Returns:
+            User object with only active organization links loaded, or None if user not found
+        """
+        statement = select(self.model).options(
+            selectinload(self.model.organization_links)
+            .selectinload(models.UserOrganizationRole.organization)
+            .where(models.Organization.is_active == True),
+            selectinload(self.model.organization_links)
+            .selectinload(models.UserOrganizationRole.role)
+            .selectinload(models.Role.permissions)
+        ).where(self.model.email == email)
+        result = await db.exec(statement)
+        user = result.scalars().first()
+        
+        # Additional filtering to ensure organization_links only include active organizations
+        if user and user.organization_links:
+            user.organization_links = [
+                link for link in user.organization_links 
+                if link.organization and link.organization.is_active
+            ]
+        
+        return user
 
     async def get_by_linkedin_id(self, db: AsyncSession, linkedin_id: str) -> Optional[models.User]:
         """Get user by LinkedIn ID, loading organization links and roles."""

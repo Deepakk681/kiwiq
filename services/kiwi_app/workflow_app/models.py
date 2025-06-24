@@ -75,9 +75,7 @@ class Workflow(SQLModel, table=True):
     # TODO: handle case when user deletes an org! provide option to transfer all workflows to another org!
     owner_org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id", # Use full path to auth org table
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), index=True, nullable=True),
         description="Organization that owns this workflow"
     )
     graph_config: Dict[str, Any] = Field(
@@ -97,8 +95,7 @@ class Workflow(SQLModel, table=True):
 
     created_by_user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}user.id", # Full path to auth user table
-        nullable=True
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="SET NULL"), nullable=True, index=True),
     )
 
     created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
@@ -169,8 +166,7 @@ class ChatThread(SQLModel, table=True):
     )
 
     user_id: uuid.UUID = Field(
-        foreign_key=f"{auth_table_prefix}user.id",
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="CASCADE"), nullable=False, index=True),
         description="User ID of the thread owner"
     )
 
@@ -253,16 +249,12 @@ class WorkflowConfigOverride(SQLModel, table=True):
     )
     user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}user.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="CASCADE"), nullable=True, index=True),
         description="User-specific override"
     )
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=True, index=True),
         description="Organization-specific override"
     )
 
@@ -331,17 +323,12 @@ class WorkflowRun(SQLModel, table=True):
         description="Key name of the workflow"
     )
     owner_org_id: Optional[uuid.UUID] = Field(
-        foreign_key=f"{auth_table_prefix}org.id", # Full path to auth org table
-        default=None,
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=True, index=True),
         description="Denormalized Org ID for easier run querying"
     )
     triggered_by_user_id: Optional[uuid.UUID] = Field(
         # default=None,
-        foreign_key=f"{auth_table_prefix}user.id", # Full path to auth user table
-        nullable=True,  # Explicitly nullable
-        index=True
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="SET NULL"), nullable=True, index=True),
     )
 
     status: WorkflowRunStatus = Field(
@@ -417,9 +404,7 @@ class PromptTemplate(SQLModel, table=True):
 
     owner_org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id", # Full path to auth org table
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=True, index=True),
         description="Org owner if not a system template"
     )
     is_system_entity: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a KiwiQ system template, only meant to be used by KiwiQ application.")
@@ -460,9 +445,7 @@ class SchemaTemplate(SQLModel, table=True):
 
     owner_org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id", # Full path to auth org table
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=True, index=True),
         description="Org owner if not a system template"
     )
     is_system_entity: Optional[bool] = Field(default=False, index=True, nullable=True, description="True if this is a KiwiQ system template, only meant to be used by KiwiQ application.")
@@ -482,23 +465,17 @@ class UserNotification(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
     user_id: Optional[uuid.UUID] = Field(
-        foreign_key=f"{auth_table_prefix}user.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="CASCADE"), nullable=True, index=True),
         description="The user receiving the notification"
     )
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="SET NULL"), nullable=True, index=True),
         description="The organization context for the notification"
     )
     related_run_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{table_prefix}workflow_run.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}workflow_run.id", ondelete="CASCADE"), nullable=True, index=True),
         description="Optional link to the relevant workflow run"
     )
     notification_type: NotificationType = Field(
@@ -540,24 +517,18 @@ class HITLJob(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
     requesting_run_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{table_prefix}workflow_run.id",
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}workflow_run.id", ondelete="CASCADE"), nullable=True, index=True),
         description="The workflow run that requested human input"
     )
     assigned_user_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}user.id",
-        nullable=True,
-        index=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="SET NULL"), nullable=True, index=True),
         description="The specific user assigned to this job (if any)"
     )
     # TODO: Consider adding assigned_group_id or role if assignment is not always to a specific user
     org_id: Optional[uuid.UUID] = Field(
         default=None,
-        foreign_key=f"{auth_table_prefix}org.id",
-        index=True,
-        nullable=True,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=True, index=True),
         description="The organization context for this job"
     )
     status: HITLJobStatus = Field(

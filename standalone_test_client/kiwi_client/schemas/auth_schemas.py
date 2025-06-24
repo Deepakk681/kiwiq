@@ -34,7 +34,7 @@ class RoleCreate(RoleBase):
     permissions: List[str] = [] # List of permission *names* to link
 
 class RoleRead(RoleBase, UUIDModel, TimestampModel):
-    # permissions: Optional[List[PermissionRead]] = [] # Embed permission details
+    permissions: Optional[List[PermissionRead]] = [] # Embed permission details
     is_system_role: bool
 
 class RoleUpdate(BaseModel):
@@ -214,4 +214,26 @@ class ResetPassword(BaseModel):
     """Schema for resetting the password using a token."""
     token: str
     new_password: str = Field(..., min_length=8)
+
+# --- Email Change Management Schemas ---
+
+class RequestEmailChange(BaseModel):
+    """Schema for requesting an email address change."""
+    new_email: EmailStr
+    current_password: str
+
+class ConfirmEmailChange(BaseModel):
+    """Schema for confirming an email address change using a token."""
+    token: str
+
+class EmailChangeResponse(BaseModel):
+    """Schema for the response after confirming email change."""
+    message: str
+    new_email: EmailStr
+
+# --- Organization Billing Email Schema ---
+
+class OrganizationBillingEmailUpdate(BaseModel):
+    """Schema for updating organization billing email."""
+    billing_email: Optional[EmailStr] = None
 

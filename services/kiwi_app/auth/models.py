@@ -90,9 +90,9 @@ class UserOrganizationRole(SQLModel, table=True):
     """
     __tablename__ = f"{table_prefix}user_org_role"
 
-    user_id: uuid.UUID = Field(foreign_key=f"{table_prefix}user.id", primary_key=True)
-    organization_id: uuid.UUID = Field(foreign_key=f"{table_prefix}org.id", primary_key=True)
-    role_id: uuid.UUID = Field(foreign_key=f"{table_prefix}role.id") # Role within this specific org
+    user_id: uuid.UUID = Field(sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}user.id", ondelete="CASCADE"), primary_key=True))
+    organization_id: uuid.UUID = Field(sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}org.id", ondelete="CASCADE"), primary_key=True))
+    role_id: uuid.UUID = Field(sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}role.id", ondelete="CASCADE"))) # Role within this specific org
 
     created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
 
@@ -117,6 +117,7 @@ class Organization(SQLModel, table=True):
     primary_billing_email: Optional[str] = Field(default=None, sa_column=Column(SQLAlchemyString, nullable=True, index=True))
     name: str = Field(sa_column=Column(SQLAlchemyString, index=True))
     description: Optional[str] = Field(default=None, sa_column=Column(Text))
+    is_active: bool = Field(default=True, sa_column=Column(Boolean, default=True, index=True, nullable=False))
     created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
 
@@ -171,7 +172,7 @@ class RefreshToken(SQLModel, table=True):
         default_factory=uuid.uuid4,
         sa_column=Column(PG_UUID(as_uuid=True), server_default=text("gen_random_uuid()"), primary_key=True, unique=True, index=True)
     )
-    user_id: uuid.UUID = Field(sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}user.id"), index=True))
+    user_id: uuid.UUID = Field(sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}user.id", ondelete="CASCADE"), index=True))
     expires_at: datetime = Field(sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
     created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
     revoked_at: Optional[datetime] = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))

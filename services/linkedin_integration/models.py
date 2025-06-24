@@ -110,7 +110,7 @@ class LinkedinUserOauth(SQLModel, table=True):
     
     # Foreign key relationship to User model (1:1)
     user_id: uuid.UUID = Field(
-        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id"), unique=True, index=True),
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{settings.DB_TABLE_NAMESPACE_PREFIX}{settings.DB_TABLE_AUTH_PREFIX}user.id", ondelete="CASCADE"), unique=True, index=True),
         description="Foreign key to User model - ensures 1:1 relationship"
     )
     

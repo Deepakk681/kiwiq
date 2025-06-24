@@ -53,10 +53,12 @@ class OrganizationCreate(OrganizationBase):
 
 class OrganizationRead(OrganizationBase, UUIDModel, TimestampModel):
     primary_billing_email: Optional[EmailStr] = None
+    is_active: bool
 
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class OrganizationBillingEmailUpdate(BaseModel):
     """
