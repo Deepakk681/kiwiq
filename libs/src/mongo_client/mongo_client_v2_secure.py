@@ -8,6 +8,9 @@ from typing import List, Dict, Any, Optional, Tuple, Union, Set, Iterable, TypeV
 from bson import ObjectId
 import uuid
 
+from bson.codec_options import CodecOptions
+from zoneinfo import ZoneInfo
+
 from global_config.logger import get_logger
 from global_utils.utils import datetime_now_utc
 
@@ -111,6 +114,10 @@ class AsyncMongoDBClient:
             await self._client.admin.command('ping')
             
             self._db = self._client[self.database]
+            self._db = self._db.with_options(codec_options=CodecOptions(
+                tz_aware=True,
+                tzinfo=ZoneInfo("UTC"))
+            )
             self._collection = self._db[self.collection_name]
             logger.info("Successfully connected to MongoDB.")
         except Exception as e:

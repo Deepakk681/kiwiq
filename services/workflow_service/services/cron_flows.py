@@ -163,7 +163,7 @@ async def search_scheduled_briefs_and_send_reminders_flow(
         utc_now = datetime.now(tz=timezone.utc)
         target_date = utc_now.replace(hour=12, minute=0, second=0, microsecond=0) # 12 PM UTC
     
-    date_format = "%Y-%m-%d"
+    date_format = "%Y-%m-%dT%H:%M:%SZ"
     target_date_str = target_date.strftime(date_format)
     
     logger.info(f"Starting scheduled brief search and reminder process for date: {target_date_str}")
@@ -301,7 +301,7 @@ async def search_scheduled_briefs_for_today(
         end_date = start_date + timedelta(days=1)
     
     # Format date as YYYY-MM-DD for the value filter
-    date_format = "%Y-%m-%d"
+    date_format = "%Y-%m-%dT%H:%M:%SZ"
     start_date_str = start_date.strftime(date_format)
     end_date_str = end_date.strftime(date_format)
     logger.info(f"Searching for briefs scheduled for date: {start_date_str} to {end_date_str}")
@@ -635,7 +635,7 @@ if __name__ == "__main__":
         Returns:
             Tuple of (day_offset, search_results)
         """
-        target_date = datetime(2025, 6, 10, tzinfo=timezone.utc) + timedelta(days=day)
+        target_date = datetime(2025, 6, 25, tzinfo=timezone.utc) + timedelta(days=day)
         results = await search_scheduled_briefs_for_today(start_date=target_date)
         return day, results
     
