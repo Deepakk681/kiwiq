@@ -671,7 +671,7 @@ class BillingService:
                 amount=promo_code.credits_amount,
                 source_type=CreditSourceType.PROMOTION,
                 source_id=code_application.code,
-                source_metadata={"promo_code_id": str(promo_code.id)},
+                source_metadata={"promo_code_id": str(promo_code.id), "code": promo_code.code},
                 expires_at=expires_at,
                 commit=False,
             )

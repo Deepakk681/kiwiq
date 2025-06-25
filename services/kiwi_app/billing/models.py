@@ -416,8 +416,8 @@ class PromotionCodeUsage(SQLModel, table=True):
     
     # Foreign keys
     promo_code_id: uuid.UUID = Field(
-        foreign_key=f"{table_prefix}promotion_code.id", 
-        index=True
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}promotion_code.id", ondelete="SET NULL"), index=True, nullable=True),
+        description="Reference to the promotion code"
     )
     org_id: Optional[uuid.UUID] = Field(
         default=None,
