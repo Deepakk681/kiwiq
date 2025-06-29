@@ -26,7 +26,7 @@ from kiwi_client.workflows.document_models.customer_docs import (
     LINKEDIN_PROFILE_DOCNAME,
 
     # Content Strategy
-    CONTENT_STRATEGY_DOCNAME,
+    USER_DNA_DOCNAME,
     CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
     CONTENT_STRATEGY_IS_VERSIONED,
     # User Preferences
@@ -83,7 +83,7 @@ SAVE_DOC_FILENAME_CONFIG = {
     "filename_config": {
         "input_namespace_field_pattern": CONTENT_STRATEGY_NAMESPACE_TEMPLATE, 
         "input_namespace_field": "entity_username",
-        "static_docname": CONTENT_STRATEGY_DOCNAME,
+        "static_docname": USER_DNA_DOCNAME,
     }
 }
 SAVE_DOC_GLOBAL_VERSIONING = {
@@ -606,61 +606,61 @@ async def main_test_user_understanding_workflow():
             'initial_version': None,
             'is_system_entity': False
         },
-        # Methodology Implementation (System document)
-        {
-            'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-            'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
-            'initial_data': {
-                "methodology_name": "AI Copilot Content Strategy",
-                "implementation_steps": [
-                    "Analyze user DNA and preferences",
-                    "Generate content strategy aligned with user goals",
-                    "Create content briefs based on strategy",
-                    "Develop multiple content concepts for review"
-                ],
-                "best_practices": [
-                    "Maintain consistent brand voice",
-                    "Focus on audience pain points",
-                    "Incorporate industry trends",
-                    "Balance educational and promotional content"
-                ]
-            },
-            'is_versioned': False,
-            'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-            'initial_version': None,
-            'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-        },
-        # Building Blocks (System document)
-        {
-            'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-            'docname': BUILDING_BLOCKS_DOCNAME,
-            'initial_data': {
-                "core_building_blocks": [
-                    "Audience analysis",
-                    "Content pillars",
-                    "Content formats",
-                    "Distribution channels",
-                    "Performance metrics"
-                ],
-                "implementation_framework": {
-                    "phase_1": "Discovery and analysis",
-                    "phase_2": "Strategy development",
-                    "phase_3": "Content creation",
-                    "phase_4": "Distribution and promotion",
-                    "phase_5": "Measurement and optimization"
-                },
-                "success_indicators": [
-                    "Engagement rate",
-                    "Conversion metrics",
-                    "Audience growth",
-                    "Content consistency"
-                ]
-            },
-            'is_versioned': False,
-            'is_shared': BUILDING_BLOCKS_IS_SHARED,
-            'initial_version': None,
-            'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-        }
+        # # Methodology Implementation (System document)
+        # {
+        #     'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+        #     'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
+        #     'initial_data': {
+        #         "methodology_name": "AI Copilot Content Strategy",
+        #         "implementation_steps": [
+        #             "Analyze user DNA and preferences",
+        #             "Generate content strategy aligned with user goals",
+        #             "Create content briefs based on strategy",
+        #             "Develop multiple content concepts for review"
+        #         ],
+        #         "best_practices": [
+        #             "Maintain consistent brand voice",
+        #             "Focus on audience pain points",
+        #             "Incorporate industry trends",
+        #             "Balance educational and promotional content"
+        #         ]
+        #     },
+        #     'is_versioned': False,
+        #     'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+        #     'initial_version': None,
+        #     'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        # },
+        # # Building Blocks (System document)
+        # {
+        #     'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+        #     'docname': BUILDING_BLOCKS_DOCNAME,
+        #     'initial_data': {
+        #         "core_building_blocks": [
+        #             "Audience analysis",
+        #             "Content pillars",
+        #             "Content formats",
+        #             "Distribution channels",
+        #             "Performance metrics"
+        #         ],
+        #         "implementation_framework": {
+        #             "phase_1": "Discovery and analysis",
+        #             "phase_2": "Strategy development",
+        #             "phase_3": "Content creation",
+        #             "phase_4": "Distribution and promotion",
+        #             "phase_5": "Measurement and optimization"
+        #         },
+        #         "success_indicators": [
+        #             "Engagement rate",
+        #             "Conversion metrics",
+        #             "Audience growth",
+        #             "Content consistency"
+        #         ]
+        #     },
+        #     'is_versioned': False,
+        #     'is_shared': BUILDING_BLOCKS_IS_SHARED,
+        #     'initial_version': None,
+        #     'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+        # }
     ]
 
     # Define cleanup docs
@@ -673,12 +673,12 @@ async def main_test_user_understanding_workflow():
         {'namespace': CONTENT_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_ANALYSIS_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
         {'namespace': LINKEDIN_SCRAPING_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': LINKEDIN_PROFILE_DOCNAME, 'is_versioned': False, 'is_shared': False, 'is_system_entity': False},
         
-        # Output document
-        {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_STRATEGY_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        # # Output document
+        # {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_DNA_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
         
-        # System documents
-        {'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE, 'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME, 'is_versioned': False, 'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED, 'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY},
-        {'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE, 'docname': BUILDING_BLOCKS_DOCNAME, 'is_versioned': False, 'is_shared': BUILDING_BLOCKS_IS_SHARED, 'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY},
+        # # System documents
+        # {'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE, 'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME, 'is_versioned': False, 'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED, 'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY},
+        # {'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE, 'docname': BUILDING_BLOCKS_DOCNAME, 'is_versioned': False, 'is_shared': BUILDING_BLOCKS_IS_SHARED, 'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY},
     ]
 
     # Predefined HITL inputs

@@ -906,6 +906,12 @@ class AsyncMongoDBClient:
         
         # Update document
         collection = await self._get_collection()
+        
+        if self.add_default_fields_to_data:
+            if isinstance(data, dict) and "updated_at" not in data:
+                timestamp = datetime_now_utc()
+                data["updated_at"] = timestamp
+
         try:
             # Construct update operation based on update_subfields flag
             if update_subfields:
@@ -1816,12 +1822,18 @@ class AsyncMongoDBClient:
                 
                 # Get ID for query
                 doc_id = self._path_to_id(path)
+
+                if self.add_default_fields_to_data:
+                    if isinstance(data, dict) and "updated_at" not in data:
+                        timestamp = datetime_now_utc()
+                        data["updated_at"] = timestamp
                 
                 # Add update operation
                 bulk_operations.append(
                     UpdateOne(
                         {"_id": doc_id},
-                        {"$set": {"data": data}}
+                        {"$set": {"data": data}},
+                        upsert=False,
                     )
                 )
                 

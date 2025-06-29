@@ -13,6 +13,7 @@ services:
     restart: on-failure                   # Restart policy suitable for dev
     ports:
       - "8080:8080"                       # Map Weaviate's default HTTP port
+      - "50051:50051" 
     environment:
       # Configuration via environment variables (ensure these are set in your .env file)
       QUERY_DEFAULTS_LIMIT: ${WEAVIATE_QUERY_DEFAULTS_LIMIT:-25} # Default query limit (example default)
@@ -20,9 +21,16 @@ services:
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate' # Internal path where data is stored
       ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,generative-openai} # Example modules
       DEFAULT_VECTORIZER_MODULE: ${WEAVIATE_DEFAULT_VECTORIZER_MODULE:-text2vec-openai} # Default vectorizer
-      # OPENAI_APIKEY: ${OPENAI_APIKEY} # Critical: Provide your OpenAI key via .env for modules to work
+      ASYNC_INDEXING: ${WEAVIATE_ASYNC_INDEXING:-true} # Enable async indexing
+      OPENAI_APIKEY: ${OPENAI_API_KEY} # Critical: Provide your OpenAI key via .env for modules to work
       # CLUSTER_HOSTNAME: 'node1' # Only needed for clustering setups
       LOG_LEVEL: 'info' # Set log level (optional)
+      LIMIT_RESOURCES: ${WEAVIATE_LIMIT_RESOURCES:-true}
+      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-2048MiB}
+      CLUSTER_HOSTNAME: "node1"
+      RAFT_BOOTSTRAP_EXPECT: "1" 
+      RAFT_ENABLE_ONE_NODE_RECOVERY: "true"
+      RAFT_BOOTSTRAP_TIMEOUT: "300"
     volumes:
       - weaviate_data:/var/lib/weaviate # Mount named volume for persistence
     networks:
@@ -144,7 +152,7 @@ services:
       MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
       RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
-      WEAVIATE_URL: "http://weaviate:8080"
+      WEAVIATE_HOST: "weaviate"
       PREFECT_API_URL: "http://prefect-server:4200/api"
       # Set PYTHONPATH if your app structure requires it
       # PYTHONPATH: /app:/app/services # Example
@@ -188,7 +196,7 @@ services:
       MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
       RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
-      WEAVIATE_URL: "http://weaviate:8080"
+      WEAVIATE_HOST: "weaviate"
       # Add any other env vars needed by your flows
     # Command to start the agent polling a specific work pool (replace 'default-pool' if needed)
     networks:

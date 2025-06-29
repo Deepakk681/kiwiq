@@ -147,8 +147,9 @@ async def get_customer_data_service_dependency(
     )
     yield customer_data_service
     await customer_data_service.mongo_client.close()
-    await customer_data_service.versioned_mongo_client.client.close()
     await customer_data_service.versioned_mongo_client._redis_client.close()
+    await customer_data_service.versioned_mongo_client.client.close()
+    
 
 
 # --- Permission Checkers (using Auth checkers) --- #

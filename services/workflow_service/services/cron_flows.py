@@ -22,6 +22,7 @@ from global_config.logger import get_prefect_or_regular_python_logger
 from kiwi_app.settings import settings
 from kiwi_app.billing.models import CreditType
 from kiwi_app.billing import schemas as billing_schemas
+from kiwi_app.data_jobs.models import DataJobType, DataJobStatus
 
 # Email system imports
 from kiwi_app.email.email_dispatch import email_dispatch, EmailContent, EmailRecipient
@@ -36,7 +37,66 @@ from workflow_service.services.external_context_manager import (
     get_external_context_manager_with_clients
 )
 
+# Data ingestion imports
+from kiwi_app.data_jobs.ingestion.ingestion_pipeline import DocumentIngestionPipeline
+from kiwi_app.data_jobs import schemas as data_job_schemas
+from weaviate_client.weaviate_client import WeaviateChunkClient
 
+# Export important functions for external use
+__all__ = [
+    'billing_expire_organization_credits_flow',
+    'search_scheduled_briefs_and_send_reminders_flow', 
+    'rag_data_ingestion_flow',
+    'trigger_rag_ingestion_deployment',
+    'DEFAULT_INGESTION_DOCUMENT_PATTERNS',
+    'RAG_INGESTION_BATCH_SIZE',
+    'RAG_INGESTION_MAX_BATCHES_PER_RUN'
+]
+
+# Constants for data ingestion
+RAG_INGESTION_BATCH_SIZE = 1000
+RAG_INGESTION_MAX_BATCHES_PER_RUN = 50
+
+# Default document patterns for ingestion
+# These patterns target the most important document types for RAG
+DEFAULT_INGESTION_DOCUMENT_PATTERNS = [
+    # User strategy documents
+    ("user_strategy_*", "user_dna_doc"),
+    ("user_strategy_*", "content_strategy_doc"),
+    
+    # User analysis documents  
+    ("user_analysis_*", "user_source_analysis"),
+    ("user_analysis_*", "content_analysis_doc"),
+    
+    # User inputs and preferences
+    ("user_inputs_*", "core_beliefs_perspectives_doc"),
+    ("user_inputs_*", "content_pillars_doc"),
+    ("user_inputs_*", "user_preferences_doc"),
+    ("user_inputs_*", "writing_style_posts_doc"),
+    
+    # Knowledge base
+    ("knowledge_base_*", "knowledge_base_analysis"),
+    
+    # LinkedIn scraped data
+    ("scraping_results_*", "linkedin_scraped_profile_doc"),
+    ("scraping_results_*", "linkedin_scraped_posts_doc"),
+    
+    # Content creation documents (these use dynamic UUIDs)
+    ("content_briefs_*", "brief_*"),
+    ("content_concepts_*", "concept_*"),
+    ("post_drafts_*", "draft_*"),
+    ("content_ideas_*", "idea_*"),
+    
+    # Uploaded files (empty docname template, so match all)
+    ("uploaded_files_*", "*"),
+    
+    # # System strategy documents (important for RAG context)
+    # ("system_strategy_docs_namespace", "methodology_implementation_ai_copilot"),
+    # ("system_strategy_docs_namespace", "building_blocks_content_methodology"),
+    # ("system_strategy_docs_namespace", "linkedin_post_evaluation_framework"),
+    # ("system_strategy_docs_namespace", "linkedin_post_scoring_framework"),
+    # ("system_strategy_docs_namespace", "linkedin_content_optimization_guide"),
+]
 
 @flow(
     name="billing-expire-organization-credits",
@@ -624,6 +684,921 @@ async def send_draft_progress_reminder_emails(
             logger.error(f"Error closing external context: {close_err}", exc_info=True)
 
 
+@flow(
+    name="rag-data-ingestion",
+    description="Incrementally ingests updated customer documents into Weaviate for RAG applications",
+    log_prints=global_settings.DEBUG,
+    retries=2,
+    retry_delay_seconds=120,
+)
+async def rag_data_ingestion_flow(
+    start_timestamp: Optional[datetime] = None,
+    end_timestamp: Optional[datetime] = None,
+    document_patterns: Optional[List[Tuple[str, str]]] = None,
+    batch_size: int = RAG_INGESTION_BATCH_SIZE,
+    max_batches: int = RAG_INGESTION_MAX_BATCHES_PER_RUN,
+    generate_vectors: bool = True
+) -> Dict[str, Any]:
+    """
+    Prefect flow to incrementally ingest updated customer documents into Weaviate.
+    
+    This flow is designed to run as a scheduled cron job to automatically process
+    documents that have been updated since the last successful ingestion. It uses
+    batch processing with pagination to handle large document volumes efficiently.
+    
+    Args:
+        start_timestamp: Optional start timestamp. If None, uses last successful 
+                        ingestion job's processed_timestamp_end.
+        end_timestamp: Optional end timestamp. If None, uses current time.
+        document_patterns: Optional list of (namespace_pattern, docname_pattern) tuples.
+                          If None, uses DEFAULT_INGESTION_DOCUMENT_PATTERNS.
+        batch_size: Number of documents to process per batch (default: 1000).
+        max_batches: Maximum number of batches to process per run (default: 10).
+        generate_vectors: Whether to generate embeddings during ingestion.
+    
+    Returns:
+        Dict[str, Any]: Results of the ingestion process including counts,
+                       timestamps, and any errors encountered.
+    """
+    logger = get_prefect_or_regular_python_logger(name="rag-data-ingestion-flow")
+    
+    # Use current time as end timestamp if not provided
+    if end_timestamp is None:
+        end_timestamp = datetime.now(tz=timezone.utc)
+    
+    # Use default document patterns if not provided
+    if document_patterns is None:
+        document_patterns = DEFAULT_INGESTION_DOCUMENT_PATTERNS
+    
+    logger.info(f"Starting RAG data ingestion process for end timestamp: {end_timestamp}")
+    logger.info(f"Processing {len(document_patterns)} document pattern types with batch size: {batch_size}")
+    
+    # Initialize external context manager
+    external_context = await get_external_context_manager_with_clients()
+    logger.info("External context manager initialized for RAG ingestion")
+    
+    try:
+        # Task 1: Get or create data job and determine start timestamp
+        data_job, resolved_start_timestamp = await get_or_create_ingestion_data_job(
+            external_context=external_context,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp
+        )
+        
+        logger.info(f"Data job {data_job.id} created/retrieved. Processing documents from {resolved_start_timestamp} to {end_timestamp}")
+        
+        # Task 2: Process documents in batches
+        ingestion_results = await process_documents_in_batches(
+            external_context=external_context,
+            data_job_id=data_job.id,
+            start_timestamp=resolved_start_timestamp,
+            end_timestamp=end_timestamp,
+            document_patterns=document_patterns,
+            batch_size=batch_size,
+            max_batches=max_batches,
+            generate_vectors=generate_vectors
+        )
+        
+        # Task 3: Update data job with final results
+        final_job_status = await finalize_ingestion_data_job(
+            external_context=external_context,
+            data_job_id=data_job.id,
+            ingestion_results=ingestion_results,
+            end_timestamp=end_timestamp
+        )
+        
+        # Create result summary
+        result = {
+            "status": "success",
+            "executed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "data_job_id": str(data_job.id),
+            "time_range": {
+                "start_timestamp": resolved_start_timestamp.isoformat() if resolved_start_timestamp else None,
+                "end_timestamp": end_timestamp.isoformat()
+            },
+            "processing_config": {
+                "document_patterns_count": len(document_patterns),
+                "batch_size": batch_size,
+                "max_batches": max_batches,
+                "generate_vectors": generate_vectors
+            },
+            "ingestion_results": ingestion_results,
+            "final_job_status": final_job_status
+        }
+        
+        logger.info(f"RAG data ingestion completed successfully. Results: {json.dumps(result, indent=2, default=str)}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"RAG data ingestion flow failed: {e}", exc_info=True)
+        
+        # Try to mark data job as failed if we have a job ID
+        try:
+            if 'data_job' in locals() and data_job:
+                async with get_async_db_as_manager() as db:
+                    await external_context.data_job_service.data_job_dao.fail_job(
+                        db=db,
+                        job_id=data_job.id,
+                        error_message=str(e),
+                        commit=True
+                    )
+                logger.info(f"Marked data job {data_job.id} as FAILED")
+        except Exception as job_update_err:
+            logger.error(f"Failed to update data job status to FAILED: {job_update_err}")
+        
+        # Return error information for monitoring
+        error_result = {
+            "status": "failed",
+            "executed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "data_job_id": str(data_job.id) if 'data_job' in locals() and data_job else None,
+            "error_message": str(e),
+            "time_range": {
+                "start_timestamp": resolved_start_timestamp.isoformat() if 'resolved_start_timestamp' in locals() and resolved_start_timestamp else None,
+                "end_timestamp": end_timestamp.isoformat()
+            },
+            "ingestion_results": {
+                "total_documents_processed": 0,
+                "total_chunks_created": 0,
+                "batches_processed": 0,
+                "errors": [str(e)]
+            }
+        }
+        
+        # Re-raise the exception to ensure Prefect marks the flow as failed
+        raise e
+        
+    finally:
+        # Clean up resources
+        try:
+            await external_context.close()
+            logger.info("External context manager closed successfully")
+        except Exception as close_err:
+            logger.error(f"Error closing external context: {close_err}", exc_info=True)
+
+
+@task(cache_policy=NO_CACHE)
+async def get_or_create_ingestion_data_job(
+    external_context: ExternalContextManager,
+    start_timestamp: Optional[datetime] = None,
+    end_timestamp: Optional[datetime] = None,
+) -> Tuple[Any, Optional[datetime]]:
+    """
+    Get or create a data job for RAG ingestion and determine the start timestamp.
+    
+    This function retrieves the last successful ingestion job to determine the
+    start timestamp for incremental processing, or uses the provided start_timestamp.
+    It creates a new data job to track the current ingestion run.
+    
+    Args:
+        external_context: ExternalContextManager instance
+        start_timestamp: Optional explicit start timestamp
+        end_timestamp: End timestamp for the ingestion job
+        
+    Returns:
+        Tuple[DataJob, Optional[datetime]]: The created data job and resolved start timestamp
+    """
+    logger = get_prefect_or_regular_python_logger(name="get-or-create-ingestion-data-job")
+    
+    resolved_start_timestamp = start_timestamp
+    
+    async with get_async_db_as_manager() as db:
+        # If start_timestamp is not provided, get it from the last successful ingestion job
+        if resolved_start_timestamp is None:
+            logger.info("No start timestamp provided, looking for last successful ingestion job")
+            
+            try:
+                last_successful_job = await external_context.data_job_service.get_latest_successful_job(
+                    db=db,
+                    job_type=DataJobType.INGESTION.value
+                )
+                
+                if last_successful_job and last_successful_job.processed_timestamp_end:
+                    resolved_start_timestamp = last_successful_job.processed_timestamp_end
+                    logger.info(f"Found last successful ingestion job {last_successful_job.id} with end timestamp: {resolved_start_timestamp}")
+                else:
+                    logger.info("No previous successful ingestion job found, will process all documents up to end timestamp")
+                    resolved_start_timestamp = None
+                    
+            except Exception as e:
+                logger.warning(f"Error retrieving last successful ingestion job: {e}")
+                resolved_start_timestamp = None
+        
+        # Create new data job for this ingestion run
+        job_metadata = {
+            "start_timestamp": resolved_start_timestamp.isoformat() if resolved_start_timestamp else None,
+            "end_timestamp": end_timestamp.isoformat(),
+            "ingestion_type": "incremental" if resolved_start_timestamp else "full",
+            "document_patterns_count": len(DEFAULT_INGESTION_DOCUMENT_PATTERNS),
+            "batch_size": RAG_INGESTION_BATCH_SIZE,
+            "max_batches": RAG_INGESTION_MAX_BATCHES_PER_RUN
+        }
+        
+        job_create_data = data_job_schemas.DataJobCreate(
+            job_name=f"RAG Incremental Ingestion - {end_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            job_type=DataJobType.INGESTION.value,
+            job_metadata=job_metadata,
+            processed_timestamp_start=resolved_start_timestamp,
+            processed_timestamp_end=end_timestamp,
+        )
+        
+        data_job = await external_context.data_job_service.create_job(
+            db=db,
+            job_data=job_create_data
+        )
+        
+        logger.info(f"Created data job {data_job.id} for RAG ingestion")
+        
+    return data_job, resolved_start_timestamp
+
+
+@task(cache_policy=NO_CACHE)
+async def process_documents_in_batches(
+    external_context: ExternalContextManager,
+    data_job_id: uuid.UUID,
+    start_timestamp: Optional[datetime],
+    end_timestamp: datetime,
+    document_patterns: List[Tuple[str, str]],
+    batch_size: int,
+    max_batches: int,
+    generate_vectors: bool
+) -> Dict[str, Any]:
+    """
+    Process documents in batches with pagination and ingestion into Weaviate.
+    
+    This function uses the BatchDocumentBuilder to efficiently search for updated 
+    documents across multiple patterns, processes them in batches, and ingests them 
+    into Weaviate using the DocumentIngestionPipeline.
+    
+    Args:
+        external_context: ExternalContextManager instance
+        data_job_id: ID of the data job tracking this ingestion
+        start_timestamp: Start timestamp for document filtering (None for all documents)
+        end_timestamp: End timestamp for document filtering
+        document_patterns: List of (namespace_pattern, docname_pattern) tuples
+        batch_size: Number of documents to process per batch
+        max_batches: Maximum number of batches to process
+        generate_vectors: Whether to generate embeddings during ingestion
+        
+    Returns:
+        Dict[str, Any]: Results of the batch processing including counts and errors
+    """
+    logger = get_prefect_or_regular_python_logger(name="process-documents-in-batches")
+    
+    # Build value filter for updated_at field
+    value_filter = {
+        "updated_at": {
+            "$lte": end_timestamp
+        }
+    }
+    
+    if start_timestamp:
+        value_filter["updated_at"]["$gt"] = start_timestamp
+        logger.info(f"Processing documents updated between {start_timestamp} and {end_timestamp}")
+    else:
+        logger.info(f"Processing all documents updated before {end_timestamp}")
+    
+    # Initialize batch builder
+    batch_builder = BatchDocumentBuilder(
+        external_context=external_context,
+        document_patterns=document_patterns,
+        value_filter=value_filter,
+        batch_size=batch_size,
+        max_total_batches=max_batches,
+        logger=logger
+    )
+    
+    # Initialize Weaviate client and ingestion pipeline
+    try:
+        async with WeaviateChunkClient() as weaviate_client:
+            await weaviate_client.setup_schema()  # Ensure schema exists
+            logger.info(f"Weaviate client initialized: HOST:: {weaviate_client.host}")
+            
+            ingestion_pipeline = DocumentIngestionPipeline(
+                weaviate_client=weaviate_client,
+                max_json_chunk_size=700,
+                max_text_char_limit=700,
+                preserve_temporal_fields=True
+            )
+            
+            # Process batches using the builder
+            while True:
+                # Get next batch of documents
+                batch_documents = await batch_builder.build_next_batch()
+                
+                if not batch_documents:
+                    logger.info("No more document batches available")
+                    break
+                
+                logger.info(f"Processing batch {batch_builder.total_batches_built} with {len(batch_documents)} documents")
+                
+                try:
+                    # Update data job with progress
+                    async with get_async_db_as_manager() as db:
+                        status_update = data_job_schemas.DataJobStatusUpdate(
+                            status=DataJobStatus.STARTED
+                        )
+                        await external_context.data_job_service.data_job_dao.update_job_status(
+                            db=db,
+                            job_id=data_job_id,
+                            status_update=status_update,
+                            commit=True
+                        )
+                    
+                    # Ingest documents using the pipeline
+                    logger.info(f"Starting ingestion of {len(batch_documents)} documents...")
+                    ingestion_results = await ingestion_pipeline.ingest_documents(
+                        documents=batch_documents,
+                        generate_vectors=generate_vectors
+                    )
+                    logger.info(f"Ingestion completed. Results: {len(ingestion_results)} document results")
+                    
+                    # Debug: Log ingestion results summary
+                    total_chunks_in_batch = sum(chunk_count for chunk_count, _ in ingestion_results.values())
+                    successful_docs_in_batch = sum(1 for chunk_count, _ in ingestion_results.values() if chunk_count > 0)
+                    logger.info(f"Ingestion summary: {successful_docs_in_batch}/{len(batch_documents)} docs successful, {total_chunks_in_batch} total chunks")
+                    
+                    if total_chunks_in_batch == 0:
+                        logger.warning("NO CHUNKS CREATED! Investigating ingestion results...")
+                        for i, (result_doc_id, (chunks, errors)) in enumerate(list(ingestion_results.items())[:3]):
+                            logger.warning(f"  Sample result {i+1}: doc_id='{result_doc_id}', chunks={chunks}, errors={errors}")
+                    
+                    # Update pattern results in batch builder using document metadata
+                    for doc in batch_documents:
+                        doc_id = batch_builder._generate_doc_id(doc.metadata)
+                        
+                        # Debug: Log doc IDs for troubleshooting
+                        if len(batch_documents) <= 5:  # Only log for small batches to avoid spam
+                            logger.info(f"Processing doc: batch_doc_id='{doc_id}', namespace='{doc.metadata.namespace}', docname='{doc.metadata.docname}'")
+                        
+                        # Get chunk count from ingestion results
+                        chunk_count = 0
+                        ingestion_result = ingestion_results.get(doc_id)
+                        if ingestion_result:
+                            chunk_count = ingestion_result[0] if isinstance(ingestion_result, tuple) else 0
+                            if len(batch_documents) <= 5:
+                                logger.info(f"  Found exact match in ingestion results: {chunk_count} chunks")
+                        else:
+                            # Try to find by partial matching if exact match fails
+                            for result_doc_id, (chunks, _) in ingestion_results.items():
+                                if (doc.metadata.namespace in result_doc_id and 
+                                    doc.metadata.docname in result_doc_id):
+                                    chunk_count = chunks
+                                    if len(batch_documents) <= 5:
+                                        logger.info(f"  Found partial match: batch_doc_id='{doc_id}' -> ingestion_doc_id='{result_doc_id}' ({chunks} chunks)")
+                                    break
+                            
+                            if chunk_count == 0 and len(batch_documents) <= 5:
+                                logger.warning(f"  No match found for doc_id: {doc_id}")
+                                logger.warning(f"  Available ingestion result keys: {list(ingestion_results.keys())[:3]}...")
+                        
+                        # Always update pattern results (even if 0 chunks) to track processed docs
+                        batch_builder.update_pattern_results(doc.metadata, chunk_count)
+                        
+                        if chunk_count > 0:
+                            logger.debug(f"Pattern updated: {batch_builder.document_pattern_mapping.get(doc_id)} - doc processed with {chunk_count} chunks")
+                    
+                    batch_chunks_created = sum(chunk_count for chunk_count, _ in ingestion_results.values())
+                    batch_successful = sum(1 for chunk_count, _ in ingestion_results.values() if chunk_count > 0)
+                    
+                    logger.info(f"Batch {batch_builder.total_batches_built}: processed {batch_successful}/{len(batch_documents)} documents, created {batch_chunks_created} chunks")
+                    
+                except Exception as batch_error:
+                    error_msg = f"Error processing batch {batch_builder.total_batches_built}: {batch_error}"
+                    logger.error(error_msg, exc_info=True)
+                    batch_builder.errors.append(error_msg)
+                    
+                    # Continue to next batch on error to avoid stopping entire process
+                    continue
+    
+    except Exception as pipeline_error:
+        error_msg = f"Critical error in document processing pipeline: {pipeline_error}"
+        logger.error(error_msg, exc_info=True)
+        batch_builder.errors.append(error_msg)
+        raise pipeline_error
+    
+    # Get final summary from batch builder
+    summary = batch_builder.get_summary()
+    
+    # Compile final results
+    results = {
+        "total_documents_processed": summary["total_documents_processed"],
+        "total_chunks_created": sum(p.get("chunks_created", 0) for p in summary["pattern_results"].values()),
+        "batches_processed": summary["total_batches_built"],
+        "patterns_processed": summary["patterns_completed"],
+        "errors_count": summary["errors_count"],
+        "errors": summary["errors"],
+        "pattern_results": summary["pattern_results"],
+        "processing_stopped_at_max_batches": summary["stopped_at_max_batches"],
+        "builder_summary": summary  # Include full builder summary for debugging
+    }
+    
+    logger.info(f"Batch processing completed: {results['total_documents_processed']} documents, {results['total_chunks_created']} chunks, {results['batches_processed']} batches")
+    
+    return results
+
+
+@task(cache_policy=NO_CACHE)
+async def finalize_ingestion_data_job(
+    external_context: ExternalContextManager,
+    data_job_id: uuid.UUID,
+    ingestion_results: Dict[str, Any],
+    end_timestamp: datetime
+) -> Dict[str, Any]:
+    """
+    Finalize the data job with processing results and update status.
+    
+    Args:
+        external_context: ExternalContextManager instance
+        data_job_id: ID of the data job to finalize
+        ingestion_results: Results from the batch processing
+        end_timestamp: End timestamp for the job
+        
+    Returns:
+        Dict[str, Any]: Final job status information
+    """
+    logger = get_prefect_or_regular_python_logger(name="finalize-ingestion-data-job")
+    
+    try:
+        async with get_async_db_as_manager() as db:
+            # Determine final status based on results
+            has_errors = ingestion_results.get("errors_count", 0) > 0
+            processed_any = ingestion_results.get("total_documents_processed", 0) > 0
+            
+            if has_errors and not processed_any:
+                final_status = DataJobStatus.FAILED
+            elif has_errors and processed_any:
+                final_status = DataJobStatus.COMPLETED  # Partial success
+            else:
+                final_status = DataJobStatus.COMPLETED
+            
+            # Calculate processing duration (approximate based on current time)
+            processing_duration = None
+            try:
+                # We can't easily get the job start time, so we'll estimate from current flow
+                # This could be improved by tracking start time in the job metadata
+                current_time = datetime.now(timezone.utc)
+                estimated_start = end_timestamp - timedelta(hours=1)  # Rough estimate
+                processing_duration = (current_time - estimated_start).total_seconds()
+            except Exception as duration_err:
+                logger.warning(f"Could not calculate processing duration: {duration_err}")
+            
+            # Call DAO methods directly to avoid service layer bugs
+            job_dao = external_context.data_job_service.data_job_dao
+            
+            if final_status == DataJobStatus.COMPLETED:
+                # Use complete_job DAO method directly
+                job_result = await job_dao.complete_job(
+                    db=db,
+                    job_id=data_job_id,
+                    records_processed=ingestion_results.get("total_documents_processed", 0),
+                    records_failed=ingestion_results.get("errors_count", 0),
+                    commit=True
+                )
+                
+                # Update metadata separately using BaseDAO update (without commit parameter)
+                if ingestion_results:
+                    update_data = data_job_schemas.DataJobUpdate(
+                        job_metadata={
+                            **(job_result.job_metadata or {}),
+                            "ingestion_summary": {
+                                "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
+                                "batches_processed": ingestion_results.get("batches_processed", 0),
+                                "patterns_processed": ingestion_results.get("patterns_processed", 0),
+                                "stopped_at_max_batches": ingestion_results.get("processing_stopped_at_max_batches", False),
+                                "processing_duration_seconds": processing_duration,
+                                "end_timestamp": end_timestamp.isoformat()
+                            }
+                        }
+                    )
+                    
+                    # Use BaseDAO update without commit parameter
+                    job_result = await job_dao.update(
+                        db=db,
+                        db_obj=job_result,
+                        obj_in=update_data
+                    )
+                    await db.commit()
+                    await db.refresh(job_result)
+            else:
+                # Use fail_job DAO method directly
+                error_message = "; ".join(ingestion_results.get("errors", [])[:3]) if has_errors else "Unknown failure"
+                
+                job_result = await job_dao.fail_job(
+                    db=db,
+                    job_id=data_job_id,
+                    error_message=error_message,
+                    records_processed=ingestion_results.get("total_documents_processed", 0),
+                    records_failed=ingestion_results.get("errors_count", 0),
+                    commit=True
+                )
+                
+                # Update metadata separately for failure details
+                if ingestion_results:
+                    update_data = data_job_schemas.DataJobUpdate(
+                        job_metadata={
+                            **(job_result.job_metadata or {}),
+                            "failure_details": {
+                                "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
+                                "batches_processed": ingestion_results.get("batches_processed", 0),
+                                "patterns_processed": ingestion_results.get("patterns_processed", 0),
+                                "processing_duration_seconds": processing_duration,
+                                "end_timestamp": end_timestamp.isoformat(),
+                                "error_details": ingestion_results.get("errors", [])
+                            }
+                        }
+                    )
+                    
+                    # Use BaseDAO update without commit parameter
+                    job_result = await job_dao.update(
+                        db=db,
+                        db_obj=job_result,
+                        obj_in=update_data
+                    )
+                    await db.commit()
+                    await db.refresh(job_result)
+            
+            job_status_info = {
+                "job_id": str(data_job_id),
+                "final_status": final_status.value,
+                "processing_duration_seconds": processing_duration,
+                "has_errors": has_errors,
+                "partial_success": has_errors and processed_any,
+                "job_result": data_job_schemas.DataJobRead.model_validate(job_result).model_dump() if job_result else None
+            }
+            
+            logger.info(f"Finalized data job {data_job_id} with status {final_status.value}")
+            
+            return job_status_info
+            
+    except Exception as e:
+        logger.error(f"Error finalizing data job {data_job_id}: {e}", exc_info=True)
+        
+        # Try to mark job as failed using the DAO method directly
+        try:
+            async with get_async_db_as_manager() as db:
+                job_dao = external_context.data_job_service.data_job_dao
+                
+                await job_dao.fail_job(
+                    db=db,
+                    job_id=data_job_id,
+                    error_message=f"Finalization failed: {str(e)}",
+                    records_processed=ingestion_results.get("total_documents_processed", 0),
+                    records_failed=ingestion_results.get("errors_count", 0) + 1,  # Add finalization error
+                    commit=True
+                )
+        except Exception as fallback_err:
+            logger.error(f"Failed to update job status as fallback: {fallback_err}")
+        
+        raise e
+
+async def trigger_rag_ingestion_deployment(
+    start_timestamp: Optional[datetime] = None,
+    end_timestamp: Optional[datetime] = None,
+    document_patterns: Optional[List[Tuple[str, str]]] = None,
+    batch_size: int = RAG_INGESTION_BATCH_SIZE,
+    max_batches: int = RAG_INGESTION_MAX_BATCHES_PER_RUN,
+    generate_vectors: bool = True
+) -> FlowRun:
+    """
+    Helper function to manually trigger the RAG data ingestion deployment.
+    
+    This function can be called from API routes or other services to trigger
+    on-demand document ingestion into Weaviate for RAG applications.
+    
+    Args:
+        start_timestamp: Optional start timestamp for document filtering
+        end_timestamp: Optional end timestamp for document filtering (defaults to now)
+        document_patterns: Optional list of (namespace_pattern, docname_pattern) tuples
+        batch_size: Number of documents to process per batch
+        max_batches: Maximum number of batches to process
+        generate_vectors: Whether to generate embeddings during ingestion
+        
+    Returns:
+        FlowRun: The Prefect flow run object for the triggered deployment
+        
+    Example:
+        ```python
+        # Trigger full ingestion
+        flow_run = await trigger_rag_ingestion_deployment()
+        
+        # Trigger incremental ingestion for last 24 hours
+        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        flow_run = await trigger_rag_ingestion_deployment(
+            start_timestamp=yesterday,
+            batch_size=500
+        )
+        
+        # Trigger ingestion for specific document types
+        custom_patterns = [
+            ("user_strategy_*", "content_strategy_doc_*"),
+            ("content_briefs_*", "brief_*")
+        ]
+        flow_run = await trigger_rag_ingestion_deployment(
+            document_patterns=custom_patterns
+        )
+        ```
+    """
+    # Set default end timestamp to now if not provided
+    if end_timestamp is None:
+        end_timestamp = datetime.now(tz=timezone.utc)
+    
+    # Use default patterns if not provided
+    if document_patterns is None:
+        document_patterns = DEFAULT_INGESTION_DOCUMENT_PATTERNS
+    
+    # Create parameters for the deployment
+    parameters = {
+        "start_timestamp": start_timestamp,
+        "end_timestamp": end_timestamp,
+        "document_patterns": document_patterns,
+        "batch_size": batch_size,
+        "max_batches": max_batches,
+        "generate_vectors": generate_vectors
+    }
+    
+    # Trigger the deployment
+    flow_run = await run_deployment(
+        name="rag-data-ingestion/daily",  # References the deployment name
+        parameters=parameters,
+        timeout=0  # Don't wait for completion
+    )
+    
+    from global_config.logger import get_logger
+    get_logger(__name__).info(
+        f"Triggered RAG ingestion deployment 'rag-data-ingestion/daily' "
+        f"(Prefect Flow Run ID: {flow_run.id}) for time range: "
+        f"{start_timestamp or 'last_job_end'} to {end_timestamp}"
+    )
+    
+    return flow_run
+
+
+class BatchDocumentBuilder:
+    """
+    Handles building batches of documents across multiple namespace/docname patterns.
+    
+    This class maintains state across pattern searches to efficiently build batches
+    that may span multiple patterns. It handles cases where:
+    - A batch fills up in the middle of a pattern search
+    - Multiple patterns are needed to fill a single batch
+    - Some patterns have no results
+    - Pagination state needs to be maintained across patterns
+    
+    Key Features:
+    - Cross-pattern batch building with configurable batch size
+    - Automatic pagination management per pattern
+    - State preservation for resuming interrupted patterns
+    - Comprehensive error handling and logging
+    - Memory-efficient processing with generator pattern
+    - Pattern-to-document mapping for accurate statistics
+    """
+    
+    def __init__(
+        self,
+        external_context: ExternalContextManager,
+        document_patterns: List[Tuple[str, str]],
+        value_filter: Dict[str, Any],
+        batch_size: int,
+        max_total_batches: int,
+        logger: Any = None,
+    ):
+        """
+        Initialize the batch builder.
+        
+        Args:
+            external_context: ExternalContextManager for accessing services
+            document_patterns: List of (namespace_pattern, docname_pattern) tuples
+            value_filter: MongoDB-style filter for document selection
+            batch_size: Target size for each batch
+            max_total_batches: Maximum total batches to process across all patterns
+        """
+        self.external_context = external_context
+        self.document_patterns = document_patterns
+        self.value_filter = value_filter
+        self.batch_size = batch_size
+        self.max_total_batches = max_total_batches
+        
+        # State tracking
+        self.current_pattern_index = 0
+        self.current_pattern_skip = 0
+        self.total_batches_built = 0
+        self.pattern_states = {}  # Track completion status per pattern
+        
+        # Results tracking
+        self.total_documents_seen = 0
+        self.total_documents_processed = 0
+        self.pattern_results = {}
+        self.errors = []
+        
+        # Document-to-pattern mapping for accurate statistics
+        self.document_pattern_mapping = {}  # doc_id -> pattern_key
+        
+        self.logger = logger or get_prefect_or_regular_python_logger(name="batch-document-builder")
+        
+    def _get_pattern_key(self, pattern_index: int) -> str:
+        """Get pattern key for a given pattern index."""
+        if pattern_index < len(self.document_patterns):
+            namespace_pattern, docname_pattern = self.document_patterns[pattern_index]
+            return f"{namespace_pattern}|{docname_pattern}"
+        return "unknown_pattern"
+        
+    def _generate_doc_id(self, doc_metadata) -> str:
+        """Generate a consistent document ID for tracking."""
+        return doc_metadata.id
+
+    async def build_next_batch(self) -> Optional[List[Any]]:
+        """
+        Build the next batch of documents across patterns.
+        
+        Returns:
+            List of CustomerDocumentSearchResult objects, or None if no more documents
+            
+        This method intelligently builds batches that may span multiple patterns,
+        handling pagination and state management automatically.
+        """
+        if self.total_batches_built >= self.max_total_batches:
+            self.logger.info(f"Reached maximum batch limit ({self.max_total_batches})")
+            return None
+            
+        if self.current_pattern_index >= len(self.document_patterns):
+            self.logger.info("Exhausted all document patterns")
+            return None
+        
+        batch = []
+        
+        # Keep filling the batch until we reach batch_size or run out of documents
+        while len(batch) < self.batch_size and self.current_pattern_index < len(self.document_patterns):
+            remaining_capacity = self.batch_size - len(batch)
+            
+            # Get current pattern
+            namespace_pattern, docname_pattern = self.document_patterns[self.current_pattern_index]
+            pattern_key = self._get_pattern_key(self.current_pattern_index)
+            
+            # Initialize pattern state if not exists
+            if pattern_key not in self.pattern_states:
+                self.pattern_states[pattern_key] = {
+                    "completed": False,
+                    "total_processed": 0,
+                    "last_batch_size": 0,
+                    "errors": []
+                }
+                self.pattern_results[pattern_key] = {
+                    "documents_processed": 0,
+                    "chunks_created": 0,
+                    "errors_count": 0,
+                    "errors": []
+                }
+            
+            # Skip completed patterns
+            if self.pattern_states[pattern_key]["completed"]:
+                self.current_pattern_index += 1
+                self.current_pattern_skip = 0
+                continue
+                
+            try:
+                self.logger.debug(
+                    f"Searching pattern {self.current_pattern_index + 1}/{len(self.document_patterns)}: "
+                    f"'{namespace_pattern}' / '{docname_pattern}' "
+                    f"(skip={self.current_pattern_skip}, limit={remaining_capacity})"
+                )
+                
+                # Search for documents from current pattern
+                search_results = await self.external_context.customer_data_service.system_search_documents(
+                    namespace_pattern=namespace_pattern,
+                    docname_pattern=docname_pattern,
+                    value_filter=self.value_filter,
+                    limit=remaining_capacity,  # Only request what we need
+                    skip=self.current_pattern_skip,
+                    sort_by="updated_at",
+                    sort_order="asc"
+                )
+                
+                if not search_results:
+                    # No more results for this pattern, mark as completed
+                    self.logger.info(f"Pattern '{pattern_key}' completed - no more documents")
+                    self.pattern_states[pattern_key]["completed"] = True
+                    self.current_pattern_index += 1
+                    self.current_pattern_skip = 0
+                    continue
+                
+                # Filter out versioning metadata documents
+                filtered_results = [
+                    result for result in search_results 
+                    if not result.metadata.is_versioning_metadata
+                ]
+                
+                self.total_documents_seen += len(search_results)
+                
+                if not filtered_results:
+                    # No non-versioning documents, but there might be more in next batch
+                    self.current_pattern_skip += len(search_results)
+                    continue
+                
+                # Add to batch and track pattern mapping
+                for doc in filtered_results:
+                    doc_id = self._generate_doc_id(doc.metadata)
+                    self.document_pattern_mapping[doc_id] = pattern_key
+                
+                batch.extend(filtered_results)
+                
+                # Update pattern state
+                self.pattern_states[pattern_key]["total_processed"] += len(filtered_results)
+                self.pattern_states[pattern_key]["last_batch_size"] = len(filtered_results)
+                
+                # Update skip for next search
+                self.current_pattern_skip += len(search_results)
+                
+                self.logger.info(
+                    f"Added {len(filtered_results)} documents from pattern '{pattern_key}' "
+                    f"(batch size now: {len(batch)}/{self.batch_size})"
+                )
+                
+                # Check if we got fewer results than requested (end of pattern data)
+                if len(search_results) < remaining_capacity:
+                    self.logger.info(f"Pattern '{pattern_key}' completed - got {len(search_results)} < {remaining_capacity}")
+                    self.pattern_states[pattern_key]["completed"] = True
+                    self.current_pattern_index += 1
+                    self.current_pattern_skip = 0
+                
+            except Exception as e:
+                error_msg = f"Error searching pattern '{pattern_key}' at skip={self.current_pattern_skip}: {e}"
+                self.logger.error(error_msg, exc_info=True)
+                
+                self.pattern_states[pattern_key]["errors"].append(error_msg)
+                self.pattern_results[pattern_key]["errors"].append(error_msg)
+                self.pattern_results[pattern_key]["errors_count"] += 1
+                self.errors.append(error_msg)
+                
+                # Move to next pattern on error to avoid infinite loop
+                self.pattern_states[pattern_key]["completed"] = True
+                self.current_pattern_index += 1
+                self.current_pattern_skip = 0
+        
+        if not batch:
+            self.logger.info("No more documents available across all patterns")
+            return None
+        
+        self.total_batches_built += 1
+        self.total_documents_processed += len(batch)
+        
+        self.logger.info(
+            f"Built batch {self.total_batches_built}: {len(batch)} documents "
+            f"(total processed: {self.total_documents_processed})"
+        )
+        
+        return batch
+    
+    def update_pattern_results(self, doc_metadata, chunk_count: int):
+        """
+        Update results for a specific pattern based on processed document.
+        
+        Args:
+            doc_metadata: Document metadata object to identify the pattern
+            chunk_count: Number of chunks created for this document (can be 0)
+        """
+        doc_id = self._generate_doc_id(doc_metadata)
+        pattern_key = self.document_pattern_mapping.get(doc_id)
+        
+        if not pattern_key:
+            self.logger.warning(f"No pattern mapping found for doc_id: {doc_id}")
+            return
+                
+        if pattern_key not in self.pattern_results:
+            self.pattern_results[pattern_key] = {
+                "documents_processed": 0,
+                "chunks_created": 0,
+                "errors_count": 0,
+                "errors": []
+            }
+        
+        # Always count the document as processed
+        self.pattern_results[pattern_key]["documents_processed"] += 1
+        
+        # Add chunks if any were created
+        if chunk_count > 0:
+            self.pattern_results[pattern_key]["chunks_created"] += chunk_count
+            self.logger.debug(f"Updated pattern '{pattern_key}': +1 doc, +{chunk_count} chunks (total: {self.pattern_results[pattern_key]['documents_processed']} docs, {self.pattern_results[pattern_key]['chunks_created']} chunks)")
+        else:
+            self.logger.debug(f"Updated pattern '{pattern_key}': +1 doc, +0 chunks (total: {self.pattern_results[pattern_key]['documents_processed']} docs, {self.pattern_results[pattern_key]['chunks_created']} chunks)")
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get a summary of the batch building process."""
+        return {
+            "total_batches_built": self.total_batches_built,
+            "total_documents_seen": self.total_documents_seen,
+            "total_documents_processed": self.total_documents_processed,
+            "current_pattern_index": self.current_pattern_index,
+            "patterns_completed": sum(1 for state in self.pattern_states.values() if state.get("completed", False)),
+            "total_patterns": len(self.document_patterns),
+            "errors_count": len(self.errors),
+            "errors": self.errors,
+            "pattern_results": self.pattern_results,
+            "stopped_at_max_batches": self.total_batches_built >= self.max_total_batches,
+            "document_pattern_mappings_count": len(self.document_pattern_mapping)
+        }
+
+
 if __name__ == "__main__":
     async def run_search_for_day(day: int) -> tuple[int, list]:
         """
@@ -654,4 +1629,3 @@ if __name__ == "__main__":
                 import ipdb; ipdb.set_trace()
     
     asyncio.run(main())
-

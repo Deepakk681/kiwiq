@@ -14,6 +14,7 @@ from kiwi_app.auth.models import *
 from kiwi_app.workflow_app.models import *
 from kiwi_app.billing.models import *
 from linkedin_integration.models import *
+from kiwi_app.data_jobs.models import *
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     REDIS_URL: Optional[str] = None
     MONGO_URL: Optional[str] = None
     RABBITMQ_URL: Optional[str] = None
+    WEAVIATE_HOST: Optional[str] = None
+    WEAVIATE_URL: Optional[str] = None
+    WEAVIATE_API_KEY: Optional[str] = None
     CACHE_TTL: int = 3600  # seconds
     
     # Worker pool settings

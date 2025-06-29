@@ -25,7 +25,7 @@ class Settings(Settings):
     FIREWORKS_API_KEY: str = ""
     PPLX_API_KEY: str = ""
     WEB_SEARCH_NUM_CITATIONS_PER_CREDIT: int = 2
-    LLM_TOKEN_COST_MARKUP_FACTOR: float = 1.2
+    LLM_TOKEN_COST_MARKUP_FACTOR: float = 1.25
     
     @model_validator(mode='after')
     def validate_google_credentials(self) -> 'Settings':

@@ -40,6 +40,8 @@ ENV PYTHONPATH=/app:/app/services
 # Set the working directory in the container
 WORKDIR /app
 
+RUN python -m spacy download en_core_web_sm
+
 # Default command: run the application
 # For production, you might run: poetry run python app.py
 # For testing, override the command with: PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest

@@ -1800,6 +1800,14 @@ class CustomerDataService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Document '{namespace}/{docname}' not found",
                 )
+            
+            # Extract path components
+            is_versioning_metadata = document.get(self.mongo_client.DOC_TYPE_KEY) == self.mongo_client.DOC_TYPE_VERSIONED
+            if is_versioning_metadata:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot get versioned document data via unversioned document endpoint. Use the versioned document endpoint instead.",
+                )
                 
             return document.get("data", {})
         except Exception as e:
@@ -2122,19 +2130,27 @@ class CustomerDataService:
                 elif sort_by == schemas.CustomerDataSortBy.UPDATED_AT:
                     value_sort_by = [("updated_at", sort_direction)]
             
-            for pattern in patterns:
-                customer_data_logger.debug(f"Processing pattern: {pattern}")
+            # for pattern in patterns:
+            #     customer_data_logger.debug(f"Processing pattern: {pattern}")
             
             key_patterns = []
+            # for pattern in patterns:
+            #     key_pattern = pattern + [None] * len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES)
+            #     key_patterns.append(key_pattern)
+            
             for pattern in patterns:
+                customer_data_logger.debug(f"Processing pattern: {pattern}")
                 key_pattern = pattern + [None] * len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES)
+                # if text_search_query or value_filter:
+                #     #     ALSO enable searches in versioned docs data in the version segment!
+                key_pattern = pattern + ["*"] + [None] * (len(self.versioned_mongo_client.VERSION_SEGMENT_NAMES) - 1)
                 key_patterns.append(key_pattern)
              
             docs = await self.versioned_mongo_client.client.search_objects(
                 # NOTE: we only wanna fetch all docs where the version/sequence no. segments are unset!
                 key_pattern=key_patterns,
                 allowed_prefixes=allowed_prefixes,
-                include_fields=self.versioned_mongo_client.segment_names + [self.mongo_client.DOC_TYPE_KEY],
+                include_fields=self.versioned_mongo_client.client.segment_names + [self.mongo_client.DOC_TYPE_KEY, "data.active_version"],
                 skip=skip,
                 limit=limit,
                 value_sort_by=value_sort_by
@@ -2147,15 +2163,16 @@ class CustomerDataService:
             customer_data_logger.debug(f"Total unique documents found: {len(all_docs)}")
             
             # Process results into metadata objects
+            active_versions_by_paths = {}
             result = []
             for doc_path, _doc_metadata in all_docs.items():
                 # Skip if not a list (should not happen)
-                if not isinstance(doc_path, (list, tuple)) or len(doc_path) != 4:
+                if not isinstance(doc_path, (list, tuple)) or len(doc_path) < 4:
                     customer_data_logger.warning(f"Skipping invalid doc_path: {doc_path}")
                     continue
                     
                 # Extract path components
-                org_id_str, user_id_str, namespace, docname = doc_path
+                org_id_str, user_id_str, namespace, docname = doc_path[:4]
                 
                 # Determine if shared and system
                 is_shared = user_id_str == self.SHARED_DOC_PLACEHOLDER
@@ -2167,9 +2184,27 @@ class CustomerDataService:
                     continue
                 
                 is_versioned = _doc_metadata.get(self.mongo_client.DOC_TYPE_KEY) == self.mongo_client.DOC_TYPE_VERSIONED
+
+                is_versioning_metadata = is_versioned
+                version = None
+                if len(doc_path) > 4:
+                    version = doc_path[4]
+                    is_versioning_metadata = False
+                
+
+                data_dict = _doc_metadata.get("data", {}) or {}
+
+                versionless_path = self.versioned_mongo_client.client._path_to_id(doc_path[:4])
+
+                if is_versioning_metadata:
+                    active_versions_by_paths[versionless_path] = data_dict.get("active_version", None)
+                    # skip versioning metadata since we are only listing all versioned docs with their versions
+                    continue
                 
                 # Create metadata object
                 metadata = schemas.CustomerDocumentMetadata(
+                    id=_doc_metadata.get("_id"),
+                    versionless_path=versionless_path,
                     org_id=uuid.UUID(org_id_str) if not is_system else None,
                     user_id_or_shared_placeholder=user_id_str,
                     namespace=namespace,
@@ -2177,6 +2212,7 @@ class CustomerDataService:
                     is_versioned=is_versioned,
                     is_shared=is_shared,
                     is_system_entity=is_system,
+                    version=version,
                 )
                 
                 result.append(metadata)
@@ -2188,7 +2224,13 @@ class CustomerDataService:
             seen_paths = set()
             
             for metadata in result:
-                path_key = f"{metadata.org_id or CustomerDataService.SYSTEM_DOC_PLACEHOLDER}/{metadata.user_id_or_shared_placeholder}/{metadata.namespace}/{metadata.docname}"
+
+                # set active version flag
+                if metadata.versionless_path in active_versions_by_paths:
+                    active_version = active_versions_by_paths[metadata.versionless_path]
+                    metadata.is_active_version = metadata.version == active_version
+
+                path_key = metadata.id
                 if path_key not in seen_paths:
                     seen_paths.add(path_key)
                     unique_result.append(metadata)
@@ -2375,11 +2417,11 @@ class CustomerDataService:
                 if len(doc_path) > 4:
                     version = doc_path[4]
                     is_versioning_metadata = False
-                from langchain_core.load import dumps
-                if is_versioning_metadata:
-                    customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
-                else:
-                    customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
+                # from langchain_core.load import dumps
+                # if is_versioning_metadata:
+                #     customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
+                # else:
+                #     customer_data_logger.warning(f"\n\n\n\n***** _doc_metadata is_versioning_metadata: {is_versioning_metadata}: {dumps(_doc_metadata, pretty=True)}\n\n\n\n")
                 org_id_str, user_id_str, namespace, docname = doc_path[:4]
                 
                 # Determine if shared and system

@@ -44,6 +44,50 @@ services:
     networks:
       - prod_network
 
+  # Weaviate Vector Database Service
+  weaviate:
+    image: semitechnologies/weaviate:1.31.3  # Use specific version for production
+    container_name: kiwiq_prod_weaviate
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Production Weaviate configuration
+      QUERY_DEFAULTS_LIMIT: ${WEAVIATE_QUERY_DEFAULTS_LIMIT:-25}
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: ${WEAVIATE_ANONYMOUS_ACCESS_ENABLED:-true}  # Disable for prod
+      # AUTHENTICATION_APIKEY_ENABLED: ${WEAVIATE_APIKEY_ENABLED:-true}  # Enable API key auth for prod
+      # AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${WEAVIATE_API_KEYS}  # Set API keys from env
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,generative-openai}
+      DEFAULT_VECTORIZER_MODULE: ${WEAVIATE_DEFAULT_VECTORIZER_MODULE:-text2vec-openai}
+      ASYNC_INDEXING: ${WEAVIATE_ASYNC_INDEXING:-true}
+      OPENAI_APIKEY: ${OPENAI_API_KEY}  # Required for OpenAI modules
+      LOG_LEVEL: ${WEAVIATE_LOG_LEVEL:-info}
+      # Production performance settings
+      LIMIT_RESOURCES: ${WEAVIATE_LIMIT_RESOURCES:-true}
+      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-2048MiB}
+      CLUSTER_HOSTNAME: "node1"
+      RAFT_BOOTSTRAP_EXPECT: "1"
+      RAFT_ENABLE_ONE_NODE_RECOVERY: "true"
+      RAFT_BOOTSTRAP_TIMEOUT: "300"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    networks:
+      - prod_network
+    # No ports exposed externally - accessed via internal network only
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=3", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Optional: Add production logging
+    # logging:
+    #   driver: "json-file"
+    #   options:
+    #     max-size: "100m"
+    #     max-file: "3"
+
   # Main Application Service (FastAPI/Uvicorn)
   app:
     build:
@@ -61,11 +105,14 @@ services:
     environment:
       # Override any dev-specific settings if necessary
       APP_ENV: PROD
+      # Service URLs - ensure these match .env configuration
+      # WEAVIATE_URL: "http://weaviate:8080"
       # Individual host vars are removed; rely on full URLs from .env.prod loaded above
       # POSTGRES_HOST: postgres
       # MONGO_HOST: mongo
       # RABBITMQ_HOST: rabbitmq
       # REDIS_HOST: redis
+      # WEAVIATE_HOST: weaviate
       # Add other production-specific env vars if needed directly here
     volumes:
       # In production, typically you don't mount the source code directly.
@@ -74,6 +121,8 @@ services:
       - ./:/app
     depends_on:
       # Explicitly depend on backend services and wait for postgres to be healthy
+      weaviate:
+        condition: service_healthy
       mongo:
         condition: service_started
       postgres:
@@ -275,6 +324,8 @@ services:
       # Add dependencies based on what the agent/flows need (e.g., app, db, mq)
       # app: # Agent might need application code/utilities
       #   condition: service_started
+      weaviate:
+        condition: service_healthy
       postgres:
         # Wait for postgres healthcheck
         condition: service_healthy
@@ -308,6 +359,7 @@ services:
 
 # Define named volumes for data persistence
 volumes:
+  weaviate_data:
   mongo_data:
   postgres_data:
   rabbitmq_data:

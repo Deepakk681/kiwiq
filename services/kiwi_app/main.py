@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from kiwi_app.utils import get_kiwi_logger
 from kiwi_app.settings import settings # Import settings
 from kiwi_app import auth
+from weaviate_client.weaviate_client import WeaviateChunkClient
 
 from kiwi_app.workflow_app import routes as workflow_routes
 from kiwi_app.workflow_app import customer_data_routes as customer_data_routes
@@ -21,6 +22,8 @@ from kiwi_app.workflow_app import app_artifacts as app_artifacts_routes
 from kiwi_app.workflow_app import websockets as websocket_routes
 from kiwi_app.billing import routers as billing_routers
 from linkedin_integration import routers as linkedin_integration_routers
+from kiwi_app.data_jobs import routers as data_jobs_routers
+from kiwi_app.rag_service import routers as rag_service_routers
 
 # Get a logger instance for the main application
 
@@ -59,6 +62,10 @@ async def lifespan(app: FastAPI):
     # Add any other startup logic/logging here (e.g., initializing DB connections, loading models)
     # await init_db() # Ensure this is commented out if using Alembic
 
+    weaviate_client = WeaviateChunkClient()
+    await weaviate_client.connect()
+    app.state.weaviate = weaviate_client
+
     try:
         # === Startup: Directly call start_event_consumer ===
         kiwi_logger.info("Attempting to start event consumer...")
@@ -81,6 +88,7 @@ async def lifespan(app: FastAPI):
              del app.state.event_broker # Optional: clean up state
         kiwi_logger.info("Event consumer stopped successfully via lifespan.")
         kiwi_logger.info("Cleanup finished.")
+        await weaviate_client.close()
 
     # asyncio.create_task(event_consumer.main())
     # yield
@@ -668,16 +676,18 @@ app.include_router(billing_routers.billing_dashboard_router, prefix=f"{settings.
 # Include the workflow routes using the exposed router
 app.include_router(workflow_routes.workflow_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.run_router, prefix=settings.API_V1_PREFIX)
+app.include_router(customer_data_routes.customer_data_router, prefix=settings.API_V1_PREFIX)
+app.include_router(rag_service_routers.rag_router, prefix=settings.API_V1_PREFIX)
+app.include_router(workflow_routes.workflow_config_override_router, prefix=settings.API_V1_PREFIX)
+app.include_router(workflow_routes.chat_thread_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.template_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.notification_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.hitl_router, prefix=settings.API_V1_PREFIX)
-app.include_router(workflow_routes.workflow_config_override_router, prefix=settings.API_V1_PREFIX)
-app.include_router(workflow_routes.chat_thread_router, prefix=settings.API_V1_PREFIX)
-app.include_router(customer_data_routes.customer_data_router, prefix=settings.API_V1_PREFIX)
 app.include_router(scraping_routes.scraping_router, prefix=settings.API_V1_PREFIX)
 app.include_router(app_state_routes.app_state_router, prefix=settings.API_V1_PREFIX)
 app.include_router(app_artifacts_routes.artifact_router, prefix=settings.API_V1_PREFIX)
 app.include_router(websocket_routes.websocket_router, prefix=settings.API_V1_PREFIX)
+app.include_router(data_jobs_routers.data_jobs_admin_router, prefix=settings.API_V1_PREFIX)
 
 # ... rest of your app setup ...
 

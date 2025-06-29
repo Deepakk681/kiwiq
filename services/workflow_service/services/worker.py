@@ -60,7 +60,7 @@ from kiwi_app.settings import settings # Assuming path for central settings
 from workflow_service.utils.utils import get_node_output_state_key # Util for final output extraction
 from workflow_service.config.constants import STATE_KEY_DELIMITER
 
-from workflow_service.services.cron_flows import billing_expire_organization_credits_flow, search_scheduled_briefs_and_send_reminders_flow
+from workflow_service.services.cron_flows import billing_expire_organization_credits_flow, search_scheduled_briefs_and_send_reminders_flow, rag_data_ingestion_flow, RAG_INGESTION_MAX_BATCHES_PER_RUN, RAG_INGESTION_BATCH_SIZE
 from linkedin_integration.models import *
 
 # --- Core Workflow Execution Flow ---
@@ -924,6 +924,23 @@ if __name__ == "__main__":
             parameters={
                 "send_reminder_emails": True,  # Enable email reminders by default
                 "trigger_workflows": False  # Can be set to True when workflow triggering is implemented
+            }
+        ),
+        # RAG data ingestion deployment (daily cron job)
+        rag_data_ingestion_flow.to_deployment(
+            name="daily",
+            tags=["rag-service", "data-ingestion", "weaviate", "cron"],
+            cron="0 7 * * *",  # Run daily at 7 AM UTC / 12 AM PST / 3 AM EST (off-peak hours)
+            description=f"Daily incremental ingestion of updated documents into Weaviate for RAG ({global_settings.APP_ENV})",
+            version="rag-service/ingestion",
+            parameters={
+                # Use default parameters for automatic incremental ingestion
+                "start_timestamp": None,  # Will use last successful job timestamp
+                "end_timestamp": None,    # Will use current time
+                "document_patterns": None, # Will use DEFAULT_INGESTION_DOCUMENT_PATTERNS
+                "batch_size": RAG_INGESTION_BATCH_SIZE,       # Default batch size
+                "max_batches": RAG_INGESTION_MAX_BATCHES_PER_RUN,        # Default max batches
+                "generate_vectors": True  # Enable vector generation
             }
         ),
         # pause_on_shutdown=global_settings.APP_ENV != "PROD",

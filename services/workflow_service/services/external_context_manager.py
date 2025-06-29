@@ -21,6 +21,9 @@ from kiwi_app.auth import crud as auth_crud
 from kiwi_app.billing import services as billing_services, dependencies as billing_dependencies
 from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
 from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
+from kiwi_app.data_jobs import crud as data_jobs_crud
+from kiwi_app.data_jobs import services as data_jobs_services
+from kiwi_app.data_jobs.dependencies import get_data_jobs_service_no_dependencies
 
 # Add new imports for clients
 from redis_client import AsyncRedisClient
@@ -49,6 +52,7 @@ class DAOContext(BaseModel):
     user_notification: wf_crud.UserNotificationDAO = Field(...)
     hitl_job: wf_crud.HITLJobDAO = Field(...)
     user: auth_crud.UserDAO = Field(...)
+    data_job: data_jobs_crud.DataJobDAO = Field(...)
 
     class Config:
         arbitrary_types_allowed = True # Allow non-pydantic types like clients
@@ -172,6 +176,7 @@ class ExternalContextManager(BaseModel):
     db_registry: DBRegistry = Field(...)
     customer_data_service: CustomerDataService = Field(...)  #  CustomerDataService
     billing_service: billing_services.BillingService = Field(...)
+    data_job_service: data_jobs_services.DataJobService = Field(...)
 
     class Config:
         arbitrary_types_allowed = True # Allow non-pydantic types like clients
@@ -504,6 +509,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     schema_template_dao = wf_crud.SchemaTemplateDAO()
     user_notification_dao = wf_crud.UserNotificationDAO()
     hitl_job_dao = wf_crud.HITLJobDAO()
+    data_job_dao = data_jobs_crud.DataJobDAO()
     
     # Initialize auth DAOs
     user_dao = auth_crud.UserDAO()
@@ -526,7 +532,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         schema_template=schema_template_dao,
         user_notification=user_notification_dao,
         hitl_job=hitl_job_dao,
-        user=user_dao
+        user=user_dao,
+        data_job=data_job_dao
     )
 
     customer_data_service = await get_customer_data_service(
@@ -538,6 +545,9 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     # Initialize billing service using the centralized dependency function
     # This ensures consistent DAO creation patterns across the application
     billing_service = billing_dependencies.get_billing_service_no_dependencies()
+
+    # Initialize data job service using the centralized dependency function
+    data_job_service = get_data_jobs_service_no_dependencies()
     
     # Create and return the ExternalContextManager
     external_context = ExternalContextManager(
@@ -558,7 +568,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         daos=dao_context,
         db_registry=db_registry,
         customer_data_service=customer_data_service,
-        billing_service=billing_service
+        billing_service=billing_service,
+        data_job_service=data_job_service
     )
     
     return external_context
