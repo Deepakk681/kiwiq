@@ -122,7 +122,8 @@ services:
     depends_on:
       # Explicitly depend on backend services and wait for postgres to be healthy
       weaviate:
-        condition: service_healthy
+        # condition: service_healthy
+        condition: service_started
       mongo:
         condition: service_started
       postgres:
@@ -325,7 +326,8 @@ services:
       # app: # Agent might need application code/utilities
       #   condition: service_started
       weaviate:
-        condition: service_healthy
+        # condition: service_healthy
+        condition: service_started
       postgres:
         # Wait for postgres healthcheck
         condition: service_healthy
