@@ -788,7 +788,7 @@ class RAGService:
                 
                 return CustomerDocumentSearchResult(
                     metadata=metadata,
-                    data=document_data
+                    document_contents=document_data
                 )
             
             return None

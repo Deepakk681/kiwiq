@@ -417,7 +417,7 @@ async def search_scheduled_briefs_for_today(
         processed_results = []
         for result in search_results:
             metadata = result.metadata
-            data = result.data
+            data = result.document_contents
             
             # Skip versioning metadata entries
             if metadata.is_versioning_metadata:

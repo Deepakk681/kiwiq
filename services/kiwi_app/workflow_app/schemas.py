@@ -660,7 +660,7 @@ class CustomerDocumentSearchResult(BaseModel):
     Schema for the result of a customer document search.
     """
     metadata: CustomerDocumentSearchResultMetadata = Field(..., description="The metadata for the document.")
-    data: Any = Field(..., description="The data for the document.")
+    document_contents: Any = Field(..., description="The data for the document.")
 
     model_config = ConfigDict(from_attributes=True)
 

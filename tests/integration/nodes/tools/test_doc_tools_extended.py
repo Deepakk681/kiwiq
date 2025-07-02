@@ -778,7 +778,7 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(view_result.success)
         
         # Check the content based on whether the edit succeeded or failed
-        doc_data = list(view_result.documents.values())[0].data
+        doc_data = list(view_result.documents.values())[0].document_contents
         if not edit_result.success:
             # If edit failed, document should still have original data
             self.assertEqual(doc_data["status"], "draft")
@@ -997,6 +997,694 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         else:
             # Check in main message
             self.assertIn("not found", delete_result.message.lower())
+    
+
+    # ===== EXTENSIVE TESTS FOR INTEGER INDEX PATHS =====
+    
+    async def test_json_edit_basic_array_access(self):
+        """Test basic array access with integer indices."""
+        doc_key = "concept"
+        initial_data = {
+            "title": "Array Test",
+            "items": ["first", "second", "third", "fourth"],
+            "numbers": [10, 20, 30, 40, 50]
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="array_basic"
+        )
+        
+        # Test editing array elements at different positions
+        test_cases = [
+            ("items.0", "FIRST"),  # First element
+            ("items.1", "SECOND"),  # Second element  
+            ("items.3", "FOURTH"),  # Last element
+            ("numbers.2", 300),     # Middle element with number
+        ]
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        for path, new_value in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to edit path {path}")
+        
+        # Verify all edits
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname, 
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["items"], ["FIRST", "SECOND", "third", "FOURTH"])
+        self.assertEqual(final_doc["numbers"][2], 300)
+    
+    async def test_json_edit_nested_array_access(self):
+        """Test accessing elements in nested arrays."""
+        doc_key = "concept"
+        initial_data = {
+            "users": [
+                {
+                    "name": "Alice",
+                    "emails": ["alice@example.com", "alice.work@example.com"],
+                    "addresses": [
+                        {"city": "New York", "zip": "10001"},
+                        {"city": "Boston", "zip": "02101"}
+                    ]
+                },
+                {
+                    "name": "Bob", 
+                    "emails": ["bob@example.com"],
+                    "addresses": [
+                        {"city": "Seattle", "zip": "98101"}
+                    ]
+                }
+            ],
+            "matrix": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="nested_arrays"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test various nested paths
+        test_cases = [
+            # Access nested array element
+            ("users.0.emails.1", "alice.personal@example.com"),
+            # Access object inside array inside object inside array
+            ("users.1.addresses.0.city", "Portland"),
+            # Access element in 2D array
+            ("matrix.1.2", 60),
+            # Deep nesting
+            ("users.0.addresses.1.zip", "02199"),
+        ]
+        
+        for path, new_value in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to edit path {path}")
+        
+        # Verify edits
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["users"][0]["emails"][1], "alice.personal@example.com")
+        self.assertEqual(final_doc["users"][1]["addresses"][0]["city"], "Portland")
+        self.assertEqual(final_doc["matrix"][1][2], 60)
+        self.assertEqual(final_doc["users"][0]["addresses"][1]["zip"], "02199")
+    
+    async def test_json_edit_mixed_dict_array_paths(self):
+        """Test paths that mix dictionary keys and array indices."""
+        doc_key = "concept"
+        initial_data = {
+            "config": {
+                "environments": [
+                    {"name": "dev", "settings": {"port": 3000, "debug": True}},
+                    {"name": "prod", "settings": {"port": 80, "debug": False}}
+                ],
+                "users": {
+                    "admins": ["alice", "bob"],
+                    "viewers": ["charlie", "david", "eve"]
+                }
+            },
+            "data": {
+                "2023": {
+                    "months": ["Jan", "Feb", "Mar"],
+                    "values": [100, 200, 300]
+                },
+                "2024": {
+                    "months": ["Jan", "Feb"], 
+                    "values": [150, 250]
+                }
+            }
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="mixed_paths"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test mixed paths
+        test_cases = [
+            ("config.environments.1.settings.port", 443),
+            ("config.users.admins.0", "alice_admin"),
+            ("config.users.viewers.2", "eve_viewer"),
+            ("data.2023.values.1", 225),
+            ("data.2024.months.1", "February"),
+        ]
+        
+        for path, new_value in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to edit path {path}")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["config"]["environments"][1]["settings"]["port"], 443)
+        self.assertEqual(final_doc["config"]["users"]["admins"][0], "alice_admin")
+        self.assertEqual(final_doc["data"]["2023"]["values"][1], 225)
+    
+    async def test_json_edit_numeric_string_keys_vs_indices(self):
+        """Test distinction between numeric string keys and array indices."""
+        doc_key = "concept"
+        initial_data = {
+            # Dictionary with numeric string keys
+            "dict_with_numeric_keys": {
+                "0": "zero",
+                "1": "one", 
+                "2": "two",
+                "10": "ten"
+            },
+            # Array with numeric indices
+            "array_with_indices": ["zero", "one", "two", "three"],
+            # Mixed structure
+            "mixed": {
+                "items": ["a", "b", "c"],
+                "4": {
+                    "value": "four",
+                    "nested": ["x", "y", "z"]
+                }
+            }
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="numeric_keys"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test cases that distinguish between dict keys and array indices
+        test_cases = [
+            # This should access the dict key "1", not array index
+            ("dict_with_numeric_keys.1", "ONE"),
+            # This should access array index 1
+            ("array_with_indices.1", "ONE"),
+            # This should access dict key "4", not try to access array index
+            ("mixed.4.value", "FOUR"),
+            # This should access array inside the dict value at key "4"
+            ("mixed.4.nested.1", "Y"),
+            # Access array normally
+            ("mixed.items.2", "C"),
+        ]
+        
+        for path, new_value in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to edit path {path}")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["dict_with_numeric_keys"]["1"], "ONE")
+        self.assertEqual(final_doc["array_with_indices"][1], "ONE")
+        self.assertEqual(final_doc["mixed"]["4"]["value"], "FOUR")
+        self.assertEqual(final_doc["mixed"]["4"]["nested"][1], "Y")
+        self.assertEqual(final_doc["mixed"]["items"][2], "C")
+    
+    async def test_json_edit_array_out_of_bounds(self):
+        """Test error handling for out of bounds array access."""
+        doc_key = "concept"
+        initial_data = {
+            "items": ["a", "b", "c"],  # 3 elements
+            "nested": {
+                "array": [1, 2]  # 2 elements
+            }
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="out_of_bounds"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test out of bounds cases
+        out_of_bounds_cases = [
+            "items.3",      # Index 3 doesn't exist (0-2 valid)
+            "items.10",     # Way out of bounds
+            "nested.array.5", # Index 5 doesn't exist (0-1 valid)
+        ]
+        
+        for path in out_of_bounds_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value="should_fail"
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertFalse(result.success, f"Expected failure for out of bounds path {path}")
+            self.assertIn("out of range", result.operation_results[0]["message"].lower())
+    
+    async def test_json_edit_invalid_array_access(self):
+        """Test error handling for invalid array access patterns."""
+        doc_key = "concept"
+        initial_data = {
+            "items": ["a", "b", "c"],
+            "number": 42,
+            "text": "hello",
+            "nested": {
+                "items": ["x", "y"]
+            }
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="invalid_access"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test invalid access patterns
+        invalid_cases = [
+            # Non-numeric index on array
+            ("items.foo", "should_fail", "non-numeric key"),
+            # Array index on non-array
+            ("number.0", "should_fail", "cannot continue traversing"),
+            ("text.1", "should_fail", "cannot continue traversing"),
+            # Negative indices (not supported)
+            ("items.-1", "should_fail", "non-numeric key"),
+        ]
+        
+        for path, value, expected_error in invalid_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertFalse(result.success, f"Expected failure for invalid path {path}")
+            self.assertIn(expected_error, result.operation_results[0]["message"].lower())
+    
+    async def test_json_edit_empty_arrays_and_edge_cases(self):
+        """Test handling of empty arrays and edge cases."""
+        doc_key = "concept"
+        initial_data = {
+            "empty_array": [],
+            "nested_empty": {
+                "items": []
+            },
+            "single_element": ["only_one"],
+            "null_values": [None, "not_null", None],
+            "mixed_types": [1, "two", {"three": 3}, [4, 5], True, None]
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="edge_cases"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test accessing empty array
+        edit_input = EditDocumentInputSchema(
+            entity_username=str(self.user_regular.id),
+            document_identifier=DocumentIdentifier(
+                doc_key=doc_key,
+                docname=docname,
+                version=self._get_default_version_for_doc_key(doc_key)
+            ),
+            operations=[
+                EditOperation(
+                    operation_type=EditOperationType.JSON_EDIT_KEY,
+                    json_operation=JsonOperationDetails(
+                        json_key_path="empty_array.0",
+                        replacement_value="should_fail"
+                    )
+                )
+            ]
+        )
+        
+        result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+        self.assertFalse(result.success, "Expected failure for empty array access")
+        
+        # Test valid edits on edge cases
+        valid_edits = [
+            ("single_element.0", "ONLY_ONE"),
+            ("null_values.0", "not_null_anymore"),
+            ("null_values.1", "NOT_NULL"),
+            ("mixed_types.0", 100),
+            ("mixed_types.1", "TWO"),
+            ("mixed_types.2.three", 300),
+            ("mixed_types.3.1", 50),
+            ("mixed_types.4", False),
+        ]
+        
+        for path, new_value in valid_edits:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to edit path {path}")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["single_element"][0], "ONLY_ONE")
+        self.assertEqual(final_doc["null_values"][0], "not_null_anymore")
+        self.assertEqual(final_doc["mixed_types"][3][1], 50)
+        self.assertEqual(final_doc["mixed_types"][4], False)
+    
+    async def test_json_edit_very_deep_nesting(self):
+        """Test handling of very deeply nested array paths."""
+        doc_key = "concept"
+        # Create deeply nested structure
+        deep_data = {"level1": {"level2": {"level3": {"level4": {"items": [
+            {"data": [{"values": [1, 2, 3]}, {"values": [4, 5, 6]}]},
+            {"data": [{"values": [7, 8, 9]}, {"values": [10, 11, 12]}]}
+        ]}}}}}
+        
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=deep_data,
+            docname_suffix="deep_nesting"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test deep path
+        deep_path = "level1.level2.level3.level4.items.1.data.0.values.2"
+        edit_input = EditDocumentInputSchema(
+            entity_username=str(self.user_regular.id),
+            document_identifier=DocumentIdentifier(
+                doc_key=doc_key,
+                docname=docname,
+                version=self._get_default_version_for_doc_key(doc_key)
+            ),
+            operations=[
+                EditOperation(
+                    operation_type=EditOperationType.JSON_EDIT_KEY,
+                    json_operation=JsonOperationDetails(
+                        json_key_path=deep_path,
+                        replacement_value=999
+                    )
+                )
+            ]
+        )
+        
+        result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+        self.assertTrue(result.success, "Failed to edit deeply nested path")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(
+            final_doc["level1"]["level2"]["level3"]["level4"]["items"][1]["data"][0]["values"][2],
+            999
+        )
+    
+    async def test_json_edit_array_with_text_operations(self):
+        """Test text operations on string values within arrays."""
+        doc_key = "concept"
+        initial_data = {
+            "messages": [
+                "Hello world",
+                "This is a test message",
+                "Final message here"
+            ],
+            "users": [
+                {"name": "Alice Smith", "bio": "Software developer from NYC"},
+                {"name": "Bob Jones", "bio": "Designer from LA"}
+            ]
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="array_text_ops"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test text replacement in array elements
+        test_cases = [
+            # Replace text in simple array
+            {
+                "path": "messages.0",
+                "text_op": TextEditDetails(
+                    text_to_find="Hello",
+                    replacement_text="Goodbye"
+                )
+            },
+            # Replace text in nested object array
+            {
+                "path": "users.1.bio",
+                "text_op": TextEditDetails(
+                    text_to_find="Designer",
+                    replacement_text="Developer"
+                )
+            },
+            # Insert text at position
+            {
+                "path": "messages.1",
+                "text_op": TextEditDetails(
+                    position=0,
+                    text_to_add="[URGENT] "
+                )
+            }
+        ]
+        
+        for case in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=case["path"],
+                            text_edit_on_value=case["text_op"]
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed text operation on path {case['path']}")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["messages"][0], "Goodbye world")
+        self.assertEqual(final_doc["users"][1]["bio"], "Developer from LA")
+        self.assertEqual(final_doc["messages"][1], "[URGENT] This is a test message")
+    
+    async def test_json_edit_complex_array_replacements(self):
+        """Test replacing entire arrays or complex values at array indices."""
+        doc_key = "concept"
+        initial_data = {
+            "data": [
+                {"id": 1, "value": 100},
+                {"id": 2, "value": 200},
+                ["nested", "array", "values"],
+                "simple_string"
+            ],
+            "matrix": [[1, 2], [3, 4], [5, 6]]
+        }
+        doc_id, namespace, docname = await self._create_test_document_for_doc_key(
+            doc_key=doc_key,
+            data=initial_data,
+            docname_suffix="complex_replacements"
+        )
+        
+        edit_tool = EditDocumentTool(config={}, node_id="test-edit", prefect_mode=False)
+        
+        # Test complex replacements
+        test_cases = [
+            # Replace object with another object
+            ("data.0", {"id": 10, "value": 1000, "extra": "field"}),
+            # Replace array with object
+            ("data.2", {"converted": True, "from": "array"}),
+            # Replace string with array
+            ("data.3", ["now", "it's", "an", "array"]),
+            # Replace sub-array in matrix
+            ("matrix.1", [30, 40, 50]),
+        ]
+        
+        for path, new_value in test_cases:
+            edit_input = EditDocumentInputSchema(
+                entity_username=str(self.user_regular.id),
+                document_identifier=DocumentIdentifier(
+                    doc_key=doc_key,
+                    docname=docname,
+                    version=self._get_default_version_for_doc_key(doc_key)
+                ),
+                operations=[
+                    EditOperation(
+                        operation_type=EditOperationType.JSON_EDIT_KEY,
+                        json_operation=JsonOperationDetails(
+                            json_key_path=path,
+                            replacement_value=new_value
+                        )
+                    )
+                ]
+            )
+            
+            result = await edit_tool.process(edit_input, config=self.runtime_config_regular)
+            self.assertTrue(result.success, f"Failed to replace at path {path}")
+        
+        # Verify
+        doc_config = DEFAULT_USER_DOCUMENTS_CONFIG.get_document_config(doc_key)
+        final_doc = await self._get_document(
+            namespace, docname,
+            is_versioned=doc_config.is_versioned,
+            version=self._get_default_version_for_doc_key(doc_key),
+            user=self.user_regular
+        )
+        self.assertEqual(final_doc["data"][0]["id"], 10)
+        self.assertEqual(final_doc["data"][0]["extra"], "field")
+        self.assertEqual(final_doc["data"][2]["converted"], True)
+        self.assertEqual(final_doc["data"][3], ["now", "it's", "an", "array"])
+        self.assertEqual(final_doc["matrix"][1], [30, 40, 50])
     
 
 if __name__ == "__main__":

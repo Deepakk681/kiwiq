@@ -1092,7 +1092,7 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         doc_result = list(result.documents.values())[0]
         
         # Check that the original data is preserved (ignore datetime fields)
-        returned_data = doc_result.data
+        returned_data = doc_result.document_contents
         for key, value in doc_data.items():
             self.assertIn(key, returned_data)
             self.assertEqual(returned_data[key], value)
@@ -1135,7 +1135,7 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.view_mode, "single")
         doc_result = list(result.documents.values())[0]
-        self.assertEqual(doc_result.data["id"], 2)
+        self.assertEqual(doc_result.document_contents["id"], 2)
     
     async def test_view_list_documents_by_doc_key(self):
         """Test listing documents filtered by doc_key."""
@@ -1530,7 +1530,7 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(view_result.success)
         
         # Check the content based on whether the edit succeeded or failed
-        doc_data = list(view_result.documents.values())[0].data
+        doc_data = list(view_result.documents.values())[0].document_contents
         if not edit_result.success or edit_result.final_content is None:
             self.assertEqual(doc_data["status"], "created_after_error")
         else:

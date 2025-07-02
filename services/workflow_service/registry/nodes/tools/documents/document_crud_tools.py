@@ -236,9 +236,10 @@ class JsonOperationDetails(BaseSchema):
             "(e.g., 'users.0.email', 'items.2.price'). "
             "Note: For dicts with numeric string keys (e.g., {'4': 'value'}), "
             "the key '4' is treated as a string key, not an array index."
+            "NOTE: if document contents are contained in `document_contents` in viewer response, that shouldn't be prefixed to the path"
         )
     )
-    replacement_value: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
+    replacement_value: Optional[Union[str, int, float, bool, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
         None,
         description="The replacement value for the specified key"
     )
@@ -285,7 +286,7 @@ class EditOperation(BaseSchema):
     )
     
     # For document replacement (both JSON and text)
-    new_content: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
+    new_content: Optional[Union[str, int, float, bool, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
         None,
         description="For REPLACE_DOCUMENT: the new document content (string or dict/JSON)"
     )
@@ -972,6 +973,19 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
         - "user.name" - Access dict keys
         - "users.0.email" - Access array elements by index
         - "data.4.value" - Prefers dict key "4" over array index 4
+        
+        Important behavior:
+        - For dictionaries: Always tries the key as-is first (including numeric strings)
+        - For lists: Only accepts numeric indices (0, 1, 2, etc.)
+        - Negative indices are NOT supported (e.g., -1 for last element)
+        - Out of bounds indices raise IndexError
+        - Non-numeric keys on lists raise TypeError
+        
+        Examples:
+        - Path "data.4" on {"data": {"4": "value"}} -> Returns "value" (dict key)
+        - Path "data.4" on {"data": ["a", "b", "c", "d", "e"]} -> Returns "e" (index 4)
+        - Path "items.-1" -> Raises error (negative indices not supported)
+        - Path "items.foo" on {"items": [...]} -> Raises error (non-numeric on list)
         """
         if not path:
             raise KeyError("Empty path provided")
@@ -1023,6 +1037,18 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
         Auto-creates intermediate structures:
         - Creates dicts for string keys
         - Does NOT auto-create lists (must already exist for array access)
+        
+        Important behavior:
+        - For dictionaries: Always sets the key as-is (including numeric strings)
+        - For lists: Only accepts numeric indices (0, 1, 2, etc.)
+        - Cannot extend lists - index must be within current bounds
+        - Negative indices are NOT supported
+        - Type conversion: String values that are valid JSON are automatically parsed
+        
+        Examples:
+        - Path "data.4" on {"data": {}} -> Creates {"data": {"4": value}}
+        - Path "items.3" on {"items": ["a", "b", "c"]} -> Error (index 3 out of bounds)
+        - Path "config.ports.0" -> Error if config.ports doesn't exist (won't create list)
         """
         if not path:
             raise ValueError("Empty path provided")
@@ -1392,7 +1418,7 @@ class DocumentViewerTool(BaseNode[DocumentViewerInputSchema, DocumentViewerOutpu
             # Create result
             document_result = CustomerDocumentSearchResult(
                 metadata=document_info,
-                data=content
+                document_contents=content
             )
             
             # Generate serial number

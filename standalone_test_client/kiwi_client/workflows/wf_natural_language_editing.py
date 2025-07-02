@@ -1055,7 +1055,7 @@ async def main_test_natural_language_editing():
         #     "name": "View and Edit Strategy Documents",
         #     "initial_inputs": {
         #         "entity_username": test_entity_username,
-        #         "user_request": "Edit my content strategy based on marketing / market related insights from my latest documents. Also pay focus on customer success stories and case studies."
+        #         "user_request": "Add a content pillar in strategy doc for customer success stories via personalized sales outreach in the age of AI."
         #     },
         # },
         # {
@@ -1146,7 +1146,7 @@ async def main_test_natural_language_editing():
     # {"user_action": "provide_clarification", "user_feedback": "Make assumptions and generate it and proceed in the same pattern / line as existing content pillars."}
     # {"user_action": "provide_clarification", "user_feedback": "Acutally, reapply and rewrite the content pillars so that its converted to JSON, currently its serialized."}
     # {"user_action": "stop_workflow"}
-    # {"user_action": "provide_clarification", "user_feedback": "proceed with the request"}
+    # {"user_action": "provide_clarification", "user_feedback": "please merge concepts and make assumptions accordingly for best results"}
     
     # Run test scenarios
     for scenario in test_scenarios:

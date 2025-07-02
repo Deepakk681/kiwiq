@@ -552,7 +552,7 @@ class DocumentIngestionPipeline:
             for idx, doc in enumerate(document_list):
                 try:
                     metadata = doc.metadata
-                    doc_data = doc.data
+                    doc_data = doc.document_contents
                     
                     # Generate consistent document ID
                     doc_id = self._generate_doc_id(metadata)
@@ -806,7 +806,7 @@ async def example_usage():
     
     json_document = CustomerDocumentSearchResult(
         metadata=json_metadata,
-        data=json_data
+        document_contents=json_data
     )
     
     # Sample text document for testing non-JSON processing
@@ -838,7 +838,7 @@ async def example_usage():
     
     text_document = CustomerDocumentSearchResult(
         metadata=text_metadata,
-        data=text_data
+        document_contents=text_data
     )
     
     # Keep track of test document IDs for cleanup

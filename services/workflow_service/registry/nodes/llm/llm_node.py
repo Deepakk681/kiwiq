@@ -841,7 +841,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
     
     def _apply_both_structured_output_and_tool_kwargs(self, chat_model, model_metadata: ModelMetadata, output_schema: BaseSchema, tools: Optional[list] = None, **kwargs: Dict[str, Any]):
         if model_metadata.provider == LLMModelProvider.OPENAI:
-            return self._apply_structured_and_tools_openai(chat_model, schema=output_schema, method="json_schema", include_raw=True, strict=True, tools=tools, **kwargs)
+            return self._apply_structured_and_tools_openai(chat_model, schema=output_schema, method="json_schema", include_raw=True, strict=False, tools=tools, **kwargs)  # DEBUG: STRICT
         elif model_metadata.provider == LLMModelProvider.ANTHROPIC:
             return self._apply_structured_and_tools_anthropic(chat_model, schema=output_schema, include_raw=True, tools=tools, **kwargs)
         else:
@@ -1491,7 +1491,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                         {
                             "name": name,
                             "parameters": schema,
-                            "strict": True,
+                            "strict": False,  # DEBUG: STRICT
                             "type": "function",
                             "description": schema.get("description", None),
                         }

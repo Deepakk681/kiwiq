@@ -2468,7 +2468,7 @@ class CustomerDataService:
 
                 search_result = schemas.CustomerDocumentSearchResult(
                     metadata=metadata,
-                    data=data,
+                    document_contents=data,
                 )
 
                 if is_versioning_metadata:
@@ -2647,7 +2647,7 @@ class CustomerDataService:
                 
                 search_result = schemas.CustomerDocumentSearchResult(
                     metadata=metadata,
-                    data=data,
+                    document_contents=data,
                 )
                 
                 result.append(search_result)
