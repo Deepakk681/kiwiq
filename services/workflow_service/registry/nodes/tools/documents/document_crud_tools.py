@@ -218,6 +218,9 @@ class JsonOperationDetails(BaseSchema):
     Supports:
     1. Upserting keys: requires json_keys
     2. Editing a specific key: requires json_key_path and either replacement_value or text_edit_on_value
+       - json_key_path supports array indices for lists (e.g., 'users.0.email', 'data.items.2.name')
+       - For dicts with numeric string keys, the path treats them as keys, not indices
+         (e.g., path 'data.4' accesses {"data": {"4": "value"}}, not data[4])
     """
     # For JSON_UPSERT_KEYS
     json_keys: Optional[Dict[str, Any]] = Field(
@@ -228,9 +231,14 @@ class JsonOperationDetails(BaseSchema):
     # For JSON_EDIT_KEY
     json_key_path: Optional[str] = Field(
         None,
-        description="Dot-notation path to the key to edit (e.g., 'user.profile.name')"
+        description=(
+            "Dot-notation path to the key to edit. Supports array indices for lists "
+            "(e.g., 'users.0.email', 'items.2.price'). "
+            "Note: For dicts with numeric string keys (e.g., {'4': 'value'}), "
+            "the key '4' is treated as a string key, not an array index."
+        )
     )
-    replacement_value: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]] = Field(
+    replacement_value: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
         None,
         description="The replacement value for the specified key"
     )
@@ -277,7 +285,7 @@ class EditOperation(BaseSchema):
     )
     
     # For document replacement (both JSON and text)
-    new_content: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]] = Field(  # Union[str, Dict[str, Any]]
+    new_content: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any], int, float, bool]]]] = Field(  # [Union[str, Dict[str, Any]]]
         None,
         description="For REPLACE_DOCUMENT: the new document content (string or dict/JSON)"
     )
@@ -352,7 +360,7 @@ class EditDocumentInputSchema(BaseDocumentInputSchema):
     
     Available Operation Types:
     - JSON_UPSERT_KEYS: Add/update keys in JSON documents
-    - JSON_EDIT_KEY: Edit specific nested keys with dot notation
+    - JSON_EDIT_KEY: Edit specific nested keys with dot notation (supports array indices)
     - TEXT_REPLACE_SUBSTRING: Replace text in string documents
     - TEXT_ADD_AT_POSITION: Insert text at specific positions
     - REPLACE_DOCUMENT: Replace entire document content
@@ -379,7 +387,36 @@ class EditDocumentInputSchema(BaseDocumentInputSchema):
          }
        }]
     
-    3. Text replace in document:
+    3. JSON edit with array index:
+       document_identifier: {doc_key: "brief", docname: "brief_123..."}
+       operations: [{
+         operation_type: "json_edit_key",
+         json_operation: {
+           json_key_path: "users.0.email",
+           replacement_value: "newemail@example.com"
+         }
+       }]
+    
+    4. JSON edit nested array element:
+       operations: [{
+         operation_type: "json_edit_key",
+         json_operation: {
+           json_key_path: "items.2.price",
+           replacement_value: 19.99
+         }
+       }]
+    
+    5. JSON edit with numeric string key (not array index):
+       # For document: {"data": {"4": "old_value", "items": [...]}}
+       operations: [{
+         operation_type: "json_edit_key",
+         json_operation: {
+           json_key_path: "data.4",  # Accesses key "4", not array index
+           replacement_value: "new_value"
+         }
+       }]
+    
+    6. Text replace in document:
        document_identifier: {doc_key: "content_analysis_doc", docname: "content_analysis_doc"}
        operations: [{
          operation_type: "text_replace_substring",
@@ -389,13 +426,13 @@ class EditDocumentInputSchema(BaseDocumentInputSchema):
          }
        }]
     
-    4. Multiple operations in sequence:
+    7. Multiple operations in sequence:
        operations: [
          {operation_type: "json_edit_key", json_operation: {json_key_path: "status", replacement_value: "published"}},
          {operation_type: "json_upsert_keys", json_operation: {json_keys: {"published_at": "2024-01-01T12:00:00Z"}}}
        ]
     
-    5. Delete document:
+    8. Delete document:
        document_identifier: {doc_key: "concept", document_serial_number: "concept_42_1"}
        operations: [{operation_type: "delete_document"}]
     
@@ -482,7 +519,7 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
     
     Available Operations:
     - JSON_UPSERT_KEYS: Add/update keys in JSON documents
-    - JSON_EDIT_KEY: Edit specific nested keys with dot notation
+    - JSON_EDIT_KEY: Edit specific nested keys with dot notation (supports array indices)
     - TEXT_REPLACE_SUBSTRING: Replace text in string documents
     - TEXT_ADD_AT_POSITION: Insert text at specific positions
     - REPLACE_DOCUMENT: Replace entire document content
@@ -928,38 +965,140 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
             }
     
     def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
-        """Get a value from a nested dictionary using dot notation."""
+        """
+        Get a value from a nested dictionary/list using dot notation with array index support.
+        
+        Handles paths like:
+        - "user.name" - Access dict keys
+        - "users.0.email" - Access array elements by index
+        - "data.4.value" - Prefers dict key "4" over array index 4
+        """
+        if not path:
+            raise KeyError("Empty path provided")
+            
         keys = path.split('.')
         current = data
+        traversed = []
         
         for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                raise KeyError(f"Path '{path}' not found in document. Missing key: '{key}'")
+            traversed.append(key)
+            current_path = '.'.join(traversed)
+            
+            try:
+                if isinstance(current, dict):
+                    # For dictionaries, always try the key as-is first
+                    if key in current:
+                        current = current[key]
+                    else:
+                        raise KeyError(f"Key '{key}' not found in dictionary")
+                        
+                elif isinstance(current, list):
+                    # For lists, require numeric indices
+                    if not key.isdigit():
+                        raise TypeError(f"Cannot use non-numeric key '{key}' for list access")
+                    
+                    index = int(key)
+                    if 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        raise IndexError(f"Index {index} out of range for list of length {len(current)}")
+                        
+                else:
+                    raise TypeError(f"Cannot traverse into {type(current).__name__} with key '{key}'")
+                    
+            except (KeyError, IndexError, TypeError) as e:
+                raise KeyError(f"Error accessing path '{path}' at '{current_path}': {str(e)}")
         
         return current
     
     def _set_nested_value(self, data: Dict[str, Any], path: str, value: Any) -> None:
-        """Set a value in a nested dictionary using dot notation."""
+        """
+        Set a value in a nested dictionary/list using dot notation with array index support.
+        
+        Handles paths like:
+        - "user.name" - Set dict keys
+        - "users.0.email" - Set array elements by index
+        - "data.4.value" - Prefers dict key "4" over array index 4
+        
+        Auto-creates intermediate structures:
+        - Creates dicts for string keys
+        - Does NOT auto-create lists (must already exist for array access)
+        """
+        if not path:
+            raise ValueError("Empty path provided")
+            
         keys = path.split('.')
         current = data
+        traversed = []
         
-        for key in keys[:-1]:
-            if key not in current:
-                current[key] = {}
-            elif not isinstance(current[key], dict):
-                raise ValueError(f"Cannot set nested value: path segment '{key}' in '{path}' is not a dictionary")
-            current = current[key]
+        # Navigate to the parent of the final key
+        for i, key in enumerate(keys[:-1]):
+            traversed.append(key)
+            current_path = '.'.join(traversed)
+            next_key = keys[i + 1]
+            
+            try:
+                if isinstance(current, dict):
+                    # For dictionaries, check if key exists
+                    if key not in current:
+                        # Auto-create only dicts, not lists
+                        current[key] = {}
+                    current = current[key]
+                    
+                elif isinstance(current, list):
+                    # For lists, require numeric indices
+                    if not key.isdigit():
+                        raise TypeError(f"Cannot use non-numeric key '{key}' for list access")
+                    
+                    index = int(key)
+                    if 0 <= index < len(current):
+                        current = current[index]
+                    else:
+                        raise IndexError(f"Index {index} out of range for list of length {len(current)}")
+                        
+                else:
+                    raise TypeError(f"Cannot traverse into {type(current).__name__} with key '{key}'")
+                    
+                # Validate that we can continue traversing
+                if not isinstance(current, (dict, list)):
+                    raise ValueError(f"Cannot continue traversing at '{current_path}': found {type(current).__name__}")
+                    
+            except (KeyError, IndexError, TypeError, ValueError) as e:
+                raise ValueError(f"Error setting value at path '{path}': {str(e)}")
         
-        json_value = value
+        # Handle the final key
+        final_key = keys[-1]
+        traversed.append(final_key)
+        final_path = '.'.join(traversed)
+        
+        # Parse string values as JSON if possible
         if isinstance(value, str):
             try:
-                json_value = json.loads(value)
+                value = json.loads(value)
             except json.JSONDecodeError:
-                json_value = value
+                pass  # Keep as string
         
-        current[keys[-1]] = json_value
+        try:
+            if isinstance(current, dict):
+                # For dictionaries, always set the key as-is
+                current[final_key] = value
+                
+            elif isinstance(current, list):
+                # For lists, require numeric index
+                if not final_key.isdigit():
+                    raise TypeError(f"Cannot use non-numeric key '{final_key}' for list assignment")
+                
+                index = int(final_key)
+                if 0 <= index < len(current):
+                    current[index] = value
+                else:
+                    raise IndexError(f"Index {index} out of range for list of length {len(current)}")
+                    
+            else:
+                raise TypeError(f"Cannot set value on {type(current).__name__}")
+                
+        except (IndexError, TypeError) as e:
+            raise ValueError(f"Error setting value at path '{path}': {str(e)}")
 
     def _convert_datetimes_to_str(self, obj: Any) -> Any:
         """Recursively convert datetime objects to ISO format strings."""

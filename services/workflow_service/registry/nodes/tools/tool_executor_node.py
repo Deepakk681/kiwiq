@@ -598,7 +598,7 @@ class ToolExecutorNode(BaseDynamicNode):  # BaseNode[ToolExecutorNodeInputSchema
             tool_node_class: Type[BaseNode] = registry.get_node(
                 tool_call.tool_name, 
                 version=tool_version,  # Use configured version or None for latest
-                return_if_tool=True
+                return_if_tool=True,
             )
             
             if not tool_node_class:

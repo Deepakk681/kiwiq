@@ -53,8 +53,8 @@ from kiwi_client.workflows.llm_inputs.natural_language_editing_all_schemas impor
 )
 
 # Configuration constants
-LLM_PROVIDER = "openai"  # anthropic    openai
-LLM_MODEL = "gpt-4.1"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+LLM_PROVIDER = "anthropic"  # anthropic    openai
+LLM_MODEL = "claude-sonnet-4-20250514"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
 TEMPERATURE = 0.7
 MAX_TOKENS = 2000
 MAX_TOOL_CALLS = 25  # Maximum total tool calls allowed
@@ -1138,9 +1138,10 @@ async def main_test_natural_language_editing():
 
     # VALID HUMAN INPUTS FOR MANUAL TESTING:
     # {"user_action": "approve_tools"}
+    # {"user_action": "deny_tools", "user_feedback": "values are empty, properly edit with the correct values for"}
     # {"user_action": "deny_tools", "user_feedback": "Please retain the previous content pillars as well"}
     # {"user_action": "deny_tools", "user_feedback": "please add the Customer Success Stories pillar with focus on case studies and client wins"}
-    # {"user_action": "provide_clarification", "user_feedback": "Thx, actually can you pls add Sales AI tools Thought leadership pillar instead? Make your own assumptions about the theme in similar pattern as existing content pillars."}
+    # {"user_action": "provide_clarification", "user_feedback": "Thx, actually can you pls change Sales AI tools Thought leadership pillar to Personalized Outreach in the age of AI instead? Make your own assumptions about the theme in similar pattern as existing content pillars."}
     # {"user_action": "provide_clarification", "user_feedback": "Ok, please use context from user dna doc and other docs when possible to edit and streamline the content strategy"}
     # {"user_action": "provide_clarification", "user_feedback": "Make assumptions and generate it and proceed in the same pattern / line as existing content pillars."}
     # {"user_action": "provide_clarification", "user_feedback": "Acutally, reapply and rewrite the content pillars so that its converted to JSON, currently its serialized."}
