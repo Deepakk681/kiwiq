@@ -63,7 +63,10 @@ from kiwi_app.workflow_app.service_customer_data import CustomerDataService # As
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
+    OBJECT_PATH_REFERENCE_DELIMITER,
+    DB_SESSION_KEY,
 )
+from db.session import get_async_session
 
 # Schema/Model imports
 from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # Assuming path
@@ -315,6 +318,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
             "triggered_by_user_id": self.user_regular.id
         }
         self.run_job_regular = WorkflowRunJobCreate(**base_run_job_info)
+        self.db_session = await get_async_session()
 
         # Initialize context for each test
         try:
@@ -328,7 +332,8 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
                 "user": self.user_regular,
                 "workflow_run_job": self.run_job_regular
             },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+            DB_SESSION_KEY: self.db_session
         }
 
         self.customer_data_service = self.external_context.customer_data_service
@@ -336,6 +341,11 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
              self.logger.warning("CustomerDataService could not be initialized in external context.")
              # Decide if this is a skip condition or just a warning
              # raise unittest.SkipTest("CustomerDataService could not be initialized.")
+
+    async def asyncTearDown(self):
+        """Tear down test-specific resources after each test."""
+        if self.db_session:
+            await self.db_session.close()
 
 
     # --- Gemini Tests ---

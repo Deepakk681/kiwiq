@@ -12,7 +12,13 @@ from kiwi_app.workflow_app.constants import LaunchStatus
 from kiwi_app.workflow_app import crud as wf_crud
 from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # For application context typing
 from kiwi_app.auth.models import User
-from db.session import get_async_db_as_manager # For database access
+from sqlmodel.ext.asyncio.session import AsyncSession
+from workflow_service.config.constants import (
+    APPLICATION_CONTEXT_KEY,
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+    DB_SESSION_KEY,
+)
+# db_session = config.get(DB_SESSION_KEY)
 # Import helper from customer_data for nested object retrieval
 from workflow_service.registry.nodes.db.customer_data import _get_nested_obj 
 
@@ -282,6 +288,7 @@ class PromptTemplateLoaderNode(BaseDynamicNode):
         configurable_config = runtime_config.get("configurable", runtime_config)
         app_context: Optional[Dict[str, Any]] = configurable_config.get(APPLICATION_CONTEXT_KEY)
         ext_context: Optional[ExternalContextManager] = configurable_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
+        db_session = configurable_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             missing_keys = [k for k, v in [(APPLICATION_CONTEXT_KEY, app_context), (EXTERNAL_CONTEXT_MANAGER_KEY, ext_context)] if not v]
@@ -306,109 +313,109 @@ class PromptTemplateLoaderNode(BaseDynamicNode):
         loaded_templates_dict: Dict[str, LoadedPromptTemplateData] = {}
         errors_list: List[Dict[str, Any]] = []
 
-        async with get_async_db_as_manager() as db:
-            for i, entry in enumerate(self.config.load_entries):
-                entry_id = f"entry_{i}" # For logging/error context
-                resolved_name: Optional[str] = None
-                resolved_version: Optional[str] = None
-                output_key: Optional[str] = entry.output_key_name
+        # async with get_async_db_as_manager() as db:
+        for i, entry in enumerate(self.config.load_entries):
+            entry_id = f"entry_{i}" # For logging/error context
+            resolved_name: Optional[str] = None
+            resolved_version: Optional[str] = None
+            output_key: Optional[str] = entry.output_key_name
 
-                try:
-                    # --- 2a. Resolve Name and Version ---
-                    resolved_name, resolved_version, resolution_error = _resolve_template_path(
-                        static_name=entry.path_config.static_name,
-                        static_version=entry.path_config.static_version,
-                        input_name_field_path=entry.path_config.input_name_field_path,
-                        input_version_field_path=entry.path_config.input_version_field_path,
-                        input_data=input_dict
-                    )
-                    # print(f"Resolved name: {resolved_name}, version: {resolved_version}, error: {resolution_error}")
-                    # import ipdb; ipdb.set_trace()
+            try:
+                # --- 2a. Resolve Name and Version ---
+                resolved_name, resolved_version, resolution_error = _resolve_template_path(
+                    static_name=entry.path_config.static_name,
+                    static_version=entry.path_config.static_version,
+                    input_name_field_path=entry.path_config.input_name_field_path,
+                    input_version_field_path=entry.path_config.input_version_field_path,
+                    input_data=input_dict
+                )
+                # print(f"Resolved name: {resolved_name}, version: {resolved_version}, error: {resolution_error}")
+                # import ipdb; ipdb.set_trace()
 
-                    if resolution_error:
-                        self.logger.warning(f"[{entry_id}] Path resolution failed: {resolution_error}")
-                        errors_list.append({
-                            "entry_index": i,
-                            "config": entry.model_dump(),
-                            "error": f"Path resolution failed: {resolution_error}",
-                            "output_key": output_key,
-                        })
-                        continue # Skip to next entry
-
-                    # This check should be redundant if _resolve_template_path is correct, but safety first
-                    if not resolved_name:
-                        unknown_error = "Unknown error during path resolution."
-                        self.logger.error(f"[{entry_id}] Resolved name is None despite no error from _resolve_template_path.")
-                        errors_list.append({
-                            "entry_index": i,
-                            "config": entry.model_dump(),
-                            "error": unknown_error,
-                            "output_key": output_key,
-                        })
-                        continue
-                        
-                    # --- 2b. Determine Output Key ---
-                    output_key = output_key or resolved_name
-                    self.logger.info(f"[{entry_id}] Attempting to load template '{resolved_name}' v'{resolved_version}' for org '{org_id}' into output key '{output_key}'.")
-
-                    # --- 2c. Load from DB ---
-                    # Search for templates matching name/version with appropriate visibility settings
-                    # This allows finding org-specific templates as well as public/system templates
-                    templates = await prompt_template_dao.search_by_name_version(
-                        db=db,
-                        name=resolved_name,
-                        version=resolved_version,
-                        owner_org_id=org_id,
-                        include_public=True,  # Include public templates
-                        include_system_entities=False,  # Include system templates
-                        include_public_system_entities=True,  # Include public system templates
-                        is_superuser=user.is_superuser  # Default to non-superuser access
-                    )
-                    # print(f"Found {len(templates)} templates matching '{resolved_name}' v'{resolved_version}'")
-                    # print(f"name ; version: {resolved_name} ; {resolved_version}")
-                    # import ipdb; ipdb.set_trace()
-                    
-                    # Use the first matching template if any were found
-                    prompt_template = templates[0] if templates else None
-
-                    if prompt_template:
-                        # --- 2d. Populate Output Dict --- 
-                        loaded_data = LoadedPromptTemplateData(
-                            template=prompt_template.template_content,
-                            input_variables=prompt_template.input_variables,
-                            metadata={
-                                "is_system_entity": prompt_template.is_system_entity,
-                                "name": prompt_template.name,
-                                "version": prompt_template.version,
-                                "description": prompt_template.description,
-                                "owner_org_id": str(prompt_template.owner_org_id) if prompt_template.owner_org_id else None,
-                            },
-                            id=str(prompt_template.id)
-                        )
-                        loaded_templates_dict[output_key] = loaded_data
-                        self.logger.info(f"[{entry_id}] Successfully loaded template '{resolved_name}' v'{resolved_version}' (ID: {prompt_template.id}) into key '{output_key}'.")
-                    else:
-                        not_found_error = f"Template '{resolved_name}' version '{resolved_version}' not found for org '{org_id}' or as a system template."
-                        self.logger.warning(f"[{entry_id}] {not_found_error}")
-                        errors_list.append({
-                            "entry_index": i,
-                            "config": entry.model_dump(),
-                            "resolved_name": resolved_name,
-                            "resolved_version": resolved_version,
-                            "output_key": output_key,
-                            "error": not_found_error
-                        })
-
-                except Exception as e:
-                    self.logger.error(f"[{entry_id}] Unexpected error processing entry: {e}", exc_info=True)
+                if resolution_error:
+                    self.logger.warning(f"[{entry_id}] Path resolution failed: {resolution_error}")
                     errors_list.append({
                         "entry_index": i,
                         "config": entry.model_dump(),
-                        "resolved_name": resolved_name, # May be None if error happened early
+                        "error": f"Path resolution failed: {resolution_error}",
+                        "output_key": output_key,
+                    })
+                    continue # Skip to next entry
+
+                # This check should be redundant if _resolve_template_path is correct, but safety first
+                if not resolved_name:
+                    unknown_error = "Unknown error during path resolution."
+                    self.logger.error(f"[{entry_id}] Resolved name is None despite no error from _resolve_template_path.")
+                    errors_list.append({
+                        "entry_index": i,
+                        "config": entry.model_dump(),
+                        "error": unknown_error,
+                        "output_key": output_key,
+                    })
+                    continue
+                    
+                # --- 2b. Determine Output Key ---
+                output_key = output_key or resolved_name
+                self.logger.info(f"[{entry_id}] Attempting to load template '{resolved_name}' v'{resolved_version}' for org '{org_id}' into output key '{output_key}'.")
+
+                # --- 2c. Load from DB ---
+                # Search for templates matching name/version with appropriate visibility settings
+                # This allows finding org-specific templates as well as public/system templates
+                templates = await prompt_template_dao.search_by_name_version(
+                    db=db_session,
+                    name=resolved_name,
+                    version=resolved_version,
+                    owner_org_id=org_id,
+                    include_public=True,  # Include public templates
+                    include_system_entities=False,  # Include system templates
+                    include_public_system_entities=True,  # Include public system templates
+                    is_superuser=user.is_superuser  # Default to non-superuser access
+                )
+                # print(f"Found {len(templates)} templates matching '{resolved_name}' v'{resolved_version}'")
+                # print(f"name ; version: {resolved_name} ; {resolved_version}")
+                # import ipdb; ipdb.set_trace()
+                
+                # Use the first matching template if any were found
+                prompt_template = templates[0] if templates else None
+
+                if prompt_template:
+                    # --- 2d. Populate Output Dict --- 
+                    loaded_data = LoadedPromptTemplateData(
+                        template=prompt_template.template_content,
+                        input_variables=prompt_template.input_variables,
+                        metadata={
+                            "is_system_entity": prompt_template.is_system_entity,
+                            "name": prompt_template.name,
+                            "version": prompt_template.version,
+                            "description": prompt_template.description,
+                            "owner_org_id": str(prompt_template.owner_org_id) if prompt_template.owner_org_id else None,
+                        },
+                        id=str(prompt_template.id)
+                    )
+                    loaded_templates_dict[output_key] = loaded_data
+                    self.logger.info(f"[{entry_id}] Successfully loaded template '{resolved_name}' v'{resolved_version}' (ID: {prompt_template.id}) into key '{output_key}'.")
+                else:
+                    not_found_error = f"Template '{resolved_name}' version '{resolved_version}' not found for org '{org_id}' or as a system template."
+                    self.logger.warning(f"[{entry_id}] {not_found_error}")
+                    errors_list.append({
+                        "entry_index": i,
+                        "config": entry.model_dump(),
+                        "resolved_name": resolved_name,
                         "resolved_version": resolved_version,
                         "output_key": output_key,
-                        "error": f"Unexpected error: {str(e)}"
+                        "error": not_found_error
                     })
+
+            except Exception as e:
+                self.logger.error(f"[{entry_id}] Unexpected error processing entry: {e}", exc_info=True)
+                errors_list.append({
+                    "entry_index": i,
+                    "config": entry.model_dump(),
+                    "resolved_name": resolved_name, # May be None if error happened early
+                    "resolved_version": resolved_version,
+                    "output_key": output_key,
+                    "error": f"Unexpected error: {str(e)}"
+                })
 
         # --- 3. Construct Final Output ---
         output = self.output_schema_cls(

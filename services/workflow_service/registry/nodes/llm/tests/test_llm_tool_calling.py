@@ -8,11 +8,12 @@ from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, AIM
 
 from kiwi_app.workflow_app.constants import SchemaType
 from kiwi_app.workflow_app.schemas import SchemaTemplateCreate
-from db.session import get_async_db_as_manager
+from db.session import get_async_db_as_manager, get_async_session
 from workflow_service.registry.nodes.core.base import BaseSchema, BaseNode
 from workflow_service.config.constants import (
     INPUT_NODE_NAME,
     OUTPUT_NODE_NAME,
+    DB_SESSION_KEY,
 )
 from workflow_service.graph.graph import (
     EdgeMapping, 
@@ -299,6 +300,8 @@ def create_basic_llm_graph(
     )
 
     # LLM node configuration
+    if output_schema_config:
+        output_schema_config.convert_loaded_schema_to_pydantic = False
     llm_config_data = LLMNodeConfigSchema(
         default_system_prompt=default_system_prompt,
         llm_config=LLMModelConfig(

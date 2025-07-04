@@ -27,6 +27,14 @@ from kiwi_app.auth.models import User, Organization
 from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
 from kiwi_app.settings import settings as kiwi_settings
 
+from sqlmodel.ext.asyncio.session import AsyncSession
+from workflow_service.config.constants import (
+    APPLICATION_CONTEXT_KEY,
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+    DB_SESSION_KEY,
+)
+from db.session import get_async_session
+# db_session = config.get(DB_SESSION_KEY)
 
 # --- Test Cases ---
 
@@ -55,6 +63,7 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
         self.mock_ext_context.db_registry = MagicMock()
         self.mock_ext_context.customer_data_service = MagicMock()
         self.mock_ext_context.billing_service = None  # Not needed in test mode
+        self.db_session = MagicMock(spec=AsyncSession)
 
     def _create_runtime_config(self) -> Dict[str, Any]:
         """Create runtime config with proper app context and external context."""
@@ -64,7 +73,8 @@ class TestLinkedInScrapingNodeTestMode(unittest.IsolatedAsyncioTestCase):
                     "user": self.mock_user,
                     "workflow_run_job": self.mock_run_job,
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.mock_ext_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.mock_ext_context,
+                DB_SESSION_KEY: self.db_session,
             }
         }
 

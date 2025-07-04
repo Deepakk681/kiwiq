@@ -185,6 +185,7 @@ services:
       - redis
     environment:
       # Point agent to the server API URL (using service name)
+      IS_PREFECT_WORKER: "true"
       PREFECT_API_URL: "http://prefect-server:4201/api"
       PREFECT_LOGGING_LEVEL: INFO
       POSTGRES_USER: ${POSTGRES_USER}

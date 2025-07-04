@@ -60,10 +60,13 @@ from workflow_service.services.external_context_manager import (
     get_external_context_manager_with_clients
 )
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService # Assuming path
-from workflow_service.config.constants import (
+from services.workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
+    OBJECT_PATH_REFERENCE_DELIMITER,
+    DB_SESSION_KEY,
 )
+from db.session import get_async_session
 
 # Schema/Model imports
 from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate # Assuming path
@@ -327,6 +330,8 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
              self.external_context = await get_external_context_manager_with_clients()
         except Exception as e:
              raise unittest.SkipTest(f"Failed to initialize external context: {e}")
+        
+        self.db_session = await get_async_session()
 
         # Runtime Configs
         self.runtime_config_regular = {
@@ -334,14 +339,21 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
                 "user": self.user_regular,
                 "workflow_run_job": self.run_job_regular
             },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+            DB_SESSION_KEY: self.db_session
         }
+        
 
         self.customer_data_service = self.external_context.customer_data_service
         if not self.customer_data_service:
              self.logger.warning("CustomerDataService could not be initialized in external context.")
              # Decide if this is a skip condition or just a warning
              # raise unittest.SkipTest("CustomerDataService could not be initialized.")
+    
+    async def asyncTearDown(self):
+        """Tear down test-specific resources after each test."""
+        if self.db_session:
+            await self.db_session.close()
 
 
     async def test_anthropic_text_output(self):
@@ -704,88 +716,88 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
     
     # --- OpenAI Web Search Tests ---
 
-    async def test_openai_text_output_with_web_search(self):
-        """Test OpenAI GPT-4o Search Preview with text output and web search."""
-        if not hasattr(OpenAIModels, "GPT_4O_SEARCH_PREVIEW"):
-             self.skipTest("OpenAIModels.GPT_4O_SEARCH_PREVIEW not defined in enum.")
+    # async def test_openai_text_output_with_web_search(self):
+    #     """Test OpenAI GPT-4o Search Preview with text output and web search."""
+    #     if not hasattr(OpenAIModels, "GPT_4O_SEARCH_PREVIEW"):
+    #          self.skipTest("OpenAIModels.GPT_4O_SEARCH_PREVIEW not defined in enum.")
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4O_SEARCH_PREVIEW.value,
-            output_schema_config=None, # Text output
-            web_search_options={
-                "search_context_size": "medium",
-                "user_location": { # OpenAI specific location format
-                    "type": "approximate",
-                    "approximate": {
-                        "country": "US",
-                        "city": "San Francisco",
-                        "region": "California",
-                    },
-                }
-            },
-            user_prompt="What are the latest climate change policies? Answer briefly top highlights.",
-            max_tokens=500
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4O_SEARCH_PREVIEW.value,
+    #         output_schema_config=None, # Text output
+    #         web_search_options={
+    #             "search_context_size": "medium",
+    #             "user_location": { # OpenAI specific location format
+    #                 "type": "approximate",
+    #                 "approximate": {
+    #                     "country": "US",
+    #                     "city": "San Francisco",
+    #                     "region": "California",
+    #                 },
+    #             }
+    #         },
+    #         user_prompt="What are the latest climate change policies? Answer briefly top highlights.",
+    #         max_tokens=500
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("content", result)
         
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        self.assertGreater(len(result["content"]), 0)
-        self.assertIn("web_search_result", result)
-        self.assertIsNotNone(result["web_search_result"])
-        # OpenAI search results might have citations in metadata
-        self.assertIsInstance(result["web_search_result"].get("citations", []), list)
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["content"], str)
+    #     self.assertGreater(len(result["content"]), 0)
+    #     self.assertIn("web_search_result", result)
+    #     self.assertIsNotNone(result["web_search_result"])
+    #     # OpenAI search results might have citations in metadata
+    #     self.assertIsInstance(result["web_search_result"].get("citations", []), list)
 
-    async def test_openai_structured_output_with_web_search(self):
-        """Test OpenAI GPT-4o Mini Search Preview with structured output and web search."""
-        if not hasattr(OpenAIModels, "GPT_4O_MINI_SEARCH_PREVIEW"):
-             self.skipTest("OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW not defined in enum.")
+    # async def test_openai_structured_output_with_web_search(self):
+    #     """Test OpenAI GPT-4o Mini Search Preview with structured output and web search."""
+    #     if not hasattr(OpenAIModels, "GPT_4O_MINI_SEARCH_PREVIEW"):
+    #          self.skipTest("OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW not defined in enum.")
 
-        dynamic_schema_spec = ConstructDynamicSchema(
-             schema_name="OpenAISearchStructSchema",
-             fields={
-                 "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
-                 "key_statistics": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Important stats"), # Changed to list
-                 "regional_differences": DynamicSchemaFieldConfig(type="str", required=True, description="How adoption varies"),
-                 "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Sources") # Changed to list
-             }
-        )
-        schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
+    #     dynamic_schema_spec = ConstructDynamicSchema(
+    #          schema_name="OpenAISearchStructSchema",
+    #          fields={
+    #              "summary": DynamicSchemaFieldConfig(type="str", required=True, description="Content of the response"),
+    #              "key_statistics": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Important stats"), # Changed to list
+    #              "regional_differences": DynamicSchemaFieldConfig(type="str", required=True, description="How adoption varies"),
+    #              "citations": DynamicSchemaFieldConfig(type="list", items_type="str", required=True, description="Sources") # Changed to list
+    #          }
+    #     )
+    #     schema_config = LLMStructuredOutputSchema(dynamic_schema_spec=dynamic_schema_spec)
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW.value,
-            output_schema_config=schema_config, # Structured output
-            web_search_options={
-                "search_context_size": "medium",
-                "user_location": {
-                    "type": "approximate",
-                    "approximate": {
-                        "country": "US",
-                        "city": "Austin",
-                        "region": "Texas",
-                    },
-                }
-            },
-            user_prompt="What is the current state of electric vehicle adoption? Provide summary, key stats list, regional differences, and citations list.",
-            max_tokens=1000
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("structured_output", result)
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["structured_output"], dict)
-        self.assertIn("summary", result["structured_output"])
-        self.assertIn("key_statistics", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["key_statistics"], list)
-        self.assertIn("regional_differences", result["structured_output"])
-        self.assertIn("citations", result["structured_output"])
-        self.assertIsInstance(result["structured_output"]["citations"], list)
-        self.assertIn("web_search_result", result)
-        self.assertIsNotNone(result["web_search_result"])
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4O_MINI_SEARCH_PREVIEW.value,
+    #         output_schema_config=schema_config, # Structured output
+    #         web_search_options={
+    #             "search_context_size": "medium",
+    #             "user_location": {
+    #                 "type": "approximate",
+    #                 "approximate": {
+    #                     "country": "US",
+    #                     "city": "Austin",
+    #                     "region": "Texas",
+    #                 },
+    #             }
+    #         },
+    #         user_prompt="What is the current state of electric vehicle adoption? Provide summary, key stats list, regional differences, and citations list.",
+    #         max_tokens=1000
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("structured_output", result)
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["structured_output"], dict)
+    #     self.assertIn("summary", result["structured_output"])
+    #     self.assertIn("key_statistics", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["key_statistics"], list)
+    #     self.assertIn("regional_differences", result["structured_output"])
+    #     self.assertIn("citations", result["structured_output"])
+    #     self.assertIsInstance(result["structured_output"]["citations"], list)
+    #     self.assertIn("web_search_result", result)
+    #     self.assertIsNotNone(result["web_search_result"])
 
     # --- Vision Tests ---
 

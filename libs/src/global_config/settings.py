@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Literal
 # from global_config.logger import setup_logging
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -47,9 +48,18 @@ class Settings(BaseSettings):
     LANGGRAPH_DATABASE_NAME: str = "langgraph_db"
     LANGGRAPH_DATABASE_URL: Optional[str] = None
     DB_ECHO: bool = os.getenv("DB_ECHO_STR", "false").lower() == "true"  # SQL query logging
+    DB_TABLE_NAMESPACE_PREFIX: str = "kiwiq_"
+
+    # Main app settings (keep current)
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
-    DB_TABLE_NAMESPACE_PREFIX: str = "kiwiq_"
+    
+    # Worker/Prefect settings (smaller pools)
+    WORKER_DB_POOL_SIZE: int = 2
+    WORKER_DB_MAX_OVERFLOW: int = 3
+
+    # Detect if running in worker
+    IS_WORKER_PROCESS: bool = Field(default_factory=lambda: os.getenv("IS_PREFECT_WORKER", "false").lower() == "true")
     
     # API settings
     API_V1_PREFIX: str = "/api/v1"
@@ -85,6 +95,14 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="allow",
     )
+
+    @property
+    def effective_pool_size(self) -> int:
+        return self.WORKER_DB_POOL_SIZE if self.IS_WORKER_PROCESS else self.DB_POOL_SIZE
+    
+    @property
+    def effective_max_overflow(self) -> int:
+        return self.WORKER_DB_MAX_OVERFLOW if self.IS_WORKER_PROCESS else self.DB_MAX_OVERFLOW
     
     def get_database_settings(self) -> Dict[str, Any]:
         """Get all database-related settings as a dictionary."""

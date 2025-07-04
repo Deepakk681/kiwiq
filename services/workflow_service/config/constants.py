@@ -21,3 +21,4 @@ OBJECT_PATH_REFERENCE_DELIMITER = "."
 # Application Config
 APPLICATION_CONTEXT_KEY = "__application_context"
 EXTERNAL_CONTEXT_MANAGER_KEY = "__external_context_manager"
+DB_SESSION_KEY = "__db_session"

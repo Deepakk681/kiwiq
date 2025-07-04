@@ -27,11 +27,14 @@ from services.workflow_service.services.external_context_manager import (
 from services.workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    OBJECT_PATH_REFERENCE_DELIMITER
+    OBJECT_PATH_REFERENCE_DELIMITER,
+    DB_SESSION_KEY,
 )
 from services.kiwi_app.workflow_app import crud as wf_crud
 from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate, PromptTemplateCreate
 from db.session import get_async_db_as_manager
+from sqlmodel.ext.asyncio.session import AsyncSession
+from db.session import get_async_session
 
 # Simple Mock User copied from test_prompt_template_loader.py
 class MockUser(BaseModel):
@@ -83,6 +86,7 @@ class TestPromptConstructorWithLoader(unittest.IsolatedAsyncioTestCase):
 
         self.external_context = await get_external_context_manager_with_clients()
         self.prompt_template_dao = self.external_context.daos.prompt_template
+        self.db_session = await get_async_session()
 
         self.runtime_config_regular = {
             "configurable": {
@@ -90,7 +94,8 @@ class TestPromptConstructorWithLoader(unittest.IsolatedAsyncioTestCase):
                     "user": self.user_regular, # Use MockUser instance
                     "workflow_run_job": self.run_job_regular
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+                DB_SESSION_KEY: self.db_session
             }
         }
 
@@ -103,6 +108,8 @@ class TestPromptConstructorWithLoader(unittest.IsolatedAsyncioTestCase):
         await self._clean_test_data() # Clean templates only
         if self.external_context:
             await self.external_context.close()
+        if self.db_session:
+            await self.db_session.close()
 
     async def _create_test_templates(self):
         """Helper to create prompt templates needed for tests."""

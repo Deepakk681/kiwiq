@@ -31,6 +31,22 @@ services:
     depends_on:
       app:
         condition: service_started
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
 
   # Certbot for Let's Encrypt SSL certificates
   certbot:
@@ -43,6 +59,21 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     networks:
       - prod_network
+    # Resource limits (minimal for certbot)
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "2"
 
   # Weaviate Vector Database Service
   weaviate:
@@ -65,7 +96,7 @@ services:
       LOG_LEVEL: ${WEAVIATE_LOG_LEVEL:-info}
       # Production performance settings
       LIMIT_RESOURCES: ${WEAVIATE_LIMIT_RESOURCES:-true}
-      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-2048MiB}
+      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-5700MiB}  # 5.7GB limit, ~90% of 6.25GB
       CLUSTER_HOSTNAME: "node1"
       RAFT_BOOTSTRAP_EXPECT: "1"
       RAFT_ENABLE_ONE_NODE_RECOVERY: "true"
@@ -87,6 +118,21 @@ services:
     #   options:
     #     max-size: "100m"
     #     max-file: "3"
+    # Resource limits (Reduced for 8 vCPU machine)
+    deploy:
+      resources:
+        limits:
+          memory: 6.25G   # ⬆️ from 6G (+256MB)
+          cpus: '2.0'     # unchanged
+        reservations:
+          memory: 4.25G   # ⬆️ from 4G
+          cpus: '1.5'     # unchanged
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
 
   # Main Application Service (FastAPI/Uvicorn)
   app:
@@ -136,6 +182,21 @@ services:
       #   condition: service_started
       # prefect-agent:
       #   condition: service_started
+    # Resource limits (Reduced for balanced allocation)
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '1.5'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200m"
+        max-file: "5"
     networks:
       - prod_network
     # command: ["uvicorn", "services.kiwi_app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
@@ -164,8 +225,17 @@ services:
     # Persist data
     volumes:
       - mongo_data:/data/db
+      - mongo_config:/data/configdb
     networks:
       - prod_network
+    command: |
+      mongod
+      --wiredTigerCacheSizeGB=2.5
+      --wiredTigerJournalCompressor=snappy
+      --wiredTigerCollectionBlockCompressor=snappy
+      --journalCommitInterval=50
+      --setParameter maxIncomingConnections=200
+      --quiet
     # No ports exposed externally
     # Optional: Add basic healthcheck for Mongo if needed
     # healthcheck:
@@ -174,6 +244,61 @@ services:
     #   timeout: 10s
     #   retries: 5
     # Optional: Add production logging
+    # Resource limits (Balanced for streaming workload)
+    deploy:
+      resources:
+        limits:
+          memory: 4.5G
+          cpus: '2'
+        reservations:
+          memory: 3.5G
+          cpus: '1.5'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+
+  # # MongoDB Backup Service (Scheduled)
+  # mongo-backup:
+  #   image: mongo:7.0
+  #   container_name: kiwiq_prod_mongo_backup
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     BACKUP_SCHEDULE: ${MONGO_BACKUP_SCHEDULE:-"0 2 * * *"}  # Daily at 2 AM
+  #     BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+  #   volumes:
+  #     - ./backups/mongo:/backup
+  #     - ./scripts/mongo-backup.sh:/mongo-backup.sh:ro
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command: |
+  #     "apk add --no-cache dcron && \
+  #      echo '${BACKUP_SCHEDULE} /mongo-backup.sh' | crontab - && \
+  #      crond -f -l 2"
+  #   depends_on:
+  #     mongo:
+  #       condition: service_healthy
+  #   networks:
+  #     - prod_network
+  #   # Minimal resources for backup cron
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 512M
+  #         cpus: '0.5'
+  #       reservations:
+  #         memory: 256M
+  #         cpus: '0.25'
+  #   # Logging
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "2"
 
   # PostgreSQL Database Service
   postgres:
@@ -192,6 +317,49 @@ services:
       # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
       # Ensure it's defined in .env.prod
       # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
+    # Optimized production configuration
+    command: [
+      "postgres",
+      # Connection settings
+      "-c", "max_connections=300",
+      "-c", "shared_buffers=768MB",          # ⬆️ from 640MB
+      "-c", "effective_cache_size=2GB",      # ⬆️ from 1.5GB
+      "-c", "work_mem=4MB",
+      "-c", "maintenance_work_mem=256MB",
+      # Checkpoint settings
+      "-c", "checkpoint_completion_target=0.9",
+      "-c", "wal_buffers=16MB",
+      "-c", "default_statistics_target=100",
+      # Write performance
+      "-c", "synchronous_commit=on",
+      "-c", "wal_level=replica",
+      "-c", "max_wal_size=2GB",
+      "-c", "min_wal_size=512MB",
+      # Query performance
+      "-c", "random_page_cost=1.1",
+      "-c", "effective_io_concurrency=200",
+      # Logging
+      "-c", "log_min_duration_statement=5000",
+      "-c", "log_connections=on",
+      "-c", "log_disconnections=on",
+      "-c", "log_statement=mod",
+      "-c", "log_line_prefix='%t [%p]: [%l-1] db=%d,user=%u '",
+    ]
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 3G       # ⬆️ from 2.5G (+500MB)
+          cpus: '1.5'      # unchanged
+        reservations:
+          memory: 2G       # ⬆️ from 1.5G
+          cpus: '0.75'     # unchanged
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
     # Persist data
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -207,6 +375,45 @@ services:
       # Give some time for initialization
       start_period: 10s
     # Optional: Add production logging
+  
+  # # PostgreSQL Backup Service
+  # postgres-backup:
+  #   image: postgres:15
+  #   container_name: kiwiq_prod_postgres_backup
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     PGPASSWORD: ${POSTGRES_PASSWORD}
+  #     BACKUP_SCHEDULE: ${POSTGRES_BACKUP_SCHEDULE:-"0 3 * * *"}  # Daily at 3 AM
+  #     BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+  #   volumes:
+  #     - ./backups/postgres:/backup
+  #     - ./scripts/postgres-backup.sh:/postgres-backup.sh:ro
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command: |
+  #     "apt-get update && apt-get install -y cron && \
+  #      echo '${BACKUP_SCHEDULE} /postgres-backup.sh' | crontab - && \
+  #      cron -f"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   networks:
+  #     - prod_network
+  #   # Minimal resources
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 512M
+  #         cpus: '0.5'
+  #       reservations:
+  #         memory: 256M
+  #         cpus: '0.25'
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "50m"
+  #       max-file: "2"
 
   # RabbitMQ Messaging Service
   rabbitmq:
@@ -223,11 +430,29 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       # Consider setting RABBITMQ_NODENAME for clarity
       # RABBITMQ_NODENAME: rabbit@kiwiq-prod
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.6"
+      RABBITMQ_DISK_FREE_LIMIT: "2GB"
     # Persist data
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      # - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     networks:
       - prod_network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
     # No ports exposed externally (including management UI 15672)
     # Access management UI via SSH tunnel or internal network if needed.
     # Optional: Add basic healthcheck
@@ -248,12 +473,32 @@ services:
     env_file:
       - .env
     # Load password from .env.prod
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: | 
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb 
+      --maxmemory-policy allkeys-lru 
+      --save ""
     # Persist data
     volumes:
       - redis_data:/data
     networks:
       - prod_network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M    # ⬇️ from 1.5G (saves 1GB)
+          cpus: '0.25'    # ⬇️ from 0.5 (saves 0.25)
+        reservations:
+          memory: 256M    # ⬇️ from 512M
+          cpus: '0.1'     # ⬇️ from 0.25
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
     # No ports exposed externally
     # Optional: Add basic healthcheck
     # healthcheck:
@@ -279,7 +524,7 @@ services:
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
       # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
       # if prefect server is hosted locally as UI, use localhost instead of inaccessible docker network hostname!
-      PREFECT_API_URL: "http://localhost:4200/api"
+      PREFECT_API_URL: "${PREFECT_API_URL}"
       # Result Persistence (consider S3 or other external storage for production)
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT:-false}
       # PREFECT_RESULTS_DEFAULT_STORAGE_BLOCK: s3/your-prod-bucket # Example
@@ -302,6 +547,21 @@ services:
     networks:
       - prod_network
     entrypoint: ["prefect", "server", "start", "--host", "0.0.0.0", "--port", "4200"]
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
     # No ports exposed externally by default
     # Optional: Add production logging
 
@@ -340,7 +600,8 @@ services:
       app:
         condition: service_started
     environment:
-      # PREFECT_API_URL: "http://prefect-server:4200/api" # Internal URL
+      # PREFECT_API_URL: "${PREFECT_API_URL}"
+      IS_PREFECT_WORKER: "true"
       PREFECT_LOGGING_LEVEL: INFO
       # Individual host vars are removed; rely on full URLs from .env.prod loaded above
       # POSTGRES_HOST: postgres
@@ -348,6 +609,21 @@ services:
       # RABBITMQ_HOST: rabbitmq
       # REDIS_HOST: redis
       # Ensure DATABASE_URL, MONGO_URL etc. are correctly set via .env.prod or here if needed directly
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4.25G   # ⬆️ from 4G (+256MB)
+          cpus: '1.75'    # ⬆️ from 1.5 (+0.25)
+        reservations:
+          memory: 2.25G   # ⬆️ from 2G
+          cpus: '1.0'     # unchanged
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200m"
+        max-file: "5"
     # Similar to app, mount code only if necessary and not baked into the image
     # Keep for now, consider removing for pure prod image
     volumes:
@@ -362,11 +638,19 @@ services:
 # Define named volumes for data persistence
 volumes:
   weaviate_data:
+    driver: local
   mongo_data:
+    driver: local
+  mongo_config:
+    driver: local
   postgres_data:
+    driver: local
   rabbitmq_data:
+    driver: local
   redis_data:
+    driver: local
   prefect_data:
+    driver: local
   # Removed volumes for Nginx/Certbot as they're now using bind mounts
 
 # Define the custom network for inter-service communication

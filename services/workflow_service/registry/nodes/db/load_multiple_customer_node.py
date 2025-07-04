@@ -18,11 +18,13 @@ from kiwi_app.workflow_app.schemas import (
     CustomerDocumentMetadata,
 )
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
-from db.session import get_async_db_as_manager
+from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
+    DB_SESSION_KEY,
 )
+# db_session = config.get(DB_SESSION_KEY)
 
 # Base node/schema types and sibling node components
 from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
@@ -263,6 +265,7 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         runtime_config = runtime_config.get("configurable", {})
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY) # : Optional[ExternalContextManager]
+        db_session = runtime_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             logger.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY} or {EXTERNAL_CONTEXT_MANAGER_KEY}")
@@ -411,96 +414,96 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         version_cfg = effective_config.global_version_config # Keep it Optional
         schema_opts = effective_config.global_schema_options or SchemaOptions()
 
-        async with get_async_db_as_manager() as db: # Needed for schema template loading
-            for metadata in listed_docs_metadata:
-                doc_identifier = f"{metadata.namespace}/{metadata.docname}"
-                doc_org_id = metadata.org_id # May be None for system entities
-                # Reconstruct effective user_id for logging/debugging if needed
-                effective_user_id = metadata.user_id_or_shared_placeholder
+        # async with get_async_db_as_manager() as db: # Needed for schema template loading
+        for metadata in listed_docs_metadata:
+            doc_identifier = f"{metadata.namespace}/{metadata.docname}"
+            doc_org_id = metadata.org_id # May be None for system entities
+            # Reconstruct effective user_id for logging/debugging if needed
+            effective_user_id = metadata.user_id_or_shared_placeholder
 
-                logger.debug(f"Processing document: {doc_identifier} (shared: {metadata.is_shared}, system: {metadata.is_system_entity}, versioned: {metadata.is_versioned})")
+            logger.debug(f"Processing document: {doc_identifier} (shared: {metadata.is_shared}, system: {metadata.is_system_entity}, versioned: {metadata.is_versioned})")
 
-                try:
-                    document_data = None
-                    loaded_schema = None # Schema for this specific document
+            try:
+                document_data = None
+                loaded_schema = None # Schema for this specific document
 
-                    if metadata.is_versioned:
-                        # Determine the version to load: Use config if provided, else None (for active version)
-                        version_to_load: Optional[str] = version_cfg.version if version_cfg else None
-                        logger.debug(f"Attempting to load version: {version_to_load if version_to_load is not None else 'active (None)'}")
+                if metadata.is_versioned:
+                    # Determine the version to load: Use config if provided, else None (for active version)
+                    version_to_load: Optional[str] = version_cfg.version if version_cfg else None
+                    logger.debug(f"Attempting to load version: {version_to_load if version_to_load is not None else 'active (None)'}")
 
-                        # Load versioned document
-                        document_data = await customer_data_service.get_versioned_document(
-                            # Use the org_id from the metadata if available, else the run's org_id (fallback, less precise for system docs)
-                            org_id=doc_org_id or org_id,
-                            namespace=metadata.namespace,
-                            docname=metadata.docname,
-                            is_shared=metadata.is_shared,
-                            user=user, # The user performing the action
-                            version=version_to_load, # Pass the determined version (or None)
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Use the overall on_behalf_of
-                            is_system_entity=metadata.is_system_entity,
-                        )
-                        if schema_opts.load_schema:
-                             try:
-                                 loaded_schema = await customer_data_service.get_versioned_document_schema(
-                                     org_id=doc_org_id or org_id,
-                                     namespace=metadata.namespace,
-                                     docname=metadata.docname,
-                                     is_shared=metadata.is_shared,
-                                     user=user,
-                                     on_behalf_of_user_id=on_behalf_of_user_id_uuid,
-                                     is_system_entity=metadata.is_system_entity,
-                                 )
-                             except Exception as schema_err:
-                                 logger.warning(f"Failed to load schema for versioned doc '{doc_identifier}': {schema_err}")
+                    # Load versioned document
+                    document_data = await customer_data_service.get_versioned_document(
+                        # Use the org_id from the metadata if available, else the run's org_id (fallback, less precise for system docs)
+                        org_id=doc_org_id or org_id,
+                        namespace=metadata.namespace,
+                        docname=metadata.docname,
+                        is_shared=metadata.is_shared,
+                        user=user, # The user performing the action
+                        version=version_to_load, # Pass the determined version (or None)
+                        on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Use the overall on_behalf_of
+                        is_system_entity=metadata.is_system_entity,
+                    )
+                    if schema_opts.load_schema:
+                            try:
+                                loaded_schema = await customer_data_service.get_versioned_document_schema(
+                                    org_id=doc_org_id or org_id,
+                                    namespace=metadata.namespace,
+                                    docname=metadata.docname,
+                                    is_shared=metadata.is_shared,
+                                    user=user,
+                                    on_behalf_of_user_id=on_behalf_of_user_id_uuid,
+                                    is_system_entity=metadata.is_system_entity,
+                                )
+                            except Exception as schema_err:
+                                logger.warning(f"Failed to load schema for versioned doc '{doc_identifier}': {schema_err}")
 
-                    else:
-                        # Load unversioned document
-                        document_data = await customer_data_service.get_unversioned_document(
-                            org_id=doc_org_id or org_id,
-                            namespace=metadata.namespace,
-                            docname=metadata.docname,
-                            is_shared=metadata.is_shared,
-                            user=user,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid,
-                            is_system_entity=metadata.is_system_entity,
-                        )
-                        # Schema loading for unversioned (requires template name or definition)
-                        if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
-                             if schema_opts.schema_template_name:
-                                 try:
-                                     # Use the db session acquired earlier
-                                     loaded_schema = await customer_data_service._get_schema_from_template(
-                                         db=db,
-                                         template_name=schema_opts.schema_template_name,
-                                         template_version=schema_opts.schema_template_version,
-                                         # Use the org_id context for schema lookup
-                                         org_id=org_id, # Or doc_org_id? Needs clarification which context is right for schema lookup
-                                         user=user # User context for permission check
-                                     )
-                                 except Exception as schema_err:
-                                     logger.warning(f"Failed to load schema template '{schema_opts.schema_template_name}' for unversioned doc '{doc_identifier}': {schema_err}")
-                             elif schema_opts.schema_definition:
-                                 loaded_schema = schema_opts.schema_definition
+                else:
+                    # Load unversioned document
+                    document_data = await customer_data_service.get_unversioned_document(
+                        org_id=doc_org_id or org_id,
+                        namespace=metadata.namespace,
+                        docname=metadata.docname,
+                        is_shared=metadata.is_shared,
+                        user=user,
+                        on_behalf_of_user_id=on_behalf_of_user_id_uuid,
+                        is_system_entity=metadata.is_system_entity,
+                    )
+                    # Schema loading for unversioned (requires template name or definition)
+                    if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
+                            if schema_opts.schema_template_name:
+                                try:
+                                    # Use the db session acquired earlier
+                                    loaded_schema = await customer_data_service._get_schema_from_template(
+                                        db=db_session,
+                                        template_name=schema_opts.schema_template_name,
+                                        template_version=schema_opts.schema_template_version,
+                                        # Use the org_id context for schema lookup
+                                        org_id=org_id, # Or doc_org_id? Needs clarification which context is right for schema lookup
+                                        user=user # User context for permission check
+                                    )
+                                except Exception as schema_err:
+                                    logger.warning(f"Failed to load schema template '{schema_opts.schema_template_name}' for unversioned doc '{doc_identifier}': {schema_err}")
+                            elif schema_opts.schema_definition:
+                                loaded_schema = schema_opts.schema_definition
 
-                    if document_data is not None:
-                        # Optionally attach schema to document data or store separately
-                        # For simplicity, just append the data for now.
-                        loaded_documents_list.append(document_data)
-                        if loaded_schema:
-                             # Decide how to store/return schema info. Maybe in metadata?
-                             schemas_loaded[doc_identifier] = loaded_schema # Store per doc for now
-                        if len(loaded_documents_list) >= effective_config.limit:
-                            break
-                    else:
-                        # This case might happen if doc deleted between list and get, or permission issue surfaced during get
-                        logger.warning(f"Document '{doc_identifier}' found in list but could not be loaded (None returned). Skipping.")
-                        load_errors.append(f"Could not load '{doc_identifier}'")
+                if document_data is not None:
+                    # Optionally attach schema to document data or store separately
+                    # For simplicity, just append the data for now.
+                    loaded_documents_list.append(document_data)
+                    if loaded_schema:
+                            # Decide how to store/return schema info. Maybe in metadata?
+                            schemas_loaded[doc_identifier] = loaded_schema # Store per doc for now
+                    if len(loaded_documents_list) >= effective_config.limit:
+                        break
+                else:
+                    # This case might happen if doc deleted between list and get, or permission issue surfaced during get
+                    logger.warning(f"Document '{doc_identifier}' found in list but could not be loaded (None returned). Skipping.")
+                    load_errors.append(f"Could not load '{doc_identifier}'")
 
-                except Exception as load_err:
-                    logger.error(f"Failed to load document '{doc_identifier}': {load_err}", exc_info=True)
-                    load_errors.append(f"Error loading '{doc_identifier}': {load_err}")
+            except Exception as load_err:
+                logger.error(f"Failed to load document '{doc_identifier}': {load_err}", exc_info=True)
+                load_errors.append(f"Error loading '{doc_identifier}': {load_err}")
 
         # --- 5. Prepare and Return Output ---
         # print("\n\n\n\neffective_namespace_filter\n\n\n\n")

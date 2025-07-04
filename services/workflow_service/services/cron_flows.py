@@ -16,7 +16,8 @@ from prefect.server.schemas.schedules import CronSchedule
 from prefect.cache_policies import NO_CACHE
 from prefect.context import get_run_context
 
-from db.session import get_async_pool, get_async_db_as_manager # Assuming this provides psycopg pool
+from sqlmodel.ext.asyncio.session import AsyncSession
+from db.session import get_async_db_as_manager, get_async_session # Assuming this provides psycopg pool
 from global_config.settings import global_settings
 from global_config.logger import get_prefect_or_regular_python_logger
 from kiwi_app.settings import settings
@@ -738,9 +739,11 @@ async def rag_data_ingestion_flow(
     logger.info("External context manager initialized for RAG ingestion")
     
     try:
+        db_session = await get_async_session()
         # Task 1: Get or create data job and determine start timestamp
         data_job, resolved_start_timestamp = await get_or_create_ingestion_data_job(
             external_context=external_context,
+            db_session=db_session,
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp
         )
@@ -750,6 +753,7 @@ async def rag_data_ingestion_flow(
         # Task 2: Process documents in batches
         ingestion_results = await process_documents_in_batches(
             external_context=external_context,
+            db_session=db_session,
             data_job_id=data_job.id,
             start_timestamp=resolved_start_timestamp,
             end_timestamp=end_timestamp,
@@ -762,6 +766,7 @@ async def rag_data_ingestion_flow(
         # Task 3: Update data job with final results
         final_job_status = await finalize_ingestion_data_job(
             external_context=external_context,
+            db_session=db_session,
             data_job_id=data_job.id,
             ingestion_results=ingestion_results,
             end_timestamp=end_timestamp
@@ -796,13 +801,13 @@ async def rag_data_ingestion_flow(
         # Try to mark data job as failed if we have a job ID
         try:
             if 'data_job' in locals() and data_job:
-                async with get_async_db_as_manager() as db:
-                    await external_context.data_job_service.data_job_dao.fail_job(
-                        db=db,
-                        job_id=data_job.id,
-                        error_message=str(e),
-                        commit=True
-                    )
+                # async with get_async_db_as_manager() as db:
+                await external_context.data_job_service.data_job_dao.fail_job(
+                    db=db_session,
+                    job_id=data_job.id,
+                    error_message=str(e),
+                    commit=True
+                )
                 logger.info(f"Marked data job {data_job.id} as FAILED")
         except Exception as job_update_err:
             logger.error(f"Failed to update data job status to FAILED: {job_update_err}")
@@ -829,6 +834,7 @@ async def rag_data_ingestion_flow(
         raise e
         
     finally:
+        await db_session.close()
         # Clean up resources
         try:
             await external_context.close()
@@ -840,6 +846,7 @@ async def rag_data_ingestion_flow(
 @task(cache_policy=NO_CACHE)
 async def get_or_create_ingestion_data_job(
     external_context: ExternalContextManager,
+    db_session: AsyncSession,
     start_timestamp: Optional[datetime] = None,
     end_timestamp: Optional[datetime] = None,
 ) -> Tuple[Any, Optional[datetime]]:
@@ -862,52 +869,52 @@ async def get_or_create_ingestion_data_job(
     
     resolved_start_timestamp = start_timestamp
     
-    async with get_async_db_as_manager() as db:
-        # If start_timestamp is not provided, get it from the last successful ingestion job
-        if resolved_start_timestamp is None:
-            logger.info("No start timestamp provided, looking for last successful ingestion job")
+    # async with get_async_db_as_manager() as db:
+    # If start_timestamp is not provided, get it from the last successful ingestion job
+    if resolved_start_timestamp is None:
+        logger.info("No start timestamp provided, looking for last successful ingestion job")
+        
+        try:
+            last_successful_job = await external_context.data_job_service.get_latest_successful_job(
+                db=db_session,
+                job_type=DataJobType.INGESTION.value
+            )
             
-            try:
-                last_successful_job = await external_context.data_job_service.get_latest_successful_job(
-                    db=db,
-                    job_type=DataJobType.INGESTION.value
-                )
-                
-                if last_successful_job and last_successful_job.processed_timestamp_end:
-                    resolved_start_timestamp = last_successful_job.processed_timestamp_end
-                    logger.info(f"Found last successful ingestion job {last_successful_job.id} with end timestamp: {resolved_start_timestamp}")
-                else:
-                    logger.info("No previous successful ingestion job found, will process all documents up to end timestamp")
-                    resolved_start_timestamp = None
-                    
-            except Exception as e:
-                logger.warning(f"Error retrieving last successful ingestion job: {e}")
+            if last_successful_job and last_successful_job.processed_timestamp_end:
+                resolved_start_timestamp = last_successful_job.processed_timestamp_end
+                logger.info(f"Found last successful ingestion job {last_successful_job.id} with end timestamp: {resolved_start_timestamp}")
+            else:
+                logger.info("No previous successful ingestion job found, will process all documents up to end timestamp")
                 resolved_start_timestamp = None
-        
-        # Create new data job for this ingestion run
-        job_metadata = {
-            "start_timestamp": resolved_start_timestamp.isoformat() if resolved_start_timestamp else None,
-            "end_timestamp": end_timestamp.isoformat(),
-            "ingestion_type": "incremental" if resolved_start_timestamp else "full",
-            "document_patterns_count": len(DEFAULT_INGESTION_DOCUMENT_PATTERNS),
-            "batch_size": RAG_INGESTION_BATCH_SIZE,
-            "max_batches": RAG_INGESTION_MAX_BATCHES_PER_RUN
-        }
-        
-        job_create_data = data_job_schemas.DataJobCreate(
-            job_name=f"RAG Incremental Ingestion - {end_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-            job_type=DataJobType.INGESTION.value,
-            job_metadata=job_metadata,
-            processed_timestamp_start=resolved_start_timestamp,
-            processed_timestamp_end=end_timestamp,
-        )
-        
-        data_job = await external_context.data_job_service.create_job(
-            db=db,
-            job_data=job_create_data
-        )
-        
-        logger.info(f"Created data job {data_job.id} for RAG ingestion")
+                
+        except Exception as e:
+            logger.warning(f"Error retrieving last successful ingestion job: {e}")
+            resolved_start_timestamp = None
+    
+    # Create new data job for this ingestion run
+    job_metadata = {
+        "start_timestamp": resolved_start_timestamp.isoformat() if resolved_start_timestamp else None,
+        "end_timestamp": end_timestamp.isoformat(),
+        "ingestion_type": "incremental" if resolved_start_timestamp else "full",
+        "document_patterns_count": len(DEFAULT_INGESTION_DOCUMENT_PATTERNS),
+        "batch_size": RAG_INGESTION_BATCH_SIZE,
+        "max_batches": RAG_INGESTION_MAX_BATCHES_PER_RUN
+    }
+    
+    job_create_data = data_job_schemas.DataJobCreate(
+        job_name=f"RAG Incremental Ingestion - {end_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        job_type=DataJobType.INGESTION.value,
+        job_metadata=job_metadata,
+        processed_timestamp_start=resolved_start_timestamp,
+        processed_timestamp_end=end_timestamp,
+    )
+    
+    data_job = await external_context.data_job_service.create_job(
+        db=db_session,
+        job_data=job_create_data
+    )
+    
+    logger.info(f"Created data job {data_job.id} for RAG ingestion")
         
     return data_job, resolved_start_timestamp
 
@@ -915,6 +922,7 @@ async def get_or_create_ingestion_data_job(
 @task(cache_policy=NO_CACHE)
 async def process_documents_in_batches(
     external_context: ExternalContextManager,
+    db_session: AsyncSession,
     data_job_id: uuid.UUID,
     start_timestamp: Optional[datetime],
     end_timestamp: datetime,
@@ -982,16 +990,16 @@ async def process_documents_in_batches(
             )
 
             # Update data job with progress
-            async with get_async_db_as_manager() as db:
-                status_update = data_job_schemas.DataJobStatusUpdate(
-                    status=DataJobStatus.STARTED
-                )
-                await external_context.data_job_service.data_job_dao.update_job_status(
-                    db=db,
-                    job_id=data_job_id,
-                    status_update=status_update,
-                    commit=True
-                )
+            # async with get_async_db_as_manager() as db:
+            status_update = data_job_schemas.DataJobStatusUpdate(
+                status=DataJobStatus.STARTED
+            )
+            await external_context.data_job_service.data_job_dao.update_job_status(
+                db=db_session,
+                job_id=data_job_id,
+                status_update=status_update,
+                commit=True
+            )
             
             # Process batches using the builder
             while True:
@@ -1101,6 +1109,7 @@ async def process_documents_in_batches(
 @task(cache_policy=NO_CACHE)
 async def finalize_ingestion_data_job(
     external_context: ExternalContextManager,
+    db_session: AsyncSession,
     data_job_id: uuid.UUID,
     ingestion_results: Dict[str, Any],
     end_timestamp: datetime
@@ -1120,133 +1129,133 @@ async def finalize_ingestion_data_job(
     logger = get_prefect_or_regular_python_logger(name="finalize-ingestion-data-job")
     
     try:
-        async with get_async_db_as_manager() as db:
-            # Determine final status based on results
-            has_errors = ingestion_results.get("errors_count", 0) > 0
-            processed_any = ingestion_results.get("total_documents_processed", 0) > 0
+        # async with get_async_db_as_manager() as db:
+        # Determine final status based on results
+        has_errors = ingestion_results.get("errors_count", 0) > 0
+        processed_any = ingestion_results.get("total_documents_processed", 0) > 0
+        
+        if has_errors and not processed_any:
+            final_status = DataJobStatus.FAILED
+        elif has_errors and processed_any:
+            final_status = DataJobStatus.COMPLETED  # Partial success
+        else:
+            final_status = DataJobStatus.COMPLETED
+        
+        # Calculate processing duration (approximate based on current time)
+        processing_duration = None
+        try:
+            # We can't easily get the job start time, so we'll estimate from current flow
+            # This could be improved by tracking start time in the job metadata
+            current_time = datetime.now(timezone.utc)
+            estimated_start = end_timestamp - timedelta(hours=1)  # Rough estimate
+            processing_duration = (current_time - estimated_start).total_seconds()
+        except Exception as duration_err:
+            logger.warning(f"Could not calculate processing duration: {duration_err}")
+        
+        # Call DAO methods directly to avoid service layer bugs
+        job_dao = external_context.data_job_service.data_job_dao
+        
+        if final_status == DataJobStatus.COMPLETED:
+            # Use complete_job DAO method directly
+            job_result = await job_dao.complete_job(
+                db=db_session,
+                job_id=data_job_id,
+                records_processed=ingestion_results.get("total_documents_processed", 0),
+                records_failed=ingestion_results.get("errors_count", 0),
+                commit=True
+            )
             
-            if has_errors and not processed_any:
-                final_status = DataJobStatus.FAILED
-            elif has_errors and processed_any:
-                final_status = DataJobStatus.COMPLETED  # Partial success
-            else:
-                final_status = DataJobStatus.COMPLETED
-            
-            # Calculate processing duration (approximate based on current time)
-            processing_duration = None
-            try:
-                # We can't easily get the job start time, so we'll estimate from current flow
-                # This could be improved by tracking start time in the job metadata
-                current_time = datetime.now(timezone.utc)
-                estimated_start = end_timestamp - timedelta(hours=1)  # Rough estimate
-                processing_duration = (current_time - estimated_start).total_seconds()
-            except Exception as duration_err:
-                logger.warning(f"Could not calculate processing duration: {duration_err}")
-            
-            # Call DAO methods directly to avoid service layer bugs
-            job_dao = external_context.data_job_service.data_job_dao
-            
-            if final_status == DataJobStatus.COMPLETED:
-                # Use complete_job DAO method directly
-                job_result = await job_dao.complete_job(
-                    db=db,
-                    job_id=data_job_id,
-                    records_processed=ingestion_results.get("total_documents_processed", 0),
-                    records_failed=ingestion_results.get("errors_count", 0),
-                    commit=True
+            # Update metadata separately using BaseDAO update (without commit parameter)
+            if ingestion_results:
+                update_data = data_job_schemas.DataJobUpdate(
+                    job_metadata={
+                        **(job_result.job_metadata or {}),
+                        "ingestion_summary": {
+                            "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
+                            "batches_processed": ingestion_results.get("batches_processed", 0),
+                            "patterns_processed": ingestion_results.get("patterns_processed", 0),
+                            "stopped_at_max_batches": ingestion_results.get("processing_stopped_at_max_batches", False),
+                            "processing_duration_seconds": processing_duration,
+                            "end_timestamp": end_timestamp.isoformat()
+                        }
+                    }
                 )
                 
-                # Update metadata separately using BaseDAO update (without commit parameter)
-                if ingestion_results:
-                    update_data = data_job_schemas.DataJobUpdate(
-                        job_metadata={
-                            **(job_result.job_metadata or {}),
-                            "ingestion_summary": {
-                                "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
-                                "batches_processed": ingestion_results.get("batches_processed", 0),
-                                "patterns_processed": ingestion_results.get("patterns_processed", 0),
-                                "stopped_at_max_batches": ingestion_results.get("processing_stopped_at_max_batches", False),
-                                "processing_duration_seconds": processing_duration,
-                                "end_timestamp": end_timestamp.isoformat()
-                            }
+                # Use BaseDAO update without commit parameter
+                job_result = await job_dao.update(
+                    db=db_session,
+                    db_obj=job_result,
+                    obj_in=update_data
+                )
+                await db_session.commit()
+                await db_session.refresh(job_result)
+        else:
+            # Use fail_job DAO method directly
+            error_message = "; ".join(ingestion_results.get("errors", [])[:3]) if has_errors else "Unknown failure"
+            
+            job_result = await job_dao.fail_job(
+                db=db_session,
+                job_id=data_job_id,
+                error_message=error_message,
+                records_processed=ingestion_results.get("total_documents_processed", 0),
+                records_failed=ingestion_results.get("errors_count", 0),
+                commit=True
+            )
+            
+            # Update metadata separately for failure details
+            if ingestion_results:
+                update_data = data_job_schemas.DataJobUpdate(
+                    job_metadata={
+                        **(job_result.job_metadata or {}),
+                        "failure_details": {
+                            "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
+                            "batches_processed": ingestion_results.get("batches_processed", 0),
+                            "patterns_processed": ingestion_results.get("patterns_processed", 0),
+                            "processing_duration_seconds": processing_duration,
+                            "end_timestamp": end_timestamp.isoformat(),
+                            "error_details": ingestion_results.get("errors", [])
                         }
-                    )
-                    
-                    # Use BaseDAO update without commit parameter
-                    job_result = await job_dao.update(
-                        db=db,
-                        db_obj=job_result,
-                        obj_in=update_data
-                    )
-                    await db.commit()
-                    await db.refresh(job_result)
-            else:
-                # Use fail_job DAO method directly
-                error_message = "; ".join(ingestion_results.get("errors", [])[:3]) if has_errors else "Unknown failure"
-                
-                job_result = await job_dao.fail_job(
-                    db=db,
-                    job_id=data_job_id,
-                    error_message=error_message,
-                    records_processed=ingestion_results.get("total_documents_processed", 0),
-                    records_failed=ingestion_results.get("errors_count", 0),
-                    commit=True
+                    }
                 )
                 
-                # Update metadata separately for failure details
-                if ingestion_results:
-                    update_data = data_job_schemas.DataJobUpdate(
-                        job_metadata={
-                            **(job_result.job_metadata or {}),
-                            "failure_details": {
-                                "total_chunks_created": ingestion_results.get("total_chunks_created", 0),
-                                "batches_processed": ingestion_results.get("batches_processed", 0),
-                                "patterns_processed": ingestion_results.get("patterns_processed", 0),
-                                "processing_duration_seconds": processing_duration,
-                                "end_timestamp": end_timestamp.isoformat(),
-                                "error_details": ingestion_results.get("errors", [])
-                            }
-                        }
-                    )
-                    
-                    # Use BaseDAO update without commit parameter
-                    job_result = await job_dao.update(
-                        db=db,
-                        db_obj=job_result,
-                        obj_in=update_data
-                    )
-                    await db.commit()
-                    await db.refresh(job_result)
-            
-            job_status_info = {
-                "job_id": str(data_job_id),
-                "final_status": final_status.value,
-                "processing_duration_seconds": processing_duration,
-                "has_errors": has_errors,
-                "partial_success": has_errors and processed_any,
-                "job_result": data_job_schemas.DataJobRead.model_validate(job_result).model_dump() if job_result else None
-            }
-            
-            logger.info(f"Finalized data job {data_job_id} with status {final_status.value}")
-            
-            return job_status_info
+                # Use BaseDAO update without commit parameter
+                job_result = await job_dao.update(
+                    db=db_session,
+                    db_obj=job_result,
+                    obj_in=update_data
+                )
+                await db_session.commit()
+                await db_session.refresh(job_result)
+        
+        job_status_info = {
+            "job_id": str(data_job_id),
+            "final_status": final_status.value,
+            "processing_duration_seconds": processing_duration,
+            "has_errors": has_errors,
+            "partial_success": has_errors and processed_any,
+            "job_result": data_job_schemas.DataJobRead.model_validate(job_result).model_dump() if job_result else None
+        }
+        
+        logger.info(f"Finalized data job {data_job_id} with status {final_status.value}")
+        
+        return job_status_info
             
     except Exception as e:
         logger.error(f"Error finalizing data job {data_job_id}: {e}", exc_info=True)
         
         # Try to mark job as failed using the DAO method directly
         try:
-            async with get_async_db_as_manager() as db:
-                job_dao = external_context.data_job_service.data_job_dao
-                
-                await job_dao.fail_job(
-                    db=db,
-                    job_id=data_job_id,
-                    error_message=f"Finalization failed: {str(e)}",
-                    records_processed=ingestion_results.get("total_documents_processed", 0),
-                    records_failed=ingestion_results.get("errors_count", 0) + 1,  # Add finalization error
-                    commit=True
-                )
+            # async with get_async_db_as_manager() as db:
+            job_dao = external_context.data_job_service.data_job_dao
+            
+            await job_dao.fail_job(
+                db=db_session,
+                job_id=data_job_id,
+                error_message=f"Finalization failed: {str(e)}",
+                records_processed=ingestion_results.get("total_documents_processed", 0),
+                records_failed=ingestion_results.get("errors_count", 0) + 1,  # Add finalization error
+                commit=True
+            )
         except Exception as fallback_err:
             logger.error(f"Failed to update job status as fallback: {fallback_err}")
         

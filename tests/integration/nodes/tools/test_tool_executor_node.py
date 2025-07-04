@@ -26,7 +26,11 @@ from workflow_service.config.constants import (
     EXTERNAL_CONTEXT_MANAGER_KEY,
     INPUT_NODE_NAME,
     OUTPUT_NODE_NAME,
+    DB_SESSION_KEY,
 )
+from sqlmodel.ext.asyncio.session import AsyncSession
+from db.session import get_async_session
+# db_session = config.get(DB_SESSION_KEY)
 from workflow_service.graph.builder import GraphBuilder
 from workflow_service.graph.graph import (
     EdgeMapping,
@@ -655,6 +659,7 @@ class TestToolExecutorNode(unittest.IsolatedAsyncioTestCase):
         """Set up test-specific users, orgs, and contexts before each test."""
         self.test_org_id = uuid.uuid4()
         self.test_user_id = uuid.uuid4()
+        self.db_session = await get_async_session()
 
         self.user_regular = MockUser(id=self.test_user_id, is_superuser=False)
 
@@ -681,8 +686,13 @@ class TestToolExecutorNode(unittest.IsolatedAsyncioTestCase):
                 "user": self.user_regular,
                 "workflow_run_job": self.run_job_regular
             },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+            DB_SESSION_KEY: self.db_session
         }
+    async def asyncTearDown(self):
+        """Tear down test-specific resources after each test."""
+        if self.db_session:
+            await self.db_session.close()
 
     async def test_basic_single_tool_execution(self):
         """Test basic execution of a single calculator tool."""

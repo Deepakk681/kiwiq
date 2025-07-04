@@ -31,10 +31,14 @@ from services.workflow_service.services.external_context_manager import (
     get_external_context_manager_with_clients
 )
 from services.kiwi_app.workflow_app.service_customer_data import CustomerDataService
-from services.workflow_service.config.constants import (
+from sqlmodel.ext.asyncio.session import AsyncSession
+from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
-    EXTERNAL_CONTEXT_MANAGER_KEY
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+    DB_SESSION_KEY,
 )
+from db.session import get_async_session
+# db_session = config.get(DB_SESSION_KEY)
 
 # Schema/Model imports (adjust paths as necessary based on your project structure)
 from services.kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
@@ -71,6 +75,7 @@ class TestLoadMultipleCustomerNode(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         """Set up test-specific users, orgs, and contexts before each test."""
+        self.db_session = await get_async_session()
         self.test_org_id = uuid.uuid4()
         self.test_user_id = uuid.uuid4()
         self.test_superuser_id = uuid.uuid4()
@@ -104,7 +109,8 @@ class TestLoadMultipleCustomerNode(unittest.IsolatedAsyncioTestCase):
                     "user": self.user_regular,
                     "workflow_run_job": self.run_job_regular
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+                DB_SESSION_KEY: self.db_session
             }
         }
         self.runtime_config_superuser = {
@@ -113,7 +119,8 @@ class TestLoadMultipleCustomerNode(unittest.IsolatedAsyncioTestCase):
                     "user": self.user_superuser,
                     "workflow_run_job": self.run_job_superuser
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+                DB_SESSION_KEY: self.db_session
             }
         }
 
@@ -134,7 +141,8 @@ class TestLoadMultipleCustomerNode(unittest.IsolatedAsyncioTestCase):
         # Close context after each test
         if self.external_context:
             await self.external_context.close()
-
+        if self.db_session:
+            await self.db_session.close()
     async def _clean_test_data(self):
         """Helper to delete test data using appropriate patterns. (Copied from sibling test file)"""
         if not self.customer_data_service:

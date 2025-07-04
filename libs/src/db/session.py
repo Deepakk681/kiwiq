@@ -4,6 +4,7 @@ Database session management module.
 This module provides database session management utilities using SQLModel.
 It handles connection pooling and session creation.
 """
+import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from typing import Generator, AsyncGenerator
 
@@ -33,8 +34,8 @@ from global_config.settings import global_settings
 DATABASE_URL_SYNC = global_settings.DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://')
 DATABASE_URL_ASYNC = global_settings.DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://')
 ENGINE_ECHO = global_settings.DB_ECHO
-POOL_SIZE = global_settings.DB_POOL_SIZE
-MAX_OVERFLOW = global_settings.DB_MAX_OVERFLOW
+POOL_SIZE = global_settings.effective_pool_size
+MAX_OVERFLOW = global_settings.effective_max_overflow
 
 # ========================================
 # SQLModel Engine and Session Setup
@@ -115,6 +116,28 @@ def get_pool() -> Generator[ConnectionPool, None, None]:
         yield pool
     finally:
         pool.close()
+
+
+_async_psycopg_pool = None
+_pool_lock = asyncio.Lock()
+
+async def get_shared_async_pool() -> AsyncConnectionPool:
+    """Get or create a shared async pool (singleton pattern)"""
+    global _async_psycopg_pool
+    
+    if _async_psycopg_pool is None:
+        async with _pool_lock:
+            if _async_psycopg_pool is None:
+                _async_psycopg_pool = AsyncConnectionPool(
+                    conninfo=global_settings.LANGGRAPH_DATABASE_URL,
+                    min_size=POOL_SIZE,  # Smaller for workers
+                    max_size=MAX_OVERFLOW,
+                    kwargs=pool_connection_kwargs,
+                )
+                await _async_psycopg_pool.open()
+    
+    return _async_psycopg_pool
+
 
 @asynccontextmanager
 async def get_async_pool() -> AsyncGenerator[AsyncConnectionPool, None]:

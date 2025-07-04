@@ -27,7 +27,9 @@ from workflow_service.config.constants import (
     EXTERNAL_CONTEXT_MANAGER_KEY,
     INPUT_NODE_NAME,
     OUTPUT_NODE_NAME,
+    DB_SESSION_KEY,
 )
+from db.session import get_async_session
 from workflow_service.graph.builder import GraphBuilder
 from workflow_service.graph.graph import (
     EdgeMapping,
@@ -1033,6 +1035,7 @@ class TestLLMToolIntegration(unittest.IsolatedAsyncioTestCase):
             "triggered_by_user_id": self.user_regular.id
         }
         self.run_job_regular = WorkflowRunJobCreate(**base_run_job_info)
+        self.db_session = await get_async_session()
         
         # Initialize context for each test
         try:
@@ -1048,8 +1051,14 @@ class TestLLMToolIntegration(unittest.IsolatedAsyncioTestCase):
                 "user": self.user_regular,
                 "workflow_run_job": self.run_job_regular
             },
-            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+            EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+            DB_SESSION_KEY: self.db_session
         }
+
+    async def asyncTearDown(self):
+        """Tear down test-specific resources after each test."""
+        if self.db_session:
+            await self.db_session.close()
     
     async def test_math_problem_solving_with_calculator(self):
         """Test LLM solving math problems using the calculator tool."""

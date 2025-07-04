@@ -39,10 +39,13 @@ from kiwi_app.rag_service.schemas import (
 from kiwi_app.rag_service.services import RAGService
 
 # Context and configuration imports
-from workflow_service.config.constants import (
+from services.workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
-    EXTERNAL_CONTEXT_MANAGER_KEY
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+    OBJECT_PATH_REFERENCE_DELIMITER,
+    DB_SESSION_KEY,
 )
+from db.session import get_async_session
 from workflow_service.services.external_context_manager import (
     ExternalContextManager,
     get_external_context_manager_with_clients
@@ -128,6 +131,7 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
             **base_run_job_info,
             triggered_by_user_id=self.user_superuser.id
         )
+        self.db_session = await get_async_session()
         
         # Initialize external context
         try:
@@ -146,7 +150,8 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
                     "user": self.user_regular,
                     "workflow_run_job": self.run_job_regular
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+                DB_SESSION_KEY: self.db_session
             }
         }
         self.runtime_config_superuser = {
@@ -155,7 +160,8 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
                     "user": self.user_superuser,
                     "workflow_run_job": self.run_job_superuser
                 },
-                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context
+                EXTERNAL_CONTEXT_MANAGER_KEY: self.external_context,
+                DB_SESSION_KEY: self.db_session
             }
         }
         
@@ -170,7 +176,8 @@ class TestDocumentCrudTools(unittest.IsolatedAsyncioTestCase):
         await self._clean_test_data()
         if self.external_context:
             await self.external_context.close()
-    
+        if self.db_session:
+            await self.db_session.close()
     async def _clean_test_data(self):
         """Helper to clean up test documents from both customer data service and RAG service."""
         if not self.customer_data_service:

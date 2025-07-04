@@ -54,7 +54,7 @@ from kiwi_client.workflows.llm_inputs.natural_language_editing_all_schemas impor
 
 # Configuration constants
 LLM_PROVIDER = "openai"  # anthropic    openai
-LLM_MODEL = "o4-mini"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+LLM_MODEL = "gpt-4.1"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
 TEMPERATURE = 0.7
 MAX_TOKENS = 2000
 MAX_TOOL_CALLS = 25  # Maximum total tool calls allowed
@@ -287,11 +287,11 @@ workflow_graph_schema = {
                     },
                     # #### DEBUG: FIXME: TODO: ####
                     # Add approval for non-edit actions for temp debuging
-                    # {
-                    #     "choice_id": "hitl_approval",
-                    #     "input_path": "tag_results.tool_calls_empty",
-                    #     "target_value": False
-                    # },
+                    {
+                        "choice_id": "hitl_approval",
+                        "input_path": "tag_results.tool_calls_empty",
+                        "target_value": False
+                    },
                     # #### #### #### #### #### ####
                     {
                         "choice_id": "hitl_approval",
@@ -728,7 +728,7 @@ async def main_test_natural_language_editing():
     print(f"\n--- Starting {test_name} ---")
     
     # Test parameters
-    test_entity_username = "test_user_123"
+    test_entity_username = "sytalal"  # sytalal   test_user_123
     
     # Create actual document data matching the system schemas
     user_dna_data = {
@@ -1027,13 +1027,30 @@ async def main_test_natural_language_editing():
     
     # Test scenarios with pre-defined HITL inputs using actual document types
     test_scenarios = [
+
+        # {
+        #     "name": "Change posting schedule",
+        #     "initial_inputs": {
+        #         "entity_username": test_entity_username,
+        #         "user_request": "Tell me the topics for my next 10 posts in the next 20 days, summarize them in themes and expected outcomes."
+        #     },
+        # },
+
         {
             "name": "Change posting schedule",
             "initial_inputs": {
                 "entity_username": test_entity_username,
-                "user_request": "Change my posting schedule to 2 per week Monday and Sunday."
+                "user_request": "Summarize a few of my future scheduled posts related to marketing and sales in the next 30 days, only check actual scheduled posts."
             },
         },
+
+        # {
+        #     "name": "Change posting schedule",
+        #     "initial_inputs": {
+        #         "entity_username": test_entity_username,
+        #         "user_request": "Change my posting schedule to 4 per week on weekends and any 2 days in middle of week."
+        #     },
+        # },
         # {
         #     "name": "View and Edit Strategy Documents",
         #     "initial_inputs": {
@@ -1153,7 +1170,7 @@ async def main_test_natural_language_editing():
     # {"user_action": "provide_clarification", "user_feedback": "Make assumptions and generate it and proceed in the same pattern / line as existing content pillars."}
     # {"user_action": "provide_clarification", "user_feedback": "Acutally, reapply and rewrite the content pillars so that its converted to JSON, currently its serialized."}
     # {"user_action": "stop_workflow"}
-    # {"user_action": "provide_clarification", "user_feedback": "please merge concepts and make assumptions accordingly for best results"}
+    # {"user_action": "provide_clarification", "user_feedback": "today is 2025-07-03 7 pm in IST timeZONE, please incorporate that in finding my answer"}
     
     # Run test scenarios
     for scenario in test_scenarios:

@@ -13,8 +13,17 @@ from pydantic import Field, model_validator, BaseModel
 # Internal dependencies
 from kiwi_app.workflow_app.constants import LaunchStatus
 from kiwi_app.workflow_app import crud as wf_crud
-from db.session import get_async_db_as_manager # For database access
-
+# from db.session import get_async_db_as_manager # For database access
+####
+from sqlmodel.ext.asyncio.session import AsyncSession
+from workflow_service.config.constants import (
+    APPLICATION_CONTEXT_KEY,
+    EXTERNAL_CONTEXT_MANAGER_KEY,
+    DB_SESSION_KEY,
+)
+# from db.session import get_async_session
+# db_session = config.get(DB_SESSION_KEY)
+####
 from global_utils.utils import datetime_now_utc
 
 # Base node/schema types and helpers
@@ -33,17 +42,13 @@ from pydantic import Field, model_validator
 # Internal dependencies
 from kiwi_app.workflow_app.constants import LaunchStatus
 from kiwi_app.workflow_app import crud as wf_crud
-from db.session import get_async_db_as_manager # For database access
+# from db.session import get_async_db_as_manager # For database access
 from global_config.logger import get_prefect_or_regular_python_logger
 # Import helper from customer_data for nested object retrieval
 from workflow_service.registry.nodes.core.flow_nodes import _get_nested_obj 
 
 # Base node/schema types
 from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode
-from workflow_service.config.constants import (
-    APPLICATION_CONTEXT_KEY,
-    EXTERNAL_CONTEXT_MANAGER_KEY
-)
 
 # --- Type Aliases ---
 PromptConstructOptions = Dict[str, str] # Type alias for clarity: maps variable_name -> input_data_path
@@ -541,6 +546,7 @@ class PromptConstructorNode(BaseDynamicNode):
         configurable_config = runtime_config.get("configurable", runtime_config)
         app_context: Optional[Dict[str, Any]] = configurable_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = configurable_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
+        db_session = configurable_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             missing_keys = [k for k, v in [(APPLICATION_CONTEXT_KEY, app_context), (EXTERNAL_CONTEXT_MANAGER_KEY, ext_context)] if not v]
@@ -566,91 +572,91 @@ class PromptConstructorNode(BaseDynamicNode):
         prompt_template_dao: wf_crud.PromptTemplateDAO = ext_context.daos.prompt_template
 
         # --- 2. Iterate and Load ---
-        async with get_async_db_as_manager() as db:
-            for template_id, template_def in self.config.prompt_templates.items():
-                if not template_def.template_load_config:
-                    continue # Skip statically defined templates
+        # async with get_async_db_as_manager() as db:
+        for template_id, template_def in self.config.prompt_templates.items():
+            if not template_def.template_load_config:
+                continue # Skip statically defined templates
 
-                entry_config = template_def.template_load_config
-                resolved_name: Optional[str] = None
-                resolved_version: Optional[str] = None
+            entry_config = template_def.template_load_config
+            resolved_name: Optional[str] = None
+            resolved_version: Optional[str] = None
 
-                try:
-                    # --- 2a. Resolve Name and Version ---
-                    resolved_name, resolved_version, resolution_error = _resolve_template_path(
-                        static_name=entry_config.path_config.static_name,
-                        static_version=entry_config.path_config.static_version,
-                        input_name_field_path=entry_config.path_config.input_name_field_path,
-                        input_version_field_path=entry_config.path_config.input_version_field_path,
-                        input_data=input_dict
-                    )
+            try:
+                # --- 2a. Resolve Name and Version ---
+                resolved_name, resolved_version, resolution_error = _resolve_template_path(
+                    static_name=entry_config.path_config.static_name,
+                    static_version=entry_config.path_config.static_version,
+                    input_name_field_path=entry_config.path_config.input_name_field_path,
+                    input_version_field_path=entry_config.path_config.input_version_field_path,
+                    input_data=input_dict
+                )
 
-                    if resolution_error:
-                        self.warning(f"Template '{template_id}': Path resolution failed: {resolution_error}")
-                        err_details = {
-                            "template_id": template_id,
-                            "config": entry_config.model_dump(),
-                            "error": f"Path resolution failed: {resolution_error}",
-                        }
-                        load_errors.append(err_details)
-                        template_def._load_error = err_details # Store error on the object
-                        continue # Skip to next template
+                if resolution_error:
+                    self.warning(f"Template '{template_id}': Path resolution failed: {resolution_error}")
+                    err_details = {
+                        "template_id": template_id,
+                        "config": entry_config.model_dump(),
+                        "error": f"Path resolution failed: {resolution_error}",
+                    }
+                    load_errors.append(err_details)
+                    template_def._load_error = err_details # Store error on the object
+                    continue # Skip to next template
 
-                    if not resolved_name: # Should be caught by resolution_error, but safety first
-                        unknown_error = "Unknown error during path resolution (name is None)."
-                        self.error(f"Template '{template_id}': {unknown_error}")
-                        err_details = {
-                            "template_id": template_id, "config": entry_config.model_dump(), "error": unknown_error,
-                        }
-                        load_errors.append(err_details)
-                        template_def._load_error = err_details
-                        continue
+                if not resolved_name: # Should be caught by resolution_error, but safety first
+                    unknown_error = "Unknown error during path resolution (name is None)."
+                    self.error(f"Template '{template_id}': {unknown_error}")
+                    err_details = {
+                        "template_id": template_id, "config": entry_config.model_dump(), "error": unknown_error,
+                    }
+                    load_errors.append(err_details)
+                    template_def._load_error = err_details
+                    continue
 
-                    self.info(f"Template '{template_id}': Attempting to load '{resolved_name}' v'{resolved_version}' for org '{org_id}'.")
+                self.info(f"Template '{template_id}': Attempting to load '{resolved_name}' v'{resolved_version}' for org '{org_id}'.")
 
-                    # --- 2b. Load from DB ---
-                    templates_found = await prompt_template_dao.search_by_name_version(
-                        db=db, name=resolved_name, version=resolved_version, owner_org_id=org_id,
-                        include_public=True, include_system_entities=False, include_public_system_entities=True,
-                        is_superuser=user.is_superuser
-                    )
-                    db_template = None
-                    if not resolved_version:
-                        try:
-                            from packaging.version import parse as parse_version
-                            sorted_versions = sorted(templates_found, key=lambda x: parse_version(x.version), reverse=True)
-                            db_template = sorted_versions[0]
-                        except Exception as e:
-                            pass
-                    
-                    if not db_template:
-                        db_template = templates_found[0] if templates_found else None
+                # --- 2b. Load from DB ---
+                templates_found = await prompt_template_dao.search_by_name_version(
+                    db=db_session, name=resolved_name, version=resolved_version, owner_org_id=org_id,
+                    include_public=True, include_system_entities=False, include_public_system_entities=True,
+                    is_superuser=user.is_superuser
+                )
+                db_template = None
+                if not resolved_version:
+                    try:
+                        from packaging.version import parse as parse_version
+                        sorted_versions = sorted(templates_found, key=lambda x: parse_version(x.version), reverse=True)
+                        db_template = sorted_versions[0]
+                    except Exception as e:
+                        pass
+                
+                if not db_template:
+                    db_template = templates_found[0] if templates_found else None
 
-                    if db_template:
-                        # --- 2c. Populate Internal Fields ---
-                        template_def._loaded_template = db_template.template_content
-                        template_def._loaded_variables = db_template.input_variables or {}
-                        self.info(f"Template '{template_id}': Successfully loaded '{resolved_name}' v'{resolved_version}' (ID: {db_template.id}).")
-                    else:
-                        not_found_error = f"Template '{resolved_name}' version '{resolved_version}' not found for org '{org_id}' or as accessible system template."
-                        self.warning(f"Template '{template_id}': {not_found_error}")
-                        err_details = {
-                            "template_id": template_id, "config": entry_config.model_dump(),
-                            "resolved_name": resolved_name, "resolved_version": resolved_version,
-                            "error": not_found_error
-                        }
-                        load_errors.append(err_details)
-                        template_def._load_error = err_details
-
-                except Exception as e:
-                    self.error(f"Template '{template_id}': Unexpected error during loading: {e}", exc_info=True)
+                if db_template:
+                    # --- 2c. Populate Internal Fields ---
+                    template_def._loaded_template = db_template.template_content
+                    template_def._loaded_variables = db_template.input_variables or {}
+                    self.info(f"Template '{template_id}': Successfully loaded '{resolved_name}' v'{resolved_version}' (ID: {db_template.id}).")
+                else:
+                    not_found_error = f"Template '{resolved_name}' version '{resolved_version}' not found for org '{org_id}' or as accessible system template."
+                    self.warning(f"Template '{template_id}': {not_found_error}")
                     err_details = {
                         "template_id": template_id, "config": entry_config.model_dump(),
                         "resolved_name": resolved_name, "resolved_version": resolved_version,
-                        "error": f"Unexpected error: {str(e)}"
+                        "error": not_found_error
                     }
                     load_errors.append(err_details)
-                    template_def._load_error = err_details # Store error
+                    template_def._load_error = err_details
+
+            except Exception as e:
+                self.error(f"Template '{template_id}': Unexpected error during loading: {e}", exc_info=True)
+                err_details = {
+                    "template_id": template_id, "config": entry_config.model_dump(),
+                    "resolved_name": resolved_name, "resolved_version": resolved_version,
+                    "error": f"Unexpected error: {str(e)}"
+                }
+                load_errors.append(err_details)
+                template_def._load_error = err_details # Store error
 
         return load_errors
 

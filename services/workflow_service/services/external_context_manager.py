@@ -5,7 +5,7 @@
 # docker-compose -f docker-compose.prod.yml exec app bash
 # PYTHONPATH=$(pwd):$(pwd)/services python services/workflow_service/services/external_context_manager.py
 
-from db.session import get_async_db_as_manager
+# from db.session import get_async_db_as_manager
 from global_config.settings import global_settings
 from mongo_client.mongo_versioned_client import AsyncMongoVersionedClient
 from kiwi_app.settings import settings
