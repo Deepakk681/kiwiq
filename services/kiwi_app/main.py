@@ -83,12 +83,20 @@ async def lifespan(app: FastAPI):
         # === Shutdown: Directly call stop_event_consumer ===
         kiwi_logger.info("Application shutting down...")
         kiwi_logger.info("Attempting to stop event consumer...")
-        await event_consumer.stop_event_consumer(app.state.event_broker) # NO main() here
-        if hasattr(app.state, "event_broker"):
-             del app.state.event_broker # Optional: clean up state
-        kiwi_logger.info("Event consumer stopped successfully via lifespan.")
+        # Only try to stop event consumer if it was successfully started
+        if hasattr(app.state, "event_broker") and app.state.event_broker is not None:
+            await event_consumer.stop_event_consumer(app.state.event_broker) # NO main() here
+            del app.state.event_broker # Optional: clean up state
+            kiwi_logger.info("Event consumer stopped successfully via lifespan.")
+        else:
+            kiwi_logger.info("Event consumer was not started, skipping stop.")
         kiwi_logger.info("Cleanup finished.")
-        await weaviate_client.close()
+        # Only close weaviate client if it was successfully initialized
+        if 'weaviate_client' in locals() and weaviate_client is not None:
+            await weaviate_client.close()
+            kiwi_logger.info("Weaviate client closed successfully.")
+        else:
+            kiwi_logger.info("Weaviate client was not initialized, skipping close.")
 
     # asyncio.create_task(event_consumer.main())
     # yield

@@ -159,6 +159,8 @@ services:
       # RABBITMQ_HOST: rabbitmq
       # REDIS_HOST: redis
       # WEAVIATE_HOST: weaviate
+      # RabbitMQ connection URL for event consumer
+      RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       # Add other production-specific env vars if needed directly here
     volumes:
       # In production, typically you don't mount the source code directly.
@@ -430,12 +432,12 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       # Consider setting RABBITMQ_NODENAME for clarity
       # RABBITMQ_NODENAME: rabbit@kiwiq-prod
-      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.6"
-      RABBITMQ_DISK_FREE_LIMIT: "2GB"
+      # Use modern configuration approach instead of deprecated env vars
+      RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq.conf
     # Persist data
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      # - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     networks:
       - prod_network
     # Resource limits
