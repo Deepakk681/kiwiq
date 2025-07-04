@@ -236,7 +236,7 @@ services:
       --wiredTigerJournalCompressor=snappy
       --wiredTigerCollectionBlockCompressor=snappy
       --journalCommitInterval=50
-      --setParameter maxIncomingConnections=200
+      --maxConns=200
       --quiet
     # No ports exposed externally
     # Optional: Add basic healthcheck for Mongo if needed
