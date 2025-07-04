@@ -912,7 +912,7 @@ if __name__ == "__main__":
             # pause_on_shutdown=global_settings.APP_ENV != "PROD",
             # interval=60,
             # cron="* * * * *",
-            concurrency_limit=12,
+            concurrency_limit=20,
             description=f"Production deployment for KiwiQ LangGraph workflows ({global_settings.APP_ENV})",
             version="workflow-service/deployments",
         ),
