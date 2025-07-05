@@ -386,7 +386,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=None,  # Disable built-in docs, we'll create our own
     redoc_url="/kiwiqai-secret2-redoc",
-    openapi_url="/openapi.json",
+    openapi_url="/kiwiqai-secret2-openapi.json",
     openapi_tags=tags_metadata,
 )
 
@@ -395,7 +395,7 @@ app = FastAPI(
 #     lifespan=lifespan,
 #     docs_url="/docs",
 #     redoc_url="/redoc",
-#     openapi_url="/openapi.json",
+#     openapi_url="/kiwiqai-secret2-openapi.json",
 #     openapi_tags=tags_metadata,
 #     swagger_ui_parameters={
 #         "withCredentials": True,
@@ -412,7 +412,7 @@ async def custom_swagger_ui_html(req: Request):
     requestInterceptor works correctly as a JavaScript function.
     """
     return get_swagger_ui_html(
-        openapi_url="/openapi.json",
+        openapi_url="/kiwiqai-secret2-openapi.json",
         title=app.title,
         oauth2_redirect_url="/kiwiqai-secret2-docs/oauth2-redirect",
     )
