@@ -6,6 +6,7 @@ in CustomerDataService.
 import uuid
 from typing import List, Dict, Any, Optional, Type, Literal, Union, cast
 from enum import Enum
+from logging import Logger
 
 from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, Body
 from pydantic import BaseModel, Field, model_validator, PrivateAttr, HttpUrl
@@ -692,6 +693,135 @@ async def list_user_state_documents(
         )
 
 
+async def list_active_user_state_docnames_core(
+    active_org_id: uuid.UUID,
+    current_user: User,
+    service: CustomerDataService,
+    logger: Logger,
+    on_behalf_of_user_id: Optional[uuid.UUID] = None,
+) -> ActiveUserStateDocnamesResponse:
+    """
+    Lists all user application state document names that are currently active.
+
+    This function performs the following steps:
+    1. Retrieves all document metadata for the user in the user state namespace.
+    2. For each document:
+        a. Fetches the full document content.
+        b. Parses the content into a `UserState` object.
+        c. Checks if the `is_active` state entry exists and its `state_value` is `True`.
+    3. Collects the names of all documents that are confirmed to be active.
+    4. Returns the list of active document names.
+
+    Errors during fetching or processing individual documents are logged, and
+    such documents are skipped, rather than failing the entire operation.
+
+    Args:
+        active_org_id: The active organization ID.
+        current_user: The current authenticated user.
+        service: The customer data service instance.
+        logger: Logger instance for logging.
+        on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only).
+
+    Returns:
+        ActiveUserStateDocnamesResponse: Response containing the list of active document names.
+    """
+    namespace = settings.USER_STATE_NAMESPACE
+    logger.info(
+        f"Attempting to list active app state documents for org {active_org_id}, user {current_user.id} in namespace '{namespace}'."
+    )
+
+    active_docnames_list: List[str] = []
+
+    try:
+        # Step 1: Retrieve all document metadata
+        # Using a potentially higher limit to ensure all documents are considered for active check.
+        # Adjust limit as necessary based on expected number of documents.
+        doc_metadata_list = await service.list_documents(
+            org_id=active_org_id,
+            namespace_filter=namespace,
+            include_user_specific=True,
+            include_shared=False,
+            include_system_entities=False,
+            limit=1000, # Increased limit for fetching all docs to check activity
+            user=current_user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+        )
+    except HTTPException as e:
+        logger.error(
+            f"HTTPException while listing all documents for active check for org {active_org_id}, user {current_user.id}: {e.detail}",
+            exc_info=True
+        )
+        # If listing documents fails, we cannot proceed.
+        raise HTTPException(
+            status_code=e.status_code, # Propagate service error status
+            detail=f"Failed to list documents for active check: {e.detail}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Unexpected error listing all documents for active check for org {active_org_id}, user {current_user.id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while trying to list documents for active check."
+        )
+
+    # Step 2 & 3: Fetch each document, parse, check 'is_active' state
+    for doc_meta in doc_metadata_list:
+        docname = doc_meta.docname
+        try:
+            # Step 2a: Fetch the full document content
+            raw_state_data = await service.get_unversioned_document(
+                org_id=active_org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=False, # User states are not shared
+                user=current_user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=False, # User states are not system entities
+            )
+
+            if not raw_state_data:
+                logger.warning(
+                    f"Document '{docname}' in namespace '{namespace}' for org {active_org_id} is empty. Skipping active check."
+                )
+                continue
+
+            # Step 2b: Parse the content into a UserState object
+            user_state = UserState.model_validate(raw_state_data)
+
+            # Step 2c: Check if the 'is_active' state entry exists and its state_value is True
+            is_active_entry = user_state.get_state([["is_active"]])["is_active"]
+            if is_active_entry:
+                active_docnames_list.append(docname)
+            else:
+                logger.debug(
+                    f"Document '{docname}' is not active or 'is_active' state is missing/invalid. Skipping."
+                )
+
+        except HTTPException as e:
+            if e.status_code == status.HTTP_404_NOT_FOUND:
+                logger.warning(
+                    f"Document '{docname}' not found while checking active status for org {active_org_id}. Skipping."
+                )
+            else:
+                logger.error(
+                    f"HTTPException while fetching/processing document '{docname}' for active check (org {active_org_id}): {e.detail}. Skipping."
+                )
+            continue # Skip this document
+        except Exception as e: # Includes Pydantic validation errors, etc.
+            logger.error(
+                f"Unexpected error processing document '{docname}' for active check (org {active_org_id}): {e}. Skipping.",
+                exc_info=True
+            )
+            continue # Skip this document
+
+    logger.info(
+        f"Found {len(active_docnames_list)} active documents for org {active_org_id}, user {current_user.id}."
+    )
+    return ActiveUserStateDocnamesResponse(active_docnames=active_docnames_list)
+
+
 @app_state_router.get(
     "/active-docnames",
     response_model=ActiveUserStateDocnamesResponse,
@@ -725,101 +855,13 @@ async def list_active_user_state_docnames(
     Errors during fetching or processing individual documents are logged, and
     such documents are skipped, rather than failing the entire operation.
     """
-    namespace = settings.USER_STATE_NAMESPACE
-    app_state_logger.info(
-        f"Attempting to list active app state documents for org {active_org_id}, user {current_user.id} in namespace '{namespace}'."
+    return await list_active_user_state_docnames_core(
+        active_org_id=active_org_id,
+        current_user=current_user,
+        service=service,
+        logger=app_state_logger,
+        on_behalf_of_user_id=on_behalf_of_user_id,
     )
-
-    active_docnames_list: List[str] = []
-
-    try:
-        # Step 1: Retrieve all document metadata
-        # Using a potentially higher limit to ensure all documents are considered for active check.
-        # Adjust limit as necessary based on expected number of documents.
-        doc_metadata_list = await service.list_documents(
-            org_id=active_org_id,
-            namespace_filter=namespace,
-            include_user_specific=True,
-            include_shared=False,
-            include_system_entities=False,
-            limit=1000, # Increased limit for fetching all docs to check activity
-            user=current_user,
-            on_behalf_of_user_id=on_behalf_of_user_id,
-        )
-    except HTTPException as e:
-        app_state_logger.error(
-            f"HTTPException while listing all documents for active check for org {active_org_id}, user {current_user.id}: {e.detail}",
-            exc_info=True
-        )
-        # If listing documents fails, we cannot proceed.
-        raise HTTPException(
-            status_code=e.status_code, # Propagate service error status
-            detail=f"Failed to list documents for active check: {e.detail}"
-        )
-    except Exception as e:
-        app_state_logger.error(
-            f"Unexpected error listing all documents for active check for org {active_org_id}, user {current_user.id}: {e}",
-            exc_info=True
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while trying to list documents for active check."
-        )
-
-    # Step 2 & 3: Fetch each document, parse, check 'is_active' state
-    for doc_meta in doc_metadata_list:
-        docname = doc_meta.docname
-        try:
-            # Step 2a: Fetch the full document content
-            raw_state_data = await service.get_unversioned_document(
-                org_id=active_org_id,
-                namespace=namespace,
-                docname=docname,
-                is_shared=False, # User states are not shared
-                user=current_user,
-                on_behalf_of_user_id=on_behalf_of_user_id,
-                is_system_entity=False, # User states are not system entities
-            )
-
-            if not raw_state_data:
-                app_state_logger.warning(
-                    f"Document '{docname}' in namespace '{namespace}' for org {active_org_id} is empty. Skipping active check."
-                )
-                continue
-
-            # Step 2b: Parse the content into a UserState object
-            user_state = UserState.model_validate(raw_state_data)
-
-            # Step 2c: Check if the 'is_active' state entry exists and its state_value is True
-            is_active_entry = user_state.get_state([["is_active"]])["is_active"]
-            if is_active_entry:
-                active_docnames_list.append(docname)
-            else:
-                app_state_logger.debug(
-                    f"Document '{docname}' is not active or 'is_active' state is missing/invalid. Skipping."
-                )
-
-        except HTTPException as e:
-            if e.status_code == status.HTTP_404_NOT_FOUND:
-                app_state_logger.warning(
-                    f"Document '{docname}' not found while checking active status for org {active_org_id}. Skipping."
-                )
-            else:
-                app_state_logger.error(
-                    f"HTTPException while fetching/processing document '{docname}' for active check (org {active_org_id}): {e.detail}. Skipping."
-                )
-            continue # Skip this document
-        except Exception as e: # Includes Pydantic validation errors, etc.
-            app_state_logger.error(
-                f"Unexpected error processing document '{docname}' for active check (org {active_org_id}): {e}. Skipping.",
-                exc_info=True
-            )
-            continue # Skip this document
-
-    app_state_logger.info(
-        f"Found {len(active_docnames_list)} active documents for org {active_org_id}, user {current_user.id}."
-    )
-    return ActiveUserStateDocnamesResponse(active_docnames=active_docnames_list)
 
 
 @app_state_router.delete(
@@ -891,6 +933,74 @@ async def delete_user_state_document(
         )
 
 
+async def get_user_state(
+    docname: str,
+    paths_to_get_str: Optional[str],
+    active_org_id: uuid.UUID,
+    current_user: User,
+    service: CustomerDataService,
+    logger: Logger,
+    on_behalf_of_user_id: Optional[uuid.UUID] = None,
+) -> GetUserStateResponse:
+    """
+    Retrieves the user application state or specific parts of it.
+    
+    Args:
+        docname: Name for the app state document.
+        paths_to_get_str: Comma-separated list of paths to retrieve (dot-separated keys).
+        active_org_id: The active organization ID.
+        current_user: The current authenticated user.
+        service: The customer data service instance.
+        logger: Logger instance for logging.
+        on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only).
+    
+    Returns:
+        GetUserStateResponse: Response containing the retrieved state data.
+    """
+    namespace = settings.USER_STATE_NAMESPACE
+    logger.info(
+        f"Getting app state for org {active_org_id}, user {current_user.id} "
+        f"at {namespace}/{docname}."
+    )
+    try:
+        raw_state_data = await service.get_unversioned_document(
+            org_id=active_org_id,
+            namespace=namespace,
+            docname=docname,
+            is_shared=False,
+            user=current_user,
+            on_behalf_of_user_id=on_behalf_of_user_id,
+            is_system_entity=False,
+        )
+    except HTTPException as e:
+        if e.status_code == status.HTTP_404_NOT_FOUND:
+            logger.warning(f"App state not found for {namespace}/{docname}.")
+            # Depending on desired behavior, could return empty state or 404
+            # For now, let 404 propagate as the document doesn't exist.
+        raise e
+    except Exception as e:
+        logger.error(f"Failed to fetch app state for {namespace}/{docname}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve application state.")
+
+    if not raw_state_data: # Should be caught by 404 from service, but as a safeguard
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application state document is empty or not found.")
+
+    try:
+        user_state = UserState.model_validate(raw_state_data)
+    except Exception as e:
+        logger.error(f"Error validating stored app state for {namespace}/{docname}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid application state data encountered.")
+
+    parsed_paths: List[List[str]] = []
+    if paths_to_get_str:
+        path_strings = [p.strip() for p in paths_to_get_str.split(',') if p.strip()]
+        for ps in path_strings:
+            parsed_paths.append([key.strip() for key in ps.split('.') if key.strip()])
+    
+    retrieved_data = user_state.get_state(parsed_paths)
+    return GetUserStateResponse(retrieved_states=retrieved_data)
+
+
 @app_state_router.get(
     "/{docname}",
     response_model=GetUserStateResponse, # Or UserState if returning the whole object
@@ -913,49 +1023,106 @@ async def get_user_state_route(
     - `paths_to_get_str`: Provide comma-separated paths like "key1.subkeyA,key2".
                           If not provided, the values of top-level states are returned.
     """
+    return await get_user_state(
+        docname=docname,
+        paths_to_get_str=paths_to_get_str,
+        active_org_id=active_org_id,
+        current_user=current_user,
+        service=service,
+        logger=app_state_logger,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+    )
+
+
+async def update_user_state(
+    request_data: UpdateUserStateRequest,
+    docname: str,
+    active_org_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+    service: CustomerDataService,
+    logger: Logger,
+):
     namespace = settings.USER_STATE_NAMESPACE
-    app_state_logger.info(
-        f"Getting app state for org {active_org_id}, user {current_user.id} "
+    logger.info(
+        f"Updating app state for org {active_org_id}, user {current_user.id} "
         f"at {namespace}/{docname}."
     )
-    try:
-        raw_state_data = await service.get_unversioned_document(
-            org_id=active_org_id,
-            namespace=namespace,
-            docname=docname,
-            is_shared=False,
-            user=current_user,
-            on_behalf_of_user_id=on_behalf_of_user_id,
-            is_system_entity=False,
-        )
-    except HTTPException as e:
-        if e.status_code == status.HTTP_404_NOT_FOUND:
-            app_state_logger.warning(f"App state not found for {namespace}/{docname}.")
-            # Depending on desired behavior, could return empty state or 404
-            # For now, let 404 propagate as the document doesn't exist.
-        raise e
-    except Exception as e:
-        app_state_logger.error(f"Failed to fetch app state for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve application state.")
 
-    if not raw_state_data: # Should be caught by 404 from service, but as a safeguard
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application state document is empty or not found.")
+    base_path = service._build_base_path(
+                org_id=active_org_id, 
+                namespace=namespace, 
+                docname=docname, 
+                is_shared=False, 
+                user=current_user,
+                # on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=False,
+            )
+    async with service.versioned_mongo_client._with_document_lock(base_path, "update_document"):
+        try:
+            raw_state_data = await service.get_unversioned_document(
+                org_id=active_org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=False,  # request_data.is_shared,
+                user=current_user,
+                on_behalf_of_user_id=request_data.on_behalf_of_user_id,
+                is_system_entity=False,  # request_data.is_system_entity,
+            )
+        except HTTPException as e:
+            if e.status_code == status.HTTP_404_NOT_FOUND:
+                # If document doesn't exist, update is not possible.
+                # Alternatively, one could choose to initialize it here if updates are on an empty state.
+                # For now, require initialization first.
+                logger.warning(f"Cannot update: App state not found for {namespace}/{docname}.")
+            raise e # Re-raise 404 or other service errors
+        except Exception as e:
+            logger.error(f"Failed to fetch app state for update {namespace}/{docname}: {e}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve application state for update.")
 
-    try:
-        user_state = UserState.model_validate(raw_state_data)
-    except Exception as e:
-        app_state_logger.error(f"Error validating stored app state for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid application state data encountered.")
+        if not raw_state_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application state document is empty or not found, cannot update.")
 
-    parsed_paths: List[List[str]] = []
-    if paths_to_get_str:
-        path_strings = [p.strip() for p in paths_to_get_str.split(',') if p.strip()]
-        for ps in path_strings:
-            parsed_paths.append([key.strip() for key in ps.split('.') if key.strip()])
+        try:
+            user_state = UserState.model_validate(raw_state_data)
+            
+            # The explicit management of 'onboarded' state is no longer needed here.
+            # The UserState.state_update method, through _recompute_parents,
+            # will trigger compute_value_from_substates on the 'onboarded' UserStateEntry
+            # if any of its sub-states (page_1_linkedin, etc.) are updated.
+
+            changed = user_state.state_update(request_data.updates)
+            
+        except ValueError as e: # Catch validation errors from state_update (e.g. bad path, type mismatch)
+            logger.warning(f"Invalid state update for {namespace}/{docname}: {e}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e: # Catch other errors during model validation or update logic
+            logger.error(f"Error processing state update for {namespace}/{docname}: {e}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error applying updates to application state.")
+
+        if changed:
+            logger.info(f"App state for {namespace}/{docname} updated. Saving changes.")
+            try:
+                await service._create_or_update_unversioned_document_no_lock(
+                    db=db,
+                    org_id=active_org_id,
+                    namespace=namespace,
+                    docname=docname,
+                    is_shared=False,  # request_data.is_shared,
+                    user=current_user,
+                    data=user_state.model_dump(exclude_none=True),
+                    on_behalf_of_user_id=request_data.on_behalf_of_user_id,
+                    is_system_entity=False,  # request_data.is_system_entity,
+                )
+            except Exception as e:
+                logger.error(f"Failed to save updated app state for {namespace}/{docname}: {e}", exc_info=True)
+                # Potentially inconsistent state if DB save fails after in-memory update.
+                # Consider rollback or more robust error handling if critical.
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save updated application state.")
+        else:
+            logger.info(f"App state for {namespace}/{docname} had no effective changes from the update request.")
     
-    retrieved_data = user_state.get_state(parsed_paths)
-    return GetUserStateResponse(retrieved_states=retrieved_data)
-
+    return user_state
 
 @app_state_router.put(
     "/{docname}",
@@ -976,74 +1143,12 @@ async def update_user_state_route(
     Applies a list of updates to the user application state.
     If `set_parents` is true in an update, parent states will be recomputed.
     """
-    namespace = settings.USER_STATE_NAMESPACE
-    app_state_logger.info(
-        f"Updating app state for org {active_org_id}, user {current_user.id} "
-        f"at {namespace}/{docname}."
+    return await update_user_state(
+        request_data=request_data,
+        docname=docname,
+        active_org_id=active_org_id,
+        current_user=current_user,
+        db=db,
+        service=service,
+        logger=app_state_logger,
     )
-    try:
-        raw_state_data = await service.get_unversioned_document(
-            org_id=active_org_id,
-            namespace=namespace,
-            docname=docname,
-            is_shared=False,  # request_data.is_shared,
-            user=current_user,
-            on_behalf_of_user_id=request_data.on_behalf_of_user_id,
-            is_system_entity=False,  # request_data.is_system_entity,
-        )
-    except HTTPException as e:
-        if e.status_code == status.HTTP_404_NOT_FOUND:
-            # If document doesn't exist, update is not possible.
-            # Alternatively, one could choose to initialize it here if updates are on an empty state.
-            # For now, require initialization first.
-            app_state_logger.warning(f"Cannot update: App state not found for {namespace}/{docname}.")
-        raise e # Re-raise 404 or other service errors
-    except Exception as e:
-        app_state_logger.error(f"Failed to fetch app state for update {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve application state for update.")
-
-    if not raw_state_data:
-         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application state document is empty or not found, cannot update.")
-
-    try:
-        user_state = UserState.model_validate(raw_state_data)
-        
-        # The explicit management of 'onboarded' state is no longer needed here.
-        # The UserState.state_update method, through _recompute_parents,
-        # will trigger compute_value_from_substates on the 'onboarded' UserStateEntry
-        # if any of its sub-states (page_1_linkedin, etc.) are updated.
-
-        changed = user_state.state_update(request_data.updates)
-        
-    except ValueError as e: # Catch validation errors from state_update (e.g. bad path, type mismatch)
-        app_state_logger.warning(f"Invalid state update for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e: # Catch other errors during model validation or update logic
-        app_state_logger.error(f"Error processing state update for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error applying updates to application state.")
-
-    if changed:
-        app_state_logger.info(f"App state for {namespace}/{docname} updated. Saving changes.")
-        try:
-            await service.create_or_update_unversioned_document(
-                db=db,
-                org_id=active_org_id,
-                namespace=namespace,
-                docname=docname,
-                is_shared=False,  # request_data.is_shared,
-                user=current_user,
-                data=user_state.model_dump(exclude_none=True),
-                on_behalf_of_user_id=request_data.on_behalf_of_user_id,
-                is_system_entity=False,  # request_data.is_system_entity,
-            )
-        except Exception as e:
-            app_state_logger.error(f"Failed to save updated app state for {namespace}/{docname}: {e}", exc_info=True)
-            # Potentially inconsistent state if DB save fails after in-memory update.
-            # Consider rollback or more robust error handling if critical.
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save updated application state.")
-    else:
-        app_state_logger.info(f"App state for {namespace}/{docname} had no effective changes from the update request.")
-
-    return user_state
-
-

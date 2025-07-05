@@ -45,7 +45,8 @@ logger = get_logger(__name__)
 # Initialize broker with settings
 broker = RabbitBroker(
     settings.RABBITMQ_URL, 
-    max_consumers=5
+    max_consumers=5,
+    log_level=logging.WARNING,
 )
 
 # Get WebSocket connection manager
