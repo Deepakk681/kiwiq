@@ -115,6 +115,70 @@ async def get_workflow_service_dependency(
     yield workflow_service
     await workflow_service.mongo_client.close()
 
+async def get_workflow_service() -> services.WorkflowService:
+    """
+    Non-dependency function to get WorkflowService instance.
+    
+    This function creates and returns a WorkflowService instance by instantiating
+    all required dependencies directly. Useful for scenarios where you need to use
+    the workflow service outside of a FastAPI dependency context (e.g., background
+    tasks, scripts, or other services).
+    
+    Note: The caller is responsible for properly closing the mongo_client connection
+    by calling `await workflow_service.mongo_client.close()` when done.
+    
+    Returns:
+        services.WorkflowService: A fully configured WorkflowService instance.
+        
+    Example:
+        ```python
+        # Get workflow service
+        workflow_service = await get_workflow_service()
+        
+        try:
+            # Use the service
+            workflows = await workflow_service.get_workflows_for_org(org_id, limit=10)
+        finally:
+            # Clean up connections
+            await workflow_service.mongo_client.close()
+        ```
+    """
+    # Create all DAO instances directly
+    node_template_dao = crud.NodeTemplateDAO()
+    workflow_dao = crud.WorkflowDAO()
+    workflow_run_dao = crud.WorkflowRunDAO()
+    prompt_template_dao = crud.PromptTemplateDAO()
+    schema_template_dao = crud.SchemaTemplateDAO()
+    user_notification_dao = crud.UserNotificationDAO()
+    hitl_job_dao = crud.HITLJobDAO()
+    workflow_config_override_dao = crud.WorkflowConfigOverrideDAO()
+    
+    # Get external clients
+    mongo_client = await get_workflow_mongo_client()
+    
+    # Get the registry (this will initialize it if not already done)
+    db_registry = await get_node_template_registry()
+    
+    # Get billing service (no dependencies version)
+    billing_service = billing_dependencies.get_billing_service_no_dependencies()
+    
+    # Create and return WorkflowService instance
+    workflow_service = services.WorkflowService(
+        node_template_dao=node_template_dao,
+        workflow_dao=workflow_dao,
+        workflow_run_dao=workflow_run_dao,
+        prompt_template_dao=prompt_template_dao,
+        schema_template_dao=schema_template_dao,
+        user_notification_dao=user_notification_dao,
+        hitl_job_dao=hitl_job_dao,
+        workflow_config_override_dao=workflow_config_override_dao,
+        mongo_client=mongo_client,
+        db_registry=db_registry,
+        billing_service=billing_service,
+    )
+    
+    return workflow_service
+
 # --- Customer Data Service Dependency --- #
 
 # async def partial_get_customer_mongo_client_with_extra_segments():

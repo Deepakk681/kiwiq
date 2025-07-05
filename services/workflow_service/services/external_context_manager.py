@@ -54,6 +54,7 @@ class DAOContext(BaseModel):
     schema_template: wf_crud.SchemaTemplateDAO = Field(...)
     user_notification: wf_crud.UserNotificationDAO = Field(...)
     hitl_job: wf_crud.HITLJobDAO = Field(...)
+    workflow_config_override: wf_crud.WorkflowConfigOverrideDAO = Field(...)
     user: auth_crud.UserDAO = Field(...)
     data_job: data_jobs_crud.DataJobDAO = Field(...)
 
@@ -565,6 +566,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     schema_template_dao = wf_crud.SchemaTemplateDAO()
     user_notification_dao = wf_crud.UserNotificationDAO()
     hitl_job_dao = wf_crud.HITLJobDAO()
+    workflow_config_override_dao = wf_crud.WorkflowConfigOverrideDAO()
     data_job_dao = data_jobs_crud.DataJobDAO()
     
     # Initialize auth DAOs
@@ -589,7 +591,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         user_notification=user_notification_dao,
         hitl_job=hitl_job_dao,
         user=user_dao,
-        data_job=data_job_dao
+        data_job=data_job_dao,
+        workflow_config_override=workflow_config_override_dao,
     )
 
     customer_data_service = await get_customer_data_service(

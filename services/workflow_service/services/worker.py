@@ -20,6 +20,7 @@ from prefect.context import get_run_context
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langchain_core.messages import AnyMessage, AIMessageChunk # Added AIMessageChunk
 from langchain_core.load import dumps # Added dumps for logging complex objects
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from db.session import get_async_pool, get_async_db_as_manager, get_async_session # Assuming this provides psycopg pool
 from global_config.settings import global_settings
@@ -823,6 +824,321 @@ async def trigger_workflow_run(
 
     return flow_run
 
+
+# --- Helper Functions ---
+
+async def search_workflow_by_name(
+    workflow_name: str,
+    external_context: ExternalContextManager,
+    db_session: AsyncSession,
+    version_tag: Optional[str] = None,
+    org_id: Optional[uuid.UUID] = None
+) -> Optional[uuid.UUID]:
+    """
+    Search for a workflow by name and return its ID.
+    
+    Args:
+        workflow_name: Name of the workflow to search for
+        external_context: ExternalContextManager instance
+        db_session: Database session
+        version_tag: Optional version tag to filter by
+        org_id: Optional organization ID to filter by
+        
+    Returns:
+        Optional[uuid.UUID]: The workflow ID if found, None otherwise
+    """
+    logger = get_prefect_or_regular_python_logger(name="search-workflow-by-name")
+    try:
+        # Search for workflow by name
+        workflows = await external_context.daos.workflow.search_by_name_version(
+            db=db_session,
+            name=workflow_name,
+            version=version_tag,
+            version_field="version_tag",
+            owner_org_id=org_id,
+            include_public=True,
+            include_system_entities=True,
+            include_public_system_entities=True,
+            is_superuser=False,
+        )
+        
+        
+        if not workflows:
+            return None
+            
+        if len(workflows) > 1:
+            # If multiple workflows found, use the most recently updated one
+            workflows.sort(key=lambda w: w.updated_at, reverse=True)
+            
+        return workflows[0].id
+        
+    except Exception as e:
+        logger.error(f"Error searching for workflow '{workflow_name}': {e}", exc_info=True)
+        return None
+
+
+# --- Weekly Content Calendar Generation Flow ---
+
+@flow(
+    name="weekly-content-calendar-generation",
+    description="Weekly flow to generate content calendar briefs for all active entity usernames",
+    log_prints=global_settings.DEBUG,
+    retries=2,
+    retry_delay_seconds=120,
+)
+async def weekly_content_calendar_generation_flow(
+    limit: Optional[int] = None,
+    include_inactive_orgs: bool = False,
+    weeks_to_generate: int = 1,
+    past_context_posts_limit: int = 20,
+    dry_run: bool = False
+) -> Dict[str, Any]:
+    """
+    Weekly Prefect flow to generate content calendar briefs for all active entity usernames.
+    
+    This flow:
+    1. Fetches all active entity usernames using extract_active_entity_usernames_flow
+    2. For each org/user/entity_username triplet, triggers the content_calendar_entry_workflow
+    3. Uses non-streaming mode for reliable batch processing
+    4. Runs weekly on Friday PST midnight so content is ready for Saturday morning
+    
+    Args:
+        limit: Optional limit on number of org-user pairs to process (for testing)
+        include_inactive_orgs: Whether to include inactive organizations
+        weeks_to_generate: Number of weeks to generate content for (default: 1)
+        past_context_posts_limit: Number of past posts to use for context (default: 20)
+        dry_run: If True, only logs what would be triggered without actually starting workflows
+    
+    Returns:
+        Dict[str, Any]: Summary of triggered workflows and processing statistics
+    """
+    logger = get_prefect_or_regular_python_logger(name="weekly-content-calendar-generation-flow")
+    from workflow_service.services.workflow_cron_flows import extract_active_entity_usernames_flow
+    
+    logger.info("Starting weekly content calendar generation process")
+    
+    # Initialize external context and database session
+    external_context = await get_external_context_manager_with_clients()
+    logger.info("External context manager initialized")
+    
+    db_session = None
+    workflow_service = None
+    try:
+        db_session = await get_async_session()
+        
+        # Step 1: Extract all active entity usernames
+        logger.info("Fetching active entity usernames from all organizations")
+        entity_data = await extract_active_entity_usernames_flow(
+            limit=limit,
+            include_inactive_orgs=include_inactive_orgs
+        )
+        
+        if entity_data["status"] != "success":
+            error_msg = f"Failed to fetch entity usernames: {entity_data.get('error_message', 'Unknown error')}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        entity_username_triplets = entity_data["entity_username_triplets"]
+        logger.info(f"Found {len(entity_username_triplets)} entity username triplets to process")
+        
+        # Step 2: Search for the content calendar workflow first
+        workflow_name = "content_calendar_entry_workflow"
+        workflow_id = await search_workflow_by_name(
+            workflow_name=workflow_name,
+            external_context=external_context,
+            db_session=db_session,
+            version_tag=None,  # Use latest version
+            org_id=None  # Search system and public workflows
+        )
+        
+        if not workflow_id:
+            error_msg = f"Could not find workflow with name '{workflow_name}'"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        logger.info(f"Found workflow '{workflow_name}' with ID: {workflow_id}")
+        
+        # Step 3: Trigger content calendar workflow for each triplet
+        triggered_workflows = []
+        failed_triggers = []
+        
+        from kiwi_app.workflow_app.dependencies import get_workflow_service
+        workflow_service = await get_workflow_service()
+        for i, triplet in enumerate(entity_username_triplets):
+            try:
+                org_id = uuid.UUID(triplet["org_id"])
+                user_id = uuid.UUID(triplet["user_id"])
+                entity_username = triplet["entity_username"]
+                user = triplet["user"]
+
+                
+                
+                logger.info(f"Processing triplet {i+1}/{len(entity_username_triplets)}: {triplet['user_email']} / {entity_username}")
+                
+                # Compose workflow inputs based on test_workflow_direct_submit.py structure
+                workflow_inputs = {
+                    "entity_username": entity_username,
+                    "weeks_to_generate": weeks_to_generate,
+                    "customer_context_doc_configs": [
+                        {
+                            "filename_config": {
+                                "input_namespace_field_pattern": "user_strategy_{item}",
+                                "input_namespace_field": "entity_username",
+                                "static_docname": "user_dna_doc"
+                            },
+                            "output_field_name": "user_dna"
+                        },
+                        {
+                            "filename_config": {
+                                "input_namespace_field_pattern": "user_inputs_{item}",
+                                "input_namespace_field": "entity_username",
+                                "static_docname": "user_preferences_doc"
+                            },
+                            "output_field_name": "user_preferences"
+                        },
+                        {
+                            "filename_config": {
+                                "input_namespace_field_pattern": "user_strategy_{item}",
+                                "input_namespace_field": "entity_username",
+                                "static_docname": "content_strategy_doc"
+                            },
+                            "output_field_name": "strategy_doc"
+                        },
+                        {
+                            "filename_config": {
+                                "input_namespace_field_pattern": "scraping_results_{item}",
+                                "input_namespace_field": "entity_username",
+                                "static_docname": "linkedin_scraped_posts_doc"
+                            },
+                            "output_field_name": "scraped_posts"
+                        }
+                    ],
+                    "past_context_posts_limit": past_context_posts_limit
+                }
+                
+                if dry_run:
+                    logger.info(f"DRY RUN: Would trigger workflow for {entity_username} (org: {triplet['org_name']}, user: {triplet['user_email']})")
+                    triggered_workflows.append({
+                        "entity_username": entity_username,
+                        "org_id": str(org_id),
+                        "user_id": str(user_id),
+                        "org_name": triplet["org_name"],
+                        "user_email": triplet["user_email"],
+                        "workflow_inputs": workflow_inputs,
+                        "dry_run": True
+                    })
+                else:
+                    # Generate a unique run ID for this workflow execution
+
+                    run_submit = wf_schemas.WorkflowRunCreate(
+                        workflow_id=workflow_id,
+                        inputs=workflow_inputs,
+                        owner_org_id=org_id,
+                        thread_id=None,
+                        resume_after_hitl=False,
+                        tag="weekly-content-calendar-generation",
+                        streaming_mode=False,
+                    )
+
+                    workflow_run = await workflow_service.submit_workflow_run(
+                        db=db_session,
+                        run_submit=run_submit,
+                        owner_org_id=org_id,
+                        user=user,
+                    )
+                    
+                    triggered_workflows.append({
+                        "entity_username": entity_username,
+                        "org_id": str(org_id),
+                        "user_id": str(user_id),
+                        "org_name": triplet["org_name"],
+                        "user_email": triplet["user_email"],
+                        "run_id": workflow_run.id,
+                        "prefect_flow_run_id": str(workflow_run.prefect_run_ids),
+                        "workflow_inputs": workflow_inputs,
+                        "triggered_at": datetime.now(tz=timezone.utc).isoformat()
+                    })
+                    
+                    logger.info(f"Triggered content calendar workflow for {entity_username} (Run ID: {workflow_run.id}, Prefect Flow Run ID: {workflow_run.prefect_run_ids})")
+                    
+            except Exception as triplet_err:
+                logger.error(f"Failed to trigger workflow for triplet {i+1}: {triplet_err}", exc_info=True)
+                failed_triggers.append({
+                    "triplet_index": i,
+                    "entity_username": triplet.get("entity_username", "unknown"),
+                    "org_name": triplet.get("org_name", "unknown"),
+                    "user_email": triplet.get("user_email", "unknown"),
+                    "error_message": str(triplet_err)
+                })
+                continue
+        
+        # Step 4: Compile summary results
+        result = {
+            "status": "success",
+            "executed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "processing_config": {
+                "limit": limit,
+                "include_inactive_orgs": include_inactive_orgs,
+                "weeks_to_generate": weeks_to_generate,
+                "past_context_posts_limit": past_context_posts_limit,
+                "dry_run": dry_run
+            },
+            "summary_statistics": {
+                "total_entity_triplets_found": len(entity_username_triplets),
+                "total_workflows_triggered": len(triggered_workflows),
+                "total_failures": len(failed_triggers),
+                "success_rate": len(triggered_workflows) / len(entity_username_triplets) if entity_username_triplets else 0
+            },
+            "triggered_workflows": triggered_workflows,
+            "failed_triggers": failed_triggers,
+            "entity_data_summary": entity_data["summary_statistics"]
+        }
+        
+        logger.info(f"Weekly content calendar generation completed successfully")
+        logger.info(f"Statistics: {result['summary_statistics']}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Weekly content calendar generation flow failed: {e}", exc_info=True)
+        
+        # Return error information for monitoring
+        error_result = {
+            "status": "failed",
+            "executed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "error_message": str(e),
+            "processing_config": {
+                "limit": limit,
+                "include_inactive_orgs": include_inactive_orgs,
+                "weeks_to_generate": weeks_to_generate,
+                "past_context_posts_limit": past_context_posts_limit,
+                "dry_run": dry_run
+            },
+            "summary_statistics": {
+                "total_entity_triplets_found": 0,
+                "total_workflows_triggered": 0,
+                "total_failures": 0,
+                "success_rate": 0.0
+            },
+            "triggered_workflows": [],
+            "failed_triggers": []
+        }
+        
+        # Re-raise the exception to ensure Prefect marks the flow as failed
+        raise e
+        
+    finally:
+        # Clean up resources
+        try:
+            if db_session:
+                await db_session.close()
+            await external_context.close()
+            await workflow_service.mongo_client.close()
+            logger.info("External context manager and database session closed successfully")
+        except Exception as close_err:
+            logger.error(f"Error closing resources: {close_err}", exc_info=True)
+
+
 # --- Prefect Deployment Definition ---
 
 # def create_workflow_deployment(
@@ -903,6 +1219,8 @@ if __name__ == "__main__":
     1. workflow-execution/prod - On-demand workflow execution
     2. expire-organization-credits/hourly - Hourly credit expiration cron job
     3. search-scheduled-briefs-and-send-reminders/daily - Daily search for scheduled briefs and send reminder emails
+    4. rag-data-ingestion/daily - Daily RAG data ingestion into Weaviate
+    5. weekly-content-calendar-generation/weekly - Weekly content calendar generation for all entities
     """
     serve(
         workflow_execution_flow.to_deployment(
@@ -953,6 +1271,22 @@ if __name__ == "__main__":
                 "batch_size": RAG_INGESTION_BATCH_SIZE,       # Default batch size
                 "max_batches": RAG_INGESTION_MAX_BATCHES_PER_RUN,        # Default max batches
                 "generate_vectors": True  # Enable vector generation
+            }
+        ),
+        # Weekly content calendar generation deployment (weekly cron job)
+        weekly_content_calendar_generation_flow.to_deployment(
+            name="weekly",
+            tags=["content-service", "calendar-generation", "workflow-automation", "cron"],
+            cron="0 8 * * 5",  # Run weekly on Friday at 8 AM UTC (Friday midnight PST)
+            description=f"Weekly content calendar brief generation for all active entity usernames ({global_settings.APP_ENV})",
+            version="content-service/calendar-generation",
+            parameters={
+                # Use default parameters for production runs
+                "limit": None,  # Process all entities
+                "include_inactive_orgs": False,  # Only active organizations
+                "weeks_to_generate": 1,  # Generate 1 week of content
+                "past_context_posts_limit": 20,  # Use 20 past posts for context
+                "dry_run": False  # Actually trigger workflows (set to True for testing)
             }
         ),
         # pause_on_shutdown=global_settings.APP_ENV != "PROD",
