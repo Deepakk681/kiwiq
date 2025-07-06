@@ -59,5 +59,5 @@ ENTRYPOINT ["/app/docker/setup.sh"]
 # Virtual env not needed as poetry is installed without virtual env
 # Use the actual port number directly in CMD to avoid substitution issues with ENTRYPOINT/exec
 # Add --reload flag and --reload-dir for development live reloading
-CMD ["uvicorn", "services.kiwi_app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "services.kiwi_app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app", "--workers", "4"]
 # PYTHONPATH=$(pwd):$(pwd)/services  poetry run uvicorn services.kiwi_app.main:app --host 0.0.0.0 --port 8000
