@@ -32,8 +32,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
+from db.session import get_async_db_as_manager
 # ######## ######## ######## ######## ######## ######## ########
 # ######## ######## MONKEY PATCHING LANGCHAIN ######## ######## 
 # ######## ######## ######## ######## ######## ######## ########
@@ -427,7 +427,6 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
 
     async def get_schema(
         self,
-        db_session: AsyncSession,
         model_metadata: ModelMetadata,
         org_id: str,
         user,  # : User
@@ -464,14 +463,14 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
             response = self.dynamic_schema_spec.build_schema(schema_name=schema_name)
         elif self.schema_template_name:
             # Load JSON schema from registry template
-            # async with get_async_db_as_manager() as db:
-            loaded_schema = await customer_data_service._get_schema_from_template(  # : Optional[SchemaTemplate]
-                db=db_session,
-                template_name=self.schema_template_name,
-                template_version=self.schema_template_version,
-                org_id=org_id,
-                user=user
-            )
+            async with get_async_db_as_manager() as db_session:
+                loaded_schema = await customer_data_service._get_schema_from_template(  # : Optional[SchemaTemplate]
+                    db=db_session,
+                    template_name=self.schema_template_name,
+                    template_version=self.schema_template_version,
+                    org_id=org_id,
+                    user=user
+                )
             if not loaded_schema:
                 raise ValueError(f"Schema template '{self.schema_template_name}' (version: {self.schema_template_version or 'latest'}) not found or has no definition.")
             response = loaded_schema  # .schema_definition
@@ -740,7 +739,6 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
         ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
-        db_session = config.get(DB_SESSION_KEY)
         registry = ext_context.db_registry  # : Optional[DBRegistry]
 
         if not app_context or not ext_context:
@@ -796,7 +794,6 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             assert model_metadata.structured_output, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support structured output!"
             try:
                 determined_output_schema = await self.config.output_schema.get_schema(
-                    db_session=db_session,
                     model_metadata=model_metadata,
                     org_id=org_id,
                     user=user,
@@ -828,7 +825,6 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         try:
             start_time = time.time()
             response, allocated_credits = await self._execute_model(
-                db_session,
                 chat_model, messages_for_model, model_metadata, ext_context=ext_context, app_context=app_context,  # **tool_kwargs
                 )
             # NOTE: 
@@ -843,7 +839,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             raise RuntimeError(f"Model execution failed: {str(e)}") from e
 
         # Parse and validate response using node config
-        return await self._parse_response(db_session, response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata, ext_context=ext_context, app_context=app_context, allocated_credits=allocated_credits)
+        return await self._parse_response(response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata, ext_context=ext_context, app_context=app_context, allocated_credits=allocated_credits)
     
     def _apply_both_structured_output_and_tool_kwargs(self, chat_model, model_metadata: ModelMetadata, output_schema: BaseSchema, tools: Optional[list] = None, **kwargs: Dict[str, Any]):
         if model_metadata.provider == LLMModelProvider.OPENAI:
@@ -1552,7 +1548,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         return model.bind_tools(tools=tools, **kwargs), tools, kwargs
 
-    async def _execute_model(self, db_session: AsyncSession, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context, app_context, **kwargs) -> Any:
+    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context, app_context, **kwargs) -> Any:
         """Execute model with provider-specific streaming handling."""
         # if self.config.stream:
         #     return self._handle_streaming(model, messages)
@@ -1634,19 +1630,19 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             
             # Allocate credits based on estimated cost
             from kiwi_app.billing.models import CreditType
-            # async with get_async_db_as_manager() as db:
-            await ext_context.billing_service.allocate_credits_for_operation(
-                db=db_session,
-                org_id=org_id,
-                user_id=user.id,
-                operation_id=run_job.run_id,
-                credit_type=CreditType.DOLLAR_CREDITS,
-                estimated_credits=estimated_cost,
-                metadata={
-                    "model_name": self.config.llm_config.model_spec.model,
-                    "provider": self.config.llm_config.model_spec.provider.value,
-                }
-            )
+            async with get_async_db_as_manager() as db_session:
+                await ext_context.billing_service.allocate_credits_for_operation(
+                    db=db_session,
+                    org_id=org_id,
+                    user_id=user.id,
+                    operation_id=run_job.run_id,
+                    credit_type=CreditType.DOLLAR_CREDITS,
+                    estimated_credits=estimated_cost,
+                    metadata={
+                        "model_name": self.config.llm_config.model_spec.model,
+                        "provider": self.config.llm_config.model_spec.provider.value,
+                    }
+                )
             allocated_credits = estimated_cost
             self.info(f"Allocated ${allocated_credits:.6f} credits for LLM call")
         
@@ -1701,7 +1697,6 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
     
     async def _parse_response(
         self,
-        db_session: AsyncSession,
         original_response: Any,
         message_history: List[AnyMessage],
         current_messages: List[AnyMessage],
@@ -1831,21 +1826,21 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     
                     # Adjust allocated credits with actual cost
                     from kiwi_app.billing.models import CreditType
-                    # async with get_async_db_as_manager() as db:
-                    await ext_context.billing_service.adjust_allocated_credits(
-                        db=db_session,
-                        org_id=org_id,
-                        user_id=user.id,
-                        operation_id=run_job.run_id,
-                        credit_type=CreditType.DOLLAR_CREDITS,
-                        allocated_credits=allocated_credits,
-                        actual_credits=actual_cost,
-                        metadata={
-                            "model": self.config.llm_config.model_spec.model,
-                            "provider": self.config.llm_config.model_spec.provider.value,
-                            "token_usage": metadata.token_usage,
-                        }
-                    )
+                    async with get_async_db_as_manager() as db_session:
+                        await ext_context.billing_service.adjust_allocated_credits(
+                            db=db_session,
+                            org_id=org_id,
+                            user_id=user.id,
+                            operation_id=run_job.run_id,
+                            credit_type=CreditType.DOLLAR_CREDITS,
+                            allocated_credits=allocated_credits,
+                            actual_credits=actual_cost,
+                            metadata={
+                                "model": self.config.llm_config.model_spec.model,
+                                "provider": self.config.llm_config.model_spec.provider.value,
+                                "token_usage": metadata.token_usage,
+                            }
+                        )
                     self.info(f"Adjusted credits: allocated=${allocated_credits:.6f}, actual=${actual_cost:.6f}, difference=${actual_cost - allocated_credits:.6f}")
                 else:
                     self.warning("No token usage found in response metadata for credit adjustment!")
@@ -1969,18 +1964,18 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 # Adjust allocated credits with actual cost
                 from kiwi_app.billing.models import CreditType
                 from kiwi_app.billing.schemas import CreditConsumptionRequest
-                # async with get_async_db_as_manager() as db:
-                await ext_context.billing_service.consume_credits(
-                    db=db_session,
-                    org_id=org_id,
-                    user_id=user.id,
-                    consumption_request=CreditConsumptionRequest(
-                        credit_type=CreditType.WEB_SEARCHES,
-                        credits_consumed=estimated_credits,
-                        event_type="web_search",
-                        metadata={},
-                    ),
-                )
+                async with get_async_db_as_manager() as db_session:
+                    await ext_context.billing_service.consume_credits(
+                        db=db_session,
+                        org_id=org_id,
+                        user_id=user.id,
+                        consumption_request=CreditConsumptionRequest(
+                            credit_type=CreditType.WEB_SEARCHES,
+                            credits_consumed=estimated_credits,
+                            event_type="web_search",
+                            metadata={},
+                        ),
+                    )
                 self.info(f"Consumed estimated web search credits: allocated=${estimated_credits:.6f}")
             except Exception as e:
                 self.warning(f"Error adjusting allocated web search credits: {str(e)}")

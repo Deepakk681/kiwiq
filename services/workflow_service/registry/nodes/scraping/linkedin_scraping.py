@@ -34,14 +34,12 @@ from services.scraper_service.settings import rapid_api_settings # For defaults 
 # Billing and credit calculation imports
 from services.scraper_service.credit_calculator import credit_estimation
 from kiwi_app.billing.models import CreditType
-# from db.session import get_async_db_as_manager
+from db.session import get_async_db_as_manager
 from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
-# db_session = config.get(DB_SESSION_KEY)
 from kiwi_app.settings import settings as kiwi_settings
 
 
@@ -367,7 +365,6 @@ class LinkedInScrapingNode(BaseDynamicNode):
 
         app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
         ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
-        db_session = config.get(DB_SESSION_KEY)
 
         # Billing tracking
         total_estimated_credits = 0.0
@@ -568,19 +565,19 @@ class LinkedInScrapingNode(BaseDynamicNode):
                 run_job = app_context.get("workflow_run_job")
                 org_id = run_job.owner_org_id
                 
-                # async with get_async_db_as_manager() as db:
-                await ext_context.billing_service.allocate_credits_for_operation(
-                    db=db_session,
-                    org_id=org_id,
-                    user_id=user.id,
-                    operation_id=run_job.run_id,
-                    credit_type=CreditType.DOLLAR_CREDITS,
-                    estimated_credits=total_estimated_credits,
-                    metadata={
-                        "operation_type": "linkedin_scraping",
-                        "job_count": len(all_tasks),
-                    }
-                )
+                async with get_async_db_as_manager() as db_session:
+                    await ext_context.billing_service.allocate_credits_for_operation(
+                        db=db_session,
+                        org_id=org_id,
+                        user_id=user.id,
+                        operation_id=run_job.run_id,
+                        credit_type=CreditType.DOLLAR_CREDITS,
+                        estimated_credits=total_estimated_credits,
+                        metadata={
+                            "operation_type": "linkedin_scraping",
+                            "job_count": len(all_tasks),
+                        }
+                    )
                 allocated_credits = total_estimated_credits
                 self.info(f"Allocated ${allocated_credits:.4f} credits for {len(all_tasks)} LinkedIn scraping jobs")
             except Exception as e:
@@ -693,22 +690,22 @@ class LinkedInScrapingNode(BaseDynamicNode):
                 # Calculate actual credits (only charge for successful jobs)
                 actual_credits = successful_job_credits
                 
-                # async with get_async_db_as_manager() as db:
-                await ext_context.billing_service.adjust_allocated_credits(
-                    db=db_session,
-                    org_id=org_id,
-                    user_id=user.id,
-                    operation_id=run_job.run_id,
-                    credit_type=CreditType.DOLLAR_CREDITS,
-                    allocated_credits=allocated_credits,
-                    actual_credits=actual_credits,
-                    metadata={
-                        "operation_type": "linkedin_scraping",
-                        "successful_jobs": sum(s["successful"] for s in execution_summary.values()),
-                        "failed_jobs": sum(s["failed"] for s in execution_summary.values()),
-                        "refunded_credits": failed_job_credits,
-                    }
-                )
+                async with get_async_db_as_manager() as db_session:
+                    await ext_context.billing_service.adjust_allocated_credits(
+                        db=db_session,
+                        org_id=org_id,
+                        user_id=user.id,
+                        operation_id=run_job.run_id,
+                        credit_type=CreditType.DOLLAR_CREDITS,
+                        allocated_credits=allocated_credits,
+                        actual_credits=actual_credits,
+                        metadata={
+                            "operation_type": "linkedin_scraping",
+                            "successful_jobs": sum(s["successful"] for s in execution_summary.values()),
+                            "failed_jobs": sum(s["failed"] for s in execution_summary.values()),
+                            "refunded_credits": failed_job_credits,
+                        }
+                    )
                 self.info(f"Adjusted credits: allocated=${allocated_credits:.4f}, actual=${actual_credits:.4f}, refunded=${failed_job_credits:.4f}")
             except Exception as e:
                 self.warning(f"Error adjusting allocated credits: {e}")

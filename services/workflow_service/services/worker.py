@@ -214,7 +214,6 @@ async def run_graph(
     sequence_id_counter = 0 # Start event sequence counter
 
     try:
-        db_session = await get_async_session()
         ################################################################
         ######################### INIT INIT ##############################
 
@@ -273,18 +272,18 @@ async def run_graph(
                 #     workflow_run_job.run_id = run_id
                 #     logger.info(f"Created new workflow run with ID: {run_id}")
 
-            # async with get_async_db_as_manager() as db:
-            await external_context.billing_service.consume_credits(
-                db=db_session,
-                org_id=org_id,
-                user_id=user_id,
-                consumption_request=billing_schemas.CreditConsumptionRequest(
-                    credit_type=CreditType.WORKFLOWS,
-                    credits_consumed=1,
-                    event_type="workflow_run_start",
-                    metadata={"operation_id": str(run_id)}
+            async with get_async_db_as_manager() as db:
+                await external_context.billing_service.consume_credits(
+                    db=db,
+                    org_id=org_id,
+                    user_id=user_id,
+                    consumption_request=billing_schemas.CreditConsumptionRequest(
+                        credit_type=CreditType.WORKFLOWS,
+                        credits_consumed=1,
+                        event_type="workflow_run_start",
+                        metadata={"operation_id": str(run_id)}
+                    )
                 )
-            )
         
         # If thread_id is not provided, use run_id as the thread_id
         thread_id = workflow_run_job.thread_id or run_id
@@ -305,11 +304,13 @@ async def run_graph(
         # --- Runtime Configuration ---
         runtime_config = graph_entities.get("runtime_config", {})
         # Pass necessary context items into the config for LangGraph nodes
-        runtime_config[DB_SESSION_KEY] = db_session
-        # async with get_async_db_as_manager() as db:
+        runtime_config[DB_SESSION_KEY] = None
+        # Get user data for application context
+        async with get_async_db_as_manager() as db:
+            user = await external_context.daos.user.get(db, id=user_id)
         runtime_config[APPLICATION_CONTEXT_KEY] = {
             "workflow_run_job": workflow_run_job,
-            "user": await external_context.daos.user.get(db_session, id=user_id)
+            "user": user
         }
         runtime_config[EXTERNAL_CONTEXT_MANAGER_KEY] = external_context
         initial_runtime_config = runtime_config
@@ -340,11 +341,11 @@ async def run_graph(
             error_message = None
             exception_raised = False
 
-            # 1. Update DB status to PENDING_HITL
-            # async with get_async_db_as_manager() as db:
-            await external_context.daos.workflow_run.update_status(
-                db=db_session, run_id=run_id, status=current_status
-            )
+            # 1. Update DB status to RUNNING
+            async with get_async_db_as_manager() as db:
+                await external_context.daos.workflow_run.update_status(
+                    db=db, run_id=run_id, status=current_status
+                )
             logger.info(f"Updated Run {run_id} status to RUNNING in DB.")
 
             async for chunk in adapter.aexecute_graph_stream(
@@ -461,30 +462,30 @@ async def run_graph(
                                     hitl_prompt = json.loads(hitl_prompt.model_dump_json())
                                 hitl_schema = interrupt_payload.get(HITL_USER_SCHEMA_KEY, {})
 
-                                # 1. Update DB status to PENDING_HITL
-                                # async with get_async_db_as_manager() as db:
-                                await external_context.daos.workflow_run.update_status(
-                                    db=db_session, run_id=run_id, status=current_status
-                                )
-                                assigned_user = user_id # Default to triggering user for now
-                                # 2. Create HITL Job in DB
-                                hitl_job = await external_context.daos.hitl_job.create(
-                                    db=db_session,
-                                    requesting_run_id=run_id,
-                                    org_id=org_id,
-                                    request_details=hitl_prompt,
-                                    response_schema=hitl_schema,
-                                    assigned_user_id=assigned_user
-                                )
-                                # 2.b. Create User Notification in DB
-                                user_notification = await external_context.daos.user_notification.create(
-                                    db=db_session,
-                                    user_id=assigned_user,
-                                    org_id=org_id,
-                                    notification_type=NotificationType.HITL_REQUESTED,
-                                    message=hitl_prompt,
-                                    related_run_id=run_id
-                                )
+                                # 1. Update DB status to PENDING_HITL and create HITL job
+                                async with get_async_db_as_manager() as db:
+                                    await external_context.daos.workflow_run.update_status(
+                                        db=db, run_id=run_id, status=current_status
+                                    )
+                                    assigned_user = user_id # Default to triggering user for now
+                                    # 2. Create HITL Job in DB
+                                    hitl_job = await external_context.daos.hitl_job.create(
+                                        db=db,
+                                        requesting_run_id=run_id,
+                                        org_id=org_id,
+                                        request_details=hitl_prompt,
+                                        response_schema=hitl_schema,
+                                        assigned_user_id=assigned_user
+                                    )
+                                    # 2.b. Create User Notification in DB
+                                    user_notification = await external_context.daos.user_notification.create(
+                                        db=db,
+                                        user_id=assigned_user,
+                                        org_id=org_id,
+                                        notification_type=NotificationType.HITL_REQUESTED,
+                                        message=hitl_prompt,
+                                        related_run_id=run_id
+                                    )
                                 
                                 logger.info(f"Created HITL Job DB entry {hitl_job.id} and notification entry {user_notification.id} for Run {run_id}.")
                                 logger.info(f"Updated Run {run_id} status to PENDING_HITL in DB.")
@@ -686,15 +687,15 @@ async def run_graph(
         # Update DB with the final status (unless it's PENDING_HITL, which was already updated)
         if current_status != wf_schemas.WorkflowRunStatus.WAITING_HITL:
             try:
-                # async with get_async_db_as_manager() as db:
-                await external_context.daos.workflow_run.update_status(
-                    db=db_session,
-                    run_id=run_id,
-                    status=workflow_run_update.status,
-                    ended_at=workflow_run_update.ended_at,
-                    error_message=workflow_run_update.error_message,
-                    outputs=workflow_run_update.outputs
-                )
+                async with get_async_db_as_manager() as db:
+                    await external_context.daos.workflow_run.update_status(
+                        db=db,
+                        run_id=run_id,
+                        status=workflow_run_update.status,
+                        ended_at=workflow_run_update.ended_at,
+                        error_message=workflow_run_update.error_message,
+                        outputs=workflow_run_update.outputs
+                    )
                 logger.info(f"Updated final status ({current_status.value}) and outputs in DB for Run ID: {run_id}")
             except Exception as db_update_err:
                 logger.error(f"Failed to update final DB status/outputs for Run ID {run_id}: {db_update_err}", exc_info=True)
@@ -729,23 +730,21 @@ async def run_graph(
                 logger.info(f"Published final status update event ({current_status.value}) for Run ID: {run_id}")
 
                 # Create User Notification in DB
-                await external_context.daos.user_notification.create(
-                    db=db_session,
-                    user_id=user_id,
-                    org_id=org_id,
-                    notification_type=NotificationType.RUN_COMPLETED if current_status == wf_schemas.WorkflowRunStatus.COMPLETED else NotificationType.RUN_FAILED,
-                    message=final_status_event_dump,
-                    related_run_id=run_id
-                )
+                async with get_async_db_as_manager() as db:
+                    await external_context.daos.user_notification.create(
+                        db=db,
+                        user_id=user_id,
+                        org_id=org_id,
+                        notification_type=NotificationType.RUN_COMPLETED if current_status == wf_schemas.WorkflowRunStatus.COMPLETED else NotificationType.RUN_FAILED,
+                        message=final_status_event_dump,
+                        related_run_id=run_id
+                    )
                 logger.info(f"Published final status update event ({current_status.value}) for Run ID: {run_id}")
                 await external_context.rabbit.publish_notification(
                     final_status_event,
                 )
             except Exception as publish_err:
                 logger.error(f"Failed to publish final status event for Run ID {run_id}: {publish_err}", exc_info=True)
-        
-        await db_session.commit()
-        await db_session.close()
 
     # if exception_raised is not None:
     #     raise exception_raised
@@ -921,11 +920,8 @@ async def weekly_content_calendar_generation_flow(
     external_context = await get_external_context_manager_with_clients()
     logger.info("External context manager initialized")
     
-    db_session = None
     workflow_service = None
     try:
-        db_session = await get_async_session()
-        
         # Step 1: Extract all active entity usernames
         logger.info("Fetching active entity usernames from all organizations")
         entity_data = await extract_active_entity_usernames_flow(
@@ -943,13 +939,15 @@ async def weekly_content_calendar_generation_flow(
         
         # Step 2: Search for the content calendar workflow first
         workflow_name = "content_calendar_entry_workflow"
-        workflow_id = await search_workflow_by_name(
-            workflow_name=workflow_name,
-            external_context=external_context,
-            db_session=db_session,
-            version_tag=None,  # Use latest version
-            org_id=None  # Search system and public workflows
-        )
+        workflow_id = None
+        async with get_async_db_as_manager() as db:
+            workflow_id = await search_workflow_by_name(
+                workflow_name=workflow_name,
+                external_context=external_context,
+                db_session=db,
+                version_tag=None,  # Use latest version
+                org_id=None  # Search system and public workflows
+            )
         
         if not workflow_id:
             error_msg = f"Could not find workflow with name '{workflow_name}'"
@@ -1040,12 +1038,14 @@ async def weekly_content_calendar_generation_flow(
                         streaming_mode=False,
                     )
 
-                    workflow_run = await workflow_service.submit_workflow_run(
-                        db=db_session,
-                        run_submit=run_submit,
-                        owner_org_id=org_id,
-                        user=user,
-                    )
+                    workflow_run = None
+                    async with get_async_db_as_manager() as db:
+                        workflow_run = await workflow_service.submit_workflow_run(
+                            db=db,
+                            run_submit=run_submit,
+                            owner_org_id=org_id,
+                            user=user,
+                        )
                     
                     triggered_workflows.append({
                         "entity_username": entity_username,
@@ -1130,11 +1130,10 @@ async def weekly_content_calendar_generation_flow(
     finally:
         # Clean up resources
         try:
-            if db_session:
-                await db_session.close()
             await external_context.close()
-            await workflow_service.mongo_client.close()
-            logger.info("External context manager and database session closed successfully")
+            if workflow_service:
+                await workflow_service.mongo_client.close()
+            logger.info("External context manager closed successfully")
         except Exception as close_err:
             logger.error(f"Error closing resources: {close_err}", exc_info=True)
 

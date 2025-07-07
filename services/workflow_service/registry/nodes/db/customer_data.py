@@ -29,9 +29,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
-# db_session = config.get(DB_SESSION_KEY)
+from db.session import get_async_db_as_manager
 
 from global_utils.utils import datetime_now_utc
 
@@ -728,7 +727,6 @@ class LoadCustomerDataNode(BaseDynamicNode):
         runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
-        db_session = runtime_config.get(DB_SESSION_KEY)
         if not app_context or not ext_context:
             self.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY} or {EXTERNAL_CONTEXT_MANAGER_KEY}")
             return self.__class__.output_schema_cls(__root__={}, output_metadata={})
@@ -894,11 +892,12 @@ class LoadCustomerDataNode(BaseDynamicNode):
                                 try:
                                     # _get_schema_from_template doesn't directly take on_behalf_of,
                                     # but the `user` object context is important.
-                                    loaded_schema = await customer_data_service._get_schema_from_template(
-                                        db=db_session, template_name=schema_opts.schema_template_name,
-                                        template_version=schema_opts.schema_template_version,
-                                        org_id=org_id, user=user
-                                    )
+                                    async with get_async_db_as_manager() as db_session:
+                                        loaded_schema = await customer_data_service._get_schema_from_template(
+                                            db=db_session, template_name=schema_opts.schema_template_name,
+                                            template_version=schema_opts.schema_template_version,
+                                            org_id=org_id, user=user
+                                        )
                                 except Exception as schema_err:
                                         self.error(f"Failed to load schema template '{schema_opts.schema_template_name}' for '{namespace}/{docname}': {schema_err}")
                             elif schema_opts.schema_definition:
@@ -1187,7 +1186,6 @@ class StoreCustomerDataNode(BaseDynamicNode):
 
     async def _store_single_document(
         self,
-        db_session: AsyncSession,
         doc_data: Any, # Can be dict or primitive
         store_cfg: StoreConfig,
         app_context: Dict[str, Any],
@@ -1291,17 +1289,18 @@ class StoreCustomerDataNode(BaseDynamicNode):
             if not versioning.is_versioned:
                 # --- Handle Unversioned ---
                 if versioning.operation == StoreOperation.UPSERT:
-                    _id, created = await customer_data_service.create_or_update_unversioned_document(
-                        db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                        user=user, data=processed_doc_data, schema_template_name=schema_opts.schema_template_name,
-                        schema_template_version=schema_opts.schema_template_version,
-                        schema_definition=schema_opts.schema_definition,
-                        is_system_entity=is_system_entity,
-                        on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
-                        is_called_from_workflow=True,
-                        create_only_fields=create_only_fields,
-                        keep_create_fields_if_missing=keep_create_fields_if_missing,
-                    )
+                    async with get_async_db_as_manager() as db_session:
+                        _id, created = await customer_data_service.create_or_update_unversioned_document(
+                            db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                            user=user, data=processed_doc_data, schema_template_name=schema_opts.schema_template_name,
+                            schema_template_version=schema_opts.schema_template_version,
+                            schema_definition=schema_opts.schema_definition,
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True,
+                            create_only_fields=create_only_fields,
+                            keep_create_fields_if_missing=keep_create_fields_if_missing,
+                        )
                     success_flag = True 
                     operation_str = f"upsert_unversioned (created: {created})"
                     self.info(f"Upserted unversioned doc '{namespace}/{docname}'. Created: {created}")
@@ -1309,17 +1308,18 @@ class StoreCustomerDataNode(BaseDynamicNode):
                     # NOTE: create_or_update_unversioned_document currently behaves like UPSERT.
                     # To enforce UPDATE (fail if not exists), the service method would need modification.
                     # For now, we call it and log a warning if it creates the document.
-                    _id, created = await customer_data_service.create_or_update_unversioned_document(
-                        db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                        user=user, data=processed_doc_data, schema_template_name=schema_opts.schema_template_name,
-                        schema_template_version=schema_opts.schema_template_version,
-                        schema_definition=schema_opts.schema_definition,
-                        is_system_entity=is_system_entity,
-                        on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
-                        is_called_from_workflow=True,
-                        create_only_fields=create_only_fields,
-                        keep_create_fields_if_missing=keep_create_fields_if_missing,
-                    )
+                    async with get_async_db_as_manager() as db_session:
+                        _id, created = await customer_data_service.create_or_update_unversioned_document(
+                            db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                            user=user, data=processed_doc_data, schema_template_name=schema_opts.schema_template_name,
+                            schema_template_version=schema_opts.schema_template_version,
+                            schema_definition=schema_opts.schema_definition,
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, # Pass UUID
+                            is_called_from_workflow=True,
+                            create_only_fields=create_only_fields,
+                            keep_create_fields_if_missing=keep_create_fields_if_missing,
+                        )
                     success_flag = True 
                     operation_str = f"update_unversioned (created: {created})"
                     if created:
@@ -1333,17 +1333,18 @@ class StoreCustomerDataNode(BaseDynamicNode):
             else:
                 # --- Handle Versioned ---
                 if versioning.operation == StoreOperation.INITIALIZE:
-                    success = await customer_data_service.initialize_versioned_document(
-                        db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                        user=user, initial_version=versioning.version or "default", 
-                        schema_template_name=schema_opts.schema_template_name,
-                        schema_template_version=schema_opts.schema_template_version,
-                        schema_definition=schema_opts.schema_definition,
-                        initial_data=processed_doc_data, is_complete=versioning.is_complete or False,
-                        is_system_entity=is_system_entity,
-                        on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
-                        is_called_from_workflow=True
-                    )
+                    async with get_async_db_as_manager() as db_session:
+                        success = await customer_data_service.initialize_versioned_document(
+                            db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                            user=user, initial_version=versioning.version or "default", 
+                            schema_template_name=schema_opts.schema_template_name,
+                            schema_template_version=schema_opts.schema_template_version,
+                            schema_definition=schema_opts.schema_definition,
+                            initial_data=processed_doc_data, is_complete=versioning.is_complete or False,
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
+                            is_called_from_workflow=True
+                        )
                     if success:
                         success_flag = True
                         operation_str = f"initialize_versioned_{versioning.version or 'default'}"
@@ -1355,19 +1356,20 @@ class StoreCustomerDataNode(BaseDynamicNode):
                 elif versioning.operation == StoreOperation.UPDATE:
                     # Use None for version if not specified, service interprets as 'active'
                     target_version = versioning.version
-                    success = await customer_data_service.update_versioned_document(
-                        db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                        user=user, data=processed_doc_data, version=target_version,
-                        is_complete=versioning.is_complete,
-                        schema_template_name=schema_opts.schema_template_name,
-                        schema_template_version=schema_opts.schema_template_version,
-                        schema_definition=schema_opts.schema_definition,
-                        is_system_entity=is_system_entity,
-                        on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
-                        is_called_from_workflow=True,
-                        create_only_fields=create_only_fields,
-                        keep_create_fields_if_missing=keep_create_fields_if_missing,
-                    )
+                    async with get_async_db_as_manager() as db_session:
+                        success = await customer_data_service.update_versioned_document(
+                            db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                            user=user, data=processed_doc_data, version=target_version,
+                            is_complete=versioning.is_complete,
+                            schema_template_name=schema_opts.schema_template_name,
+                            schema_template_version=schema_opts.schema_template_version,
+                            schema_definition=schema_opts.schema_definition,
+                            is_system_entity=is_system_entity,
+                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
+                            is_called_from_workflow=True,
+                            create_only_fields=create_only_fields,
+                            keep_create_fields_if_missing=keep_create_fields_if_missing,
+                        )
                     if success:
                         success_flag = True
                         operation_str = f"update_versioned_{target_version or 'active'}"
@@ -1379,26 +1381,27 @@ class StoreCustomerDataNode(BaseDynamicNode):
                 elif versioning.operation == StoreOperation.UPSERT_VERSIONED:
                     self.info(f"Attempting upsert_versioned for doc '{namespace}/{docname}' (target version: {versioning.version or 'active/default'}).")
                     try:
-                        op_performed, doc_identifier_dict = await customer_data_service.upsert_versioned_document(
-                            db=db_session,
-                            org_id=org_id,
-                            namespace=namespace,
-                            docname=docname,
-                            is_shared=is_shared,
-                            user=user,
-                            data=processed_doc_data,
-                            version=versioning.version, 
-                            from_version=versioning.from_version, 
-                            is_complete=versioning.is_complete,
-                            schema_template_name=schema_opts.schema_template_name,
-                            schema_template_version=schema_opts.schema_template_version,
-                            schema_definition=schema_opts.schema_definition,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
-                            is_system_entity=is_system_entity,
-                            is_called_from_workflow=True,
-                            create_only_fields=create_only_fields,
-                            keep_create_fields_if_missing=keep_create_fields_if_missing,
-                        )
+                        async with get_async_db_as_manager() as db_session:
+                            op_performed, doc_identifier_dict = await customer_data_service.upsert_versioned_document(
+                                db=db_session,
+                                org_id=org_id,
+                                namespace=namespace,
+                                docname=docname,
+                                is_shared=is_shared,
+                                user=user,
+                                data=processed_doc_data,
+                                version=versioning.version, 
+                                from_version=versioning.from_version, 
+                                is_complete=versioning.is_complete,
+                                schema_template_name=schema_opts.schema_template_name,
+                                schema_template_version=schema_opts.schema_template_version,
+                                schema_definition=schema_opts.schema_definition,
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
+                                is_system_entity=is_system_entity,
+                                is_called_from_workflow=True,
+                                create_only_fields=create_only_fields,
+                                keep_create_fields_if_missing=keep_create_fields_if_missing,
+                            )
                         success_flag = True
                         operation_str = op_performed 
                         self.info(f"Upsert_versioned operation successful for doc '{namespace}/{docname}'. Action: {operation_str}")
@@ -1420,19 +1423,20 @@ class StoreCustomerDataNode(BaseDynamicNode):
                         is_called_from_workflow=True
                     )
                     if create_success:
-                        update_success = await customer_data_service.update_versioned_document(
-                            db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
-                            user=user, data=processed_doc_data, version=new_version_name, 
-                            is_complete=versioning.is_complete, 
-                            schema_template_name=schema_opts.schema_template_name,
-                            schema_template_version=schema_opts.schema_template_version,
-                            schema_definition=schema_opts.schema_definition,
-                            is_system_entity=is_system_entity,
-                            on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
-                            is_called_from_workflow=True,
-                            create_only_fields=create_only_fields,
-                            keep_create_fields_if_missing=keep_create_fields_if_missing,
-                        )
+                        async with get_async_db_as_manager() as db_session:
+                            update_success = await customer_data_service.update_versioned_document(
+                                db=db_session, org_id=org_id, namespace=namespace, docname=docname, is_shared=is_shared,
+                                user=user, data=processed_doc_data, version=new_version_name, 
+                                is_complete=versioning.is_complete, 
+                                schema_template_name=schema_opts.schema_template_name,
+                                schema_template_version=schema_opts.schema_template_version,
+                                schema_definition=schema_opts.schema_definition,
+                                is_system_entity=is_system_entity,
+                                on_behalf_of_user_id=on_behalf_of_user_id_uuid, 
+                                is_called_from_workflow=True,
+                                create_only_fields=create_only_fields,
+                                keep_create_fields_if_missing=keep_create_fields_if_missing,
+                            )
                         if update_success:
                             success_flag = True
                             operation_str = f"create_version_{new_version_name}"
@@ -1519,7 +1523,6 @@ class StoreCustomerDataNode(BaseDynamicNode):
         runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
-        db_session = runtime_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             self.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY} or {EXTERNAL_CONTEXT_MANAGER_KEY}")
@@ -1611,7 +1614,6 @@ class StoreCustomerDataNode(BaseDynamicNode):
             for item_index, item_data in items_to_process:
                 # Pass contexts to helper
                 success, path_info, final_doc_data_stored = await self._store_single_document(
-                    db_session,
                     item_data, store_cfg, app_context, ext_context, input_dict, item_index
                 )
                 if success and path_info:

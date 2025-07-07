@@ -46,7 +46,8 @@ async_engine = create_async_engine(
     DATABASE_URL_ASYNC,
     echo=ENGINE_ECHO,
     pool_size=POOL_SIZE,
-    max_overflow=MAX_OVERFLOW, 
+    max_overflow=MAX_OVERFLOW,
+    pool_timeout=30,
 )
 
 # Create SQLModel sync engine
@@ -55,6 +56,7 @@ sync_engine = create_engine(
     echo=ENGINE_ECHO,
     pool_size=POOL_SIZE,
     max_overflow=MAX_OVERFLOW,
+    pool_timeout=30,
 )
 
 # SQLModel Session Factories

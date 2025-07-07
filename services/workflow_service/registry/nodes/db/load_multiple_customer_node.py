@@ -22,9 +22,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
-# db_session = config.get(DB_SESSION_KEY)
+from db.session import get_async_db_as_manager
 
 # Base node/schema types and sibling node components
 from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
@@ -265,7 +264,6 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         runtime_config = runtime_config.get("configurable", {})
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY) # : Optional[ExternalContextManager]
-        db_session = runtime_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             logger.error(f"Missing required keys in runtime_config: {APPLICATION_CONTEXT_KEY} or {EXTERNAL_CONTEXT_MANAGER_KEY}")
@@ -414,7 +412,6 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
         version_cfg = effective_config.global_version_config # Keep it Optional
         schema_opts = effective_config.global_schema_options or SchemaOptions()
 
-        # async with get_async_db_as_manager() as db: # Needed for schema template loading
         for metadata in listed_docs_metadata:
             doc_identifier = f"{metadata.namespace}/{metadata.docname}"
             doc_org_id = metadata.org_id # May be None for system entities
@@ -473,15 +470,16 @@ class LoadMultipleCustomerDataNode(BaseDynamicNode):
                     if schema_opts.load_schema and (schema_opts.schema_template_name or schema_opts.schema_definition):
                             if schema_opts.schema_template_name:
                                 try:
-                                    # Use the db session acquired earlier
-                                    loaded_schema = await customer_data_service._get_schema_from_template(
-                                        db=db_session,
-                                        template_name=schema_opts.schema_template_name,
-                                        template_version=schema_opts.schema_template_version,
-                                        # Use the org_id context for schema lookup
-                                        org_id=org_id, # Or doc_org_id? Needs clarification which context is right for schema lookup
-                                        user=user # User context for permission check
-                                    )
+                                    # Use async context manager for proper connection acquisition/release
+                                    async with get_async_db_as_manager() as db_session:
+                                        loaded_schema = await customer_data_service._get_schema_from_template(
+                                            db=db_session,
+                                            template_name=schema_opts.schema_template_name,
+                                            template_version=schema_opts.schema_template_version,
+                                            # Use the org_id context for schema lookup
+                                            org_id=org_id, # Or doc_org_id? Needs clarification which context is right for schema lookup
+                                            user=user # User context for permission check
+                                        )
                                 except Exception as schema_err:
                                     logger.warning(f"Failed to load schema template '{schema_opts.schema_template_name}' for unversioned doc '{doc_identifier}': {schema_err}")
                             elif schema_opts.schema_definition:

@@ -16,9 +16,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
-# db_session = config.get(DB_SESSION_KEY)
+# Import proper database session manager
+from db.session import get_async_db_as_manager
 # Import helper from customer_data for nested object retrieval
 from workflow_service.registry.nodes.db.customer_data import _get_nested_obj 
 
@@ -26,10 +26,6 @@ from workflow_service.registry.nodes.db.customer_data import _get_nested_obj
 from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
 from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode
 from workflow_service.services.external_context_manager import ExternalContextManager
-from workflow_service.config.constants import (
-    APPLICATION_CONTEXT_KEY,
-    EXTERNAL_CONTEXT_MANAGER_KEY
-)
 
 # Setup logger
 log = logging.getLogger(__name__)
@@ -288,7 +284,6 @@ class PromptTemplateLoaderNode(BaseDynamicNode):
         configurable_config = runtime_config.get("configurable", runtime_config)
         app_context: Optional[Dict[str, Any]] = configurable_config.get(APPLICATION_CONTEXT_KEY)
         ext_context: Optional[ExternalContextManager] = configurable_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
-        db_session = configurable_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             missing_keys = [k for k, v in [(APPLICATION_CONTEXT_KEY, app_context), (EXTERNAL_CONTEXT_MANAGER_KEY, ext_context)] if not v]
@@ -361,16 +356,17 @@ class PromptTemplateLoaderNode(BaseDynamicNode):
                 # --- 2c. Load from DB ---
                 # Search for templates matching name/version with appropriate visibility settings
                 # This allows finding org-specific templates as well as public/system templates
-                templates = await prompt_template_dao.search_by_name_version(
-                    db=db_session,
-                    name=resolved_name,
-                    version=resolved_version,
-                    owner_org_id=org_id,
-                    include_public=True,  # Include public templates
-                    include_system_entities=False,  # Include system templates
-                    include_public_system_entities=True,  # Include public system templates
-                    is_superuser=user.is_superuser  # Default to non-superuser access
-                )
+                async with get_async_db_as_manager() as db_session:
+                    templates = await prompt_template_dao.search_by_name_version(
+                        db=db_session,
+                        name=resolved_name,
+                        version=resolved_version,
+                        owner_org_id=org_id,
+                        include_public=True,  # Include public templates
+                        include_system_entities=False,  # Include system templates
+                        include_public_system_entities=True,  # Include public system templates
+                        is_superuser=user.is_superuser  # Default to non-superuser access
+                    )
                 # print(f"Found {len(templates)} templates matching '{resolved_name}' v'{resolved_version}'")
                 # print(f"name ; version: {resolved_name} ; {resolved_version}")
                 # import ipdb; ipdb.set_trace()

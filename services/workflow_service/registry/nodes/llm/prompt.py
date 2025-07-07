@@ -19,10 +19,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
-# from db.session import get_async_session
-# db_session = config.get(DB_SESSION_KEY)
+from db.session import get_async_db_as_manager
 ####
 from global_utils.utils import datetime_now_utc
 
@@ -546,7 +544,6 @@ class PromptConstructorNode(BaseDynamicNode):
         configurable_config = runtime_config.get("configurable", runtime_config)
         app_context: Optional[Dict[str, Any]] = configurable_config.get(APPLICATION_CONTEXT_KEY)
         ext_context = configurable_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
-        db_session = configurable_config.get(DB_SESSION_KEY)
 
         if not app_context or not ext_context:
             missing_keys = [k for k, v in [(APPLICATION_CONTEXT_KEY, app_context), (EXTERNAL_CONTEXT_MANAGER_KEY, ext_context)] if not v]
@@ -572,7 +569,6 @@ class PromptConstructorNode(BaseDynamicNode):
         prompt_template_dao: wf_crud.PromptTemplateDAO = ext_context.daos.prompt_template
 
         # --- 2. Iterate and Load ---
-        # async with get_async_db_as_manager() as db:
         for template_id, template_def in self.config.prompt_templates.items():
             if not template_def.template_load_config:
                 continue # Skip statically defined templates
@@ -615,11 +611,13 @@ class PromptConstructorNode(BaseDynamicNode):
                 self.info(f"Template '{template_id}': Attempting to load '{resolved_name}' v'{resolved_version}' for org '{org_id}'.")
 
                 # --- 2b. Load from DB ---
-                templates_found = await prompt_template_dao.search_by_name_version(
-                    db=db_session, name=resolved_name, version=resolved_version, owner_org_id=org_id,
-                    include_public=True, include_system_entities=False, include_public_system_entities=True,
-                    is_superuser=user.is_superuser
-                )
+                async with get_async_db_as_manager() as db_session:
+                    templates_found = await prompt_template_dao.search_by_name_version(
+                        db=db_session, name=resolved_name, version=resolved_version, owner_org_id=org_id,
+                        include_public=True, include_system_entities=False, include_public_system_entities=True,
+                        is_superuser=user.is_superuser
+                    )
+                
                 db_template = None
                 if not resolved_version:
                     try:

@@ -17,7 +17,6 @@ import random
 from datetime import datetime
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Type, Union
-from sqlmodel.ext.asyncio.session import AsyncSession
 from pydantic import BaseModel, Field, field_validator, model_validator, create_model
 from pydantic.fields import FieldInfo
 
@@ -32,10 +31,12 @@ from kiwi_app.workflow_app.service_customer_data import CustomerDataService
 from workflow_service.config.constants import (
     APPLICATION_CONTEXT_KEY,
     EXTERNAL_CONTEXT_MANAGER_KEY,
-    DB_SESSION_KEY,
 )
 from workflow_service.registry.nodes.core.base import BaseNode
 from workflow_service.registry.schemas.base import BaseNodeConfig, BaseSchema
+
+# Import database session manager
+from db.session import get_async_db_as_manager
 
 # Import schemas from document_crud_funcs
 from services.workflow_service.registry.nodes.tools.documents.document_crud_funcs import (
@@ -588,7 +589,6 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
             )
         
         org_id = run_job.owner_org_id
-        db_session = config.get(DB_SESSION_KEY)
         
         # Identify the document
         document_info = identify_document(
@@ -686,7 +686,7 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
                 # Save the final content if not deleted
                 if all_success and current_content is not None:
                     save_success = await self._save_document(
-                        document_info, current_content, org_id, user, db_session, customer_data_service
+                        document_info, current_content, org_id, user, customer_data_service
                     )
                     if not save_success:
                         all_success = False
@@ -869,12 +869,9 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
         content: Union[str, Dict[str, Any]],
         org_id: uuid.UUID,
         user: Any,
-        db_session: AsyncSession,
         customer_data_service: CustomerDataService
     ) -> bool:
         """Save the updated document."""
-        # from db.session import get_async_db_as_manager
-        
         try:
             # Convert any datetime objects to strings if content is JSON
             if isinstance(content, dict) and ("created_at" in content or "updated_at" in content):
@@ -887,34 +884,34 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
             #     content = self._convert_datetimes_to_str(content)
 
             
-            # async with get_async_db_as_manager() as db:
-            if document_info.is_versioned:
-                success = await customer_data_service.update_versioned_document(
-                    db=db_session,
-                    org_id=org_id,
-                    namespace=document_info.namespace,
-                    docname=document_info.docname,
-                    is_shared=document_info.is_shared,
-                    user=user,
-                    data=content,
-                    version=document_info.version,
-                    is_system_entity=document_info.is_system_entity,
-                    is_called_from_workflow=True,
-                    lock=False,
-                )
-            else:
-                _, created = await customer_data_service._create_or_update_unversioned_document_no_lock(
-                    db=db_session,
-                    org_id=org_id,
-                    namespace=document_info.namespace,
-                    docname=document_info.docname,
-                    is_shared=document_info.is_shared,
-                    user=user,
-                    data=content,
-                    is_system_entity=document_info.is_system_entity,
-                    is_called_from_workflow=True
-                )
-                success = True
+            async with get_async_db_as_manager() as db_session:
+                if document_info.is_versioned:
+                    success = await customer_data_service.update_versioned_document(
+                        db=db_session,
+                        org_id=org_id,
+                        namespace=document_info.namespace,
+                        docname=document_info.docname,
+                        is_shared=document_info.is_shared,
+                        user=user,
+                        data=content,
+                        version=document_info.version,
+                        is_system_entity=document_info.is_system_entity,
+                        is_called_from_workflow=True,
+                        lock=False,
+                    )
+                else:
+                    _, created = await customer_data_service._create_or_update_unversioned_document_no_lock(
+                        db=db_session,
+                        org_id=org_id,
+                        namespace=document_info.namespace,
+                        docname=document_info.docname,
+                        is_shared=document_info.is_shared,
+                        user=user,
+                        data=content,
+                        is_system_entity=document_info.is_system_entity,
+                        is_called_from_workflow=True
+                    )
+                    success = True
             
             return success
         except Exception as e:
