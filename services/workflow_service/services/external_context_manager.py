@@ -84,7 +84,7 @@ class RabbitMQContext(BaseModel):
     broker: Optional[RabbitBroker] = Field(default=None)
     notifications_queue: Optional[RabbitQueue] = Field(default=None)
     stream: Optional[RabbitQueue] = Field(default=None) # Type hint for stream might need adjustment
-    logger: logging.Logger = Field(default_factory=lambda: logging.getLogger(__name__)) # Added logger
+    logger: Any = Field(default_factory=lambda: logging.getLogger(__name__)) # Added logger
 
     class Config:
         arbitrary_types_allowed = True
