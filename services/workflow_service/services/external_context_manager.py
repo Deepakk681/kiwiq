@@ -14,6 +14,8 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 
+from global_config.logger import get_prefect_or_regular_python_logger
+
 from workflow_service.registry.registry import DBRegistry
 from workflow_service.services.db_node_register import register_node_templates
 from kiwi_app.workflow_app import crud as wf_crud
@@ -37,9 +39,6 @@ from weaviate_client.weaviate_client import WeaviateChunkClient
 from linkedin_integration.models import *
 from kiwi_app.rag_service.services import RAGService
 from kiwi_app.data_jobs.ingestion.ingestion_pipeline import DocumentIngestionPipeline
-
-# Global clients storage
-_mongo_clients: Dict[str, AsyncMongoDBClient] = {}
 
 # Add Pydantic models for context management
 from pydantic import BaseModel, Field
@@ -202,7 +201,7 @@ class ExternalContextManager(BaseModel):
         Raises:
             Exception: Logs but doesn't propagate exceptions during cleanup
         """
-        logger = logging.getLogger(__name__)
+        logger = get_prefect_or_regular_python_logger(name="external-context-manager")
         logger.info("Closing external context manager resources...")
         
         # Close Redis connections
@@ -259,6 +258,14 @@ class ExternalContextManager(BaseModel):
             except Exception as e:
                 logger.error(f"Error closing RAG service: {e}", exc_info=True)
         
+        # Close RabbitMQ broker
+        if self.rabbit and self.rabbit.broker:
+            try:
+                await self.rabbit.broker.close()
+                logger.debug("Closed RabbitMQ broker connection")
+            except Exception as e:
+                logger.error(f"Error closing RabbitMQ broker: {e}", exc_info=True)
+        
         # Note: BillingService doesn't require explicit cleanup as it only contains DAOs
         # which don't maintain persistent connections
         if self.billing_service:
@@ -269,19 +276,6 @@ class ExternalContextManager(BaseModel):
 
 # Client instantiations
 # ---------------------
-
-# Global Redis clients storage
-_redis_clients: Dict[str, AsyncRedisClient] = {}
-
-# RabbitMQ broker instance (using FastStream)
-rabbit_broker: Optional[RabbitBroker] = None
-# if global_settings.RABBITMQ_URL:
-#     rabbit_broker = RabbitBroker(global_settings.RABBITMQ_URL)
-
-async def set_rabbit_broker(broker: RabbitBroker):
-    """Set the RabbitMQ broker."""
-    global rabbit_broker
-    rabbit_broker = broker
 
 async def get_rabbit_broker():
     """Get or initialize the RabbitMQ broker."""
@@ -524,6 +518,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     Returns:
         ExternalContextManager: Object containing initialized clients and DAOs
     """
+    logger = get_prefect_or_regular_python_logger(name="external-context-manager")
     clients = {
         "redis": {"text": None, "binary": None},
         "mongo": {"customer": None, "workflow": None},
@@ -617,6 +612,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     weaviate_client = rag_service.weaviate_client
     
     # Create and return the ExternalContextManager
+    
     external_context = ExternalContextManager(
         redis=RedisContext(
             text_client=clients["redis"]["text"],
@@ -629,7 +625,8 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         rabbit=RabbitMQContext(
             broker=clients["rabbit"],
             notifications_queue=workflow_notifications_queue,
-            stream=workflow_stream
+            stream=workflow_stream,
+            logger=logger
         ),
         weaviate_client=weaviate_client,
         prefect_client=clients["prefect"],

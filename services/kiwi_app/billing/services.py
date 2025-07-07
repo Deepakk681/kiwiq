@@ -299,7 +299,8 @@ class BillingService:
                 org_id=org_id,
                 user_id=user_id,
                 consumption_request=consumption_request,
-                is_overage=consumption_result.is_overage
+                is_overage=consumption_result.is_overage,
+                commit=False,
             )
             
             # Commit the transaction
@@ -319,7 +320,7 @@ class BillingService:
             )
             
             # Log consumption for monitoring
-            billing_logger.info(
+            billing_logger.debug(
                 f"Consumed {original_credits_requested} {original_credit_type.value} "
                 f"credits for org {org_id} (event: {consumption_request.event_type}, "
                 f"overage: {consumption_result.is_overage}, dollar_fallback: {dollar_fallback_occurred})"
@@ -331,9 +332,10 @@ class BillingService:
             # Re-raise insufficient credits exceptions
             raise
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error consuming credits: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error consuming credits: {e}", exc_info=True)
+            await self._safe_rollback(db, "credit consumption")
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to consume credits: {str(e)}"
@@ -368,11 +370,14 @@ class BillingService:
         Returns:
             CreditAllocationResult: Allocation result with tracking info
         """
+        # Convert operation_id to string to ensure consistency
+        operation_id = str(operation_id)
+        
         try:
             # Get overage policy
             overage_settings = await self._get_overage_settings(org_id, credit_type)
             max_overage_allowed_fraction = overage_settings.get("overage_percentage", 10) / 100.0
-            operation_id = str(operation_id)
+            
             # Allocate credits using atomic operation
             allocation_result = await self.org_net_credits_dao.allocate_credits_for_operation(
                 db=db,
@@ -402,20 +407,28 @@ class BillingService:
                 org_id=org_id,
                 user_id=user_id,
                 consumption_request=allocation_event,
-                is_overage=allocation_result.is_overage
+                is_overage=allocation_result.is_overage,
+                commit=False,
             )
             
             # Commit the transaction
             await db.commit()
             
+            billing_logger.debug(
+                f"Allocated {estimated_credits} {credit_type.value} credits for operation {operation_id} "
+                f"(org: {org_id}, overage: {allocation_result.is_overage})"
+            )
+            
             return allocation_result
             
         except InsufficientCreditsException:
+            # Re-raise insufficient credits exceptions without rollback
+            # as they are business logic exceptions, not DB errors
             raise
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error allocating credits: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error allocating credits for operation {operation_id}: {e}", exc_info=True)
+            await self._safe_rollback(db, f"credit allocation for operation {operation_id}")
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to allocate credits: {str(e)}"
@@ -489,7 +502,8 @@ class BillingService:
                     org_id=org_id,
                     user_id=user_id,
                     consumption_request=adjustment_event,
-                    is_overage=False  # Adjustments don't create new overage
+                    is_overage=False,  # Adjustments don't create new overage
+                    commit=False,
                 )
             
             # Commit the transaction
@@ -498,9 +512,10 @@ class BillingService:
             return adjustment_result
             
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error adjusting allocated credits: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error adjusting allocated credits: {e}", exc_info=True)
+            await self._safe_rollback(db, f"credit adjustment for operation {operation_id}")
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to adjust allocated credits: {str(e)}"
@@ -573,9 +588,10 @@ class BillingService:
             return result
             
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error adding credits to organization: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error adding credits to organization: {e}", exc_info=True)
+            await self._safe_rollback(db, "adding credits to organization")
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to add credits: {str(e)}"
@@ -720,9 +736,10 @@ class BillingService:
             # Re-raise promotion code specific exceptions
             raise
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error applying promotion code: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error applying promotion code: {e}", exc_info=True)
+            await self._safe_rollback(db, f"applying promotion code {code_application.code}")
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to apply promotion code: {str(e)}"
@@ -1413,9 +1430,10 @@ class BillingService:
             return summary
             
         except Exception as e:
-            # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error expiring organization credits: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error expiring organization credits: {e}", exc_info=True)
+            await self._safe_rollback(db, "expiring organization credits")
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to expire organization credits: {str(e)}"
@@ -1868,7 +1886,8 @@ class BillingService:
         org_id: uuid.UUID,
         user_id: uuid.UUID,
         consumption_request: schemas.CreditConsumptionRequest,
-        is_overage: bool
+        is_overage: bool,
+        commit: bool = True,
     ) -> None:
         """Create a usage event for the given consumption request."""
         await self.usage_event_dao.create_usage_event(
@@ -1879,10 +1898,50 @@ class BillingService:
             credit_type=consumption_request.credit_type,
             credits_consumed=consumption_request.credits_consumed,
             usage_metadata=consumption_request.metadata,
-            is_overage=is_overage
+            is_overage=is_overage,
+            commit=commit
         )
 
     # --- Private Helper Methods --- #
+    
+    async def _safe_rollback(self, db: AsyncSession, operation_context: str = "operation") -> None:
+        """
+        Safely attempt to rollback a database transaction.
+        
+        This method checks the session state before attempting rollback to avoid
+        the IllegalStateChangeError that occurs when trying to rollback a session
+        that's already in the middle of a commit or other operation.
+        
+        Args:
+            db: Database session
+            operation_context: Description of the operation for logging
+        """
+        try:
+            # db.get_transaction()
+            # Only attempt rollback if the session is in a valid state
+            if db.in_transaction():
+                await db.rollback()
+                billing_logger.info(f"Rolled back transaction for {operation_context}")
+            else:
+                billing_logger.warning(f"No active transaction to rollback for {operation_context}")
+            # if hasattr(db, '_transaction') and db._transaction is not None:
+            #     # Check if we can safely rollback
+            #     if not db._transaction.is_closed and not db._transaction._prepared:
+            #         await db.rollback()
+            #         billing_logger.info(f"Rolled back transaction for {operation_context}")
+            #     else:
+            #         billing_logger.warning(
+            #             f"Cannot rollback transaction for {operation_context}: "
+            #             f"transaction is in state that doesn't allow rollback"
+            #         )
+            # else:
+            #     billing_logger.warning(f"No active transaction to rollback for {operation_context}")
+        except Exception as rollback_error:
+            # Log rollback error but don't let it mask the original error
+            billing_logger.error(
+                f"Error during rollback for {operation_context}: {rollback_error}",
+                exc_info=True
+            )
     
     async def _get_or_create_stripe_customer(self, db: AsyncSession, org_id: uuid.UUID, user: User) -> stripe.Customer:
         """Get or create a Stripe customer for an organization using external_billing_id."""
@@ -1966,8 +2025,10 @@ class BillingService:
             await db.commit()
             
         except Exception as e:
-            await db.rollback()
-            billing_logger.error(f"Error allocating purchased credits: {e}", exc_info=True)
+            # Safely attempt rollback
+            billing_logger.error(f"--> Error allocating purchased credits: {e}", exc_info=True)
+            await self._safe_rollback(db, "allocating purchased credits")
+            
             raise
     
 
@@ -2121,8 +2182,11 @@ class BillingService:
             
         except Exception as e:
             # Rollback transaction on error
-            await db.rollback()
-            billing_logger.error(f"Error rotating subscription credits: {e}", exc_info=True)
+            billing_logger.error(f"--> Error rotating subscription credits: {e}", exc_info=True)
+            try:
+                await db.rollback()
+            except Exception as rollback_error:
+                billing_logger.error(f"--> Error during rollback: {rollback_error}", exc_info=True)
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to rotate subscription credits: {str(e)}"
@@ -3749,8 +3813,12 @@ class BillingService:
                 }
                 
         except Exception as e:
-            await db.rollback()
-            billing_logger.error(f"Error applying subscription credits: {e}", exc_info=True)
+            billing_logger.error(f"--> Error applying subscription credits: {e}", exc_info=True)
+            try:
+                await db.rollback()
+            except Exception as rollback_error:
+                billing_logger.error(f"--> Error during rollback: {rollback_error}", exc_info=True)
+            
             raise BillingException(
                 status_code=500,
                 detail=f"Failed to apply subscription credits: {str(e)}"

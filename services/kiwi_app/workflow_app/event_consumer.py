@@ -27,17 +27,9 @@ from global_config.logger import get_logger
 from kiwi_app.workflow_app.websockets import get_websocket_manager, ConnectionManager
 
 # Import queue/stream definitions
-try:
-    from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
-    from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
-except ImportError:
-    # Fallback if module structure is different
-    workflow_notifications_queue = "workflow_notifications"
-    workflow_stream = "workflow_events"
-    logging.warning(
-        "Could not import queue/stream definitions, using default names. "
-        "Please adjust imports in event_consumer.py"
-    )
+from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
+from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
+
 
 # Configure logger
 logger = get_logger(__name__)
