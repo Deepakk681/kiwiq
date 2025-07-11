@@ -115,6 +115,12 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
             "provider_inbuilt_user_config": { // Corresponds to AnthropicSearchToolConfig from anthropic_tools.py
               "allowed_domains": ["wikipedia.org", "example.com"]
             }
+          },
+          // Example of a provider-inbuilt code execution tool for Anthropic
+          {
+            "tool_name": "code_execution", // Specific name for Anthropic's code execution tool
+            "is_provider_inbuilt_tool": true,
+            "provider_inbuilt_user_config": null // No configuration needed for code execution
           }
         ],
         /* Example tools structure:
@@ -159,6 +165,12 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
               "max_uses": 5,
               "allowed_domains": ["example.com", "trusteddomain.org"]
             }
+          },
+          // Provider-inbuilt tool (e.g., code execution for Anthropic)
+          {
+            "tool_name": "code_execution", // This is the specific name for Anthropic's code execution tool
+            "is_provider_inbuilt_tool": true,
+            "provider_inbuilt_user_config": null // No configuration needed for code execution
           }
         ]
         */
@@ -229,6 +241,12 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
             *   `"cntr_abc123"`: Specify a custom container ID for consistent execution environments across calls
         *   **Capabilities**: The code interpreter can write and execute Python code, analyze data, create visualizations, process files, and iteratively debug code. It has access to common libraries like pandas, numpy, matplotlib, etc.
         *   **Usage Notes**: Code interpreter sessions are stateful during conversations, have resource limits and timeout constraints, and can generate downloadable files (charts, data outputs, etc.).
+    *   **Code Execution Tool Configuration (Anthropic)**: When using Anthropic's code execution tool (`tool_name: "code_execution"`), the tool provides secure Python code execution:
+        *   **Availability**: Available on Claude Opus 4, Claude Sonnet 4, Claude 3.7 Sonnet, and Claude 3.5 Haiku
+        *   **No Configuration Required**: The tool requires no additional configuration (`provider_inbuilt_user_config: null`)
+        *   **Capabilities**: Secure sandboxed Python execution with access to data science libraries (pandas, numpy, matplotlib, etc.), file processing, data analysis, and visualization capabilities
+        *   **Environment**: Runs in a containerized environment with 1GiB RAM, 5GiB storage, and 1 CPU with no internet access for security
+        *   **Usage Notes**: Code execution uses the beta header `"anthropic-beta": "code-execution-2025-05-22"` and is priced at $0.05 per session-hour with a minimum of 5 minutes billing
     *   **Controlling Field Visibility for Custom Tools**: When defining custom tools (other tool nodes in the platform), it's important to control which of their input fields are exposed to the LLM. This is not done via an `input_overwrites` field directly within the `tools` array of the `LLMNode`'s configuration. Instead, the visibility of fields to the LLM is determined by how the input schema for the custom tool node itself is defined. Fields intended as system-provided or that should not be filled by the LLM must be marked accordingly within their schema (e.g., by ensuring they are not included in the subset of fields passed to the LLM during the tool binding process, typically handled by internal mechanisms like `BaseSchema._is_field_for_llm_tool_call`). The LLM will then not see or be asked to fill these hidden or system-set fields.
     *   `tool_choice`: (Optional) Force the LLM to use a specific tool (`"tool_name"`), any tool (`"any"`), or let it decide (`"auto"`, default). Model-dependent.
     *   `parallel_tool_calls`: (Optional, Default: `true`) Allow the model to request multiple tool calls simultaneously. Model-dependent.
@@ -399,6 +417,12 @@ OpenAI's Deep Research models (`o4-mini-deep-research` and `o3-deep-research`) a
     *   **Container Options:** Use `{"type": "auto"}` for automatic setup (recommended for most users), or specify a custom container ID like `"cntr_abc123"` if you need consistent execution environments.
     *   **Common uses:** Data analysis, mathematical problem-solving, creating visualizations, file processing, prototyping code solutions.
     *   **Important:** Code runs in a secure sandbox - the AI can't access your files or systems directly, only what you provide.
+-   **Enable Code Execution (Anthropic):** Add the code execution tool to your `tools` array for secure Python code execution:
+    *   **What it does:** The AI can execute Python code, analyze data, create visualizations, perform calculations, and process files in a secure environment.
+    *   **No Configuration:** Simply set `provider_inbuilt_user_config: null` - no additional setup needed.
+    *   **Available Models:** Works with Claude Opus 4, Claude Sonnet 4, Claude 3.7 Sonnet, and Claude 3.5 Haiku.
+    *   **Common uses:** Data analysis, mathematical computations, creating charts/graphs, file processing, statistical analysis.
+    *   **Important:** Runs in a completely isolated sandbox with no internet access for maximum security.
 -   **Deep Research Models:** For OpenAI's `o4-mini-deep-research` and `o3-deep-research`, you must configure web search tools and use `max_tool_calls` for cost control instead of reasoning parameters.
 -   **Connect Inputs:** Provide `user_prompt` or `messages_history`. If tools ran before this node, connect their results to `tool_outputs`. For vision models, you can also provide `image_input_url_or_base64` to send images along with your text prompt.
 -   **Connect Outputs:** Use the results: `content` (raw response), `text_content` (clean extracted text), `structured_output.your_field_name` (specific extracted data - using `.` here *is* supported for structured output), `tool_calls` (to trigger tool nodes), or the whole `metadata` object (which includes `iteration_count` for loop control, `token_usage` for cost tracking, `tool_call_count` for monitoring). To get specific values *from* metadata (like token count), you might need another node step after the LLM. Refer to `test_basic_llm_workflow.py` for many configuration patterns.

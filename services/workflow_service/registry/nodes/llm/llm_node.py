@@ -1160,13 +1160,16 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # This was introduced since Gemini's max token param key was different than provided by langchain!
         model_kwargs = {provider_param_key_overrides.get(k, k): v for k, v in model_kwargs.items()}
         # import ipdb; ipdb.set_trace()
+        if provider == LLMModelProvider.ANTHROPIC and any(tool.tool_name.startswith("code_execution") for tool in self.config.tools):
+            model_kwargs["betas"] = ["code-execution-2025-05-22"]
+
         if provider == LLMModelProvider.PERPLEXITY:
             model = ChatPerplexity(model=model_name, **model_kwargs)
         else:
             model = init_chat_model(
                 model=model_name,
                 model_provider=provider.value,
-                **model_kwargs
+                **model_kwargs,
             )
         
         # import ipdb; ipdb.set_trace()
@@ -2003,7 +2006,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                             metadata={},
                         ),
                     )
-                self.info(f"Consumed estimated web search credits: allocated=${estimated_credits:.6f}")
+                self.info(f"Consumed estimated web search credits: allocated (type web search) ={estimated_credits:.6f}")
             except Exception as e:
                 self.warning(f"Error adjusting allocated web search credits: {str(e)}")
 

@@ -31,11 +31,11 @@ class BaseProviderInternalTool(BaseModel, ABC):
         super().__pydantic_init_subclass__(*args, **kwargs)
 
         annotation = get_annotation_from_model_field(cls.model_fields["user_config"])
-        if not issubclass(annotation, BaseModel):
+        # import ipdb; ipdb.set_trace()
+        if annotation is not None and (not issubclass(annotation, (BaseModel, type(None)))):
             raise ValueError(f"user_config must be a subclass of BaseModel -- {annotation}")
         
-        if annotation is not None:
-            # import ipdb; ipdb.set_trace()
+        if annotation is not None and (not issubclass(annotation, type(None))):
             user_config_fields = annotation.model_fields
             if any(user_config_field_name in cls.RESERVED_FIELD_NAMES for user_config_field_name in user_config_fields.keys()):
                 raise ValueError(f"User config field name {user_config_fields.keys()} is reserved keys: {cls.RESERVED_FIELD_NAMES} for internal use.")
@@ -46,10 +46,13 @@ class BaseProviderInternalTool(BaseModel, ABC):
     @classmethod
     def get_tool_json_schema(cls):
         user_config_annotation = get_annotation_from_model_field(cls.model_fields["user_config"])
+        user_config = None
+        if user_config_annotation is not None and (not issubclass(user_config_annotation, type(None))):
+            user_config = user_config_annotation.model_json_schema()
         return {
             "name": cls.name,
             # "type": cls.type,
-            "user_config": user_config_annotation.model_json_schema()
+            "user_config": user_config
         }
 
 

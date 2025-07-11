@@ -308,8 +308,13 @@ class AnthropicModels(str, EnumWithAttr):
         "reasoning_tokens_budget": True,
         "reasoning_tokens_budget_min": 1024,
     }))
-    CLAUDE_3_5_SONNET = "claude-3-5-sonnet-20241022", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
+    CLAUDE_3_5_SONNET_LATEST = "claude-3-5-sonnet-latest", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "rate_limits": {"requests_per_minute": 4000, "input_tokens_per_minute": 2000000, "output_tokens_per_minute": 400000},
+        # Only web search available, no code execution
+        "inbuilt_tools": {k: v for k, v in ANTHROPIC_TOOLS_REGISTRY.items() if k.startswith("web_search")},
+    }))
+    CLAUDE_3_5_HAIKU = "claude-3-5-haiku-latest", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
+        # Both code execution and web search available
     }))
 
 

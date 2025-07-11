@@ -393,7 +393,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         result = await arun_llm_test(
             runtime_config=self.runtime_config_regular, # Pass config
             model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
+            model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
             output_schema_config=schema_config,
         )
         self.assertIsInstance(result, dict)
@@ -428,7 +428,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         result = await arun_llm_test(
             runtime_config=self.runtime_config_regular, # Pass config
             model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
+            model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
             output_schema_config=schema_config,
         )
         self.assertIsInstance(result, dict)
@@ -829,7 +829,7 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
         result = await arun_llm_test(
             runtime_config=self.runtime_config_regular,
             model_provider=LLMModelProvider.ANTHROPIC,
-            model_name=AnthropicModels.CLAUDE_3_5_SONNET.value,
+            model_name=AnthropicModels.CLAUDE_3_7_SONNET.value,
             user_prompt="What text do you see in this image? Please describe what you observe.",
             image_input_url_or_base64="https://upload.wikimedia.org/wikipedia/en/a/a9/Example.jpg",
             max_tokens=200

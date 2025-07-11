@@ -1,6 +1,6 @@
 from abc import ABC
 from pydantic import BaseModel, HttpUrl, field_validator, Field
-from typing import Optional, Union, ClassVar, Literal
+from typing import Optional, Union, ClassVar, Literal, Dict
 import re
 
 from workflow_service.registry.nodes.llm.internal_tools.internal_base import BaseProviderInternalTool, UserLocation
@@ -96,3 +96,26 @@ class AnthropicWebSearchTool(BaseAnthropicTool):
     name: ClassVar[str] = "web_search"
     
     user_config: Optional[AnthropicSearchToolConfig] = None
+
+
+class AnthropicCodeExecutionTool(BaseAnthropicTool):
+    """Anthropic code execution tool.
+    
+    This tool allows Claude to execute Python code in a secure, sandboxed environment.
+    Claude can analyze data, create visualizations, perform complex calculations, 
+    and process uploaded files directly within the API conversation.
+    
+    The tool runs in a containerized environment with:
+    - Python 3.11.12
+    - 1GiB RAM, 5GiB workspace storage, 1 CPU
+    - Pre-installed libraries: pandas, numpy, scipy, scikit-learn, matplotlib, etc.
+    - No internet access for security
+    - Full isolation from host system
+    
+    Note: This tool requires the beta header "anthropic-beta": "code-execution-2025-05-22"
+    """
+    type: ClassVar[str] = "code_execution_20250522"
+    name: ClassVar[str] = "code_execution"
+    
+    # No user configuration needed for code execution tool
+    user_config: Optional[None] = None

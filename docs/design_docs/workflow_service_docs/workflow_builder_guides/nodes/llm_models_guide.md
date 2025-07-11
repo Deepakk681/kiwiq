@@ -35,10 +35,11 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | | gpt-4.1-nano | ❌ | ❌ | ✅ | ✅ | ✅ | 1M | 16k |
 | | gpt-4o-search-preview | ❌ | ✅ | ✅ | ✅ | ✅ | 128k | 16k |
 | | gpt-4o-mini-search-preview | ❌ | ✅ | ✅ | ✅ | ✅ | 128k | 16k |
-| **Anthropic** | claude-opus-4-20250514 | ✅ | ✅ | ❌ | ✅ | ✅ | 200k | 32k |
-| | claude-sonnet-4-20250514 | ✅ | ✅ | ❌ | ✅ | ✅ | 200k | 64k |
-| | claude-3-7-sonnet-20250219 | ✅ | ✅ | ❌ | ✅ | ✅ | 200k | 64k |
-| | claude-3-5-sonnet-20241022 | ❌ | ✅ | ❌ | ✅ | ✅ | 200k | 8k |
+| **Anthropic** | claude-opus-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 32k |
+| | claude-sonnet-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
+| | claude-3-7-sonnet-20250219 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
+| | claude-3-5-sonnet-latest | ❌ | ✅ | ❌ | ✅ | ✅ | 200k | 8k |
+| | claude-3-5-haiku-latest | ❌ | ✅ | ✅ | ✅ | ✅ | 200k | 8k |
 | **Perplexity** | sonar-deep-research | ✅ | ✅ | ❌ | ❌ | ❌ | 128k | 16k |
 | | sonar-reasoning-pro | ✅ | ✅ | ❌ | ❌ | ❌ | 128k | 8k |
 | | sonar-reasoning | ✅ | ✅ | ❌ | ❌ | ❌ | 128k | 8k |
@@ -85,7 +86,6 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | **Anthropic** | claude-opus-4-20250514 | No limit | 1M input/400k output | - |
 | | claude-sonnet-4-20250514 | No limit | 1M input/400k output | - |
 | | claude-3-7-sonnet-20250219 | No limit | 1M input/400k output | - |
-| | claude-3-5-sonnet-20241022 | 4,000 | 2M input/400k output | - |
 | **Perplexity** | sonar-deep-research | 5 | - | - |
 | | sonar-reasoning-pro | 50 | - | - |
 | | sonar-reasoning | 50 | - | - |
@@ -305,11 +305,12 @@ Anthropic's Claude models excel at reasoning, analysis, and have built-in web se
 
 **Reasoning Models:**
 - `claude-opus-4-20250514` - Highest capability model with extended thinking
-- `claude-sonnet-4-20250514` - Balanced performance with reasoning
+- `claude-sonnet-4-20250514` - Balanced performance with reasoning  
 - `claude-3-7-sonnet-20250219` - Strong reasoning capabilities
 
 **Standard Models:**
-- `claude-3-5-sonnet-20241022` - Latest standard model
+- `claude-3-5-sonnet-latest` - Latest Sonnet model with continuous updates
+- `claude-3-5-haiku-latest` - Fast, efficient model for lighter workloads
 
 #### Internal Tools
 
@@ -317,6 +318,13 @@ Anthropic's Claude models excel at reasoning, analysis, and have built-in web se
 - Comprehensive web search with citation support
 - Domain filtering (allowed/blocked lists)
 - Usage limits and localization
+- Available on: All Anthropic models
+
+**2. Code Execution (`code_execution`)**
+- Secure Python code execution in sandboxed environment
+- Data analysis and visualization capabilities
+- File processing and computational tasks
+- Available on: Claude Opus 4, Claude Sonnet 4, Claude 3.7 Sonnet, Claude 3.5 Haiku
 
 #### Configuration Example
 
@@ -350,6 +358,11 @@ Anthropic's Claude models excel at reasoning, analysis, and have built-in web se
             "country": "US"
           }
         }
+      },
+      {
+        "tool_name": "code_execution",
+        "is_provider_inbuilt_tool": true,
+        "provider_inbuilt_user_config": null
       }
     ]
   }

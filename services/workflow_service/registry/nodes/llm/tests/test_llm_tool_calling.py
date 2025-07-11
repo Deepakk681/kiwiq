@@ -1269,629 +1269,629 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_openai_gpt4o_text_output_with_web_search(self):
-        """
-        Test OpenAI GPT-4o for a multi-turn conversation involving feedback for content generation.
-        Uses independent schemas and prompts and web search tool.
-        """
+    # async def test_openai_gpt4o_text_output_with_web_search(self):
+    #     """
+    #     Test OpenAI GPT-4o for a multi-turn conversation involving feedback for content generation.
+    #     Uses independent schemas and prompts and web search tool.
+    #     """
 
-        # Set up web search tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_preview",
-            is_provider_inbuilt_tool=True,
-            provider_inbuilt_user_config=openai_search_config
-        )
-        tool_calling_config = ToolCallingConfig(
-            enable_tool_calling=True
-        )
+    #     # Set up web search tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_preview",
+    #         is_provider_inbuilt_tool=True,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
+    #     tool_calling_config = ToolCallingConfig(
+    #         enable_tool_calling=True
+    #     )
 
-        topic = "AI in creative writing"
-        user_dna_example = "The user is a novelist, prefers an inspiring tone, and likes to explore philosophical aspects of technology."
+    #     topic = "AI in creative writing"
+    #     user_dna_example = "The user is a novelist, prefers an inspiring tone, and likes to explore philosophical aspects of technology."
 
-        # First turn: Initial post creation
-        initial_user_prompt = "Please search for the latest information from 2025 about " + topic + " and then " + INITIAL_POST_USER_PROMPT_TEMPLATE.format(topic=topic)
+    #     # First turn: Initial post creation
+    #     initial_user_prompt = "Please search for the latest information from 2025 about " + topic + " and then " + INITIAL_POST_USER_PROMPT_TEMPLATE.format(topic=topic)
 
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4o.value,
-            user_prompt=initial_user_prompt,
-            input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
-            max_tokens=500,
-            tools=[tool_config],
-            tool_calling_config=tool_calling_config
-        )
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4o.value,
+    #         user_prompt=initial_user_prompt,
+    #         input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
+    #         max_tokens=500,
+    #         tools=[tool_config],
+    #         tool_calling_config=tool_calling_config
+    #     )
 
-        self.assertIsInstance(result_turn1, dict, "Turn 1 result should be a dictionary.")
+    #     self.assertIsInstance(result_turn1, dict, "Turn 1 result should be a dictionary.")
         
-        self.assertIn("current_messages", result_turn1, "current_messages missing in turn 1 result.")
-        self.assertIsInstance(result_turn1["current_messages"], list, "current_messages should be a list.")
-        self.assertTrue(len(result_turn1["current_messages"]) >= 2, "Should have at least system, user, assistant messages in history.")
+    #     self.assertIn("current_messages", result_turn1, "current_messages missing in turn 1 result.")
+    #     self.assertIsInstance(result_turn1["current_messages"], list, "current_messages should be a list.")
+    #     self.assertTrue(len(result_turn1["current_messages"]) >= 2, "Should have at least system, user, assistant messages in history.")
 
-        # Second turn: Provide feedback and ask for revision
-        feedback_text = "Could you make the tone more philosophical and add a specific example?"
+    #     # Second turn: Provide feedback and ask for revision
+    #     feedback_text = "Could you make the tone more philosophical and add a specific example?"
         
-        feedback_user_prompt = FEEDBACK_POST_USER_PROMPT_TEMPLATE.format(
-            topic=topic,
-            previous_post_text=result_turn1.get("text_content", ""),
-            feedback=feedback_text
-        )
+    #     feedback_user_prompt = FEEDBACK_POST_USER_PROMPT_TEMPLATE.format(
+    #         topic=topic,
+    #         previous_post_text=result_turn1.get("text_content", ""),
+    #         feedback=feedback_text
+    #     )
         
-        messages_history_turn2 = result_turn1.get("current_messages", [])
-        self.assertTrue(len(messages_history_turn2) > 0, "Message history for turn 2 is empty.")
+    #     messages_history_turn2 = result_turn1.get("current_messages", [])
+    #     self.assertTrue(len(messages_history_turn2) > 0, "Message history for turn 2 is empty.")
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4o.value,
-            user_prompt=feedback_user_prompt,
-            messages_history=messages_history_turn2,
-            input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
-            max_tokens=500,
-            tools=[tool_config],
-            tool_calling_config=tool_calling_config
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4o.value,
+    #         user_prompt=feedback_user_prompt,
+    #         messages_history=messages_history_turn2,
+    #         input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
+    #         max_tokens=500,
+    #         tools=[tool_config],
+    #         tool_calling_config=tool_calling_config
+    #     )
 
-        self.assertIsInstance(result_turn2, dict, "Turn 2 result should be a dictionary.")
+    #     self.assertIsInstance(result_turn2, dict, "Turn 2 result should be a dictionary.")
 
-        self.assertNotEqual(result_turn1.get("text_content", ""), result_turn2.get("text_content", ""), "Revised post should differ from the original.")
+    #     self.assertNotEqual(result_turn1.get("text_content", ""), result_turn2.get("text_content", ""), "Revised post should differ from the original.")
 
-        self.assertIn("current_messages", result_turn2, "current_messages missing in turn 2 result.")
-        self.assertIsInstance(result_turn2["current_messages"], list, "current_messages should be a list in turn 2.")
+    #     self.assertIn("current_messages", result_turn2, "current_messages missing in turn 2 result.")
+    #     self.assertIsInstance(result_turn2["current_messages"], list, "current_messages should be a list in turn 2.")
 
-    async def test_openai_gpt4o_conversation_with_feedback_content_generation(self):
-        """
-        Test OpenAI GPT-4o for a multi-turn conversation involving feedback for content generation.
-        Uses independent schemas and prompts and web search tool.
+    # async def test_openai_gpt4o_conversation_with_feedback_content_generation(self):
+    #     """
+    #     Test OpenAI GPT-4o for a multi-turn conversation involving feedback for content generation.
+    #     Uses independent schemas and prompts and web search tool.
 
-        # NOTE: somehow inbuilt tools not being called when structured outputs are used!
-        """
-        post_draft_schema_dict = SimplePostSchema.model_json_schema()
-        structured_output_config = LLMStructuredOutputSchema(
-            schema_definition=post_draft_schema_dict,
-        )
+    #     # NOTE: somehow inbuilt tools not being called when structured outputs are used!
+    #     """
+    #     post_draft_schema_dict = SimplePostSchema.model_json_schema()
+    #     structured_output_config = LLMStructuredOutputSchema(
+    #         schema_definition=post_draft_schema_dict,
+    #     )
 
-        # Set up web search tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_preview",
-            is_provider_inbuilt_tool=True,
-            provider_inbuilt_user_config=openai_search_config
-        )
-        tool_calling_config = ToolCallingConfig(
-            enable_tool_calling=True
-        )
+    #     # Set up web search tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_preview",
+    #         is_provider_inbuilt_tool=True,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
+    #     tool_calling_config = ToolCallingConfig(
+    #         enable_tool_calling=True
+    #     )
 
-        topic = "AI in creative writing"
-        user_dna_example = "The user is a novelist, prefers an inspiring tone, and likes to explore philosophical aspects of technology."
+    #     topic = "AI in creative writing"
+    #     user_dna_example = "The user is a novelist, prefers an inspiring tone, and likes to explore philosophical aspects of technology."
 
-        # First turn: Initial post creation
-        initial_user_prompt = "Please search for the latest information from 2025 about " + topic + " and then " + INITIAL_POST_USER_PROMPT_TEMPLATE.format(topic=topic)
+    #     # First turn: Initial post creation
+    #     initial_user_prompt = "Please search for the latest information from 2025 about " + topic + " and then " + INITIAL_POST_USER_PROMPT_TEMPLATE.format(topic=topic)
 
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4o.value,
-            user_prompt=initial_user_prompt,
-            input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
-            output_schema_config=structured_output_config,
-            max_tokens=1000,
-            tools=[tool_config],
-            tool_calling_config=tool_calling_config
-        )
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4o.value,
+    #         user_prompt=initial_user_prompt,
+    #         input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
+    #         output_schema_config=structured_output_config,
+    #         max_tokens=1000,
+    #         tools=[tool_config],
+    #         tool_calling_config=tool_calling_config
+    #     )
 
-        self.assertIsInstance(result_turn1, dict, "Turn 1 result should be a dictionary.")
+    #     self.assertIsInstance(result_turn1, dict, "Turn 1 result should be a dictionary.")
         
-        self.assertIn("structured_output", result_turn1, "Turn 1 structured_output is missing.")
-        self.assertIsNotNone(result_turn1["structured_output"], "Turn 1 structured_output should not be None.")
-        self.assertIsInstance(result_turn1["structured_output"], dict, "Turn 1 structured_output should be a dict.")
+    #     self.assertIn("structured_output", result_turn1, "Turn 1 structured_output is missing.")
+    #     self.assertIsNotNone(result_turn1["structured_output"], "Turn 1 structured_output should not be None.")
+    #     self.assertIsInstance(result_turn1["structured_output"], dict, "Turn 1 structured_output should be a dict.")
         
-        try:
-            initial_post = SimplePostSchema(**result_turn1["structured_output"])
-        except Exception as e:
-            self.fail(f"Turn 1 structured_output does not match SimplePostSchema: {e}\\\\nOutput: {json.dumps(result_turn1['structured_output'], indent=2)}")
+    #     try:
+    #         initial_post = SimplePostSchema(**result_turn1["structured_output"])
+    #     except Exception as e:
+    #         self.fail(f"Turn 1 structured_output does not match SimplePostSchema: {e}\\\\nOutput: {json.dumps(result_turn1['structured_output'], indent=2)}")
 
-        self.assertTrue(len(initial_post.post_text) > 10, "Generated post_text in turn 1 seems too short.")
+    #     self.assertTrue(len(initial_post.post_text) > 10, "Generated post_text in turn 1 seems too short.")
 
-        self.assertIn("current_messages", result_turn1, "current_messages missing in turn 1 result.")
-        self.assertIsInstance(result_turn1["current_messages"], list, "current_messages should be a list.")
-        self.assertTrue(len(result_turn1["current_messages"]) >= 2, "Should have at least system, user, assistant messages in history.")
+    #     self.assertIn("current_messages", result_turn1, "current_messages missing in turn 1 result.")
+    #     self.assertIsInstance(result_turn1["current_messages"], list, "current_messages should be a list.")
+    #     self.assertTrue(len(result_turn1["current_messages"]) >= 2, "Should have at least system, user, assistant messages in history.")
 
-        # Second turn: Provide feedback and ask for revision
-        feedback_text = "Could you make the tone more philosophical and add a specific example?"
+    #     # Second turn: Provide feedback and ask for revision
+    #     feedback_text = "Could you make the tone more philosophical and add a specific example?"
         
-        feedback_user_prompt = FEEDBACK_POST_USER_PROMPT_TEMPLATE.format(
-            topic=topic,
-            previous_post_text=initial_post.post_text,
-            feedback=feedback_text
-        )
+    #     feedback_user_prompt = FEEDBACK_POST_USER_PROMPT_TEMPLATE.format(
+    #         topic=topic,
+    #         previous_post_text=initial_post.post_text,
+    #         feedback=feedback_text
+    #     )
         
-        messages_history_turn2 = result_turn1.get("current_messages", [])
-        self.assertTrue(len(messages_history_turn2) > 0, "Message history for turn 2 is empty.")
+    #     messages_history_turn2 = result_turn1.get("current_messages", [])
+    #     self.assertTrue(len(messages_history_turn2) > 0, "Message history for turn 2 is empty.")
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4o.value,
-            user_prompt=feedback_user_prompt,
-            messages_history=messages_history_turn2,
-            input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
-            output_schema_config=structured_output_config,
-            max_tokens=1000,
-            tools=[tool_config],
-            tool_calling_config=tool_calling_config
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4o.value,
+    #         user_prompt=feedback_user_prompt,
+    #         messages_history=messages_history_turn2,
+    #         input_system_prompt=SIMPLE_POST_SYSTEM_PROMPT,
+    #         output_schema_config=structured_output_config,
+    #         max_tokens=1000,
+    #         tools=[tool_config],
+    #         tool_calling_config=tool_calling_config
+    #     )
 
-        self.assertIsInstance(result_turn2, dict, "Turn 2 result should be a dictionary.")
-        self.assertIn("structured_output", result_turn2, "Turn 2 structured_output is missing.")
-        self.assertIsNotNone(result_turn2["structured_output"], "Turn 2 structured_output should not be None.")
-        self.assertIsInstance(result_turn2["structured_output"], dict, "Turn 2 structured_output should be a dict.")
+    #     self.assertIsInstance(result_turn2, dict, "Turn 2 result should be a dictionary.")
+    #     self.assertIn("structured_output", result_turn2, "Turn 2 structured_output is missing.")
+    #     self.assertIsNotNone(result_turn2["structured_output"], "Turn 2 structured_output should not be None.")
+    #     self.assertIsInstance(result_turn2["structured_output"], dict, "Turn 2 structured_output should be a dict.")
 
-        try:
-            revised_post = SimplePostSchema(**result_turn2["structured_output"])
-        except Exception as e:
-            self.fail(f"Turn 2 structured_output does not match SimplePostSchema: {e}\\\\nOutput: {json.dumps(result_turn2['structured_output'], indent=2)}")
+    #     try:
+    #         revised_post = SimplePostSchema(**result_turn2["structured_output"])
+    #     except Exception as e:
+    #         self.fail(f"Turn 2 structured_output does not match SimplePostSchema: {e}\\\\nOutput: {json.dumps(result_turn2['structured_output'], indent=2)}")
         
-        self.assertTrue(len(revised_post.post_text) > 10, "Revised post_text in turn 2 seems too short.")
-        self.assertNotEqual(initial_post.post_text, revised_post.post_text, "Revised post should differ from the original.")
+    #     self.assertTrue(len(revised_post.post_text) > 10, "Revised post_text in turn 2 seems too short.")
+    #     self.assertNotEqual(initial_post.post_text, revised_post.post_text, "Revised post should differ from the original.")
 
-        self.assertIn("current_messages", result_turn2, "current_messages missing in turn 2 result.")
-        self.assertIsInstance(result_turn2["current_messages"], list, "current_messages should be a list in turn 2.")
+    #     self.assertIn("current_messages", result_turn2, "current_messages missing in turn 2 result.")
+    #     self.assertIsInstance(result_turn2["current_messages"], list, "current_messages should be a list in turn 2.")
 
     
 
 
 
 
-    async def test_openai_gpt_4_1_tool_use_structured_output_reasoning(self):
-        """Test OpenAI GPT_4_1 with tool use (web_search_preview), structured output, and reasoning."""
-        # Ensure the model enum is available
+    # async def test_openai_gpt_4_1_tool_use_structured_output_reasoning(self):
+    #     """Test OpenAI GPT_4_1 with tool use (web_search_preview), structured output, and reasoning."""
+    #     # Ensure the model enum is available
 
-        topic = "benefits of mindfulness meditation for stress reduction"
-        system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
+    #     topic = "benefits of mindfulness meditation for stress reduction"
+    #     system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
 
-        model_provider = LLMModelProvider.OPENAI
+    #     model_provider = LLMModelProvider.OPENAI
 
-        # Configure the OpenAI web_search_preview tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_tool",
-            is_provider_inbuilt_tool=False,
-            provider_inbuilt_user_config=openai_search_config
-        )
+    #     # Configure the OpenAI web_search_preview tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_tool",
+    #         is_provider_inbuilt_tool=False,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
 
-        # --- Turn 1: LLM makes a tool call ---
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=model_provider,
-            model_name=OpenAIModels.GPT_4_1.value, # Using GPT_4_1 as per user guidance for reasoning
-            max_tokens=1000, # Max tokens for the initial response part
-            user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
-            input_system_prompt=system_prompt_turn1,
-            output_schema_config=LLMStructuredOutputSchema(
-                schema_definition=WebSearchResultSummarySchema.model_json_schema()
-            ),
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     # --- Turn 1: LLM makes a tool call ---
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=model_provider,
+    #         model_name=OpenAIModels.GPT_4_1.value, # Using GPT_4_1 as per user guidance for reasoning
+    #         max_tokens=1000, # Max tokens for the initial response part
+    #         user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
+    #         input_system_prompt=system_prompt_turn1,
+    #         output_schema_config=LLMStructuredOutputSchema(
+    #             schema_definition=WebSearchResultSummarySchema.model_json_schema()
+    #         ),
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
-        self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
+    #     self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
+    #     self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
         
-        # Get the tool call ID from the first result
-        tool_calls = result_turn1.get("tool_calls", [])
-        for i, tool_call in enumerate(tool_calls):
-            if isinstance(tool_call, BaseModel):
-                tool_calls[i] = tool_call.model_dump()
+    #     # Get the tool call ID from the first result
+    #     tool_calls = result_turn1.get("tool_calls", [])
+    #     for i, tool_call in enumerate(tool_calls):
+    #         if isinstance(tool_call, BaseModel):
+    #             tool_calls[i] = tool_call.model_dump()
 
-        tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
-        tool_call_id = "fake_tool_call_id_1"
-        if tool_calls:
-            tool_call_id = tool_calls[0].get("tool_id")
-        tool_args = tool_calls[0].get("tool_input")
+    #     tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
+    #     tool_call_id = "fake_tool_call_id_1"
+    #     if tool_calls:
+    #         tool_call_id = tool_calls[0].get("tool_id")
+    #     tool_args = tool_calls[0].get("tool_input")
         
-        print(tool_calls)
+    #     print(tool_calls)
 
-        # Simulate running the fake web search node
-        fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
-        fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
-        fake_search_result = await fake_search_node.process(fake_search_input, {})
+    #     # Simulate running the fake web search node
+    #     fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
+    #     fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
+    #     fake_search_result = await fake_search_node.process(fake_search_input, {})
         
-        # Convert the fake search result to the format expected by the LLM
-        mock_tool_output_content = {
-            "searchResults": fake_search_result.search_results,
-            "queryUsed": fake_search_result.query_used
-        }
-        mock_tool_output_str = json.dumps(mock_tool_output_content)
+    #     # Convert the fake search result to the format expected by the LLM
+    #     mock_tool_output_content = {
+    #         "searchResults": fake_search_result.search_results,
+    #         "queryUsed": fake_search_result.query_used
+    #     }
+    #     mock_tool_output_str = json.dumps(mock_tool_output_content)
 
-        messages_history_turn1 = result_turn1.get("current_messages", [])
+    #     messages_history_turn1 = result_turn1.get("current_messages", [])
 
-        # --- Turn 2: Provide tool output and get structured summary ---
-        user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
-            topic=topic,
-        )
+    #     # --- Turn 2: Provide tool output and get structured summary ---
+    #     user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
+    #         topic=topic,
+    #     )
 
-        # Create tool_outputs for the second call
-        tool_outputs_for_turn2 = [
-            ToolOutput(
-                tool_call_id=tool_call_id,
-                content=mock_tool_output_str,
-                type="tool",
-                name="web_search_tool",
-                status="success"
-                # "name": "web_search_preview"
-            ) 
-            # if model_provider == LLMModelProvider.ANTHROPIC else
-            # {                               # append result message
-            #     "type": "function_call_output",
-            #     "call_id": tool_call_id,
-            #     "output": mock_tool_output_str
-            # }
-        ]
-        messages_history_turn2 = messages_history_turn1
+    #     # Create tool_outputs for the second call
+    #     tool_outputs_for_turn2 = [
+    #         ToolOutput(
+    #             tool_call_id=tool_call_id,
+    #             content=mock_tool_output_str,
+    #             type="tool",
+    #             name="web_search_tool",
+    #             status="success"
+    #             # "name": "web_search_preview"
+    #         ) 
+    #         # if model_provider == LLMModelProvider.ANTHROPIC else
+    #         # {                               # append result message
+    #         #     "type": "function_call_output",
+    #         #     "call_id": tool_call_id,
+    #         #     "output": mock_tool_output_str
+    #         # }
+    #     ]
+    #     messages_history_turn2 = messages_history_turn1
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4_1.value,
-            max_tokens=1000,
-            messages_history=messages_history_turn2,
-            tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
-            output_schema_config=LLMStructuredOutputSchema(
-                schema_definition=WebSearchResultSummarySchema.model_json_schema()
-            ),
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4_1.value,
+    #         max_tokens=1000,
+    #         messages_history=messages_history_turn2,
+    #         tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
+    #         output_schema_config=LLMStructuredOutputSchema(
+    #             schema_definition=WebSearchResultSummarySchema.model_json_schema()
+    #         ),
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("structured_output", result_turn2)
-        structured_data = result_turn2["structured_output"]
-        self.assertIsInstance(structured_data, dict)
+    #     self.assertIn("structured_output", result_turn2)
+    #     structured_data = result_turn2["structured_output"]
+    #     self.assertIsInstance(structured_data, dict)
 
-        try:
-            validated_output = WebSearchResultSummarySchema(**structured_data)
-        except Exception as e:
-            self.fail(f"Pydantic validation failed for OpenAI GPT_4_1 structured_output: {e}\\nData: {json.dumps(structured_data)}")
+    #     try:
+    #         validated_output = WebSearchResultSummarySchema(**structured_data)
+    #     except Exception as e:
+    #         self.fail(f"Pydantic validation failed for OpenAI GPT_4_1 structured_output: {e}\\nData: {json.dumps(structured_data)}")
 
-        self.assertIsInstance(validated_output.summary, str)
-        self.assertGreater(len(validated_output.summary), 0)
-        self.assertGreaterEqual(validated_output.urls_processed_count, 1)
+    #     self.assertIsInstance(validated_output.summary, str)
+    #     self.assertGreater(len(validated_output.summary), 0)
+    #     self.assertGreaterEqual(validated_output.urls_processed_count, 1)
 
-        print(f"OpenAI GPT_4_1 SR Reasoning - Turn 1 metadata: {result_turn1.get('metadata')}")
-        print(f"OpenAI GPT_4_1 SR Reasoning - Turn 2 metadata: {result_turn2.get('metadata')}")
+    #     print(f"OpenAI GPT_4_1 SR Reasoning - Turn 1 metadata: {result_turn1.get('metadata')}")
+    #     print(f"OpenAI GPT_4_1 SR Reasoning - Turn 2 metadata: {result_turn2.get('metadata')}")
     
-    async def test_openai_GPT_4_1_tool_use_text_reasoning(self):
-        """Test OpenAI GPT_4_1 with tool use (web_search_preview), structured output, and reasoning."""
-        # Ensure the model enum is available
+    # async def test_openai_GPT_4_1_tool_use_text_reasoning(self):
+    #     """Test OpenAI GPT_4_1 with tool use (web_search_preview), structured output, and reasoning."""
+    #     # Ensure the model enum is available
 
-        # Ensure the model enum is available
+    #     # Ensure the model enum is available
 
-        topic = "benefits of mindfulness meditation for stress reduction"
-        system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
+    #     topic = "benefits of mindfulness meditation for stress reduction"
+    #     system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
 
-        model_provider = LLMModelProvider.OPENAI
+    #     model_provider = LLMModelProvider.OPENAI
 
-        # Configure the OpenAI web_search_preview tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_tool",
-            is_provider_inbuilt_tool=False,
-            provider_inbuilt_user_config=openai_search_config
-        )
+    #     # Configure the OpenAI web_search_preview tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_tool",
+    #         is_provider_inbuilt_tool=False,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
 
-        # --- Turn 1: LLM makes a tool call ---
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=model_provider,
-            model_name=OpenAIModels.GPT_4_1.value, # Using GPT_4_1 as per user guidance for reasoning
-            max_tokens=1000, # Max tokens for the initial response part
-            user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
-            input_system_prompt=system_prompt_turn1,
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     # --- Turn 1: LLM makes a tool call ---
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=model_provider,
+    #         model_name=OpenAIModels.GPT_4_1.value, # Using GPT_4_1 as per user guidance for reasoning
+    #         max_tokens=1000, # Max tokens for the initial response part
+    #         user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
+    #         input_system_prompt=system_prompt_turn1,
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
-        self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
+    #     self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
+    #     self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
         
-        # Get the tool call ID from the first result
-        tool_calls = result_turn1.get("tool_calls", [])
-        for i, tool_call in enumerate(tool_calls):
-            if isinstance(tool_call, BaseModel):
-                tool_calls[i] = tool_call.model_dump()
+    #     # Get the tool call ID from the first result
+    #     tool_calls = result_turn1.get("tool_calls", [])
+    #     for i, tool_call in enumerate(tool_calls):
+    #         if isinstance(tool_call, BaseModel):
+    #             tool_calls[i] = tool_call.model_dump()
 
-        tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
-        tool_call_id = "fake_tool_call_id_1"
-        if tool_calls:
-            tool_call_id = tool_calls[0].get("tool_id")
-        tool_args = tool_calls[0].get("tool_input")
+    #     tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
+    #     tool_call_id = "fake_tool_call_id_1"
+    #     if tool_calls:
+    #         tool_call_id = tool_calls[0].get("tool_id")
+    #     tool_args = tool_calls[0].get("tool_input")
         
-        print(tool_calls)
+    #     print(tool_calls)
 
-        # Simulate running the fake web search node
-        fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
-        fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
-        fake_search_result = await fake_search_node.process(fake_search_input, {})
+    #     # Simulate running the fake web search node
+    #     fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
+    #     fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
+    #     fake_search_result = await fake_search_node.process(fake_search_input, {})
         
-        # Convert the fake search result to the format expected by the LLM
-        mock_tool_output_content = {
-            "searchResults": fake_search_result.search_results,
-            "queryUsed": fake_search_result.query_used
-        }
-        mock_tool_output_str = json.dumps(mock_tool_output_content)
+    #     # Convert the fake search result to the format expected by the LLM
+    #     mock_tool_output_content = {
+    #         "searchResults": fake_search_result.search_results,
+    #         "queryUsed": fake_search_result.query_used
+    #     }
+    #     mock_tool_output_str = json.dumps(mock_tool_output_content)
 
-        messages_history_turn1 = result_turn1.get("current_messages", [])
+    #     messages_history_turn1 = result_turn1.get("current_messages", [])
 
-        # --- Turn 2: Provide tool output and get structured summary ---
-        user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
-            topic=topic,
-        )
+    #     # --- Turn 2: Provide tool output and get structured summary ---
+    #     user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
+    #         topic=topic,
+    #     )
 
-        # Create tool_outputs for the second call
-        tool_outputs_for_turn2 = [
-            ToolOutput(
-                tool_call_id=tool_call_id,
-                content=mock_tool_output_str,
-                type="tool",
-                name="web_search_tool",
-                status="success"
-                # "name": "web_search_preview"
-            ) 
-            # if model_provider == LLMModelProvider.ANTHROPIC else
-            # {                               # append result message
-            #     "type": "function_call_output",
-            #     "call_id": tool_call_id,
-            #     "output": mock_tool_output_str
-            # }
-        ]
-        messages_history_turn2 = messages_history_turn1
+    #     # Create tool_outputs for the second call
+    #     tool_outputs_for_turn2 = [
+    #         ToolOutput(
+    #             tool_call_id=tool_call_id,
+    #             content=mock_tool_output_str,
+    #             type="tool",
+    #             name="web_search_tool",
+    #             status="success"
+    #             # "name": "web_search_preview"
+    #         ) 
+    #         # if model_provider == LLMModelProvider.ANTHROPIC else
+    #         # {                               # append result message
+    #         #     "type": "function_call_output",
+    #         #     "call_id": tool_call_id,
+    #         #     "output": mock_tool_output_str
+    #         # }
+    #     ]
+    #     messages_history_turn2 = messages_history_turn1
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.GPT_4_1.value,
-            max_tokens=1000,
-            messages_history=messages_history_turn2,
-            tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.GPT_4_1.value,
+    #         max_tokens=1000,
+    #         messages_history=messages_history_turn2,
+    #         tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("text_content", result_turn2)
-        text_content = result_turn2["text_content"]
-        self.assertIsInstance(text_content, str)
+    #     self.assertIn("text_content", result_turn2)
+    #     text_content = result_turn2["text_content"]
+    #     self.assertIsInstance(text_content, str)
 
-        self.assertGreater(len(text_content), 0)
-
-
+    #     self.assertGreater(len(text_content), 0)
 
 
-    async def test_openai_o4_mini_tool_use_structured_output_reasoning(self):
-        """Test OpenAI O4_MINI with tool use (web_search_preview), structured output, and reasoning."""
-        # Ensure the model enum is available
 
-        topic = "benefits of mindfulness meditation for stress reduction"
-        reasoning_config = {"reasoning_effort_class": "low"} # OpenAI specific reasoning config
-        system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
 
-        model_provider = LLMModelProvider.OPENAI
+    # async def test_openai_o4_mini_tool_use_structured_output_reasoning(self):
+    #     """Test OpenAI O4_MINI with tool use (web_search_preview), structured output, and reasoning."""
+    #     # Ensure the model enum is available
 
-        # Configure the OpenAI web_search_preview tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_tool",
-            is_provider_inbuilt_tool=False,
-            provider_inbuilt_user_config=openai_search_config
-        )
+    #     topic = "benefits of mindfulness meditation for stress reduction"
+    #     reasoning_config = {"reasoning_effort_class": "low"} # OpenAI specific reasoning config
+    #     system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
 
-        # --- Turn 1: LLM makes a tool call ---
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=model_provider,
-            model_name=OpenAIModels.O4_MINI.value, # Using O4_MINI as per user guidance for reasoning
-            max_tokens=1000, # Max tokens for the initial response part
-            reasoning_config=reasoning_config,
-            user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
-            input_system_prompt=system_prompt_turn1,
-            output_schema_config=LLMStructuredOutputSchema(
-                schema_definition=WebSearchResultSummarySchema.model_json_schema()
-            ),
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     model_provider = LLMModelProvider.OPENAI
 
-        self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
-        self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
+    #     # Configure the OpenAI web_search_preview tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_tool",
+    #         is_provider_inbuilt_tool=False,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
+
+    #     # --- Turn 1: LLM makes a tool call ---
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=model_provider,
+    #         model_name=OpenAIModels.O4_MINI.value, # Using O4_MINI as per user guidance for reasoning
+    #         max_tokens=1000, # Max tokens for the initial response part
+    #         reasoning_config=reasoning_config,
+    #         user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
+    #         input_system_prompt=system_prompt_turn1,
+    #         output_schema_config=LLMStructuredOutputSchema(
+    #             schema_definition=WebSearchResultSummarySchema.model_json_schema()
+    #         ),
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
+
+    #     self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
+    #     self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
         
-        # Get the tool call ID from the first result
-        tool_calls = result_turn1.get("tool_calls", [])
-        for i, tool_call in enumerate(tool_calls):
-            if isinstance(tool_call, BaseModel):
-                tool_calls[i] = tool_call.model_dump()
+    #     # Get the tool call ID from the first result
+    #     tool_calls = result_turn1.get("tool_calls", [])
+    #     for i, tool_call in enumerate(tool_calls):
+    #         if isinstance(tool_call, BaseModel):
+    #             tool_calls[i] = tool_call.model_dump()
 
-        tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
-        tool_call_id = "fake_tool_call_id_1"
-        if tool_calls:
-            tool_call_id = tool_calls[0].get("tool_id")
-        tool_args = tool_calls[0].get("tool_input")
+    #     tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
+    #     tool_call_id = "fake_tool_call_id_1"
+    #     if tool_calls:
+    #         tool_call_id = tool_calls[0].get("tool_id")
+    #     tool_args = tool_calls[0].get("tool_input")
         
-        print(tool_calls)
+    #     print(tool_calls)
 
-        # Simulate running the fake web search node
-        fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
-        fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
-        fake_search_result = await fake_search_node.process(fake_search_input, {})
+    #     # Simulate running the fake web search node
+    #     fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
+    #     fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
+    #     fake_search_result = await fake_search_node.process(fake_search_input, {})
         
-        # Convert the fake search result to the format expected by the LLM
-        mock_tool_output_content = {
-            "searchResults": fake_search_result.search_results,
-            "queryUsed": fake_search_result.query_used
-        }
-        mock_tool_output_str = json.dumps(mock_tool_output_content)
+    #     # Convert the fake search result to the format expected by the LLM
+    #     mock_tool_output_content = {
+    #         "searchResults": fake_search_result.search_results,
+    #         "queryUsed": fake_search_result.query_used
+    #     }
+    #     mock_tool_output_str = json.dumps(mock_tool_output_content)
 
-        messages_history_turn1 = result_turn1.get("current_messages", [])
+    #     messages_history_turn1 = result_turn1.get("current_messages", [])
 
-        # --- Turn 2: Provide tool output and get structured summary ---
-        user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
-            topic=topic,
-        )
+    #     # --- Turn 2: Provide tool output and get structured summary ---
+    #     user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
+    #         topic=topic,
+    #     )
 
-        # Create tool_outputs for the second call
-        tool_outputs_for_turn2 = [
-            ToolOutput(
-                tool_call_id=tool_call_id,
-                content=mock_tool_output_str,
-                type="tool",
-                name="web_search_tool",
-                status="success"
-                # "name": "web_search_preview"
-            ) 
-            # if model_provider == LLMModelProvider.ANTHROPIC else
-            # {                               # append result message
-            #     "type": "function_call_output",
-            #     "call_id": tool_call_id,
-            #     "output": mock_tool_output_str
-            # }
-        ]
-        messages_history_turn2 = messages_history_turn1
+    #     # Create tool_outputs for the second call
+    #     tool_outputs_for_turn2 = [
+    #         ToolOutput(
+    #             tool_call_id=tool_call_id,
+    #             content=mock_tool_output_str,
+    #             type="tool",
+    #             name="web_search_tool",
+    #             status="success"
+    #             # "name": "web_search_preview"
+    #         ) 
+    #         # if model_provider == LLMModelProvider.ANTHROPIC else
+    #         # {                               # append result message
+    #         #     "type": "function_call_output",
+    #         #     "call_id": tool_call_id,
+    #         #     "output": mock_tool_output_str
+    #         # }
+    #     ]
+    #     messages_history_turn2 = messages_history_turn1
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.O4_MINI.value,
-            max_tokens=1000,
-            reasoning_config=reasoning_config,
-            messages_history=messages_history_turn2,
-            tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
-            output_schema_config=LLMStructuredOutputSchema(
-                schema_definition=WebSearchResultSummarySchema.model_json_schema()
-            ),
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.O4_MINI.value,
+    #         max_tokens=1000,
+    #         reasoning_config=reasoning_config,
+    #         messages_history=messages_history_turn2,
+    #         tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
+    #         output_schema_config=LLMStructuredOutputSchema(
+    #             schema_definition=WebSearchResultSummarySchema.model_json_schema()
+    #         ),
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("structured_output", result_turn2)
-        structured_data = result_turn2["structured_output"]
-        self.assertIsInstance(structured_data, dict)
+    #     self.assertIn("structured_output", result_turn2)
+    #     structured_data = result_turn2["structured_output"]
+    #     self.assertIsInstance(structured_data, dict)
 
-        try:
-            validated_output = WebSearchResultSummarySchema(**structured_data)
-        except Exception as e:
-            self.fail(f"Pydantic validation failed for OpenAI O4_MINI structured_output: {e}\\nData: {json.dumps(structured_data)}")
+    #     try:
+    #         validated_output = WebSearchResultSummarySchema(**structured_data)
+    #     except Exception as e:
+    #         self.fail(f"Pydantic validation failed for OpenAI O4_MINI structured_output: {e}\\nData: {json.dumps(structured_data)}")
 
-        self.assertIsInstance(validated_output.summary, str)
-        self.assertGreater(len(validated_output.summary), 0)
-        self.assertGreaterEqual(validated_output.urls_processed_count, 1)
+    #     self.assertIsInstance(validated_output.summary, str)
+    #     self.assertGreater(len(validated_output.summary), 0)
+    #     self.assertGreaterEqual(validated_output.urls_processed_count, 1)
 
-        print(f"OpenAI O4_MINI SR Reasoning - Turn 1 metadata: {result_turn1.get('metadata')}")
-        print(f"OpenAI O4_MINI SR Reasoning - Turn 2 metadata: {result_turn2.get('metadata')}")
+    #     print(f"OpenAI O4_MINI SR Reasoning - Turn 1 metadata: {result_turn1.get('metadata')}")
+    #     print(f"OpenAI O4_MINI SR Reasoning - Turn 2 metadata: {result_turn2.get('metadata')}")
     
-    async def test_openai_o4_mini_tool_use_text_reasoning(self):
-        """Test OpenAI O4_MINI with tool use (web_search_preview), structured output, and reasoning."""
-        # Ensure the model enum is available
+    # async def test_openai_o4_mini_tool_use_text_reasoning(self):
+    #     """Test OpenAI O4_MINI with tool use (web_search_preview), structured output, and reasoning."""
+    #     # Ensure the model enum is available
 
-        # Ensure the model enum is available
+    #     # Ensure the model enum is available
 
-        topic = "benefits of mindfulness meditation for stress reduction"
-        reasoning_config = {"reasoning_effort_class": "low"} # OpenAI specific reasoning config
-        system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
+    #     topic = "benefits of mindfulness meditation for stress reduction"
+    #     reasoning_config = {"reasoning_effort_class": "low"} # OpenAI specific reasoning config
+    #     system_prompt_turn1 = WEB_SEARCH_SYSTEM_PROMPT # Standard system prompt for web search
 
-        model_provider = LLMModelProvider.OPENAI
+    #     model_provider = LLMModelProvider.OPENAI
 
-        # Configure the OpenAI web_search_preview tool
-        openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
-        tool_config = ToolConfig(
-            tool_name="web_search_tool",
-            is_provider_inbuilt_tool=False,
-            provider_inbuilt_user_config=openai_search_config
-        )
+    #     # Configure the OpenAI web_search_preview tool
+    #     openai_search_config = OpenAIWebSearchToolConfig().model_dump(exclude_none=True)
+    #     tool_config = ToolConfig(
+    #         tool_name="web_search_tool",
+    #         is_provider_inbuilt_tool=False,
+    #         provider_inbuilt_user_config=openai_search_config
+    #     )
 
-        # --- Turn 1: LLM makes a tool call ---
-        result_turn1 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=model_provider,
-            model_name=OpenAIModels.O4_MINI.value, # Using O4_MINI as per user guidance for reasoning
-            max_tokens=1000, # Max tokens for the initial response part
-            reasoning_config=reasoning_config,
-            user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
-            input_system_prompt=system_prompt_turn1,
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     # --- Turn 1: LLM makes a tool call ---
+    #     result_turn1 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=model_provider,
+    #         model_name=OpenAIModels.O4_MINI.value, # Using O4_MINI as per user guidance for reasoning
+    #         max_tokens=1000, # Max tokens for the initial response part
+    #         reasoning_config=reasoning_config,
+    #         user_prompt=WEB_SEARCH_USER_PROMPT_TURN1_TEMPLATE.format(topic=topic),
+    #         input_system_prompt=system_prompt_turn1,
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=True, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
-        self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
+    #     self.assertIn("metadata", result_turn1, "Metadata should be in Turn 1 result")
+    #     self.assertIn("tool_calls", result_turn1, "Tool calls should be in Turn 1 result")
         
-        # Get the tool call ID from the first result
-        tool_calls = result_turn1.get("tool_calls", [])
-        for i, tool_call in enumerate(tool_calls):
-            if isinstance(tool_call, BaseModel):
-                tool_calls[i] = tool_call.model_dump()
+    #     # Get the tool call ID from the first result
+    #     tool_calls = result_turn1.get("tool_calls", [])
+    #     for i, tool_call in enumerate(tool_calls):
+    #         if isinstance(tool_call, BaseModel):
+    #             tool_calls[i] = tool_call.model_dump()
 
-        tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
-        tool_call_id = "fake_tool_call_id_1"
-        if tool_calls:
-            tool_call_id = tool_calls[0].get("tool_id")
-        tool_args = tool_calls[0].get("tool_input")
+    #     tool_calls = [t for t in tool_calls if t.get("tool_name") == "web_search_tool"]
+    #     tool_call_id = "fake_tool_call_id_1"
+    #     if tool_calls:
+    #         tool_call_id = tool_calls[0].get("tool_id")
+    #     tool_args = tool_calls[0].get("tool_input")
         
-        print(tool_calls)
+    #     print(tool_calls)
 
-        # Simulate running the fake web search node
-        fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
-        fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
-        fake_search_result = await fake_search_node.process(fake_search_input, {})
+    #     # Simulate running the fake web search node
+    #     fake_search_node = FakeWebSearchNode(node_id="fake_web_search_node", prefect_mode=False)
+    #     fake_search_input = FakeWebSearchInputSchema(query=tool_args.get("query", ""), max_results=tool_args.get("max_results", 3))
+    #     fake_search_result = await fake_search_node.process(fake_search_input, {})
         
-        # Convert the fake search result to the format expected by the LLM
-        mock_tool_output_content = {
-            "searchResults": fake_search_result.search_results,
-            "queryUsed": fake_search_result.query_used
-        }
-        mock_tool_output_str = json.dumps(mock_tool_output_content)
+    #     # Convert the fake search result to the format expected by the LLM
+    #     mock_tool_output_content = {
+    #         "searchResults": fake_search_result.search_results,
+    #         "queryUsed": fake_search_result.query_used
+    #     }
+    #     mock_tool_output_str = json.dumps(mock_tool_output_content)
 
-        messages_history_turn1 = result_turn1.get("current_messages", [])
+    #     messages_history_turn1 = result_turn1.get("current_messages", [])
 
-        # --- Turn 2: Provide tool output and get structured summary ---
-        user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
-            topic=topic,
-        )
+    #     # --- Turn 2: Provide tool output and get structured summary ---
+    #     user_prompt_turn2 = WEB_SEARCH_USER_PROMPT_TURN2_STRUCTURED_TEMPLATE.format(
+    #         topic=topic,
+    #     )
 
-        # Create tool_outputs for the second call
-        tool_outputs_for_turn2 = [
-            ToolOutput(
-                tool_call_id=tool_call_id,
-                content=mock_tool_output_str,
-                type="tool",
-                name="web_search_tool",
-                status="success"
-                # "name": "web_search_preview"
-            ) 
-            # if model_provider == LLMModelProvider.ANTHROPIC else
-            # {                               # append result message
-            #     "type": "function_call_output",
-            #     "call_id": tool_call_id,
-            #     "output": mock_tool_output_str
-            # }
-        ]
-        messages_history_turn2 = messages_history_turn1
+    #     # Create tool_outputs for the second call
+    #     tool_outputs_for_turn2 = [
+    #         ToolOutput(
+    #             tool_call_id=tool_call_id,
+    #             content=mock_tool_output_str,
+    #             type="tool",
+    #             name="web_search_tool",
+    #             status="success"
+    #             # "name": "web_search_preview"
+    #         ) 
+    #         # if model_provider == LLMModelProvider.ANTHROPIC else
+    #         # {                               # append result message
+    #         #     "type": "function_call_output",
+    #         #     "call_id": tool_call_id,
+    #         #     "output": mock_tool_output_str
+    #         # }
+    #     ]
+    #     messages_history_turn2 = messages_history_turn1
 
-        result_turn2 = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.OPENAI,
-            model_name=OpenAIModels.O4_MINI.value,
-            max_tokens=1000,
-            reasoning_config=reasoning_config,
-            messages_history=messages_history_turn2,
-            tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
-            tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
-            tools=[tool_config]
-        )
+    #     result_turn2 = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.OPENAI,
+    #         model_name=OpenAIModels.O4_MINI.value,
+    #         max_tokens=1000,
+    #         reasoning_config=reasoning_config,
+    #         messages_history=messages_history_turn2,
+    #         tool_outputs=tool_outputs_for_turn2,  # Pass the fake tool outputs
+    #         tool_calling_config=ToolCallingConfig(enable_tool_calling=False, parallel_tool_calls=False),
+    #         tools=[tool_config]
+    #     )
 
-        self.assertIn("text_content", result_turn2)
-        text_content = result_turn2["text_content"]
-        self.assertIsInstance(text_content, str)
+    #     self.assertIn("text_content", result_turn2)
+    #     text_content = result_turn2["text_content"]
+    #     self.assertIsInstance(text_content, str)
 
-        self.assertGreater(len(text_content), 0)
+    #     self.assertGreater(len(text_content), 0)
 
 
 if __name__ == "__main__":

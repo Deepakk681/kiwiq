@@ -1,8 +1,8 @@
 from workflow_service.registry.nodes.llm.internal_tools.openai_tools import OpenAIWebSearchTool, OpenAICodeInterpreterTool
-from workflow_service.registry.nodes.llm.internal_tools.anthropic_tools import AnthropicWebSearchTool
+from workflow_service.registry.nodes.llm.internal_tools.anthropic_tools import AnthropicWebSearchTool, AnthropicCodeExecutionTool
 
 OPENAI_TOOLS = [OpenAIWebSearchTool, OpenAICodeInterpreterTool]
-ANTHROPIC_TOOLS = [AnthropicWebSearchTool]
+ANTHROPIC_TOOLS = [AnthropicWebSearchTool, AnthropicCodeExecutionTool]
 OPENAI_TOOLS_REGISTRY = {}
 ANTHROPIC_TOOLS_REGISTRY = {}
 

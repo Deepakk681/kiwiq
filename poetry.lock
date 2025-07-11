@@ -232,14 +232,14 @@ files = [
 
 [[package]]
 name = "anthropic"
-version = "0.54.0"
+version = "0.57.1"
 description = "The official Python library for the anthropic API"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "anthropic-0.54.0-py3-none-any.whl", hash = "sha256:c1062a0a905daeec17ca9c06c401e4b3f24cb0495841d29d752568a1d4018d56"},
-    {file = "anthropic-0.54.0.tar.gz", hash = "sha256:5e6f997d97ce8e70eac603c3ec2e7f23addeff953fbbb76b19430562bb6ba815"},
+    {file = "anthropic-0.57.1-py3-none-any.whl", hash = "sha256:33afc1f395af207d07ff1bffc0a3d1caac53c371793792569c5d2f09283ea306"},
+    {file = "anthropic-0.57.1.tar.gz", hash = "sha256:7815dd92245a70d21f65f356f33fc80c5072eada87fb49437767ea2918b2c4b0"},
 ]
 
 [package.dependencies]
@@ -252,6 +252,7 @@ sniffio = "*"
 typing-extensions = ">=4.10,<5"
 
 [package.extras]
+aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.6)"]
 bedrock = ["boto3 (>=1.28.57)", "botocore (>=1.31.57)"]
 vertex = ["google-auth[requests] (>=2,<3)"]
 
@@ -3240,19 +3241,19 @@ xai = ["langchain-xai"]
 
 [[package]]
 name = "langchain-anthropic"
-version = "0.3.13"
+version = "0.3.17"
 description = "An integration package connecting AnthropicMessages and LangChain"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "langchain_anthropic-0.3.13-py3-none-any.whl", hash = "sha256:2a3041ed530c7e3d3f486ce48d926c5e8173376e2b6a00da03ef83a3f8e7ba7f"},
-    {file = "langchain_anthropic-0.3.13.tar.gz", hash = "sha256:12f10fc23fe324fa05bfd608ae96b80e6df3525e79f9f24da93863356a88a5a2"},
+    {file = "langchain_anthropic-0.3.17-py3-none-any.whl", hash = "sha256:6df784615b93aab0336fbd6a50ca2bd16a704ef01c9488c36a4fa7aad2faf2d6"},
+    {file = "langchain_anthropic-0.3.17.tar.gz", hash = "sha256:f2c2a0382ed7992204d790ff8538448f5243f4dbb1e798256ef790c9a69033e4"},
 ]
 
 [package.dependencies]
-anthropic = ">=0.51.0,<1"
-langchain-core = ">=0.3.59,<1.0.0"
+anthropic = ">=0.57.0,<1"
+langchain-core = ">=0.3.68,<1.0.0"
 pydantic = ">=2.7.4,<3.0.0"
 
 [[package]]
@@ -8625,4 +8626,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "e6188e124a793184efbac033d57f344b5f7b751f79e324f96b9dbfeeb0044542"
+content-hash = "bd83629260df90092e7bde4513701bbbbb712883445612f5ad7837c08c04e9c5"

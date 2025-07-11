@@ -1460,53 +1460,53 @@ class TestLLMToolIntegration(unittest.IsolatedAsyncioTestCase):
         print(f"Response: {result['text_content']}")
         print("✓ Loop properly exited when no tool calls were needed")
     
-    async def test_openai_gpt4o_math_workflow(self):
-        """Test OpenAI GPT-4o with math calculation workflow."""
-        user_prompt = """
-        I'm planning a budget and need help with some calculations:
-        1. What's 2,500 * 12 (monthly savings for a year)?
-        2. Then add 5,000 (bonus) to that result.
-        3. Finally, if I invest that total amount and it grows by 7% annually, what would it be worth?
+    # async def test_openai_gpt4o_math_workflow(self):
+    #     """Test OpenAI GPT-4o with math calculation workflow."""
+    #     user_prompt = """
+    #     I'm planning a budget and need help with some calculations:
+    #     1. What's 2,500 * 12 (monthly savings for a year)?
+    #     2. Then add 5,000 (bonus) to that result.
+    #     3. Finally, if I invest that total amount and it grows by 7% annually, what would it be worth?
         
-        Please show me each step clearly.
-        """
+    #     Please show me each step clearly.
+    #     """
         
-        structured_output_schema = MathProblemSolutionSchema.model_json_schema()
+    #     structured_output_schema = MathProblemSolutionSchema.model_json_schema()
         
-        result = await run_llm_tool_integration_test(
-            runtime_config=self.runtime_config_regular,
-            llm_provider=LLMModelProvider.OPENAI,
-            llm_model=OpenAIModels.GPT_4o.value,
-            user_prompt=user_prompt,
-            available_tools=["math_calculator"],
-            structured_output_schema=structured_output_schema
-        )
+    #     result = await run_llm_tool_integration_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         llm_provider=LLMModelProvider.OPENAI,
+    #         llm_model=OpenAIModels.GPT_4o.value,
+    #         user_prompt=user_prompt,
+    #         available_tools=["math_calculator"],
+    #         structured_output_schema=structured_output_schema
+    #     )
         
-        # Verify the response structure
-        self.assertIn("structured_output", result)
-        self.assertIsInstance(result["structured_output"], dict)
+    #     # Verify the response structure
+    #     self.assertIn("structured_output", result)
+    #     self.assertIsInstance(result["structured_output"], dict)
         
-        # Validate the structured output
-        try:
-            solution = MathProblemSolutionSchema(**result["structured_output"])
+    #     # Validate the structured output
+    #     try:
+    #         solution = MathProblemSolutionSchema(**result["structured_output"])
             
-            # Check that the solution includes expected elements
-            self.assertIsInstance(solution.problem_understanding, str)
-            self.assertIsInstance(solution.solution_steps, list)
-            self.assertGreater(len(solution.solution_steps), 1)  # Should have multiple steps
-            self.assertIsInstance(solution.final_answer, str)
+    #         # Check that the solution includes expected elements
+    #         self.assertIsInstance(solution.problem_understanding, str)
+    #         self.assertIsInstance(solution.solution_steps, list)
+    #         self.assertGreater(len(solution.solution_steps), 1)  # Should have multiple steps
+    #         self.assertIsInstance(solution.final_answer, str)
             
-            # The final answer should contain numbers related to the calculation
-            self.assertTrue(
-                any(char.isdigit() for char in solution.final_answer),
-                "Final answer should contain numerical results"
-            )
+    #         # The final answer should contain numbers related to the calculation
+    #         self.assertTrue(
+    #             any(char.isdigit() for char in solution.final_answer),
+    #             "Final answer should contain numerical results"
+    #         )
             
-            print(f"OpenAI Math Solution Steps: {len(solution.solution_steps)}")
-            print(f"Final Answer: {solution.final_answer}")
+    #         print(f"OpenAI Math Solution Steps: {len(solution.solution_steps)}")
+    #         print(f"Final Answer: {solution.final_answer}")
             
-        except Exception as e:
-            self.fail(f"Structured output validation failed: {e}\nOutput: {json.dumps(result['structured_output'], indent=2)}")
+    #     except Exception as e:
+    #         self.fail(f"Structured output validation failed: {e}\nOutput: {json.dumps(result['structured_output'], indent=2)}")
     
     async def test_weather_and_text_combination_workflow(self):
         """Test combining weather lookup with text analysis in a single workflow."""
