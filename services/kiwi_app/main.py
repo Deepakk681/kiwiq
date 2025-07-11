@@ -105,14 +105,10 @@ async def lifespan(app: FastAPI):
             kiwi_logger.info("Event consumer was not started, skipping stop.")
         kiwi_logger.info("Cleanup finished.")
         # Only close weaviate client if it was successfully initialized
-        if 'weaviate_client' in locals() and weaviate_client is not None:
-            await weaviate_client.close()
-            kiwi_logger.info("Weaviate client closed successfully.")
-        else:
-            kiwi_logger.info("Weaviate client was not initialized, skipping close.")
         
         # Close all clients
         try:
+            await app.state.weaviate.close()
             await app.state.customer_mongo_client.close()
             await app.state.versioned_mongo_client.client.close()
             await app.state.workflow_mongo_client.close()
