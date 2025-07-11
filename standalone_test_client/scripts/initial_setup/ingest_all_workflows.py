@@ -21,7 +21,7 @@ import uuid
 sys.path.insert(0, '.')
 
 from kiwi_client.auth_client import AuthenticatedClient, AuthenticationError
-from scripts.workflow_ingestion_client import WorkflowIngestionClient, WorkflowIngestionConfig
+from kiwi_client.workflow_ingestion_client import WorkflowIngestionClient, WorkflowIngestionConfig
 
 # Setup logging
 logging.basicConfig(
