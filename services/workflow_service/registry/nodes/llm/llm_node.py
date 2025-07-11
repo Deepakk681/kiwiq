@@ -523,6 +523,10 @@ class LLMModelConfig(BaseNodeConfig):
         NOTE: OpenAI Web Search models don't seem to support temperature!
         """
     )
+    max_tool_calls: Optional[int] = Field(
+        None,
+        description="Maximum number of tool calls to make"
+    )
     force_temperature_setting_when_thinking: Optional[bool] = Field(
         False,
         description="Use the exact temperature value specified in the `temperature` field, even when thinking mode is enabled. Note: Most models work better with higher temperatures (like 1.0) when thinking is enabled. For example, Anthropic models require a temperature of 1.0 when thinking mode is on."
@@ -1104,6 +1108,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         provider_param_key_overrides = PARAM_KEY_OVERRIDES[provider] if provider in PARAM_KEY_OVERRIDES else {}
         model_name = self.config.llm_config.model_spec.model
         model_metadata: ModelMetadata = PROVIDER_MODEL_MAP[provider](model_name).metadata
+
+        if model_metadata.max_tool_calls_param_key and self.config.llm_config.max_tool_calls is not None:
+            model_kwargs[model_metadata.max_tool_calls_param_key] = self.config.llm_config.max_tool_calls
         
         if provider == LLMModelProvider.OPENAI:
            model_kwargs["stream_usage"] = True
@@ -1115,6 +1122,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # reasoning kwargs
         reasoning_kwargs = self._get_reasoning_params(provider, model_name, model_metadata)
         model_kwargs.update(reasoning_kwargs)
+
+        if "deep-research" in model_name:
+            model_kwargs["request_timeout"] = 60 * 30  # 30 minutes
 
         model_called_in_reasoning_mode = (not model_metadata.non_reasoning_mode) or (reasoning_kwargs)
         if model_called_in_reasoning_mode:

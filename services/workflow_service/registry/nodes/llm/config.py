@@ -71,6 +71,8 @@ class ModelMetadata(BaseModel):
     parallel_tool_calling_configurable: bool = False
     inbuilt_tools: Optional[Dict[str, Any]] = None
 
+    max_tool_calls_param_key: Optional[str] = None
+
     multimodal: bool = False
     # price computed by tokencost library
     # price: Optional[Dict[str, float]] = None
@@ -151,6 +153,31 @@ class OpenAIModels(str, EnumWithAttr):
         "context_limit": 200000,
         "output_token_limit": 100000,
     }))
+    # https://platform.openai.com/docs/guides/deep-research
+    O4_MINI_DEEP_RESEARCH = "o4-mini-deep-research", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000},
+        "reasoning": True,
+        "non_reasoning_mode": False,
+        # "reasoning_effort_class": ["low", "medium", "high"],
+        # "multimodal": True,
+        "context_limit": 200000,
+        "output_token_limit": 100000,
+        "max_tool_calls_param_key": "max_tool_calls",
+        # "web_search": True,
+        # "parallel_tool_calling_configurable": False,
+    }))
+    O3_DEEP_RESEARCH = "o3-deep-research", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 30000000},
+        "reasoning": True,
+        "non_reasoning_mode": False,
+        # "reasoning_effort_class": ["low", "medium", "high"],
+        # "multimodal": True,
+        "context_limit": 200000,
+        "output_token_limit": 100000,
+        "max_tool_calls_param_key": "max_tool_calls",
+        # "web_search": True,
+        # "parallel_tool_calling_configurable": False,
+    }))
     O3_MINI = "o3-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
         "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000},
         "reasoning": True,
@@ -169,23 +196,7 @@ class OpenAIModels(str, EnumWithAttr):
         "context_limit": 200000,
         "output_token_limit": 100000,
     }))
-    GPT_4_5 = "gpt-4.5-preview", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 2000000}}))
-    GPT_4_1 = "gpt-4.1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"context_limit": 1000000}))
-    GPT_4o = "gpt-4o", DEFAULT_OPENAI_METADATA
-    GPT_4_1_MINI = "gpt-4.1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
-    GPT_4o_mini = "gpt-4o-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}}))
-    GPT_4_1_NANO = "gpt-4.1-nano", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
-    O1_MINI = "o1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
-        "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000},
-        "reasoning": True,
-        "non_reasoning_mode": False,
-        "reasoning_effort_class": ["low", "medium", "high"],
-        "multimodal": False,
-        "tool_use": False,
-        "structured_output": False,
-        "output_token_limit": 65536,
-    }))
-    O1 = "o1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+    O3_PRO = "o3-pro", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
         "rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 30000000},
         "reasoning": True,
         "non_reasoning_mode": False,
@@ -194,9 +205,41 @@ class OpenAIModels(str, EnumWithAttr):
         "context_limit": 200000,
         "output_token_limit": 100000,
     }))
+    # GPT_4_5 = "gpt-4.5-preview", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 2000000}}))
+    GPT_4_1 = "gpt-4.1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"context_limit": 1000000}))
+    GPT_4o = "gpt-4o", DEFAULT_OPENAI_METADATA
+    # ChatGPT-4o-latest model - optimized for conversational use without tool support
+    CHATGPT_4O_LATEST = "chatgpt-4o-latest", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "tool_use": False,  # ChatGPT-4o-latest does not support tool use
+        "inbuilt_tools": None,  # No built-in tools available
+        "tool_choice": [],  # No tool choice options
+        "parallel_tool_calling_configurable": False,  # No parallel tool calling
+    }))
+    GPT_4_1_MINI = "gpt-4.1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
+    GPT_4o_mini = "gpt-4o-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}}))
+    GPT_4_1_NANO = "gpt-4.1-nano", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"inbuilt_tools": {k:v for k,v in OPENAI_TOOLS_REGISTRY.items() if not k.startswith("web_search")}, "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
+    # O1_MINI = "o1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+    #     "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000},
+    #     "reasoning": True,
+    #     "non_reasoning_mode": False,
+    #     "reasoning_effort_class": ["low", "medium", "high"],
+    #     "multimodal": False,
+    #     "tool_use": False,
+    #     "structured_output": False,
+    #     "output_token_limit": 65536,
+    # }))
+    # O1 = "o1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+    #     "rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 30000000},
+    #     "reasoning": True,
+    #     "non_reasoning_mode": False,
+    #     "reasoning_effort_class": ["low", "medium", "high"],
+    #     "multimodal": True,
+    #     "context_limit": 200000,
+    #     "output_token_limit": 100000,
+    # }))
     # NOTE: O1-pro available via Requests API!
 
-    """OpenAI web search model options."""
+    # """OpenAI web search model options."""
     GPT_4O_SEARCH_PREVIEW = "gpt-4o-search-preview", ModelMetadata(**(DEFAULT_OPENAI_SEARCH_METADATA.model_dump() | {
         "rate_limits": {"requests_per_minute": 1000, "tokens_per_minute": 3000000}
     }))
