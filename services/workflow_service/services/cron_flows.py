@@ -217,6 +217,7 @@ async def search_scheduled_briefs_and_send_reminders_flow(
     Returns:
         Dict[str, Any]: Results of the brief search and email sending including counts and details.
     """
+    logger = get_prefect_or_regular_python_logger(name="search-scheduled-briefs-and-send-reminders-flow")
     if not settings.ENABLE_EMAIL_DAILY_POST_NOTIFICATIONS:
         logger.info("Email daily post notifications are disabled, skipping flow")
         return {
@@ -225,7 +226,6 @@ async def search_scheduled_briefs_and_send_reminders_flow(
             "target_date": target_date.strftime("%Y-%m-%dT%H:%M:%SZ") if target_date else None,
             "reason": "Email daily post notifications are disabled"
         }
-    logger = get_prefect_or_regular_python_logger(name="search-scheduled-briefs-and-send-reminders-flow")
     
     # Use current time if not provided
     if target_date is None:
