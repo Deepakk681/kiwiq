@@ -75,6 +75,8 @@ class Settings(GlobalSettings):
     VALIDATE_CERTS: bool = True
     MAIL_FROM_NAME: Optional[str] = "KiwiQ Verification" # Optional: Sender name
 
+    ENABLE_EMAIL_DAILY_POST_NOTIFICATIONS: bool = False
+
     # --- Logging Settings --- #
     LOG_LEVEL: str = "INFO"
 
