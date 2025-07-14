@@ -1160,7 +1160,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # This was introduced since Gemini's max token param key was different than provided by langchain!
         model_kwargs = {provider_param_key_overrides.get(k, k): v for k, v in model_kwargs.items()}
         # import ipdb; ipdb.set_trace()
-        if provider == LLMModelProvider.ANTHROPIC and any(tool.tool_name.startswith("code_execution") for tool in self.config.tools):
+        if provider == LLMModelProvider.ANTHROPIC and self.config.tools and any(tool.tool_name.startswith("code_execution") for tool in self.config.tools):
             model_kwargs["betas"] = ["code-execution-2025-05-22"]
 
         if provider == LLMModelProvider.PERPLEXITY:
