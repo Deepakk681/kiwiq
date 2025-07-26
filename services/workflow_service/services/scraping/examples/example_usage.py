@@ -731,6 +731,7 @@ def example_predictable_output_crawl():
             # 'https://crowdstrike.com',
             'https://grain.com/blog',
         ],
+        # "browser_pool_enabled": False,
         
         'allowed_domains': ['otter.ai', 'grain.com', 
                             # 'crowdstrike.com'

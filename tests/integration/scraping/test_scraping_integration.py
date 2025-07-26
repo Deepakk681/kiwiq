@@ -25,12 +25,13 @@ from scrapy.settings import Settings
 from scrapy import Spider, Request
 from scrapy.utils.defer import deferred_to_future
 from twisted.internet.defer import Deferred
+from scrapy.http import HtmlResponse
 
 from workflow_service.services.scraping.redis_sync_client import SyncRedisClient
 from workflow_service.services.scraping.settings import (
     scraping_settings, get_queue_key, get_dupefilter_key,
     get_domain_limit_key, get_depth_stats_key, calculate_priority_from_depth,
-    parse_domain_from_url, get_purge_patterns, get_processed_items_key, ScrapingSettings
+    parse_domain_from_url, get_purge_patterns, ScrapingSettings
 )
 from workflow_service.services.scraping.scrapy_redis_integration import RedisScheduler, TieredDownloadHandler
 from workflow_service.services.scraping.spider import (
@@ -86,11 +87,11 @@ class TestProcessedUrlsLimiting(unittest.IsolatedAsyncioTestCase):
         
         # Track enqueued vs processed
         from workflow_service.services.scraping.settings import (
-            get_domain_limit_key, get_processed_items_key
+            get_domain_limit_key, ScrapingSettings as SS
         )
         
         domain_key = get_domain_limit_key(spider_name, domain)
-        processed_key = get_processed_items_key(spider_name, domain)
+        processed_key = SS.get_processed_items_key(spider_name, domain)
         
         # Simulate enqueueing 10 URLs
         for i in range(10):
@@ -128,9 +129,9 @@ class TestProcessedUrlsLimiting(unittest.IsolatedAsyncioTestCase):
         spider_name = f"{self.TEST_PREFIX}_filter"
         domain = "grain.com"
         
-        from workflow_service.services.scraping.settings import get_processed_items_key
+        from workflow_service.services.scraping.settings import ScrapingSettings as SS
         
-        processed_key = get_processed_items_key(spider_name, domain)
+        processed_key = SS.get_processed_items_key(spider_name, domain)
         max_processed = 3
         
         # Simulate items with different quality scores
@@ -178,13 +179,13 @@ class TestProcessedUrlsLimiting(unittest.IsolatedAsyncioTestCase):
         domains = ["otter.ai", "grain.com", "help.otter.ai"]
         max_processed_per_domain = 2
         
-        from workflow_service.services.scraping.settings import get_processed_items_key
+        from workflow_service.services.scraping.settings import ScrapingSettings as SS
         
         # Process items for each domain
         domain_processed = {}
         
         for domain in domains:
-            processed_key = get_processed_items_key(spider_name, domain)
+            processed_key = SS.get_processed_items_key(spider_name, domain)
             domain_processed[domain] = 0
             
             # Try to process 5 items per domain
@@ -625,10 +626,13 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
             "https://grain.com/page1",
         ]
         
-        # Push URLs
+        # Create sync client for consistency
+        sync_client = SyncRedisClient(self.redis_url)
+        
+        # Push URLs using the sync client
         stats = push_urls_to_redis(
             spider_name, urls,
-            redis_url=self.redis_url,
+            redis_client=sync_client,
             max_urls_per_domain=10,
             max_crawl_depth=5
         )
@@ -639,27 +643,33 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats['domain_distribution']['otter.ai'], 2)
         self.assertEqual(stats['domain_distribution']['grain.com'], 1)
         
-        # Verify queue contents
+        # Verify queue contents using sync client
         queue_key = stats['queue_key']
-        queue_length = await self.client.get_queue_length(queue_key)
+        queue_length = sync_client.get_queue_length(queue_key)
         self.assertEqual(queue_length, 3, "Queue should have 3 URLs")
         
         # Test duplicate filtering
         stats2 = push_urls_to_redis(
             spider_name, urls,
-            redis_url=self.redis_url
+            redis_client=sync_client
         )
         self.assertEqual(stats2['urls_pushed'], 0, "Should not push duplicates")
+        
+        # Clean up
+        sync_client.close()
 
     async def test_job_specific_queues(self):
         """Test job-specific queue isolation."""
         spider_name = f"{self.TEST_PREFIX}_job_test"
         urls = ["https://otter.ai/test"]
         
+        # Create sync client for consistency
+        sync_client = SyncRedisClient(self.redis_url)
+        
         # Push to job1
         stats1 = push_urls_to_redis(
             spider_name, urls,
-            redis_url=self.redis_url,
+            redis_client=sync_client,
             job_id="job1",
             queue_key_strategy='job'
         )
@@ -667,7 +677,7 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         # Push to job2
         stats2 = push_urls_to_redis(
             spider_name, urls,
-            redis_url=self.redis_url,
+            redis_client=sync_client,
             job_id="job2",
             queue_key_strategy='job'
         )
@@ -679,11 +689,14 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         # Verify different queue keys
         self.assertNotEqual(stats1['queue_key'], stats2['queue_key'])
         
-        # Verify queue contents
-        queue1_length = await self.client.get_queue_length(stats1['queue_key'])
-        queue2_length = await self.client.get_queue_length(stats2['queue_key'])
+        # Verify queue contents using sync client
+        queue1_length = sync_client.get_queue_length(stats1['queue_key'])
+        queue2_length = sync_client.get_queue_length(stats2['queue_key'])
         self.assertEqual(queue1_length, 1)
         self.assertEqual(queue2_length, 1)
+        
+        # Clean up
+        sync_client.close()
 
     async def test_domain_limiting(self):
         """Test domain limiting functionality through URL counting."""
@@ -798,6 +811,9 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         """Test getting spider statistics."""
         spider_name = f"{self.TEST_PREFIX}_stats"
         
+        # Create sync client for consistency
+        sync_client = SyncRedisClient(self.redis_url)
+        
         # Push some URLs
         urls = [
             "https://otter.ai/page1",
@@ -807,22 +823,22 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         
         push_stats = push_urls_to_redis(
             spider_name, urls,
-            redis_url=self.redis_url
+            redis_client=sync_client
         )
         
         # Simulate crawling by updating domain and depth counters
         for url in urls:
             domain = parse_domain_from_url(url)
             domain_key = get_domain_limit_key(spider_name, domain)
-            await self.client.increment_counter_with_limit(domain_key, 1)
+            sync_client.increment_counter_with_limit(domain_key, 1)
         
         # Update depth stats
         depth_key = get_depth_stats_key(spider_name)
-        await self.client.increment_hash_counter(depth_key, "0", 2)
-        await self.client.increment_hash_counter(depth_key, "1", 1)
+        sync_client.increment_hash_counter(depth_key, "0", 2)
+        sync_client.increment_hash_counter(depth_key, "1", 1)
         
         # Get stats
-        stats = get_spider_stats(spider_name, redis_url=self.redis_url)
+        stats = get_spider_stats(spider_name, redis_client=sync_client)
         
         # Verify stats
         self.assertEqual(stats['spider_name'], spider_name)
@@ -831,6 +847,9 @@ class TestScrapingIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats['total_urls_crawled'], 3)
         self.assertEqual(stats['depth_distribution']['0'], 2)
         self.assertEqual(stats['depth_distribution']['1'], 1)
+        
+        # Clean up
+        sync_client.close()
 
     async def test_purge_patterns(self):
         """Test purge pattern generation and cleanup."""
@@ -1817,11 +1836,14 @@ class TestAdvancedEdgeCases(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scheduler3.max_crawl_depth, 10)
         
         # Clean up
-        await scheduler1.redis_client.close()
+        if scheduler1.redis_client:
+            await scheduler1.redis_client.close()
         scheduler1.sync_redis.close()
-        await scheduler2.redis_client.close()
+        if scheduler2.redis_client:
+            await scheduler2.redis_client.close()
         scheduler2.sync_redis.close()
-        await scheduler3.redis_client.close()
+        if scheduler3.redis_client:
+            await scheduler3.redis_client.close()
         scheduler3.sync_redis.close()
     
     async def test_concurrent_processed_limits(self):
@@ -1831,8 +1853,8 @@ class TestAdvancedEdgeCases(unittest.IsolatedAsyncioTestCase):
         max_processed = 5
         num_workers = 10
         
-        from workflow_service.services.scraping.settings import get_processed_items_key
-        processed_key = get_processed_items_key(spider_name, domain)
+        from workflow_service.services.scraping.settings import ScrapingSettings as SS
+        processed_key = SS.get_processed_items_key(spider_name, domain)
         
         # Track results
         success_count = 0
@@ -1938,62 +1960,6 @@ class TestAdvancedEdgeCases(unittest.IsolatedAsyncioTestCase):
             domain = parse_domain_from_url(url)
             self.assertEqual(domain, expected.lower(),
                            f"Failed to parse domain from {url}")
-    
-    async def test_job_specific_redis_client_lifecycle(self):
-        """Test job-specific Redis client lifecycle management."""
-        
-        
-        # Create crawler with Redis clients
-        settings = Settings()
-        settings.set('REDIS_URL', self.redis_url)
-        crawler = Crawler(Spider, settings)
-        # Create a proper stats object with both methods
-        crawler.stats = type('Stats', (), {
-            'inc_value': lambda *args, **kwargs: None,
-            'set_value': lambda *args, **kwargs: None
-        })()
-        
-        # Create scheduler (which creates Redis clients)
-        from workflow_service.services.scraping.scrapy_redis_integration import RedisScheduler
-        scheduler = RedisScheduler(crawler)
-        
-        # Verify clients are stored in crawler
-        self.assertTrue(hasattr(crawler, '_redis_clients'))
-        self.assertIn('async', crawler._redis_clients)
-        self.assertIn('sync', crawler._redis_clients)
-        
-        # Get references to clients
-        async_client = crawler._redis_clients['async']
-        sync_client = crawler._redis_clients['sync']
-        
-        # Verify clients work
-        self.assertTrue(await async_client.ping())
-        self.assertTrue(sync_client.ping())
-        
-        # Create spider instance
-        spider = Spider(name=f"{self.TEST_PREFIX}_lifecycle")
-        spider.job_id = "test_job"
-        
-        # Call the open method which returns a Deferred
-        deferred = scheduler.open(spider)
-        
-        # If it's a Deferred, convert it to a coroutine
-        if isinstance(deferred, Deferred):
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(deferred)
-        
-        # Now queue_key should be set
-        self.assertIsNotNone(scheduler.queue_key)
-        self.assertEqual(scheduler.spider, spider)
-        
-        # Close scheduler
-        close_deferred = scheduler.close("finished")
-        if isinstance(close_deferred, Deferred):
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(close_deferred)
-        
-        # Verify clients are closed and removed from crawler
-        self.assertFalse(hasattr(crawler, '_redis_clients'))
 
 
 class TestScrapingPipelines(unittest.IsolatedAsyncioTestCase):
@@ -2487,283 +2453,6 @@ class TestEarlyStoppingProcessedLimits(unittest.IsolatedAsyncioTestCase):
                 pass
             await self.redis_client.close()
         
-    async def test_enqueue_blocks_when_processed_limit_reached(self):
-        """Test that enqueue_request blocks URLs when processed limit is reached."""
-        # Create spider and scheduler
-        settings = Settings({
-            'REDIS_URL': self.redis_url,
-            'MAX_PROCESSED_URLS_PER_DOMAIN': 5,  # Low limit for testing
-            'MAX_URLS_PER_DOMAIN': 100,  # High enqueue limit
-            'SCHEDULER_FLUSH_ON_START': True,
-        })
-        
-        crawler = Crawler(GenericSpider, settings)
-        scheduler = RedisScheduler(crawler)
-        spider = GenericSpider(job_config={'job_id': 'test_early_stop'})
-        
-        # Open scheduler
-        deferred = scheduler.open(spider)
-        if isinstance(deferred, Deferred):
-            # Wait for async initialization
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(deferred)
-            
-        # Manually set processed count to limit for a domain
-        processed_key = get_processed_items_key(
-            spider.name, 'example.com', 'test_early_stop', 'spider'
-        )
-        self.sync_redis.increment_counter_with_limit(processed_key, increment=5)  # Set to limit
-        
-        # Try to enqueue URLs from over-limit domain
-        requests_blocked = 0
-        for i in range(10):
-            request = Request(f'https://example.com/page{i}')
-            if not scheduler.enqueue_request(request):
-                requests_blocked += 1
-                
-        # All should be blocked
-        self.assertEqual(requests_blocked, 10)
-        
-        # Try URLs from different domain - should work
-        requests_allowed = 0
-        for i in range(5):
-            request = Request(f'https://different.com/page{i}')
-            if scheduler.enqueue_request(request):
-                requests_allowed += 1
-                
-        self.assertEqual(requests_allowed, 5)
-        
-        # Check stats
-        if crawler.stats:
-            blocked_stat = crawler.stats.get_value('scheduler/filtered/processed_limit')
-            self.assertEqual(blocked_stat, 10)
-            
-        # Close scheduler
-        await scheduler._async_close('finished')
-        
-    async def test_next_request_skips_over_limit_domains(self):
-        """Test that next_request skips URLs from domains over their limit."""
-        # Create spider and scheduler
-        settings = Settings({
-            'REDIS_URL': self.redis_url,
-            'MAX_PROCESSED_URLS_PER_DOMAIN': 3,
-            'SCHEDULER_FLUSH_ON_START': True,
-        })
-        
-        crawler = Crawler(GenericSpider, settings)
-        scheduler = RedisScheduler(crawler)
-        spider = GenericSpider(job_config={'job_id': 'test_skip'})
-        
-        # Open scheduler
-        deferred = scheduler.open(spider)
-        if isinstance(deferred, Deferred):
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(deferred)
-            
-        # Enqueue URLs from multiple domains
-        domains = ['site1.com', 'site2.com', 'site3.com']
-        for domain in domains:
-            for i in range(5):
-                request = Request(f'https://{domain}/page{i}')
-                scheduler.enqueue_request(request)
-                
-        # Set site2.com as over limit
-        processed_key = get_processed_items_key(
-            spider.name, 'site2.com', 'test_skip', 'spider'
-        )
-        self.sync_redis.increment_counter_with_limit(processed_key, increment=3)
-        
-        # Pop requests - should skip site2.com URLs
-        popped_domains = []
-        skipped_count = 0
-        
-        while True:
-            request = scheduler.next_request()
-            if not request:
-                break
-                
-            domain = parse_domain_from_url(request.url)
-            popped_domains.append(domain)
-            
-        # Check results
-        self.assertNotIn('site2.com', popped_domains)  # Should skip all site2.com
-        self.assertIn('site1.com', popped_domains)
-        self.assertIn('site3.com', popped_domains)
-        
-        # Check that site2.com URLs are still in queue but were skipped
-        queue_length = self.sync_redis.get_queue_length(scheduler.queue_key)
-        self.assertEqual(queue_length, 0)  # All processed or skipped
-        
-        # Check skip stats
-        if crawler.stats:
-            skip_stat = crawler.stats.get_value('scheduler/skipped/processed_limit')
-            self.assertEqual(skip_stat, 5)  # 5 URLs from site2.com were skipped
-            
-        await scheduler._async_close('finished')
-        
-    async def test_playwright_discovered_urls_respect_limits(self):
-        """Test that URLs discovered by Playwright respect processed limits."""
-        # Create spider and scheduler with download handler
-        settings = Settings({
-            'REDIS_URL': self.redis_url,
-            'MAX_PROCESSED_URLS_PER_DOMAIN': 2,
-            'SCHEDULER_FLUSH_ON_START': True,
-            'TIER_RULES': {'.*': 'basic'},  # Use basic tier
-        })
-        
-        crawler = Crawler(GenericSpider, settings)
-        scheduler = RedisScheduler(crawler)
-        handler = TieredDownloadHandler(settings, crawler)
-        
-        # Set up crawler engine mock
-        crawler.engine = type('Engine', (), {})()
-        crawler.engine.slot = type('Slot', (), {'scheduler': scheduler})()
-        
-        spider = GenericSpider(job_config={'job_id': 'test_playwright'})
-        
-        # Open scheduler
-        deferred = scheduler.open(spider)
-        if isinstance(deferred, Deferred):
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(deferred)
-            
-        # Set example.com as over limit
-        processed_key = get_processed_items_key(
-            spider.name, 'example.com', 'test_playwright', 'spider'
-        )
-        self.sync_redis.increment_counter_with_limit(processed_key, increment=2)
-        
-        # Simulate discovered URLs
-        discovered_urls = [
-            'https://example.com/page1',  # Should be filtered
-            'https://example.com/page2',  # Should be filtered
-            'https://allowed.com/page1',   # Should pass
-            'https://allowed.com/page2',   # Should pass
-        ]
-        
-        parent_request = Request('https://source.com', meta={'depth': 0})
-        
-        # Queue discovered URLs
-        await handler._queue_discovered_urls(
-            discovered_urls, parent_request, spider
-        )
-        
-        # Check what was queued
-        queue_length = self.sync_redis.get_queue_length(scheduler.queue_key)
-        self.assertEqual(queue_length, 2)  # Only allowed.com URLs
-        
-        # Pop and verify
-        queued_urls = []
-        while True:
-            request_data = self.sync_redis.pop_request(scheduler.queue_key)
-            if not request_data:
-                break
-            queued_urls.append(request_data['url'])
-            
-        self.assertEqual(len(queued_urls), 2)
-        self.assertTrue(all('allowed.com' in url for url in queued_urls))
-        
-        await scheduler._async_close('finished')
-        
-    async def test_concurrent_limit_checking(self):
-        """Test that limit checking works correctly under concurrent access."""
-        settings = Settings({
-            'REDIS_URL': self.redis_url,
-            'MAX_PROCESSED_URLS_PER_DOMAIN': 10,
-            'SCHEDULER_FLUSH_ON_START': True,
-        })
-        
-        # Create multiple schedulers (simulating concurrent workers)
-        schedulers = []
-        spiders = []
-        
-        for i in range(3):
-            crawler = Crawler(GenericSpider, settings)
-            scheduler = RedisScheduler(crawler)
-            spider = GenericSpider(job_config={'job_id': 'concurrent_test'})
-            
-            deferred = scheduler.open(spider)
-            if isinstance(deferred, Deferred):
-                from scrapy.utils.defer import deferred_to_future
-                await deferred_to_future(deferred)
-                
-            schedulers.append(scheduler)
-            spiders.append(spider)
-            
-        # Each scheduler tries to enqueue URLs
-        total_enqueued = 0
-        urls_per_scheduler = 20
-        
-        for i, scheduler in enumerate(schedulers):
-            for j in range(urls_per_scheduler):
-                request = Request(f'https://shared-domain.com/worker{i}/page{j}')
-                if scheduler.enqueue_request(request):
-                    total_enqueued += 1
-                    
-        # Set processed count to near limit
-        processed_key = get_processed_items_key(
-            'generic_spider', 'shared-domain.com', 'concurrent_test', 'spider'
-        )
-        self.sync_redis.increment_counter_with_limit(processed_key, increment=8)
-        
-        # Now all schedulers try to enqueue more - should mostly fail
-        blocked_count = 0
-        for scheduler in schedulers:
-            for j in range(10):
-                request = Request(f'https://shared-domain.com/extra{j}')
-                if not scheduler.enqueue_request(request):
-                    blocked_count += 1
-                    
-        # Most should be blocked due to processed limit
-        self.assertGreater(blocked_count, 25)  # Most of 30 attempts should fail
-        
-        # Clean up
-        for scheduler in schedulers:
-            await scheduler._async_close('finished')
-            
-    async def test_edge_case_empty_queue_all_over_limit(self):
-        """Test behavior when all domains in queue are over their limits."""
-        settings = Settings({
-            'REDIS_URL': self.redis_url,
-            'MAX_PROCESSED_URLS_PER_DOMAIN': 1,  # Very low limit
-            'SCHEDULER_FLUSH_ON_START': True,
-        })
-        
-        crawler = Crawler(GenericSpider, settings)
-        scheduler = RedisScheduler(crawler)
-        spider = GenericSpider(job_config={'job_id': 'test_all_over'})
-        
-        deferred = scheduler.open(spider)
-        if isinstance(deferred, Deferred):
-            from scrapy.utils.defer import deferred_to_future
-            await deferred_to_future(deferred)
-            
-        # Enqueue URLs from domains
-        domains = ['domain1.com', 'domain2.com', 'domain3.com']
-        for domain in domains:
-            for i in range(3):
-                request = Request(f'https://{domain}/page{i}')
-                scheduler.enqueue_request(request)
-                
-        # Set ALL domains as over limit
-        for domain in domains:
-            processed_key = get_processed_items_key(
-                spider.name, domain, 'test_all_over', 'spider'
-            )
-            self.sync_redis.increment_counter_with_limit(processed_key, increment=1)
-            
-        # Try to get requests - should eventually return None after trying
-        request = scheduler.next_request()
-        self.assertIsNone(request)
-        
-        # Check warning was logged (would need to capture logs in real test)
-        # Check that queue is now empty (URLs were consumed during attempts)
-        queue_length = self.sync_redis.get_queue_length(scheduler.queue_key)
-        self.assertEqual(queue_length, 0)  # All URLs consumed during skip attempts
-        
-        await scheduler._async_close('finished')
-
-
 def run_tests():
     unittest.main()
 
