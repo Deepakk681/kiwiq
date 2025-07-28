@@ -23,7 +23,7 @@ from kiwi_app.auth.exceptions import (
     # InvalidOrgHeaderException,
     RoleNotFoundException,
 )
-from kiwi_app.auth.csrf import validate_csrf_protection, validate_csrf_token # Import CSRF utilities
+from kiwi_app.auth.csrf import validate_csrf_protection, validate_csrf_token, validate_csrf_protection_no_dependency # Import CSRF utilities
 from kiwi_app.settings import settings 
 from kiwi_app.auth.schemas import TokenData
 
@@ -119,7 +119,9 @@ async def get_current_user(
     db: AsyncSession = Depends(get_async_db_dependency),
     # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
     access_token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
-    csrf_validation: None = Depends(validate_csrf_protection),
+    csrf_cookie: Optional[str] = Cookie(None, alias=settings.CSRF_TOKEN_COOKIE_NAME),
+    csrf_header: Optional[str] = Header(None, alias=settings.CSRF_TOKEN_HEADER_NAME),
+    # csrf_validation: None = Depends(validate_csrf_protection),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
@@ -159,6 +161,8 @@ async def get_current_user(
         token_data = security.decode_access_token(access_token, expected_token_type="access")
     except CredentialsException as e:
         raise e
+
+    validate_csrf_protection_no_dependency(csrf_cookie=csrf_cookie, csrf_header=csrf_header)
 
     # Fetch user by UUID using the injected DAO
     # Do not load relationships here by default for performance.
@@ -299,7 +303,10 @@ async def get_current_active_user_with_orgs(
     db: AsyncSession = Depends(get_async_db_dependency),
     # token: str = Depends(security.oauth2_scheme),  # oauth2_authorization_code_scheme  oauth2_scheme
     access_token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME),
-    csrf_validation: None = Depends(validate_csrf_protection),
+    # CSRF!
+    csrf_cookie: Optional[str] = Cookie(None, alias=settings.CSRF_TOKEN_COOKIE_NAME),
+    csrf_header: Optional[str] = Header(None, alias=settings.CSRF_TOKEN_HEADER_NAME),
+    # csrf_validation: None = Depends(validate_csrf_protection),
     user_dao: crud.UserDAO = Depends(get_user_dao)
 ) -> models.User:
     """
@@ -338,6 +345,8 @@ async def get_current_active_user_with_orgs(
         token_data = security.decode_access_token(access_token, expected_token_type="access")
     except CredentialsException as e:
         raise e
+    
+    validate_csrf_protection_no_dependency(csrf_cookie=csrf_cookie, csrf_header=csrf_header)
     
     user_with_orgs = await user_dao.get(
         db, 

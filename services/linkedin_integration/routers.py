@@ -721,7 +721,7 @@ async def refresh_linkedin_token(
 async def admin_delete_oauth_by_linkedin_id(
     delete_request: schemas.AdminDeleteLinkedinOauthByLinkedinId,
     current_superuser: User = Depends(get_current_active_superuser),
-    csrf_check: None = Depends(validate_csrf_protection),
+    # csrf_check: None = Depends(validate_csrf_protection),
     db: AsyncSession = Depends(get_async_db_dependency),
     service: services.LinkedinOauthService = Depends(dependencies.get_linkedin_oauth_service)
 ):
@@ -764,7 +764,7 @@ async def admin_delete_oauth_by_linkedin_id(
 async def admin_delete_oauth_by_user_id(
     delete_request: schemas.AdminDeleteLinkedinOauthByUserId,
     current_superuser: User = Depends(get_current_active_superuser),
-    csrf_check: None = Depends(validate_csrf_protection),
+    # csrf_check: None = Depends(validate_csrf_protection),
     db: AsyncSession = Depends(get_async_db_dependency),
     service: services.LinkedinOauthService = Depends(dependencies.get_linkedin_oauth_service)
 ):

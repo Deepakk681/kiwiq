@@ -204,6 +204,22 @@ def validate_csrf_protection(
         )
 
 
+def validate_csrf_protection_no_dependency(
+    csrf_cookie: Optional[str] = None,
+    csrf_header: Optional[str] = None,
+) -> None:
+    if not validate_csrf_token(csrf_cookie, csrf_header):
+        auth_logger.warning(
+            f"CSRF validation failed for request. "
+            f"Cookie present: {csrf_cookie is not None}, "
+            f"Header present: {csrf_header is not None}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF validation failed. Ensure X-XSRF-TOKEN header matches XSRF-TOKEN cookie."
+        )
+
+
 def setup_auth_cookies_with_csrf(
     response: Response,
     access_token: str,

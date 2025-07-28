@@ -15,7 +15,7 @@ from db.session import get_async_session, get_async_db_dependency # Added get_as
 # Change relative to absolute imports
 from kiwi_app.email import email_verify
 from kiwi_app.auth import crud, models, schemas, security, dependencies, utils, services # Added email_verify
-from kiwi_app.auth.csrf import setup_auth_cookies_with_csrf, clear_auth_cookies, validate_csrf_protection, set_csrf_cookie, generate_csrf_token # Import CSRF utilities
+from kiwi_app.auth.csrf import setup_auth_cookies_with_csrf, clear_auth_cookies, set_csrf_cookie, generate_csrf_token # Import CSRF utilities
 # from kiwi_app.auth.utils import auth_logger
 from kiwi_app.utils import get_kiwi_logger
 
