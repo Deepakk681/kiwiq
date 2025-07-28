@@ -529,6 +529,17 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       },
       "user_documents_config_variables": {},
       "template_specific": false
+    },
+    "blog_content_optimisation_workflow": {
+      "name": "blog_content_optimisation_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "original_blog": null,
+        "route_all_choices": true
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
     }
   }
 }
