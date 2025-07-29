@@ -19,18 +19,18 @@ from workflow_service.registry.nodes.data_ops.merge_aggregate_node import (
 from workflow_service.registry.nodes.core.map_list_router_node import (
     MapListRouterNode
 )
-from services.workflow_service.registry.nodes.db.customer_data import (
+from workflow_service.registry.nodes.db.customer_data import (
     LoadCustomerDataNode,
     StoreCustomerDataNode,
 )
-from services.workflow_service.registry.nodes.db.load_multiple_customer_node import (
+from workflow_service.registry.nodes.db.load_multiple_customer_node import (
     LoadMultipleCustomerDataNode,
 )
 from workflow_service.registry.nodes.core.router_node import RouterNode
 from workflow_service.registry.nodes.scraping.linkedin_scraping import LinkedInScrapingNode
 from workflow_service.registry.nodes.tools.tool_executor_node import ToolExecutorNode
 
-from services.workflow_service.registry.nodes.tools.documents.document_crud_tools import (
+from workflow_service.registry.nodes.tools.documents.document_crud_tools import (
     DocumentViewerTool,
     EditDocumentTool,
     DocumentSearchTool,
@@ -38,6 +38,7 @@ from services.workflow_service.registry.nodes.tools.documents.document_crud_tool
 )
 
 async def register_node_templates(db_registry: DBRegistry):
+    from workflow_service.registry.nodes.scraping.crawler_scraper_node import CrawlerScraperNode
     node_classes = [
         # Core Nodes
         InputNode,
@@ -65,6 +66,7 @@ async def register_node_templates(db_registry: DBRegistry):
         ToolExecutorNode,
         # Scraping
         LinkedInScrapingNode,
+        CrawlerScraperNode,
         # Document CRUD Tools
         DocumentViewerTool,
         EditDocumentTool,

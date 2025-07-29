@@ -45,6 +45,7 @@ class ScrapingSettings(Settings):
     PROXY_TIER_ENABLED: bool = True  # Enable proxy tier as backup scraping strategy
     PROXY_TIER_MAX_FALLBACKS_PER_JOB: int = 100  # Maximum proxy tier fallbacks allowed per job (moderate cost)
     PROXY_TIER_FALLBACK_COUNTER_KEY_PATTERN: str = "proxy_fallback_count:{spider}:{job}"  # Key pattern for tracking proxy tier usage
+    MONGO_PIPELINE_ENABLED: bool = True  # Enable MongoDB pipeline for storing scraped data
     
     # Blocked URL tracking configuration
     MAX_BLOCKED_URL_EXAMPLES: int = 10  # Maximum number of example URLs to store per trigger type
@@ -138,8 +139,10 @@ class ScrapingSettings(Settings):
     # Default limits
     DEFAULT_MAX_URLS_PER_DOMAIN: int = 1000
     DEFAULT_MAX_PROCESSED_URLS_PER_DOMAIN: int = 500  # Default limit for actually processed items
-    DEFAULT_MAX_CRAWL_DEPTH: int = 10
+    DEFAULT_MAX_CRAWL_DEPTH: int = 4
     DEFAULT_DUPEFILTER_TTL: int = 7 * 86400  # 7 days
+
+    LIMIT_DOMAINS_BY_SUBDOMAIN_INSTEAD_OF_BASE_DOMAIN: bool = False
     
     # Priority calculation
     BASE_PRIORITY: int = 100
@@ -257,6 +260,8 @@ class ScrapingSettings(Settings):
         Returns:
             Domain limit key
         """
+        if not scraping_settings.LIMIT_DOMAINS_BY_SUBDOMAIN_INSTEAD_OF_BASE_DOMAIN:
+            domain = ".".join(domain.split(".")[-2:])
         if strategy == 'job' and job_id:
             return scraping_settings.DOMAIN_LIMIT_PATTERN_JOB.format(
                 spider=spider_name, job=job_id, domain=domain
@@ -281,6 +286,8 @@ class ScrapingSettings(Settings):
         Returns:
             Processed items key
         """
+        if not scraping_settings.LIMIT_DOMAINS_BY_SUBDOMAIN_INSTEAD_OF_BASE_DOMAIN:
+            domain = ".".join(domain.split(".")[-2:])
         if strategy == 'job' and job_id:
             return scraping_settings.PROCESSED_ITEMS_PATTERN_JOB.format(
                 spider=spider_name, job=job_id, domain=domain

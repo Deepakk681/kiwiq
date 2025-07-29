@@ -274,8 +274,8 @@ class MultiProviderQueryEngine:
         all_results["metadata"]["end_time"] = end_time.isoformat()
         all_results["metadata"]["total_duration_seconds"] = (end_time - start_time).total_seconds()
         
-        # Save results to JSON
-        self._save_results_to_json(all_results)
+        # # Save results to JSON
+        # self._save_results_to_json(all_results)
         
         logger.info(f"🎉 Query processing completed in {all_results['metadata']['total_duration_seconds']:.2f}s")
         

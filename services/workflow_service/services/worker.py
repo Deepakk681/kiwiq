@@ -103,7 +103,7 @@ prefect-agent-dev  |
 @flow(
     name="workflow-execution",
     description="Orchestrates the execution of a LangGraph workflow",
-    log_prints=global_settings.DEBUG,
+    log_prints=True,  # global_settings.DEBUG 
     retries=1,
     retry_delay_seconds=30,
     # cache_result_in_memory=True, # by default, True
@@ -824,6 +824,68 @@ async def trigger_workflow_run(
     return flow_run
 
 
+async def trigger_web_scraper_job(
+    job_config: Dict[str, Any],
+    user: str,
+    org_id: str,
+    is_shared: bool = False,
+    tags: Optional[List[str]] = None
+) -> FlowRun:
+    """
+    Trigger the web crawler scraper deployment programmatically.
+    
+    This helper method allows workflow nodes to submit scraping jobs to the
+    Prefect deployment, avoiding subprocess stdout capture issues.
+    
+    Args:
+        job_config: Complete job configuration for the scraping spider
+        user: User ID for MongoDB storage
+        org_id: Organization ID for MongoDB storage
+        is_shared: Whether to store data as organization-shared
+        tags: Optional tags to add to the flow run
+        
+    Returns:
+        FlowRun: The submitted flow run object
+    """
+    logger = get_prefect_or_regular_python_logger(name="trigger_web_scraper_job")
+    
+    logger.info(f"Triggering web scraper deployment for job: {job_config.get('job_id')}")
+    
+    # Prepare parameters for the deployment
+    parameters = {
+        "job_config": job_config,
+        # "user": user,
+        # "org_id": org_id,
+        # "is_shared": is_shared
+    }
+    
+    # Add default tags if not provided
+    if tags is None:
+        tags = []
+    tags.extend([
+        "web-scraper",
+        f"job-id:{job_config.get('job_id', 'unknown')}",
+        f"org-id:{org_id}",
+        f"user:{user}"
+    ])
+    
+    # Run the deployment
+    flow_run = await run_deployment(
+        name="web-crawler-scraper/on-demand",
+        parameters=parameters,
+        tags=tags,
+        timeout=400  # Don't wait for completion
+    )
+
+    result = await flow_run.state.aresult()
+    return result
+    logger.info(f"Web scraper deployment result: {result}")
+    
+    logger.info(f"Web scraper deployment triggered: {flow_run.id}")
+    
+    return flow_run
+
+
 # --- Helper Functions ---
 
 async def search_workflow_by_name(
@@ -1138,6 +1200,95 @@ async def weekly_content_calendar_generation_flow(
             logger.error(f"Error closing resources: {close_err}", exc_info=True)
 
 
+
+
+
+
+@flow(
+    name="web-crawler-scraper",
+    description="Execute web scraping job with MongoDB storage",
+    log_prints=True,
+    retries=1,
+    retry_delay_seconds=60,
+    validate_parameters=False,
+    # persist_result=True,
+)
+async def web_crawler_scraper_flow(
+    job_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Asynchronous Prefect flow to execute web scraping jobs via spider server.
+    
+    This flow submits scraping jobs to the spider server and waits for results.
+    Results are stored in MongoDB via the customer data service. It's designed 
+    to be called from workflow nodes to avoid subprocess execution issues.
+    
+    Args:
+        job_config: Complete job configuration for the scraping spider
+        
+    Returns:
+        Dict containing job results including status, stats, and namespace info
+    """
+    # from prefect.logging import get_run_logger
+    from workflow_service.services.scraping.spider_client import request_scrape_and_wait
+    
+    # logger = get_run_logger()
+    logger = get_prefect_or_regular_python_logger(name="web-crawler-scraper-flow")
+    
+    logger.info(f"Starting web scraping job: {job_config.get('job_id')}")
+    logger.info(f"Domains: {job_config.get('allowed_domains')}")
+    logger.info(f"Max URLs per domain: {job_config.get('max_processed_urls_per_domain')}")
+
+    try:
+        # Calculate timeout based on job configuration
+        # Base timeout of 10 minutes, plus extra time for larger jobs
+        base_timeout = 600.0  # 10 minutes
+        
+        logger.info(f"Using timeout of {base_timeout}s for scraping job")
+        
+        # Submit scraping job to spider server and wait for results
+        spider_result = await request_scrape_and_wait(
+            job_config=job_config,
+            timeout=base_timeout
+        )
+        
+        # Transform spider client response to expected format
+        if spider_result.get('success', False):
+            # Extract data from successful spider response
+            return spider_result
+        else:
+            # Handle failed spider response
+            error = spider_result.get('error', None)
+            error_msg = spider_result.get('message', 'Unknown error from spider server')
+            full_error_msg = f"Spider server returned error: {error} - {error_msg}"
+            logger.error(full_error_msg)
+            raise Exception(full_error_msg)
+            
+            # return {
+            #     'job_id': job_config.get('job_id', 'unknown'),
+            #     'status': False,
+            #     'completed_at': spider_result.get('timestamp', datetime.now().isoformat()),
+            #     'stats': {
+            #         'error': error_msg,
+            #         'error_type': spider_result.get('error', 'unknown'),
+            #         'duration': spider_result.get('duration', 0)
+            #     },
+            #     'result_namespaces': {}
+            # }
+        
+    except Exception as e:
+        logger.error(f"Scraping job failed: {str(e)}", exc_info=True)
+        
+        # Return error result
+        return {
+            'job_id': job_config.get('job_id', 'unknown'),
+            'status': 'failed',
+            'completed_at': datetime.now().isoformat(),
+            'stats': {'error': str(e)},
+            'result_namespaces': {}
+        }
+
+
 # --- Prefect Deployment Definition ---
 
 # def create_workflow_deployment(
@@ -1220,6 +1371,7 @@ if __name__ == "__main__":
     3. search-scheduled-briefs-and-send-reminders/daily - Daily search for scheduled briefs and send reminder emails
     4. rag-data-ingestion/daily - Daily RAG data ingestion into Weaviate
     5. weekly-content-calendar-generation/weekly - Weekly content calendar generation for all entities
+    6. web-crawler-scraper/on-demand - On-demand web scraping with MongoDB storage
     """
     serve(
         workflow_execution_flow.to_deployment(
@@ -1288,5 +1440,15 @@ if __name__ == "__main__":
                 "dry_run": False  # Actually trigger workflows (set to True for testing)
             }
         ),
+        # Web crawler scraper deployment (on-demand)
+        web_crawler_scraper_flow.to_deployment(
+            name="on-demand",
+            tags=["scraping-service", "web-crawler", "mongodb-storage"],
+            description=f"On-demand web scraping job execution with MongoDB storage ({global_settings.APP_ENV})",
+            version="scraping-service/web-crawler",
+            concurrency_limit=5,  # Limit concurrent scraping jobs
+            parameters={}  # Parameters provided at runtime
+        ),
+
         # pause_on_shutdown=global_settings.APP_ENV != "PROD",
     )

@@ -18,7 +18,7 @@ listener: Optional[logging.handlers.QueueListener] = None
 
 # --- Default Configuration ---
 # Sensible defaults for common use cases. Can be overridden via setup_logging.
-DEFAULT_LOG_LEVEL: int = logging.INFO
+DEFAULT_LOG_LEVEL: int = logging.INFO if global_settings.LOG_LEVEL == "INFO" else logging.DEBUG
 DEFAULT_CONSOLE_FORMAT: str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 

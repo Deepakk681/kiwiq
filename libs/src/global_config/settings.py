@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     WEAVIATE_URL: Optional[str] = None
     WEAVIATE_API_KEY: Optional[str] = None
     CACHE_TTL: int = 3600  # seconds
+
+    SCRAPING_SERVER_URL: str
     
     # Worker pool settings
     WORKER_POOL_SIZE: int = 4

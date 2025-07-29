@@ -42,9 +42,13 @@ When enabled, if 'example.com' is in allowed_domains, the spider will also crawl
 This is particularly useful for crawling sites that use multiple subdomains for
 different content types (blog.site.com, support.site.com, docs.site.com, etc).
 """
+import asyncio
 import re
+import uuid
 import json
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 from typing import Dict, Any, List, Optional, Callable, Type, Set, Union, Tuple
 from datetime import datetime
 from urllib.parse import urlparse, urljoin, ParseResult
@@ -58,26 +62,72 @@ import feedparser
 
 from scrapy import Spider, Request
 from scrapy.http import Response
-from scrapy.crawler import CrawlerProcess
+from scrapy.crawler import CrawlerProcess, CrawlerRunner
 from scrapy.utils.project import get_project_settings
 from scrapy.linkextractors import LinkExtractor, IGNORED_EXTENSIONS
+
+from global_utils.utils import datetime_now_utc
+
+from prefect.logging.handlers import APILogHandler
 
 # Import special URL parsing libraries
 import protego
 import feedparser
 from usp.tree import sitemap_tree_for_homepage
+from usp.web_client.requests_client import RequestsWebClient
 from usp.helpers import strip_url_to_homepage
 import xml.etree.ElementTree as ET
 
-from workflow_service.services.scraping.settings import scraping_settings, get_queue_key, calculate_priority_from_depth, parse_domain_from_url, get_processed_items_key, get_depth_stats_key, ScrapingSettings
+from workflow_service.services.scraping.settings import scraping_settings, get_queue_key, calculate_priority_from_depth, parse_domain_from_url, get_processed_items_key, get_depth_stats_key, get_domain_limit_key
 from workflow_service.services.scraping.redis_sync_client import SyncRedisClient
 from workflow_service.services.scraping.utils.feedparse import extract_urls_from_feed
+from workflow_service.services.scraping.pipelines import MongoCustomerDataPipeline
+from kiwi_app.auth.crud import UserDAO
+from linkedin_integration.models import LinkedinUserOauth, LinkedinIntegration, OrgLinkedinAccount
 
 from global_config.logger import get_prefect_or_regular_python_logger
+from db.session import get_db_as_manager 
+
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r'.*generator and includes a "return" statement.*',
+    category=UserWarning,
+    module=r"scrapy\.core\.scraper"
+)
 
 # Registry for custom processors
 PROCESSOR_REGISTRY: Dict[str, Type['BaseProcessor']] = {}
 
+PROXIES = {"http": scraping_settings.PROXY_URL_EVOMI_ROTATING, "https": scraping_settings.PROXY_URL_EVOMI_ROTATING}
+
+# logger.setLevel(scraping_settings.LOG_LEVEL)
+
+logging.basicConfig(level=scraping_settings.LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+# import ipdb; ipdb.set_trace()
+
+# loggers_to_configure = [
+#     'scrapy',
+#     'scrapy.core.engine',
+#     'scrapy.downloadermiddlewares',
+#     'scrapy.spidermiddlewares',
+#     'scrapy.extensions',
+#     'generic_spider',
+#     __name__  # Current module logger
+# ]
+
+# for logger_name in loggers_to_configure:
+#     logger = logging.getLogger(logger_name)
+#     # Avoid adding duplicate handlers
+#     logger.setLevel(scraping_settings.LOG_LEVEL)
+
+# root_logger = logging.getLogger()
+# logger.setLevel(scraping_settings.LOG_LEVEL)
+
+# import ipdb; ipdb.set_trace()
 
 class RobotsCache:
     """
@@ -126,7 +176,7 @@ class RobotsCache:
         
         try:
             self.logger.debug(f"Fetching robots.txt for {domain}")
-            response = requests.get(robots_url, timeout=10, allow_redirects=True)
+            response = requests.get(robots_url, timeout=10, allow_redirects=True, proxies=PROXIES)
             
             if response.status_code == 200:
                 # Parse robots.txt
@@ -315,7 +365,9 @@ class SitemapCache:
         urls = set()
         try:
             self.logger.debug(f"Fetching sitemap for homepage: {homepage}")
-            tree = sitemap_tree_for_homepage(homepage)
+            web_client = RequestsWebClient()
+            web_client.set_proxies(PROXIES)
+            tree = sitemap_tree_for_homepage(homepage, web_client=web_client)
             
             # Extract all URLs
             for page in tree.all_pages():
@@ -517,6 +569,7 @@ class BaseProcessor:
         # Store all kwargs for subclasses to use
         self.init_params = kwargs
         # Store reference to robots cache if provided
+        self.logger = kwargs.get('logger', None)
         self.robots_cache: RobotsCache = kwargs.get('robots_cache', None)
         self.crawl_sitemaps = kwargs.get('crawl_sitemaps', scraping_settings.CRAWL_SITEMAPS)
         self.respect_robots_txt = kwargs.get('respect_robots_txt', scraping_settings.RESPECT_ROBOTS_TXT)
@@ -535,7 +588,7 @@ class BaseProcessor:
         return {
             'url': response.url,
             'status': response.status,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime_now_utc().isoformat(),
             'content': response.text,
         }
     
@@ -553,7 +606,8 @@ class BaseProcessor:
         Returns:
             True if link should be followed
         """
-        if not any(domain in url for domain in self.allowed_domains):
+        url_domain = parse_domain_from_url(url)
+        if not any(domain in url_domain for domain in self.allowed_domains):
             return False
         
         # Check robots.txt if we have a robots cache
@@ -667,10 +721,14 @@ class GenericSpider(Spider):
         # Configure spider
         self.start_urls = self.job_config.get('start_urls', [])
         self.allowed_domains = self.job_config.get('allowed_domains', [])
+
+        self.prefect_logger = self.logger  # get_prefect_or_regular_python_logger("scrapy")  # self.logger  #
+
+        configure_logging()
         
         # Initialize caches
-        self.robots_cache = RobotsCache(logger=self.logger)
-        self.sitemap_cache = SitemapCache(logger=self.logger)
+        self.robots_cache = RobotsCache(logger=self.prefect_logger)
+        self.sitemap_cache = SitemapCache(logger=self.prefect_logger)
 
         self.respect_robots_txt = self.job_config.get('respect_robots_txt', scraping_settings.RESPECT_ROBOTS_TXT)
         self.crawl_sitemaps = self.job_config.get('crawl_sitemaps', scraping_settings.CRAWL_SITEMAPS)
@@ -691,6 +749,7 @@ class GenericSpider(Spider):
         processor_init_params['robots_cache'] = self.robots_cache
         processor_init_params['crawl_sitemaps'] = self.crawl_sitemaps
         processor_init_params['respect_robots_txt'] = self.respect_robots_txt
+        processor_init_params['logger'] = self.prefect_logger
         
         # Initialize processor with parameters
         self.processor = processor_class(**processor_init_params)
@@ -780,6 +839,11 @@ class GenericSpider(Spider):
             requests.append(request)
                 
         return requests
+    
+    async def start(self):
+        # If you still need your old start_requests logic:
+        for req in super().start_requests():
+            yield req
         
     def start_requests(self):
         """Generate start requests with special flag."""
@@ -790,7 +854,9 @@ class GenericSpider(Spider):
         for url in self.start_urls:
             robots = self.robots_cache.get_robots(url, fetch_if_missing=True)
 
-            if self.settings.getint('MAX_CRAWL_DEPTH', 5) > 0:
+            domain = parse_domain_from_url(url)
+
+            if self.settings.getint('MAX_CRAWL_DEPTH', 5) > 0 and any(allowed_domain in domain for allowed_domain in self.allowed_domains):
                 if self.respect_robots_txt:
                     if not robots:
                         self.crawler.stats.inc_value('scraping_strategy/robots/std/not_found')
@@ -899,7 +965,7 @@ class GenericSpider(Spider):
         
         if is_over:
             # Either at limit or increment was rolled back
-            self.logger.debug(
+            self.prefect_logger.debug(
                 f"Item filtered by processed limit ({domain}: {count}/{max_processed})"
             )
             
@@ -909,6 +975,46 @@ class GenericSpider(Spider):
             return False
             
         return True
+
+
+    def _is_domain_over_url_limit(self, domain: str) -> tuple[int, bool]:
+        """
+        Check if a domain has reached its processed items limit.
+        
+        This is used for early stopping - no point in crawling URLs from domains
+        that have already reached their processed item quota.
+        
+        Args:
+            domain: Domain to check
+            
+        Returns:
+            Tuple of (remaining, is_over_limit)
+        """
+        # If no processed limit is set, never over limit
+        limit = self.settings.getint('MAX_URLS_PER_DOMAIN', 0)
+        if limit <= 0:
+            return (1000, False)
+            
+        # Get the processed items key
+        queue_strategy = self.settings.get('REDIS_QUEUE_KEY_STRATEGY', 'spider')
+        limit_key = get_domain_limit_key(
+            self.name, domain, self.job_id, queue_strategy,
+        )
+        
+        # Get current count (don't increment, just check)
+        current_count = self.redis_client.get_counter_value(limit_key)
+        
+        # Check if over limit
+        is_over = current_count >= limit
+        remaining = limit - current_count
+        
+        if is_over:
+            self.prefect_logger.debug(
+                f"Domain {domain} has reached URL limit: "
+                f"{current_count}/{limit}"
+            )
+            
+        return (remaining, is_over)
     
     def parse(self, response: Response):
         """Main parsing method."""
@@ -920,12 +1026,14 @@ class GenericSpider(Spider):
         is_sitemap_candidate = response.meta.get('is_sitemap_candidate', False)
         from_sitemap = response.meta.get('from_sitemap', False)
         
-        self.logger.info(
+        self.prefect_logger.debug(
             f"[JOB {self.job_id}] Crawled {self.pages_crawled}: {response.url} "
             f"(depth: {depth})"
         )
 
         could_be_sitemap = "sitemap" in response.url and (response.url.endswith(".xml") or response.url.endswith(".xml.gz"))
+        
+        url_domain = parse_domain_from_url(response.url)
         
         # Process response with custom processor
         sitemap_pages = []
@@ -951,7 +1059,7 @@ class GenericSpider(Spider):
                     all_next_urls.update(robots_sitemap_urls)
                 else:
                     self.crawler.stats.inc_value('scraping_strategy/robots/scraped/failed')
-                    self.logger.warning(f"Failed to fetch robots.txt for {response.url}: {response.status}")
+                    self.prefect_logger.warning(f"Failed to fetch robots.txt for {response.url}: {response.status}")
             
             elif is_sitemap or could_be_sitemap:
                 if response.status < 400:
@@ -988,9 +1096,9 @@ class GenericSpider(Spider):
                     self.crawler.stats.inc_value('scraping_strategy/sitemap/scraped/failed')
                     if is_sitemap_candidate:
                         self.crawler.stats.inc_value('scraping_strategy/sitemap/scraped/failed/candidate_not_found')
-                    self.logger.warning(f"Failed to fetch sitemap.xml {'(candidate)' if is_sitemap_candidate else ''} for {response.url}: {response.status}")
+                    self.prefect_logger.warning(f"Failed to fetch sitemap.xml {'(candidate)' if is_sitemap_candidate else ''} for {response.url}: {response.status}")
                 
-            if (not (is_robots or is_sitemap)) and self.settings.getint('MAX_CRAWL_DEPTH', 5) > 0:
+            if (not (is_robots or is_sitemap)) and self.settings.getint('MAX_CRAWL_DEPTH', 5) > 0 and any(allowed_domain in url_domain for allowed_domain in self.allowed_domains):
                 url = response.url
                 robots_sitemap_urls = []
                 if (not self.robots_cache.is_robots_fetched(url)) and self.respect_robots_txt:
@@ -1044,7 +1152,7 @@ class GenericSpider(Spider):
                         # Add metadata
                         data['_job_id'] = self.job_id
                         data['_spider'] = self.name
-                        data['_crawled_at'] = datetime.utcnow().isoformat()
+                        data['_crawled_at'] = datetime_now_utc().isoformat()
                         data['_depth'] = depth
                         
                         # Yield item
@@ -1063,18 +1171,18 @@ class GenericSpider(Spider):
 
                         yield data
                 else:
-                    self.logger.debug(f"Item filtered by should_process_link: {response.url}")
+                    self.prefect_logger.debug(f"Item filtered by should_process_link: {response.url}")
                     if hasattr(self, 'crawler') and self.crawler.stats:
                         self.crawler.stats.inc_value('items/filtered/should_process')
                 
         except Exception as e:
-            self.logger.error(f"Error processing {response.url}: {e}", exc_info=True)
+            self.prefect_logger.error(f"Error processing {response.url}: {e}", exc_info=True)
             yield {
                 'url': response.url,
                 'error': str(e),
                 '_job_id': self.job_id,
                 '_spider': self.name,
-                '_crawled_at': datetime.utcnow().isoformat()
+                '_crawled_at': datetime_now_utc().isoformat()
             }
         
         # Discover and follow links
@@ -1094,18 +1202,35 @@ class GenericSpider(Spider):
                 sitemap_pages = []
             
             processed_urls = set()
+            next_requests = []
             for url_list, from_sitemap in [(sitemap_pages, True), (discovered_urls, False)]:
                 for url in url_list:
                     if self.processor.should_follow_link(url, response, self):
                         priority = self.processor.get_link_priority(url, depth + 1, response, self)
                         if url not in processed_urls:
                             processed_urls.add(url)
-                            yield response.follow(
-                                url,
-                                callback=self.parse,
-                                priority=priority,
-                                meta={'depth': depth + 1, 'from_sitemap': from_sitemap}
-                            )
+                            args = [url]
+                            kwargs = {
+                                'callback': self.parse,
+                                'priority': priority,
+                                'meta': {'depth': depth + 1, 'from_sitemap': from_sitemap}
+                            }
+                            next_requests.append((args, kwargs))
+            
+            # self.crawler.engine._slot.scheduler._do
+            
+            domain_cache = {}
+            for args, kwargs in sorted(next_requests, key=lambda x: x[1]['priority'], reverse=True):
+                url = args[0]
+                domain = parse_domain_from_url(url)
+                if domain not in domain_cache:
+                    domain_cache[domain] = list(self._is_domain_over_url_limit(domain))
+                if domain_cache[domain][1] and domain_cache[domain][0] <= 0:
+                    limit = self.settings.getint('MAX_URLS_PER_DOMAIN', 0)
+                    self.prefect_logger.debug(f"Domain {domain} has reached URL limit: {domain_cache[domain][0]}/{limit}")
+                    continue
+                domain_cache[domain][0] -= 1
+                yield response.follow(*args, **kwargs)
     
     def _discover_urls(self, response: Response) -> List[str]:
         """Discover URLs from response.
@@ -1173,7 +1298,7 @@ class GenericSpider(Spider):
         # if self.sitemap_cache:
         #     sitemap_urls = self.sitemap_cache.get_sitemap_urls(response.url, fetch_if_missing=True)
         #     if sitemap_urls:
-        #         self.logger.debug(f"Adding {len(sitemap_urls)} URLs from sitemap for {response.url}")
+        #         self.prefect_logger.debug(f"Adding {len(sitemap_urls)} URLs from sitemap for {response.url}")
         #         urls.update(sitemap_urls)
         
         return list(urls)
@@ -1234,20 +1359,49 @@ class GenericSpider(Spider):
                         extracted[field] = values[0] if values else None
                         
             except Exception as e:
-                self.logger.warning(f"Failed to extract {field}: {e}")
+                self.prefect_logger.warning(f"Failed to extract {field}: {e}")
         
         return extracted
     
     def closed(self, reason):
         """Called when spider closes."""
         # self.stats_data = self.crawler.stats.get_stats()
-        self.logger.info(
+        self.prefect_logger.info(
             f"Spider closed: {reason}. "
             f"Pages: {self.pages_crawled}, Items: {self.items_extracted}"
         )
 
 
-def run_scraping_job(job_config: Dict[str, Any]) -> Dict[str, Any]:
+def configure_logging():
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(scraping_settings.LOG_LEVEL)
+    
+    # Set level for all existing loggers
+    for name in logging.root.manager.loggerDict:
+        logging.getLogger(name).setLevel(scraping_settings.LOG_LEVEL)
+    
+    # Specifically target known noisy loggers
+    noisy_loggers = [
+        'httpcore', 'httpcore.connection', 'httpcore.http11',
+        'urllib3', 'urllib3.connectionpool',
+        'scrapy', 'scrapy.core.engine',
+        'httpx', 'generic_spider', 'usp', 'usp.helpers', 'usp.fetch_parse',
+        'workflow_service',
+        'scrapy.downloadermiddlewares',
+        'scrapy.spidermiddlewares',
+        'scrapy.extensions',
+        'scrapy.core.engine',
+        'scrapy.core.scraper',
+        "scrapy.utils.log",
+        __name__  # Current module logger
+    ]
+    
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(scraping_settings.LOG_LEVEL)
+
+
+def run_scraping_job(job_config: Dict[str, Any], use_prefect_logging: bool = False) -> Dict[str, Any]:
     """
     Run a scraping job with the given configuration.
     
@@ -1257,16 +1411,80 @@ def run_scraping_job(job_config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Job execution results
     """
+    # APILogHandler
     # # Configure Scrapy logging
+    debug_mode_enabled = job_config.get('debug_mode', False)
+    log_level = job_config.get('log_level', 'INFO' if not debug_mode_enabled else 'DEBUG')
+
+    logger.info(f"\n\n\n\n SETTING SCRAPY LOG LEVEL: {log_level}\n\n\n\n")
+    log_level = logging.DEBUG if log_level.lower() == 'debug' else (logging.INFO if log_level.lower() == 'info' else logging.WARNING)
+    logger.info(f"\n\n\n\n SETTING SCRAPY LOG LEVEL: {log_level}\n\n\n\n")
+    
+    # # Set up rotating file handler for logging
+    # # Get the directory where spider.py is located
+    # current_dir = os.path.dirname(os.path.abspath(__file__))
+    # logs_dir = os.path.join(current_dir, 'logs')
+    
+    # # Create logs directory if it doesn't exist
+    # os.makedirs(logs_dir, exist_ok=True)
+    
+    # # Create log filename with job_id and timestamp
+    # job_id = job_config.get('job_id', f'job_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+    # log_filename = os.path.join(logs_dir, f'scraping_{job_id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    
+    # # Set up rotating file handler
+    # # maxBytes: 10MB, backupCount: 5 (keeps 5 old log files)
+    # file_handler = RotatingFileHandler(
+    #     filename=log_filename,
+    #     maxBytes=10 * 1024 * 1024,  # 10MB
+    #     backupCount=5,
+    #     encoding='utf-8'
+    # )
+    
+    # # Set formatter for file handler
+    # formatter = logging.Formatter(
+    #     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    #     datefmt='%Y-%m-%d %H:%M:%S'
+    # )
+    # file_handler.setFormatter(formatter)
+    # file_handler.setLevel(getattr(logging, log_level))
+    
+    # # Add file handler to relevant loggers
+    # loggers_to_configure = [
+    #     'scrapy',
+    #     'scrapy.core.engine',
+    #     'scrapy.downloadermiddlewares',
+    #     'scrapy.spidermiddlewares',
+    #     'scrapy.extensions',
+    #     'generic_spider',
+    #     __name__  # Current module logger
+    # ]
+    
+    # for logger_name in loggers_to_configure:
+    #     logger = logging.getLogger(logger_name)
+    #     # Avoid adding duplicate handlers
+    #     if not any(isinstance(h, RotatingFileHandler) and h.baseFilename == log_filename for h in logger.handlers):
+    #         logger.addHandler(file_handler)
+    #         logger.setLevel(getattr(logging, log_level))
+    
+    # # Log the start of the job
+    # logging.getLogger(__name__).info(f"Starting scraping job {job_id}, logging to: {log_filename}")
+    
     # if use_prefect_logging:
+    #     # for handler in logging.root.handlers:
+    #     #     handler.addFilter(ContentFilter())
     #     # Disable default Scrapy logging configuration
-    #     configure_logging(install_root_handler=False)
-    #     settings.set('LOG_ENABLED', True)
-    #     settings.set('LOG_LEVEL', job_config.get('log_level', 'INFO'))
+    #     # configure_logging(install_root_handler=False)
+    #     # settings.set('LOG_ENABLED', True)
         
     #     # Add our custom Prefect handler to root logger
+    #     level = logging.INFO if log_level == 'INFO' else logging.DEBUG
     #     root_logger = logging.getLogger()
+    #     root_logger.addHandler(APILogHandler(level=level))
     #     scrapy_logger = logging.getLogger('scrapy')
+    #     scrapy_logger.addHandler(APILogHandler(level=level))
+    #     generic_spider_logger = logging.getLogger('generic_spider')
+    #     generic_spider_logger.addHandler(APILogHandler(level=level))
         
     #     # Remove existing handlers to avoid duplicate logs
     #     for handler in scrapy_logger.handlers[:]:
@@ -1299,21 +1517,32 @@ def run_scraping_job(job_config: Dict[str, Any]) -> Dict[str, Any]:
     settings = get_project_settings()
     
     # Apply Redis configuration
-    debug_mode_enabled = job_config.get('debug_mode', False)
+
+    settings.set('start_urls', job_config.get('start_urls', []))
+    
     settings.set('SCHEDULER', 'services.workflow_service.services.scraping.scrapy_redis_integration.RedisScheduler')
     settings.set('REDIS_URL', job_config.get('redis_url', scraping_settings.REDIS_URL))
     settings.set('USE_IN_MEMORY_QUEUE', job_config.get('use_in_memory', scraping_settings.USE_IN_MEMORY_QUEUE))
     settings.set('REDIS_QUEUE_KEY_STRATEGY', 'job')
     settings.set('SCRAPY_JOB_ID', job_config['job_id'])
     settings.set('DEBUG_MODE', debug_mode_enabled)
-    settings.set('LOG_LEVEL', job_config.get('log_level', 'INFO' if not debug_mode_enabled else 'DEBUG'))
+    settings.set('LOG_LEVEL', log_level)
     # Fix scrapy GZIP errors
     settings.set('COMPRESSION_ENABLED', False)
     # Apply job-specific settings
-    settings.set('MAX_URLS_PER_DOMAIN', job_config.get('max_urls_per_domain', 100))
-    settings.set('MAX_PROCESSED_URLS_PER_DOMAIN', job_config.get('max_processed_urls_per_domain', 0))
-    settings.set('MAX_CRAWL_DEPTH', job_config.get('max_crawl_depth', 5))
-    settings.set('CONCURRENT_REQUESTS_PER_DOMAIN', job_config.get('concurrent_requests_per_domain', 10))
+    
+    # DEBUG
+    settings.set('CONCURRENT_ITEMS', job_config.get('concurrent_items', 200))
+
+    settings.set('MAX_URLS_PER_DOMAIN', job_config.get('max_urls_per_domain', scraping_settings.DEFAULT_MAX_URLS_PER_DOMAIN))
+    settings.set('MAX_PROCESSED_URLS_PER_DOMAIN', job_config.get('max_processed_urls_per_domain', scraping_settings.DEFAULT_MAX_PROCESSED_URLS_PER_DOMAIN))
+    settings.set('MAX_CRAWL_DEPTH', job_config.get('max_crawl_depth', scraping_settings.DEFAULT_MAX_CRAWL_DEPTH))
+    concurrent_requests_per_domain = job_config.get('concurrent_requests_per_domain', 10)
+    settings.set('CONCURRENT_REQUESTS_PER_DOMAIN', concurrent_requests_per_domain)
+    
+    # DEBUG
+    settings.set('CONCURRENT_REQUESTS', job_config.get('concurrent_requests', concurrent_requests_per_domain))
+
     settings.set('CRAWL_SITEMAPS', job_config.get('crawl_sitemaps', scraping_settings.CRAWL_SITEMAPS))
     settings.set('RESPECT_ROBOTS_TXT', job_config.get('respect_robots_txt', scraping_settings.RESPECT_ROBOTS_TXT))
     settings.set('ENABLE_BLOG_URL_PATTERN_PRIORITY_BOOST', job_config.get('enable_blog_url_pattern_priority_boost', scraping_settings.DEFAULT_ENABLE_BLOG_URL_PATTERN_PRIORITY_BOOST))
@@ -1338,6 +1567,27 @@ def run_scraping_job(job_config: Dict[str, Any]) -> Dict[str, Any]:
     settings.set('PROXY_TIER_ENABLED', job_config.get('proxy_tier_enabled', scraping_settings.PROXY_TIER_ENABLED))
     settings.set('PROXY_TIER_MAX_FALLBACKS_PER_JOB', job_config.get('proxy_tier_max_fallbacks_per_job', scraping_settings.PROXY_TIER_MAX_FALLBACKS_PER_JOB))
 
+    settings.set('MONGO_PIPELINE_ENABLED', job_config.get('mongo_pipeline_enabled', scraping_settings.MONGO_PIPELINE_ENABLED))
+
+    logger.info(f"MONGO_PIPELINE_ENABLED: {settings.get('MONGO_PIPELINE_ENABLED')}")
+    
+    user = job_config.get('user', None)
+    if isinstance(user, (str, uuid.UUID)):
+        with get_db_as_manager() as db:
+            user = UserDAO().get_by_id_sync(db, uuid.UUID(user) if isinstance(user, str) else user)
+
+    settings.set('user', user)
+    settings.set('org_id', job_config.get('org_id', None))
+    settings.set('is_shared', job_config.get('is_shared', False))
+
+    date_str = job_config.get('date_str', datetime.now().strftime('%Y%m%d'))
+    settings.set('date_str', date_str)
+
+    # start_urls_uuid = MongoCustomerDataPipeline._generate_start_urls_uuid(job_config.get('start_urls', []))
+    # settings.set('start_urls_uuid', start_urls_uuid)
+
+    # MongoCustomerDataPipeline._generate_namespace_static()
+
     # Apply custom settings
     custom_settings = job_config.get('custom_settings', {})
     for key, value in custom_settings.items():
@@ -1349,20 +1599,36 @@ def run_scraping_job(job_config: Dict[str, Any]) -> Dict[str, Any]:
     
     # Create process
     process = CrawlerProcess(settings)
+    # process = CrawlerRunner(settings)
     
     # Run spider
     # spider_instance = GenericSpider()
     crawler = process.create_crawler(GenericSpider)
     process.crawl(crawler, job_config=job_config)
     process.start()
+
     stats = crawler.stats.get_stats()
+
+    namespaces = {}
+    for key, value in stats.items():
+        if key.startswith('scraping_results/namespace/'):
+            namespace = key[len('scraping_results/namespace/'):]
+            namespaces[namespace] = value
+        # del stats[key]
+
+    # get_db_as_manager
+    
+    # Log completion
+    logging.getLogger(__name__).info(f"Scraping job {job_config['job_id']} completed successfully")
 
     # Return job stats
     return {
         'job_id': job_config['job_id'],
         'status': 'completed',
-        'completed_at': datetime.utcnow().isoformat(),
+        'completed_at': datetime_now_utc().isoformat(),
         'stats': stats,
+        "result_namespaces": namespaces,
+        # 'log_file': log_filename,  # Include log file path in results
     }
 
 def push_urls_to_redis(
@@ -1434,7 +1700,7 @@ def push_urls_to_redis(
                 
                 # Track domain distribution
                 
-                domain = urlparse(url).netloc.lower()
+                domain = parse_domain_from_url(url)
                 stats['domain_distribution'][domain] = stats['domain_distribution'].get(domain, 0) + 1
             else:
                 stats['duplicates'] += 1

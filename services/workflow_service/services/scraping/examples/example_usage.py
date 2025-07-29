@@ -638,7 +638,7 @@ def example_combined_multi_site_crawl():
     return result['job_id']
 
 
-def example_predictable_output_crawl():
+async def example_predictable_output_crawl(choice: int = 0):
     """
     Example: Crawl with predictable output limits.
     
@@ -722,30 +722,79 @@ def example_predictable_output_crawl():
     
     # # Register the multi-site processor
     # PROCESSOR_REGISTRY['multi_site'] = MultiSiteProcessor
+    # Define available URL sets for random selection
+
+    """
+    [2025-07-29 12:41:26 +0530] [68903] [INFO] Booting worker with pid: 68903
+    [2025-07-29 12:41:26 +0530] [68904] [INFO] Booting worker with pid: 68904
+    [2025-07-29 12:41:26 +0530] [68905] [INFO] Booting worker with pid: 68905
+    [2025-07-29 12:41:26 +0530] [68906] [INFO] Booting worker with pid: 68906
+    """
+    url_sets = [
+        [
+            'https://otter.ai/blog',
+            'https://grain.com/blog',
+            'https://www.prefect.io',
+            'https://www.momentum.io',
+        ],
+        [
+            'https://www.prefect.io',
+            'https://www.momentum.io',
+            'https://relevanceai.com',
+            'https://www.relay.app',
+        ],
+        [
+            'https://clay.com',
+            'https://www.taskade.com',
+            'https://www.prefect.io',
+            'https://www.momentum.io',
+        ],
+        [
+            'https://relevanceai.com',
+            'https://www.relay.app',
+            'https://www.prefect.io',
+            'https://www.momentum.io',
+        ]
+    ]
+    
+    # Randomly select one of the URL sets for this scraping job
+    # This provides variety in testing different domains and site structures
+    # import random
+    # selected_urls = random.choice(url_sets)
+    selected_urls = url_sets[choice]
+
+    selected_urls_key = ",".join(sorted(selected_urls))
+    selected_urls_key = selected_urls_key.replace("https://", "").replace("www.", "").replace("/", "_")
+
+    print(f"\n\nSelected URLs: {selected_urls}\n\n")
     
     job_config = {
-        'job_id': f'predictable_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
+        'job_id': f'predictable_{selected_urls_key}_{datetime.now().strftime("%Y%m%d_%H%M%S")}',
         
-        'start_urls': [
-            'https://otter.ai/blog',
-            # 'https://crowdstrike.com',
-            'https://grain.com/blog',
-        ],
+        # Use randomly selected URLs from one of the predefined sets
+        'start_urls': selected_urls,
         # "browser_pool_enabled": False,
         
-        'allowed_domains': ['otter.ai', 'grain.com', 
-                            # 'crowdstrike.com'
-                            ],
+        # 'allowed_domains': ['otter.ai', 'grain.com', 
+        #                     # 'crowdstrike.com'
+        #                     ],
         'processor': 'default',  # multi_site  default
+
+        'org_id': '6d4f8ba9-e275-4846-8e5b-4d7f5ca14eef',
+        'user': 'e0545083-938f-4231-a2f4-dfa0840d6dfb',
+        'is_shared': False,
         
         # URL limits
-        'max_urls_per_domain': 20000,  # Allow discovering many URLs  # 20000
+        'max_urls_per_domain': 250,  # Allow discovering many URLs  # 20000
         'max_processed_urls_per_domain': 200,  # But only process 50 per domain  # 200
         'max_crawl_depth': 4,  # 4
+        # Log filtering stats
+        'debug_mode': False,
+        'log_level': 'INFO',
         
         'custom_settings': {
             'ITEM_PIPELINES': {
-                'workflow_service.services.scraping.pipelines.StreamingFilePipeline': 300,
+                'workflow_service.services.scraping.pipelines.MongoCustomerDataPipeline': 300,  # MongoCustomerDataPipeline  StreamingFilePipeline
             },
             
             'PIPELINE_BASE_DIR': 'services/workflow_service/services/scraping/data',
@@ -754,10 +803,51 @@ def example_predictable_output_crawl():
             'CONCURRENT_REQUESTS_PER_DOMAIN': 100,
             'DOWNLOAD_DELAY': 0.005,
             
-            # Log filtering stats
-            'LOG_LEVEL': 'INFO',
+            
+
         }
     }
+
+    # job_config = {
+    #     "user": "e0545083-938f-4231-a2f4-dfa0840d6dfb",
+    #     "job_id": "crawler_20250728_160351_1dcb876e",
+    #     "org_id": "6d4f8ba9-e275-4846-8e5b-4d7f5ca14eef",
+    #     "is_shared": False,
+    #     "log_level": "DEBUG",
+    #     "processor": "default",
+    #     # "redis_url": "redis://default:redis_password@redis:6379/0",
+    #     "debug_mode": True,
+    #     "start_urls": [
+    #     "https://otter.ai",
+    #     'https://grain.com',
+    #     ],
+    #     "use_in_memory": True,
+    #     "crawl_sitemaps": True,
+    #     "download_delay": 0.005,
+    #     "allowed_domains": [
+    #     "otter.ai", 'grain.com'
+    #     ],
+    #     "custom_settings": {
+    #     "LOG_LEVEL": "DEBUG",
+    #     "DOWNLOAD_DELAY": 0.005,
+    #     "ITEM_PIPELINES": {
+    #         # "workflow_service.services.scraping.pipelines.MongoCustomerDataPipeline": 300
+    #         'workflow_service.services.scraping.pipelines.StreamingFilePipeline': 300,
+    #     },
+    #     "CONCURRENT_REQUESTS_PER_DOMAIN": 100
+    #     },
+    #     "max_crawl_depth": 3,
+    #     "browser_pool_size": 5,
+    #     "respect_robots_txt": True,
+    #     "max_urls_per_domain": 100,
+    #     "browser_pool_enabled": True,
+    #     "browser_pool_timeout": 30,
+    #     "processor_init_params": {},
+    #     "mongo_pipeline_enabled": True,
+    #     "max_processed_urls_per_domain": 10,
+    #     "concurrent_requests_per_domain": 100,
+    #     "enable_blog_url_pattern_priority_boost": True
+    # }
     
     print("=" * 70)
     print("Predictable Output Crawl Example")
@@ -774,8 +864,28 @@ def example_predictable_output_crawl():
     print("- Feature pages with actual features listed")
     print("- No navigation-only or error pages")
     print()
+    # result = await asyncio.to_thread(run_scraping_job, job_config)
+    # result = run_scraping_job(job_config)
+
+    print("=== Testing RealTimeProcessExecutor ===")
+    # executor = RealTimeProcessExecutor(logger=None)
     
-    result = run_scraping_job(job_config)
+    # result, stdout, stderr = await executor.execute(
+    #     run_scraping_job,
+    #     args=(job_config,),
+    #     timeout=400.0
+    # )
+
+    from workflow_service.services.scraping.spider_client import request_scrape_and_wait
+
+    result = await request_scrape_and_wait(job_config)
+
+    print(json.dumps(result, indent=4, default=str))
+
+    # import ipdb; ipdb.set_trace()
+    
+    # print(f"\nFinal result: {result}")
+    # print(f"Complete stdout:\n{stdout}")
     
     print(f"\nCrawl completed!")
     print(f"Job ID: {result['job_id']}")
@@ -784,7 +894,7 @@ def example_predictable_output_crawl():
 
     print("\n\nStats:\n\n", json.dumps(result['stats'], indent=4, default=str))
     
-    return result['job_id']
+    return result
 
 
 def example_parallel_large_crawls():
@@ -1000,7 +1110,21 @@ if __name__ == '__main__':
     import sys
 
     # example_otter_ai_blog_crawl()  # DEBUG mode enabled for single page parsing!
-    example_predictable_output_crawl()
+    import asyncio
+    async def main():
+        results = await asyncio.gather(example_predictable_output_crawl(choice=0), 
+                #    example_predictable_output_crawl(choice=1), 
+                #    example_predictable_output_crawl(choice=2), 
+                #    example_predictable_output_crawl(choice=3)
+                   )
+        return results
+    
+    results = asyncio.run(main())
+    for result in results:
+        print(f"Job ID: {result['job_id']}")
+        print(f"Stats: {json.dumps(result['stats'], indent=4, default=str)}")
+    # example_predictable_output_crawl()
+    # example_predictable_output_crawl()
     # example_combined_multi_site_crawl()
 
     # example_otter_ai_blog_crawl()

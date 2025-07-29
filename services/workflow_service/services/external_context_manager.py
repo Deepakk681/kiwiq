@@ -340,12 +340,36 @@ async def get_customer_data_service(
     schema_template_dao: wf_crud.SchemaTemplateDAO,
 ):
     """Dependency function to instantiate CustomerDataService."""
-    from kiwi_app.workflow_app.service_customer_data import CustomerDataService
     return CustomerDataService(
         mongo_client=customer_mongo_client,
         versioned_mongo_client=versioned_mongo_client,
         schema_template_dao=schema_template_dao,
     )
+
+
+async def get_customer_data_service_no_dependency(include_versioned: bool = True) -> CustomerDataService:
+    """Dependency function to instantiate CustomerDataService."""
+    
+    mongo_client = await get_mongo_client('customer')
+    if include_versioned:
+        redis_client = await get_redis_client(decode_responses=True)
+        versioned_mongo_client = await get_customer_versioned_mongo_client(redis_client=redis_client)
+    else:
+        versioned_mongo_client = None
+    schema_template_dao = wf_crud.SchemaTemplateDAO()
+    return CustomerDataService(
+        mongo_client=mongo_client,
+        versioned_mongo_client=versioned_mongo_client,
+        schema_template_dao=schema_template_dao,
+    )
+
+async def clean_customer_data_service_no_dependency(customer_data_service: CustomerDataService):
+    """Clean up the customer data service."""
+    await customer_data_service.mongo_client.close()
+    if customer_data_service.versioned_mongo_client is not None:
+        await customer_data_service.versioned_mongo_client._redis_client.close()
+        await customer_data_service.versioned_mongo_client.client.close()
+    # logger.debug("Closed CustomerDataService mongo_client connection")
 
 
 async def get_workflow_mongo_client() -> AsyncMongoDBClient:

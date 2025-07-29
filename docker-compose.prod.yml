@@ -96,7 +96,7 @@ services:
       LOG_LEVEL: ${WEAVIATE_LOG_LEVEL:-info}
       # Production performance settings
       LIMIT_RESOURCES: ${WEAVIATE_LIMIT_RESOURCES:-true}
-      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-5700MiB}  # 5.7GB limit, ~90% of 6.25GB
+      GOMEMLIMIT: ${WEAVIATE_MEMORY_LIMIT:-4400MiB}  # 5.7GB limit, ~90% of 6.25GB
       CLUSTER_HOSTNAME: "node1"
       RAFT_BOOTSTRAP_EXPECT: "1"
       RAFT_ENABLE_ONE_NODE_RECOVERY: "true"
@@ -122,10 +122,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 5.25G   # ⬆️ from 6G (+256MB)
+          memory: 4.75G   # ⬆️ from 6G (+256MB)
           cpus: '2.0'     # unchanged
         reservations:
-          memory: 4.25G   # ⬆️ from 4G
+          memory: 3.75G   # ⬆️ from 4G
           cpus: '1.5'     # unchanged
     # Logging
     logging:
@@ -188,10 +188,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2.5G
+          memory: 2G
           cpus: '1.25'
         reservations:
-          memory: 2G
+          memory: 1.5G
           cpus: '1.0'
     # Logging
     logging:
@@ -615,10 +615,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G   # ⬆️ from 4G (+256MB)
+          memory: 9G   # ⬆️ from 4G (+256MB)
           cpus: '3.0'    # ⬆️ from 1.5 (+0.25)
         reservations:
-          memory: 6G   # ⬆️ from 2G
+          memory: 7G   # ⬆️ from 2G
           cpus: '2.0'     # unchanged
     # Logging
     logging:

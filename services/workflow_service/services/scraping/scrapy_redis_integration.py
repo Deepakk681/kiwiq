@@ -41,6 +41,9 @@ from workflow_service.services.scraping.browsers.scrapeless.scrapeless_browser i
     ScrapelessBrowserContextManager
 )
 
+# Import customer data service dependency
+from services.workflow_service.services.external_context_manager import get_customer_data_service_no_dependency, clean_customer_data_service_no_dependency
+
 
 class RedisScheduler(Scheduler):
     """
@@ -138,6 +141,12 @@ class RedisScheduler(Scheduler):
             scraping_settings.DEFAULT_COMPRESS_BODY_THRESHOLD
         )
         
+        # Browser pool will be initialized in _async_open
+        self.browser_pool = None
+        
+        # Customer data service will be initialized in _async_open
+        self.customer_data_service = None
+            
     def _get_job_id(self):
         """Get job ID from settings or generate one."""
         if self.job_id:
@@ -169,10 +178,10 @@ class RedisScheduler(Scheduler):
         self.browser_pool = None
             
         # Log queue configuration
-        spider.logger.info(
+        spider.prefect_logger.debug(
             f"Using queue key: {self.queue_key} (strategy: {self.queue_key_strategy})"
         )
-        spider.logger.info(
+        spider.prefect_logger.debug(
             f"Domain limit: {self.max_urls_per_domain}, Max depth: {self.max_crawl_depth}"
         )
         
@@ -213,11 +222,29 @@ class RedisScheduler(Scheduler):
                 # Store in crawler for other components to access
                 self.crawler._browser_pool = self.browser_pool
                 
-                self.spider.logger.info(f"Browser pool initialized and entered context with {pool_config['max_concurrent_local']} max browsers for job {self.job_id}")
+                self.spider.prefect_logger.info(f"Browser pool initialized and entered context with {pool_config['max_concurrent_local']} max browsers for job {self.job_id}")
             except Exception as e:
-                self.spider.logger.error(f"Failed to initialize browser pool: {e}")
+                self.spider.prefect_logger.error(f"Failed to initialize browser pool: {e}")
                 self.browser_pool = None
                 self.crawler._browser_pool = None
+            
+        # # Initialize customer data service if enabled
+        # if self.settings.getbool('MONGO_PIPELINE_ENABLED', True):
+        #     try:
+        #         # Initialize customer data service without versioning support for better performance
+        #         self.customer_data_service = await get_customer_data_service_no_dependency(
+        #             include_versioned=False
+        #         )
+                
+        #         # Store in crawler for other components to access
+        #         self.crawler._customer_data_service = self.customer_data_service
+                
+        #         self.spider.prefect_logger.info(f"Customer data service initialized for job {self.job_id}")
+        #     except Exception as e:
+        #         self.spider.prefect_logger.error(f"Failed to initialize customer data service: {e}")
+        #         self.customer_data_service = None
+        #         self.crawler._customer_data_service = None
+        #         raise e
             
         # Clear queue if requested
         if self.flush_on_start:
@@ -248,7 +275,7 @@ class RedisScheduler(Scheduler):
                 await redis_client.delete_multiple_patterns(patterns)
             else:
                 redis_client.delete_multiple_patterns(patterns)
-            self.spider.logger.info(f"Cleared {cleared} requests, {dupes_cleared} duplicates")
+            self.spider.prefect_logger.info(f"Cleared {cleared} requests, {dupes_cleared} duplicates")
             
         # Check for existing requests
         if is_coroutine:
@@ -256,7 +283,7 @@ class RedisScheduler(Scheduler):
         else:
             queue_len = redis_client.get_queue_length(self.queue_key)
         if queue_len:
-            self.spider.logger.info(f"Resuming crawl ({queue_len} requests scheduled)")
+            self.spider.prefect_logger.info(f"Resuming crawl ({queue_len} requests scheduled)")
 
             
     def close(self, reason):
@@ -331,7 +358,7 @@ class RedisScheduler(Scheduler):
                 cleared, dupes_cleared = redis_client.clear_queue(
                     self.queue_key, clear_dupefilter=True
                 )
-            self.spider.logger.info(f"Spider closed: cleared {cleared} requests")
+            self.spider.prefect_logger.info(f"Spider closed: cleared {cleared} requests")
             
         # Purge all spider data if configured
         if self.purge_on_close:
@@ -347,7 +374,7 @@ class RedisScheduler(Scheduler):
                 
             total_deleted = sum(deleted_counts.values())
             storage_type = "in-memory" if self.sync_redis.use_in_memory else "Redis"
-            self.spider.logger.info(
+            self.spider.prefect_logger.info(
                 f"Purged all {storage_type} data for spider: {total_deleted} keys removed"
             )
             if self.stats:
@@ -365,25 +392,38 @@ class RedisScheduler(Scheduler):
             try:
                 # Exit the context manager properly
                 await self.browser_pool.__aexit__(None, None, None)
-                self.spider.logger.info(f"Browser pool context exited and cleaned up")
+                self.spider.prefect_logger.info(f"Browser pool context exited and cleaned up")
             except Exception as e:
-                self.spider.logger.error(f"Error exiting browser pool context: {e}")
+                self.spider.prefect_logger.error(f"Error exiting browser pool context: {e}")
                 # Force cleanup on error
                 try:
                     cleaned = await self.browser_pool.cleanup_all_browsers()
-                    self.spider.logger.info(f"Force cleaned {cleaned} browsers after context exit error")
+                    self.spider.prefect_logger.info(f"Force cleaned {cleaned} browsers after context exit error")
                 except Exception as cleanup_error:
-                    self.spider.logger.error(f"Error during force cleanup: {cleanup_error}")
+                    self.spider.prefect_logger.error(f"Error during force cleanup: {cleanup_error}")
             finally:
                 self.browser_pool = None
+        
+        # Clean up customer data service if it exists
+        
+        if hasattr(self.crawler, 'customer_data_service') and self.crawler.customer_data_service:
+            try:
+                await clean_customer_data_service_no_dependency(self.crawler.customer_data_service)
+                self.spider.prefect_logger.info("Customer data service cleaned up")
+            except Exception as e:
+                self.spider.prefect_logger.error(f"Error cleaning up customer data service: {e}")
+            finally:
+                self.crawler.customer_data_service = None
         
         # Remove references from crawler
         if hasattr(self.crawler, '_redis_clients'):
             del self.crawler._redis_clients
         if hasattr(self.crawler, '_browser_pool'):
             del self.crawler._browser_pool
+        if hasattr(self.crawler, '_customer_data_service'):
+            del self.crawler._customer_data_service
             
-        self.spider.logger.info("Storage clients and browser pool closed and cleaned up")
+        self.spider.prefect_logger.info("Storage clients, browser pool, and customer data service closed and cleaned up")
             
     async def _get_domain_stats(self) -> Dict[str, int]:
         """Get statistics about domains crawled."""
@@ -449,7 +489,7 @@ class RedisScheduler(Scheduler):
         is_over = current_count >= self.max_processed_urls_per_domain
         
         if is_over and self.spider:
-            self.spider.logger.debug(
+            self.spider.prefect_logger.debug(
                 f"Domain {domain} has reached processed limit: "
                 f"{current_count}/{self.max_processed_urls_per_domain}"
             )
@@ -507,7 +547,7 @@ class RedisScheduler(Scheduler):
         # This would require implementing a Redis Lua script to efficiently
         # scan and remove URLs from a specific domain from the priority queue.
         # For now, we'll leave this as a placeholder for future optimization.
-        self.spider.logger.info(
+        self.spider.prefect_logger.info(
             f"Domain {domain} reached limit - consider implementing queue purge optimization"
         )
         return 0
@@ -599,7 +639,7 @@ class RedisScheduler(Scheduler):
         if self.max_crawl_depth > 0 and depth > self.max_crawl_depth:
             if self.stats:
                 self.stats.inc_value('scheduler/filtered/max_depth', spider=self.spider)
-            self.spider.logger.debug(f"Request filtered by max depth ({depth}): {request.url}")
+            self.spider.prefect_logger.debug(f"Request filtered by max depth ({depth}): {request.url}")
             return False
         
         # NEW: Check if spider wants to follow this URL BEFORE counting it
@@ -610,7 +650,7 @@ class RedisScheduler(Scheduler):
                 if not self.spider.processor.should_follow_link(request.url, dummy_response, self.spider):
                     if self.stats:
                         self.stats.inc_value('scheduler/filtered/should_follow', spider=self.spider)
-                    self.spider.logger.debug(f"Request filtered by should_follow_link: {request.url}")
+                    self.spider.prefect_logger.debug(f"Request filtered by should_follow_link: {request.url}")
                     return False
         
         # Extract domain for limit checking
@@ -622,7 +662,7 @@ class RedisScheduler(Scheduler):
         if is_over_processed:
             if self.stats:
                 self.stats.inc_value('scheduler/filtered/processed_limit', spider=self.spider)
-            self.spider.logger.debug(
+            self.spider.prefect_logger.debug(
                 f"Request filtered by processed limit ({domain}: {processed_count}/"
                 f"{self.max_processed_urls_per_domain}): {request.url}"
             )
@@ -646,7 +686,7 @@ class RedisScheduler(Scheduler):
                 # Either at limit or increment was rolled back
                 if self.stats:
                     self.stats.inc_value('scheduler/filtered/domain_limit', spider=self.spider)
-                self.spider.logger.debug(
+                self.spider.prefect_logger.debug(
                     f"Request filtered by domain limit ({domain}: {count}/{self.max_urls_per_domain}): {request.url}"
                 )
                 return False
@@ -708,7 +748,7 @@ class RedisScheduler(Scheduler):
                 # Skip this URL - domain has reached its limit
                 if self.stats:
                     self.stats.inc_value('scheduler/skipped/processed_limit', spider=self.spider)
-                self.spider.logger.debug(
+                self.spider.prefect_logger.debug(
                     f"Skipping URL from over-limit domain ({domain}: {processed_count}/"
                     f"{self.max_processed_urls_per_domain}): {request.url}"
                 )
@@ -725,7 +765,7 @@ class RedisScheduler(Scheduler):
         
         # If we've tried too many times, log warning
         if self.spider:
-            self.spider.logger.warning(
+            self.spider.prefect_logger.warning(
                 f"Tried {max_attempts} URLs but all were from domains over their processed limit"
             )
         
@@ -755,12 +795,12 @@ class RedisScheduler(Scheduler):
                 try:
                     memory_usage = self.sync_redis.check_memory_usage()
                     if memory_usage > 80:  # 80% threshold
-                        self.spider.logger.warning(
+                        self.spider.prefect_logger.warning(
                             f"Redis memory usage high: {memory_usage:.1f}%. "
                             f"Consider reducing queue size or increasing Redis memory limit."
                         )
                 except Exception as e:
-                    self.spider.logger.debug(f"Could not check Redis memory: {e}")
+                    self.spider.prefect_logger.debug(f"Could not check Redis memory: {e}")
         
         # Handle request body
         body = ''
@@ -772,7 +812,7 @@ class RedisScheduler(Scheduler):
             if request.method == 'GET' and self.skip_body_for_get:
                 body = ''
                 if original_body_size > 0:
-                    self.spider.logger.debug(
+                    self.spider.prefect_logger.debug(
                         f"Skipping {original_body_size} byte body for GET request: {request.url}"
                     )
             else:
@@ -786,7 +826,7 @@ class RedisScheduler(Scheduler):
                         if len(compressed) < original_body_size * 0.8:
                             body = f"gzip:{base64.b64encode(compressed).decode('utf-8')}"
                             body_compressed = True
-                            self.spider.logger.debug(
+                            self.spider.prefect_logger.debug(
                                 f"Compressed body from {original_body_size} to {len(compressed)} bytes "
                                 f"({100*(1-len(compressed)/original_body_size):.1f}% reduction) for {request.url}"
                             )
@@ -797,7 +837,7 @@ class RedisScheduler(Scheduler):
                             else:
                                 body = request.body
                     except Exception as e:
-                        self.spider.logger.warning(f"Failed to compress body: {e}")
+                        self.spider.prefect_logger.warning(f"Failed to compress body: {e}")
                         # Fallback to normal encoding
                         if isinstance(request.body, bytes):
                             body = base64.b64encode(request.body).decode('utf-8')
@@ -812,7 +852,7 @@ class RedisScheduler(Scheduler):
         
         # Log warning for large bodies
         if original_body_size > 10 * 1024:  # 10KB
-            self.spider.logger.warning(
+            self.spider.prefect_logger.warning(
                 f"Large request body ({original_body_size/1024:.1f}KB) for {request.url}. "
                 f"Consider reducing body size or using external storage."
             )
@@ -820,10 +860,10 @@ class RedisScheduler(Scheduler):
         return {
             'url': request.url,
             'method': request.method,
-            'headers': {k.decode(): [v.decode() for v in vals]
-                       for k, vals in request.headers.items()},
-            'body': body,
-            'cookies': request.cookies,
+            # 'headers': {k.decode(): [v.decode() for v in vals]
+            #            for k, vals in request.headers.items()},
+            # 'body': body,
+            # 'cookies': request.cookies,
             'meta': self._serialize_meta(request.meta),
             'priority': request.priority,
             'dont_filter': request.dont_filter,
@@ -831,7 +871,7 @@ class RedisScheduler(Scheduler):
             'errback': request.errback.__name__ if request.errback else None,
             'cb_kwargs': request.cb_kwargs if hasattr(request, 'cb_kwargs') else {},
             'flags': list(request.flags) if hasattr(request, 'flags') else [],
-            '_body_compressed': body_compressed,
+            # '_body_compressed': body_compressed,
         }
         
     def _serialize_meta(self, meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -867,7 +907,7 @@ class RedisScheduler(Scheduler):
                     compressed_data = base64.b64decode(body[5:])  # Skip 'gzip:' prefix
                     body = gzip.decompress(compressed_data)
                 except Exception as e:
-                    self.spider.logger.error(f"Failed to decompress body: {e}")
+                    self.spider.prefect_logger.error(f"Failed to decompress body: {e}")
                     body = b''  # Fallback to empty body
             else:
                 try:
@@ -879,9 +919,9 @@ class RedisScheduler(Scheduler):
         request_params = {
             'url': data['url'],
             'method': data.get('method', 'GET'),
-            'headers': data.get('headers', {}),
+            # 'headers': data.get('headers', {}),
             'body': body,
-            'cookies': data.get('cookies', {}),
+            # 'cookies': data.get('cookies', {}),
             'meta': data.get('meta', {}),
             'priority': data.get('priority', 0),
             'dont_filter': data.get('dont_filter', False),
@@ -957,6 +997,13 @@ class TieredDownloadHandler:
             return self.crawler._browser_pool
         return None
     
+    @property
+    def customer_data_service(self):
+        """Get customer data service from crawler (job-specific)."""
+        if hasattr(self.crawler, '_customer_data_service'):
+            return self.crawler._customer_data_service
+        return None
+    
     def _check_and_increment_proxy_fallback_count(self, spider: Spider) -> bool:
         """
         Check if we can use proxy fallback and increment counter if allowed.
@@ -978,7 +1025,7 @@ class TieredDownloadHandler:
         redis_client = self.sync_redis_client
         if not redis_client:
             # No Redis client, can't track - allow by default
-            spider.logger.warning("No Redis client available for proxy fallback tracking")
+            spider.prefect_logger.warning("No Redis client available for proxy fallback tracking")
             return True
             
         # Get job ID from spider or settings
@@ -1000,7 +1047,7 @@ class TieredDownloadHandler:
             )
             
             if is_over_limit:
-                spider.logger.warning(
+                spider.prefect_logger.warning(
                     f"Proxy tier fallback limit reached for job {job_id}: "
                     f"{current_count}/{self.proxy_tier_max_fallbacks}"
                 )
@@ -1008,14 +1055,14 @@ class TieredDownloadHandler:
                     self.stats.inc_value('downloader/proxy_tier/limit_exceeded', spider=spider)
                 return False
                 
-            spider.logger.debug(
+            spider.prefect_logger.debug(
                 f"Proxy tier fallback count for job {job_id}: "
                 f"{current_count}/{self.proxy_tier_max_fallbacks}"
             )
             return True
             
         except Exception as e:
-            spider.logger.error(f"Error tracking proxy tier fallback count: {e}")
+            spider.prefect_logger.error(f"Error tracking proxy tier fallback count: {e}")
             # On error, allow fallback to avoid blocking
             return True
     
@@ -1040,7 +1087,7 @@ class TieredDownloadHandler:
         redis_client = self.sync_redis_client
         if not redis_client:
             # No Redis client, can't track - allow by default
-            spider.logger.warning("No Redis client available for browser fallback tracking")
+            spider.prefect_logger.warning("No Redis client available for browser fallback tracking")
             return True
             
         # Get job ID from spider or settings
@@ -1062,7 +1109,7 @@ class TieredDownloadHandler:
             )
             
             if is_over_limit:
-                spider.logger.warning(
+                spider.prefect_logger.warning(
                     f"Browser fallback limit reached for job {job_id}: "
                     f"{current_count}/{self.browser_pool_max_fallbacks}"
                 )
@@ -1070,14 +1117,14 @@ class TieredDownloadHandler:
                     self.stats.inc_value('downloader/browser_pool/limit_exceeded', spider=spider)
                 return False
                 
-            spider.logger.debug(
+            spider.prefect_logger.debug(
                 f"Browser fallback count for job {job_id}: "
                 f"{current_count}/{self.browser_pool_max_fallbacks}"
             )
             return True
             
         except Exception as e:
-            spider.logger.error(f"Error tracking browser fallback count: {e}")
+            spider.prefect_logger.error(f"Error tracking browser fallback count: {e}")
             # On error, allow fallback to avoid blocking
             return True
         
@@ -1091,7 +1138,7 @@ class TieredDownloadHandler:
             tier = self._get_tier_for_url(request.url)
             
             # Log tier selection
-            spider.logger.debug(f"Using tier '{tier}' for {request.url}")
+            spider.prefect_logger.debug(f"Using tier '{tier}' for {request.url}")
             
             # Track tier usage
             if self.stats:
@@ -1109,7 +1156,7 @@ class TieredDownloadHandler:
                 # Check if response requires fallback (proxy tier first, then browser pool)
                 should_fallback, trigger_reason = self._should_use_browser_pool(response)
                 if should_fallback:
-                    spider.logger.info(f"Response indicates bot detection for {request.url} (status: {response.status}, trigger: {trigger_reason})")
+                    spider.prefect_logger.info(f"Response indicates bot detection for {request.url} (status: {response.status}, trigger: {trigger_reason})")
                     
                     # Track the trigger reason
                     # Note: The scheduler will track this, not the handler
@@ -1121,7 +1168,7 @@ class TieredDownloadHandler:
                     if self.proxy_tier_enabled and (not request.meta.get('proxy_tier_used', False)):
                         # Check if we're under the proxy tier fallback limit
                         if self._check_and_increment_proxy_fallback_count(spider):
-                            spider.logger.info(f"Trying proxy tier fallback for {request.url}")
+                            spider.prefect_logger.info(f"Trying proxy tier fallback for {request.url}")
                             if self.stats:
                                 self.stats.inc_value('downloader/proxy_tier/triggered', spider=spider)
                                 self.stats.inc_value(f'downloader/proxy_tier/trigger_status_{response.status}', spider=spider)
@@ -1137,11 +1184,11 @@ class TieredDownloadHandler:
                                     # Proxy tier succeeded
                                     if self.stats:
                                         self.stats.inc_value('downloader/proxy_tier/success', spider=spider)
-                                    spider.logger.info(f"Proxy tier succeeded for {request.url}")
+                                    spider.prefect_logger.info(f"Proxy tier succeeded for {request.url}")
                                     return proxy_response
                                 else:
                                     # Proxy tier also hit bot detection
-                                    spider.logger.info(f"Proxy tier also detected as bot for {request.url} (status: {proxy_response.status}, trigger: {proxy_trigger_reason})")
+                                    spider.prefect_logger.info(f"Proxy tier also detected as bot for {request.url} (status: {proxy_response.status}, trigger: {proxy_trigger_reason})")
                                     if self.stats:
                                         self.stats.inc_value('downloader/proxy_tier/still_detected_blocked', spider=spider)
                                     # Track the proxy tier trigger
@@ -1152,20 +1199,20 @@ class TieredDownloadHandler:
                                     response = proxy_response  # Update response for browser pool check
                                     
                             except Exception as e:
-                                spider.logger.error(f"Proxy tier failed: {e}")
+                                spider.prefect_logger.error(f"Proxy tier failed: {e}")
                                 if self.stats:
                                     self.stats.inc_value('downloader/proxy_tier/failed', spider=spider)
                                 # Continue to browser pool below
                         else:
                             # Proxy tier limit reached
-                            spider.logger.info(
+                            spider.prefect_logger.info(
                                 f"Proxy tier fallback skipped due to limit for {request.url} "
                                 f"(continuing to browser pool if available)"
                             )
                     
                     # Now try browser pool if enabled
                     if self.browser_pool_enabled and self.browser_pool:
-                        spider.logger.info(f"Triggering browser pool fallback for {request.url} (status: {response.status})")
+                        spider.prefect_logger.info(f"Triggering browser pool fallback for {request.url} (status: {response.status})")
                         
                         # Check if we're under the browser fallback limit
                         if self._check_and_increment_browser_fallback_count(spider):
@@ -1189,20 +1236,20 @@ class TieredDownloadHandler:
                                     response = browser_response
                                 else:
                                     # Even browser pool couldn't bypass detection
-                                    spider.logger.warning(f"Browser pool also detected as bot for {request.url}")
+                                    spider.prefect_logger.warning(f"Browser pool also detected as bot for {request.url}")
                                     if self.stats:
                                         self.stats.inc_value('downloader/browser_pool/still_blocked', spider=spider)
                                         self.stats.inc_value(f'downloader/browser_pool/failed_bypass/{trigger_reason}', spider=spider)
                                     response = browser_response  # Return browser response anyway
                                     
                             except Exception as e:
-                                spider.logger.error(f"Browser pool fallback failed: {e}")
+                                spider.prefect_logger.error(f"Browser pool fallback failed: {e}")
                                 if self.stats:
                                     self.stats.inc_value('downloader/browser_pool/failed', spider=spider)
                                 # Return the last response we have
                         else:
                             # Fallback limit reached, return current response
-                            spider.logger.info(
+                            spider.prefect_logger.info(
                                 f"Browser pool fallback skipped due to limit for {request.url} "
                                 f"(returning response with status {response.status})"
                             )
@@ -1330,7 +1377,7 @@ class TieredDownloadHandler:
             ) as browser:
                 
                 browser_instance = browser
-                spider.logger.debug(f"Browser acquired from pool for {request.url}")
+                spider.prefect_logger.debug(f"Browser acquired from pool for {request.url}")
                 
                 # Navigate to the URL
                 timeout_ms = self.settings.getint('BROWSER_POOL_TIMEOUT', scraping_settings.BROWSER_POOL_TIMEOUT) * 1000
@@ -1340,7 +1387,7 @@ class TieredDownloadHandler:
                 html = await browser.page.content()
                 final_url = browser.page.url
                 
-                spider.logger.info(f"Successfully scraped {request.url} using browser pool")
+                spider.prefect_logger.info(f"Successfully scraped {request.url} using browser pool")
                 
                 # Create response
                 response = HtmlResponse(
@@ -1362,12 +1409,12 @@ class TieredDownloadHandler:
                 return response
                 
         except asyncio.TimeoutError:
-            spider.logger.error(f"Browser pool timeout for {request.url}")
+            spider.prefect_logger.error(f"Browser pool timeout for {request.url}")
             if self.stats:
                 self.stats.inc_value('downloader/browser_pool/timeout', spider=spider)
             raise
         except Exception as e:
-            spider.logger.error(f"Browser pool download failed for {request.url}: {e}")
+            spider.prefect_logger.error(f"Browser pool download failed for {request.url}: {e}")
             if self.stats:
                 self.stats.inc_value('downloader/browser_pool/render_failed', spider=spider)
                 # Track specific error types
@@ -1398,7 +1445,7 @@ class TieredDownloadHandler:
                 url=request.url,
                 headers=headers,
                 content=request.body,
-                cookies=request.cookies,
+                # cookies=request.cookies,
             )
             
         # httpx automatically handles Content-Encoding (gzip, deflate, br)
@@ -1419,9 +1466,9 @@ class TieredDownloadHandler:
             try:
                 # Try to decompress as gzip
                 content = gzip.decompress(content)
-                spider.logger.debug(f"Decompressed gzipped file: {request.url}")
+                spider.prefect_logger.debug(f"Decompressed gzipped file: {request.url}")
             except Exception as e:
-                spider.logger.warning(f"Failed to decompress {request.url}: {e}")
+                spider.prefect_logger.warning(f"Failed to decompress {request.url}: {e}")
                 # Use original content if decompression fails
             
         return HtmlResponse(
@@ -1438,7 +1485,7 @@ class TieredDownloadHandler:
         try:
             from playwright.async_api import async_playwright
         except ImportError:
-            spider.logger.warning("Playwright not installed, falling back to basic download")
+            spider.prefect_logger.warning("Playwright not installed, falling back to basic download")
             return await self._download_basic(request, spider, use_proxy=True)
         
         # Initialize browser pool if needed
@@ -1510,7 +1557,7 @@ class TieredDownloadHandler:
                 
         except Exception as e:
             # Handle Playwright errors (e.g., browser not installed)
-            spider.logger.error(f"Playwright error: {e}, falling back to basic download")
+            spider.prefect_logger.error(f"Playwright error: {e}, falling back to basic download")
             return await self._download_basic(request, spider, use_proxy=True)
                 
     async def _discover_urls(self, page, spider: Spider) -> List[str]:
@@ -1553,7 +1600,7 @@ class TieredDownloadHandler:
             if next_url:
                 discovered_urls.add(urljoin(page.url, next_url))
                 
-        spider.logger.debug(f"Discovered {len(discovered_urls)} URLs from {page.url}")
+        spider.prefect_logger.debug(f"Discovered {len(discovered_urls)} URLs from {page.url}")
         return list(discovered_urls)
         
     async def _queue_discovered_urls(self, urls, parent_request, spider):
@@ -1569,7 +1616,7 @@ class TieredDownloadHandler:
             sync_redis = self.crawler._redis_clients.get('sync')
             
         if not redis_client and not sync_redis:
-            spider.logger.warning("No storage client available for URL discovery")
+            spider.prefect_logger.warning("No storage client available for URL discovery")
             return
             
         # Check if we're in in-memory mode
@@ -1583,7 +1630,7 @@ class TieredDownloadHandler:
             scheduler = self.crawler.engine._slot.scheduler
         
         if scheduler is None:
-            spider.logger.warning("No scheduler available for URL discovery")
+            spider.prefect_logger.warning("No scheduler available for URL discovery")
             return
             
         # Filter URLs based on allowed domains
@@ -1606,7 +1653,7 @@ class TieredDownloadHandler:
         
         # Check if new depth exceeds limit
         if scheduler.max_crawl_depth > 0 and new_depth > scheduler.max_crawl_depth:
-            spider.logger.debug(
+            spider.prefect_logger.debug(
                 f"Not queueing {len(urls)} discovered URLs - depth {new_depth} exceeds limit"
             )
             if self.stats:
@@ -1626,7 +1673,7 @@ class TieredDownloadHandler:
             # First check spider's should_follow_link
             if hasattr(spider, 'processor') and hasattr(spider.processor, 'should_follow_link'):
                 if not spider.processor.should_follow_link(url, dummy_response, spider):
-                    spider.logger.debug(f"Playwright discovered URL filtered by should_follow_link: {url}")
+                    spider.prefect_logger.debug(f"Playwright discovered URL filtered by should_follow_link: {url}")
                     urls_filtered_by_spider += 1
                     continue
             
@@ -1644,7 +1691,7 @@ class TieredDownloadHandler:
                 _, is_over = scheduler._is_domain_over_processed_limit(domain)
                 if is_over:
                     domains_over_limit.add(domain)
-                    spider.logger.debug(
+                    spider.prefect_logger.debug(
                         f"Playwright discovered URL filtered by processed limit: {url}"
                     )
                     urls_filtered_by_limit += 1
@@ -1668,7 +1715,7 @@ class TieredDownloadHandler:
                 )
             
         if not urls_to_queue:
-            spider.logger.debug("All discovered URLs filtered by processed limits")
+            spider.prefect_logger.debug("All discovered URLs filtered by processed limits")
             return
             
         # Continue with filtered URLs
@@ -1712,7 +1759,7 @@ class TieredDownloadHandler:
                 check_duplicates=True
             )
         
-        spider.logger.info(
+        spider.prefect_logger.info(
             f"Queued {queued_count}/{len(urls)} URLs discovered from {parent_request.url}"
         )
         
@@ -1747,7 +1794,7 @@ class TieredDownloadHandler:
                 path = action.get('path', 'screenshot.png')
                 await page.screenshot(path=path)
                 
-        spider.logger.debug(f"Executed {len(actions)} actions on {page.url}")
+        spider.prefect_logger.debug(f"Executed {len(actions)} actions on {page.url}")
         
     def close(self):
         """Clean up resources."""

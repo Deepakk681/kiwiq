@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import Session
 from sqlalchemy.future import select
 # TODO: FIXME: switch to below and remove scalars() call!
 # from sqlmodel import select

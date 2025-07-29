@@ -514,7 +514,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "version": null,
       "inputs": {
         "company_name": null,
-        "user_input": null
+        "user_input": null,
+        "brief_uuid": null
       },
       "user_documents_config_variables": {},
       "template_specific": false

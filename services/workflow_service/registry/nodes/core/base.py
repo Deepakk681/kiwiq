@@ -311,7 +311,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 state_update.update(central_state_output)
         else:
             # NOTE: may wanna copy this potentially!
-            state_update = output_data if output_data else state_update
+            state_update = output_data if output_data and isinstance(output_data, dict) else state_update
 
         # Add node execution order to state update
         state_update[get_central_state_field_key(NODE_EXECUTION_ORDER_KEY)] = [self.node_id]

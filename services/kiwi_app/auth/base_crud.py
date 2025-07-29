@@ -2,6 +2,7 @@ from typing import Optional, List, Sequence, Type, TypeVar, Generic
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import Session
 from sqlalchemy.future import select
 # TODO: FIXME: switch to below and remove scalars() call!
 # from sqlmodel import select
@@ -21,6 +22,11 @@ class BaseDAO(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     """
     def __init__(self, model: Type[ModelType]):
         self.model = model
+    
+    def get_by_id_sync(self, db: Session, id: uuid.UUID) -> Optional[ModelType]:
+        statement = select(self.model).where(self.model.id == id)
+        result = db.exec(statement)
+        return result.scalars().first()
 
     async def get(self, db: AsyncSession, id: uuid.UUID, load_relations: Optional[List[str]] = None) -> Optional[ModelType]:
         """Get a single record by ID, optionally loading relationships."""

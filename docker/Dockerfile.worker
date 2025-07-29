@@ -28,8 +28,15 @@ RUN poetry config virtualenvs.create false && poetry install --without dev --no-
 
 # Copy the rest of the application code
 COPY . .
-# Set execution permissions for the setup script
+# Set execution permissions for the setup script and worker entrypoint script
 RUN chmod +x /app/docker/setup.sh
+# Ensure the worker entrypoint script has proper permissions and format
+# RUN chmod 755 /app/docker/worker_entrypoint.sh
+# # Convert any potential Windows line endings to Unix format
+# RUN sed -i 's/\r$//' /app/docker/worker_entrypoint.sh || true
+# # Verify the script exists and has proper permissions
+# RUN ls -la /app/docker/worker_entrypoint.sh
+# RUN head -n 5 /app/docker/worker_entrypoint.sh
 # Copy prod env
 # NOTE: to use same cmd in local and remote, just copy local prod .env to remote machine!
 # COPY .env.prod /app/.env
@@ -42,9 +49,12 @@ WORKDIR /app
 
 RUN python -m spacy download en_core_web_sm
 
-# Default command: run the application
-# For production, you might run: poetry run python app.py
+# Default command: run both processes directly with bash
+# This starts both the workflow worker and the spider server with gunicorn
 # For testing, override the command with: PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest
 # Virtual env not needed as poetry is installed without virtual env
-CMD ["python", "services/workflow_service/services/worker.py"]
+CMD ["bash", "-c", "trap 'kill $(jobs -p) 2>/dev/null' SIGTERM SIGINT; python services/workflow_service/services/worker.py & gunicorn services.workflow_service.services.scraping.spider_server:app -c services/workflow_service/services/scraping/spider_gunicorn.conf.py & wait -n"]
+# Previous script-based approach (had permission issues):
+# CMD ["/app/docker/worker_entrypoint.sh"]
+# Previous single-process command: CMD ["python", "services/workflow_service/services/worker.py"]
 # PYTHONPATH=$(pwd):$(pwd)/services  poetry run uvicorn services.kiwi_app.main:app --host 0.0.0.0 --port 8000
