@@ -266,7 +266,7 @@ async def main_test_web_crawler(
     CRAWLER_WORKFLOW_INPUTS = {
         "start_urls": start_urls,
         # "allowed_domains": allowed_domains,
-        "max_urls_per_domain": max_processed_urls * 10,  # Discover more than we process
+        "max_urls_per_domain": max_processed_urls * 1.25,  # Discover more than we process
         "max_processed_urls_per_domain": max_processed_urls,
         "max_crawl_depth": 3,  # Reasonable depth for testing
         "use_cached_scraping_results": use_cache,
@@ -381,10 +381,10 @@ if __name__ == "__main__":
     # In interactive mode, you could add user input to select examples
 
     kwargs = {
-        "start_urls": ["https://otter.ai"],  # , 'https://grain.com/blog'
+        "start_urls": ["https://otter.ai/blog", 'https://grain.com/blog'],  # , 'https://grain.com/blog'  # 
         # "allowed_domains": ["otter.ai", "grain.com"],
-        "max_processed_urls": 200,
-        "use_cache": True,
+        "max_processed_urls": 200,  # 
+        "use_cache": False,
     }
     
     # Handle async execution
