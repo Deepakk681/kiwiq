@@ -384,6 +384,8 @@ class RedisScheduler(Scheduler):
         # Close clients
         if is_coroutine:
             await redis_client.close()
+        else:
+            await self.redis_client.close()
         # Always close sync client (it's always created)
         self.sync_redis.close()
         

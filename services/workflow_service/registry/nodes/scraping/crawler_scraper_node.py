@@ -150,8 +150,8 @@ class CrawlerScraperInput(BaseSchema):
                    "Must be valid HTTP/HTTPS URLs. "
                    "Example: ['https://example.com/blog', 'https://example.com/news']"
     )
-    allowed_domains: List[str] = Field(
-        ...,
+    allowed_domains: Optional[List[str]] = Field(
+        default=None,
         min_length=1,
         max_length=5,
         description="List of domains allowed for crawling. "
@@ -553,7 +553,6 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         job_config = {
             'job_id': job_id,
             'start_urls': input_data.start_urls,
-            'allowed_domains': input_data.allowed_domains,
             
             # Processor config
             'processor': self.config.processor,
@@ -603,6 +602,9 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 'LOG_LEVEL': self.config.log_level,
             }
         }
+
+        if input_data.allowed_domains:
+            job_config['allowed_domains'] = input_data.allowed_domains
         
         try:
             

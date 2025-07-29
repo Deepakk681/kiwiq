@@ -147,7 +147,7 @@ workflow_graph_schema = {
             "dst_node_id": "web_crawler",
             "mappings": [
                 {"src_field": "start_urls", "dst_field": "start_urls"},
-                {"src_field": "allowed_domains", "dst_field": "allowed_domains"},
+                # {"src_field": "allowed_domains", "dst_field": "allowed_domains"},
                 {"src_field": "max_urls_per_domain", "dst_field": "max_urls_per_domain"},
                 {"src_field": "max_processed_urls_per_domain", "dst_field": "max_processed_urls_per_domain"},
                 {"src_field": "max_crawl_depth", "dst_field": "max_crawl_depth"},
@@ -241,7 +241,7 @@ async def validate_crawler_output(
 
 async def main_test_web_crawler(
     start_urls: Optional[List[str]] = None,
-    allowed_domains: Optional[List[str]] = None,
+    # allowed_domains: Optional[List[str]] = None,
     max_processed_urls: int = 10,
     use_cache: bool = True
 ):
@@ -250,7 +250,6 @@ async def main_test_web_crawler(
     
     Args:
         start_urls: URLs to start crawling from (defaults to example blog)
-        allowed_domains: Domains to restrict crawling to
         max_processed_urls: Maximum URLs to process per domain
         use_cache: Whether to use cached results if available
     """
@@ -258,15 +257,15 @@ async def main_test_web_crawler(
     if not start_urls:
         start_urls = ["https://www.prefect.io/blog"]
     
-    if not allowed_domains:
-        # Extract domains from start_urls
-        from urllib.parse import urlparse
-        allowed_domains = list(set(urlparse(url).netloc for url in start_urls))
+    # if not allowed_domains:
+    #     # Extract domains from start_urls
+    #     from urllib.parse import urlparse
+    #     allowed_domains = list(set(urlparse(url).netloc for url in start_urls))
     
     # Prepare workflow inputs
     CRAWLER_WORKFLOW_INPUTS = {
         "start_urls": start_urls,
-        "allowed_domains": allowed_domains,
+        # "allowed_domains": allowed_domains,
         "max_urls_per_domain": max_processed_urls * 10,  # Discover more than we process
         "max_processed_urls_per_domain": max_processed_urls,
         "max_crawl_depth": 3,  # Reasonable depth for testing
@@ -278,7 +277,7 @@ async def main_test_web_crawler(
     test_name = "Web Crawler Scraper Test"
     print(f"\n--- Starting {test_name} ---")
     print(f"Target URLs: {start_urls}")
-    print(f"Allowed domains: {allowed_domains}")
+    # print(f"Allowed domains: {allowed_domains}")
     print(f"Max pages to scrape: {max_processed_urls}")
     print(f"Use cache: {use_cache}")
     
@@ -329,7 +328,7 @@ async def example_crawl_documentation_site():
     
     await main_test_web_crawler(
         start_urls=["https://docs.prefect.io/latest/"],
-        allowed_domains=["docs.prefect.io"],
+        # allowed_domains=["docs.prefect.io"],
         max_processed_urls=20,  # Crawl up to 20 pages
         use_cache=True
     )
@@ -343,7 +342,7 @@ async def example_crawl_blog():
     
     await main_test_web_crawler(
         start_urls=["https://blog.prefect.io/"],
-        allowed_domains=["blog.prefect.io"],
+        # allowed_domains=["blog.prefect.io"],
         max_processed_urls=15,  # Get latest 15 blog posts
         use_cache=False  # Force fresh crawl
     )
@@ -362,7 +361,7 @@ async def example_crawl_multiple_sites():
             "https://example.com/blog",
             "https://docs.example.com/"
         ],
-        allowed_domains=["example.com", "docs.example.com"],
+        # allowed_domains=["example.com", "docs.example.com"],
         max_processed_urls=50,  # Total across all domains
         use_cache=True
     )
@@ -382,8 +381,8 @@ if __name__ == "__main__":
     # In interactive mode, you could add user input to select examples
 
     kwargs = {
-        "start_urls": ["https://otter.ai"],
-        "allowed_domains": ["otter.ai"],
+        "start_urls": ["https://otter.ai/blog", 'https://grain.com/blog'],
+        # "allowed_domains": ["otter.ai", "grain.com"],
         "max_processed_urls": 200,
         "use_cache": True,
     }
