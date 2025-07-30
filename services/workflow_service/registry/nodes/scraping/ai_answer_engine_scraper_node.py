@@ -471,7 +471,8 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
             )
             
             # Extract queries from found documents that are within lookback period
-            found_queries = set()
+            # Key change: Track found queries by (query, provider) tuple
+            found_query_providers = set()  # Set of (query, provider) tuples
             found_by_category = defaultdict(list)
             
             if search_results:
@@ -480,7 +481,7 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
                     namespace = doc.metadata.namespace
                     if namespace.startswith(namespace_prefix):
                         # Extract YYYYMMDD from the end
-                        date_str = namespace.replace(namespace_prefix, '').strip('_')
+                        date_str = namespace.split("_")[-1]
                         if len(date_str) == 8 and date_str.isdigit():
                             # Parse the date
                             try:
@@ -490,7 +491,8 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
                                     if doc.document_contents and 'query' in doc.document_contents and doc.document_contents.get('success', False):
                                         # Only process successful cached results
                                         query = doc.document_contents['query']
-                                        found_queries.add(query)
+                                        provider = doc.document_contents.get('provider', 'unknown')
+                                        found_query_providers.add((query, provider))
                                         
                                         # Try to determine category
                                         for category, queries in categorized_queries.items():
@@ -515,6 +517,9 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
                 cached_results['categorized_results'] = dict(found_by_category)
             
             # Determine remaining queries that weren't found in cache
+            # Extract just the unique queries from found_query_providers
+            found_queries = set(qp[0] for qp in found_query_providers) if found_query_providers else set()
+            
             remaining_queries = {}
             for category, queries in categorized_queries.items():
                 remaining = [q for q in queries if q not in found_queries]
@@ -701,6 +706,25 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
         # Generate single date_str for consistency
         date_str = datetime.now().strftime('%Y%m%d')
         
+        # Build provider configurations first (needed for cache checking)
+        providers_config = {}
+        for provider, default_config in self.config.default_providers_config.items():
+            provider_config = ProviderConfig(**default_config)
+            
+            # Override with input config if provided
+            if input_data.providers_config and provider in input_data.providers_config:
+                input_config = input_data.providers_config[provider]
+                if 'enabled' in input_config:
+                    provider_config.enabled = input_config['enabled']
+                if 'max_retries' in input_config:
+                    provider_config.max_retries = input_config['max_retries']
+                if 'retry_delay' in input_config:
+                    provider_config.retry_delay = input_config['retry_delay']
+                if 'timeout' in input_config:
+                    provider_config.timeout = input_config['timeout']
+            
+            providers_config[provider] = provider_config
+        
         # Collect all queries for all entities
         all_queries = []
         entity_query_map = {}  # Map queries back to entities and categories
@@ -751,9 +775,30 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
                     total_cached_results += cached_info['cached_count']
                     used_any_cache = True
                     
-                    # Remove cached queries from all_queries to avoid re-querying
-                    cached_queries = [r.get('query') for r in cached_info['results'] if 'query' in r]
-                    all_queries = [q for q in all_queries if q not in cached_queries]
+                    # Only remove queries from all_queries if ALL enabled providers have cached results
+                    # First, get the list of enabled providers
+                    enabled_providers = [p for p, config in providers_config.items() if config.enabled]
+                    
+                    if 'found_query_providers' in cached_info:
+                        # Group cached results by query
+                        query_provider_map = defaultdict(set)
+                        for query, provider in cached_info['found_query_providers']:
+                            query_provider_map[query].add(provider)
+                        
+                        # Only remove queries that have cached results for ALL enabled providers
+                        fully_cached_queries = []
+                        for query in query_provider_map:
+                            cached_providers = query_provider_map[query]
+                            if all(provider in cached_providers for provider in enabled_providers):
+                                fully_cached_queries.append(query)
+                        
+                        if fully_cached_queries:
+                            self.info(f"📝 Removing {len(fully_cached_queries)} fully cached queries (cached for all {len(enabled_providers)} providers)")
+                            all_queries = [q for q in all_queries if q not in fully_cached_queries]
+                    else:
+                        # Fallback to old behavior if found_query_providers not available
+                        cached_queries = [r.get('query') for r in cached_info['results'] if 'query' in r]
+                        all_queries = [q for q in all_queries if q not in cached_queries]
                     
                     # Update entity queries to only include remaining queries
                     entity_results[entity_name]['remaining_queries'] = cached_info['remaining_queries']
@@ -791,25 +836,6 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
         # Build job configuration
         job_id = f"ai_query_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         
-        # Merge provider configurations
-        providers_config = {}
-        for provider, default_config in self.config.default_providers_config.items():
-            provider_config = ProviderConfig(**default_config)
-            
-            # Override with input config if provided
-            if input_data.providers_config and provider in input_data.providers_config:
-                input_config = input_data.providers_config[provider]
-                if 'enabled' in input_config:
-                    provider_config.enabled = input_config['enabled']
-                if 'max_retries' in input_config:
-                    provider_config.max_retries = input_config['max_retries']
-                if 'retry_delay' in input_config:
-                    provider_config.retry_delay = input_config['retry_delay']
-                if 'timeout' in input_config:
-                    provider_config.timeout = input_config['timeout']
-            
-            providers_config[provider] = provider_config
-        
         # Browser pool configuration
         browser_pool_config = {
             "browser_ttl": self.config.browser_ttl,
@@ -820,10 +846,14 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
         
         # Billing: Calculate and allocate credits for queries
         allocated_credits = 0.0
+        enabled_providers_count = sum(1 for p in providers_config.values() if p.enabled)
+        
         if len(all_queries) > 0 and self.billing_mode:
             try:
-                # Calculate estimated cost: 3 cents per query
-                estimated_cost = len(all_queries) * scraping_settings.AI_ANSWER_ENGINE_PRICE_PER_QUERY
+                # Calculate estimated cost: 3 cents per query PER PROVIDER
+                # If we have 10 queries and 3 enabled providers, that's 30 API calls
+                total_api_calls = len(all_queries) * enabled_providers_count
+                estimated_cost = total_api_calls * scraping_settings.AI_ANSWER_ENGINE_PRICE_PER_QUERY
                 
                 # Allocate credits
                 # from kiwi_app.billing.models import CreditType
@@ -839,12 +869,14 @@ class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEng
                         metadata={
                             "node_type": "ai_answer_engine_scraper",
                             "query_count": len(all_queries),
+                            "enabled_providers": enabled_providers_count,
+                            "total_api_calls": total_api_calls,
                             "price_per_query": scraping_settings.AI_ANSWER_ENGINE_PRICE_PER_QUERY,
                         }
                     )
                     allocated_credits = estimated_cost  # allocation_result.allocated_credits
                 
-                self.info(f"💳 Allocated ${allocated_credits:.4f} for {len(all_queries)} queries")
+                self.info(f"💳 Allocated ${allocated_credits:.4f} for {len(all_queries)} queries × {enabled_providers_count} providers = {total_api_calls} API calls")
                 
             except InsufficientCreditsException as e:
                 self.error(f"❌ Insufficient credits: {str(e)}")

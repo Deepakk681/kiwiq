@@ -40,17 +40,24 @@ Unlike web scraping, AI provider queries **consume API resources** and may incur
 
 The AI Answer Engine Scraper node uses a **flat-rate billing model**:
 
-- **Cost**: $0.03 per query (3 cents per query)
-- **Same rate for all providers**: Google, OpenAI, and Perplexity all cost the same per query
-- **Cached queries are free**: Only new queries consume credits
-- **Credit allocation**: Credits are allocated before queries execute
-- **Credit adjustment**: After execution, credits are adjusted based on successful queries only
+- **Cost**: $0.03 per query per provider (3 cents per API call)
+- **Important**: Each query is sent to ALL enabled providers
+- **Total cost**: Number of queries × Number of enabled providers × $0.03
+- **Cached queries are free**: Only queries without cached results for ALL enabled providers consume credits
+- **Credit allocation**: Credits are allocated before queries execute based on total API calls
+- **Credit adjustment**: After execution, credits are adjusted based on successful API calls only
 - **Failed queries don't charge**: You're only charged for successful query results
 
 **Example Cost Calculation**:
-- 10 entities × 5 query templates = 50 queries
-- If 20 queries are served from cache: 30 new queries
-- Cost: 30 × $0.03 = $0.90
+- 10 entities × 5 query templates = 50 unique queries
+- 3 enabled providers (Google, OpenAI, Perplexity)
+- Total API calls: 50 × 3 = 150 calls
+- Cost: 150 × $0.03 = $4.50
+
+**Cache Optimization**:
+- A query is only skipped if cached results exist for ALL enabled providers
+- If you have cached results from Google but not OpenAI, the query will still be executed for all providers
+- To maximize cache usage, keep your provider configuration consistent between runs
 
 **Insufficient Credits**: If you don't have enough credits, the node will fail with an error before executing any queries.
 
