@@ -11,11 +11,11 @@ from datetime import datetime
 import logging
 
 from workflow_service.services.scraping.browsers.config import DEFAULT_ENTITY_PREFIX, MAX_CONCURRENT_SCRAPELESS_BROWSERS, ACQUISITION_TIMEOUT
-
+from global_config.logger import get_prefect_or_regular_python_logger
 # Import profile management
 from workflow_service.services.scraping.browsers.scrapeless.profiles import ScrapelessProfileManager, ProfileData
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 from global_config.settings import global_settings
@@ -59,6 +59,7 @@ class ScrapelessBrowser:
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.page: Page = None
+        self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
 
 
     def build_connection_url(
@@ -103,7 +104,7 @@ class ScrapelessBrowser:
             query["profile_persist"] = "true"
 
         url = f"wss://browser.scrapeless.com/browser?{urlencode(query)}"
-        logger.info(f"Connection URL: {url}")
+        self.logger.info(f"Connection URL: {url}")
         return url
 
     async def _setup_resource_blocking(self) -> None:
@@ -125,7 +126,7 @@ class ScrapelessBrowser:
         
         if self.intercept_images:
             blocked_types.add('image')
-            logger.debug("Image resources will be blocked")
+            self.logger.debug("Image resources will be blocked")
             
         if self.intercept_media:
             # Block various media and non-essential resource types
@@ -133,7 +134,7 @@ class ScrapelessBrowser:
                 'media', 
                 'font',
             ])
-            logger.debug("Media resources will be blocked")
+            self.logger.debug("Media resources will be blocked")
         
         async def route_handler(route: Route, request: Request):
             """
@@ -148,7 +149,7 @@ class ScrapelessBrowser:
             if resource_type in blocked_types:
                 # Block the request by aborting it
                 await route.abort()
-                logger.debug(f"Blocked {resource_type} request: {request.url}")
+                self.logger.debug(f"Blocked {resource_type} request: {request.url}")
             else:
                 # Allow the request to continue
                 await route.continue_()
@@ -156,9 +157,9 @@ class ScrapelessBrowser:
         try:
             # Set up route interception on the page context
             await self.context.route("**/*", route_handler)
-            logger.info(f"Resource blocking configured - Images: {self.intercept_images}, Media: {self.intercept_media}")
+            self.logger.info(f"Resource blocking configured - Images: {self.intercept_images}, Media: {self.intercept_media}")
         except Exception as e:
-            logger.error(f"Failed to set up resource blocking: {e}")
+            self.logger.error(f"Failed to set up resource blocking: {e}")
             # Don't raise the exception as this is not critical for basic functionality
     
     async def start_session(
@@ -326,6 +327,7 @@ class ScrapelessBrowserPool:
         
         # Redis pool key for resource management
         self.pool_key = scraping_settings.SCRAPELESS_BROWSERS_POOL_KEY
+        self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
         
         # Profile management
         if self.use_profiles:
@@ -351,7 +353,7 @@ class ScrapelessBrowserPool:
         self._cleanup_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()  # For thread-safe pool operations
         
-        logger.info(
+        self.logger.info(
             f"ScrapelessBrowserPool initialized: {self.pool_id}, "
             f"max_concurrent={max_concurrent}, effective_max={self.effective_max_concurrent}, "
             f"use_profiles={use_profiles}, persist_profile={persist_profile}, "
@@ -369,15 +371,15 @@ class ScrapelessBrowserPool:
             True if pool was successfully reset, False otherwise
         """
         try:
-            logger.warning(f"Force cleaning up Redis pool: {self.pool_key}")
+            self.logger.warning(f"Force cleaning up Redis pool: {self.pool_key}")
             success = await self.redis_client.reset_pool(self.pool_key)
             if success:
-                logger.info(f"Successfully reset Redis pool: {self.pool_key}")
+                self.logger.info(f"Successfully reset Redis pool: {self.pool_key}")
             else:
-                logger.warning(f"Failed to reset Redis pool: {self.pool_key}")
+                self.logger.warning(f"Failed to reset Redis pool: {self.pool_key}")
             return success
         except Exception as e:
-            logger.error(f"Error force cleaning up Redis pool {self.pool_key}: {e}")
+            self.logger.error(f"Error force cleaning up Redis pool {self.pool_key}: {e}")
             return False
     
     async def _acquire_redis_resource(self) -> Optional[str]:
@@ -397,14 +399,14 @@ class ScrapelessBrowserPool:
             )
             
             if success and allocation_id:
-                logger.info(f"✅ Redis resource acquired. Allocation ID: {allocation_id}, Current usage: {current_usage}/{self.max_concurrent}")
+                self.logger.info(f"✅ Redis resource acquired. Allocation ID: {allocation_id}, Current usage: {current_usage}/{self.max_concurrent}")
                 return allocation_id
             else:
-                logger.warning(f"❌ Redis resource acquisition failed. Current usage: {current_usage}/{self.max_concurrent}")
+                self.logger.warning(f"❌ Redis resource acquisition failed. Current usage: {current_usage}/{self.max_concurrent}")
                 return None
                 
         except Exception as e:
-            logger.error(f"Error acquiring Redis resource: {e}", exc_info=True)
+            self.logger.error(f"Error acquiring Redis resource: {e}", exc_info=True)
             return None
     
     async def _release_redis_resource(self, allocation_id: str) -> bool:
@@ -424,14 +426,14 @@ class ScrapelessBrowserPool:
             )
             
             if success:
-                logger.info(f"✅ Redis resource released. Allocation ID: {allocation_id}, Released: {released_count}, Current usage: {current_usage}")
+                self.logger.info(f"✅ Redis resource released. Allocation ID: {allocation_id}, Released: {released_count}, Current usage: {current_usage}")
                 return True
             else:
-                logger.warning(f"❌ Redis resource release failed for allocation ID: {allocation_id}")
+                self.logger.warning(f"❌ Redis resource release failed for allocation ID: {allocation_id}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error releasing Redis resource for allocation {allocation_id}: {e}", exc_info=True)
+            self.logger.error(f"Error releasing Redis resource for allocation {allocation_id}: {e}", exc_info=True)
             return False
     
     async def _create_new_browser(self, session_config: Optional[Dict] = None) -> Dict:
@@ -452,11 +454,11 @@ class ScrapelessBrowserPool:
             try:
                 allocated_profile = await self.profile_manager.allocate_profile()
                 if allocated_profile:
-                    logger.debug(f"Pre-allocated profile for browser: {allocated_profile.name}")
+                    self.logger.debug(f"Pre-allocated profile for browser: {allocated_profile.name}")
                 else:
-                    logger.warning("Failed to pre-allocate profile, browser will proceed without profile")
+                    self.logger.warning("Failed to pre-allocate profile, browser will proceed without profile")
             except Exception as e:
-                logger.error(f"Error pre-allocating profile: {e}")
+                self.logger.error(f"Error pre-allocating profile: {e}")
         
         # Create browser instance with profile configuration
         browser = ScrapelessBrowser(
@@ -486,7 +488,7 @@ class ScrapelessBrowserPool:
             'allocated_profile': allocated_profile  # Store profile reference for cleanup
         }
         
-        logger.info(f"🌐 Created new browser: {session_id} with profile: {allocated_profile.name if allocated_profile else 'None'}")
+        self.logger.info(f"🌐 Created new browser: {session_id} with profile: {allocated_profile.name if allocated_profile else 'None'}")
         return metadata
     
     async def _check_browser_expired(self, browser_data: Dict) -> bool:
@@ -513,14 +515,14 @@ class ScrapelessBrowserPool:
         session_id = browser_data.get('session_id', 'unknown')
         allocation_id = browser_data.get('redis_allocation_id')
         
-        logger.info(f"🧹 Cleaning up expired browser: {session_id}, allocation_id: {allocation_id}")
+        self.logger.info(f"🧹 Cleaning up expired browser: {session_id}, allocation_id: {allocation_id}")
         
         # Always try to release Redis resource first
         if allocation_id:
             try:
                 await self._release_redis_resource(allocation_id)
             except Exception as e:
-                logger.error(f"Failed to release Redis resource during cleanup for {session_id}: {e}")
+                self.logger.error(f"Failed to release Redis resource during cleanup for {session_id}: {e}")
         
         try:
             # Close browser session with profile cleanup
@@ -533,16 +535,16 @@ class ScrapelessBrowserPool:
                 self.profile_manager):
                 try:
                     await self.profile_manager.release_profile(allocated_profile.profile_id)
-                    logger.debug(f"Released profile during cleanup: {allocated_profile.name}")
+                    self.logger.debug(f"Released profile during cleanup: {allocated_profile.name}")
                 except Exception as e:
-                    logger.error(f"Error releasing profile during cleanup: {e}")
+                    self.logger.error(f"Error releasing profile during cleanup: {e}")
             
             # Decrement local counter if this was an active browser
             if browser_data['session_id'] in self._active_browsers:
                 self._local_active_count = max(0, self._local_active_count - 1)
-            logger.info(f"✅ Successfully cleaned up expired browser: {session_id}")
+            self.logger.info(f"✅ Successfully cleaned up expired browser: {session_id}")
         except Exception as e:
-            logger.error(f"Error cleaning up expired browser {session_id}: {e}", exc_info=True)
+            self.logger.error(f"Error cleaning up expired browser {session_id}: {e}", exc_info=True)
     
     async def _cleanup_expired_browsers(self):
         """
@@ -570,7 +572,7 @@ class ScrapelessBrowserPool:
                 await asyncio.sleep(60)  # Check every minute
                 
             except Exception as e:
-                logger.error(f"Error in cleanup task: {e}")
+                self.logger.error(f"Error in cleanup task: {e}")
                 await asyncio.sleep(60)
     
     async def acquire_browser(
@@ -618,12 +620,12 @@ class ScrapelessBrowserPool:
                     browser_data['use_count'] += 1
                     self._active_browsers[browser_data['session_id']] = browser_data
                     self._local_active_count += 1
-                    logger.info(f"♻️ Reused browser from pool: {browser_data['session_id']}")
+                    self.logger.info(f"♻️ Reused browser from pool: {browser_data['session_id']}")
                     return browser_data
                 
                 # Check local concurrency limit before attempting to create new browser
                 if self._local_active_count >= self.effective_max_concurrent:
-                    logger.debug(f"Local concurrency limit reached: {self._local_active_count}/{self.effective_max_concurrent}")
+                    self.logger.debug(f"Local concurrency limit reached: {self._local_active_count}/{self.effective_max_concurrent}")
                     # Continue to retry loop, don't try to create new browser
                     await asyncio.sleep(0.5)
                     continue
@@ -657,7 +659,7 @@ class ScrapelessBrowserPool:
                     
                 except Exception as e:
                     # Browser creation failed, cleanup
-                    logger.error(f"❌ Failed to create new browser: {e}", exc_info=True)
+                    self.logger.error(f"❌ Failed to create new browser: {e}", exc_info=True)
                     await self._release_redis_resource(allocation_id)
                     # Release the local slot we reserved
                     async with self._lock:
@@ -666,14 +668,14 @@ class ScrapelessBrowserPool:
                     
             except Exception as e:
                 # Unexpected error, release the local slot
-                logger.error(f"Unexpected error during browser acquisition: {e}", exc_info=True)
+                self.logger.error(f"Unexpected error during browser acquisition: {e}", exc_info=True)
                 async with self._lock:
                     self._local_active_count = max(0, self._local_active_count - 1)
             
             # Wait a bit before retrying
             await asyncio.sleep(0.5)
         
-        logger.warning(f"Browser acquisition timed out after {timeout}s")
+        self.logger.warning(f"Browser acquisition timed out after {timeout}s")
         return None
     
     async def release_browser(self, browser_data: Dict) -> bool:
@@ -706,7 +708,7 @@ class ScrapelessBrowserPool:
                 # Add back to available pool
                 browser_data['last_used'] = datetime.now()
                 self._available_browsers.append(browser_data)
-                logger.debug(f"Browser returned to pool: {session_id}")
+                self.logger.debug(f"Browser returned to pool: {session_id}")
                 return True
             else:
                 # Close the browser and release all resources
@@ -724,17 +726,17 @@ class ScrapelessBrowserPool:
                         self.profile_manager):
                         try:
                             await self.profile_manager.release_profile(allocated_profile.profile_id)
-                            logger.debug(f"Released profile during browser release: {allocated_profile.name}")
+                            self.logger.debug(f"Released profile during browser release: {allocated_profile.name}")
                         except Exception as e:
-                            logger.error(f"Error releasing profile during browser release: {e}")
+                            self.logger.error(f"Error releasing profile during browser release: {e}")
                     
                     if is_expired:
-                        logger.debug(f"Browser closed due to expiration: {session_id}")
+                        self.logger.debug(f"Browser closed due to expiration: {session_id}")
                     else:
-                        logger.debug(f"Browser closed and resource released: {session_id}")
+                        self.logger.debug(f"Browser closed and resource released: {session_id}")
                     return True
                 except Exception as e:
-                    logger.error(f"Error closing browser {session_id}: {e}")
+                    self.logger.error(f"Error closing browser {session_id}: {e}")
                     # Still try to release resources even if browser close failed
                     if allocation_id:
                         await self._release_redis_resource(allocation_id)
@@ -791,14 +793,14 @@ class ScrapelessBrowserPool:
                     self.profile_manager):
                     try:
                         await self.profile_manager.release_profile(allocated_profile.profile_id)
-                        logger.debug(f"Force released profile: {allocated_profile.name}")
+                        self.logger.debug(f"Force released profile: {allocated_profile.name}")
                     except Exception as e:
-                        logger.error(f"Error force releasing profile: {e}")
+                        self.logger.error(f"Error force releasing profile: {e}")
                 
-                logger.info(f"Browser force closed: {session_id}")
+                self.logger.info(f"Browser force closed: {session_id}")
                 return True
             except Exception as e:
-                logger.error(f"Error force closing browser {session_id}: {e}")
+                self.logger.error(f"Error force closing browser {session_id}: {e}")
                 # Still release resources even if browser close failed
                 if allocation_id:
                     await self._release_redis_resource(allocation_id)
@@ -818,7 +820,7 @@ class ScrapelessBrowserPool:
         Returns:
             Number of browsers cleaned up
         """
-        logger.info(f"🧹 Starting cleanup of all browsers in pool: {self.pool_id}")
+        self.logger.info(f"🧹 Starting cleanup of all browsers in pool: {self.pool_id}")
         
         async with self._lock:
             total_cleaned = 0
@@ -835,7 +837,7 @@ class ScrapelessBrowserPool:
                         await self._release_redis_resource(allocation_id)
                         total_redis_resources_released += 1
                     except Exception as e:
-                        logger.error(f"Failed to release Redis resource for {session_id}: {e}")
+                        self.logger.error(f"Failed to release Redis resource for {session_id}: {e}")
                 
                 try:
                     # Close with profile cleanup
@@ -849,11 +851,11 @@ class ScrapelessBrowserPool:
                         try:
                             await self.profile_manager.release_profile(allocated_profile.profile_id)
                         except Exception as e:
-                            logger.error(f"Error releasing profile during cleanup: {e}")
+                            self.logger.error(f"Error releasing profile during cleanup: {e}")
                     
                     total_cleaned += 1
                 except Exception as e:
-                    logger.error(f"Error cleaning up browser {session_id}: {e}", exc_info=True)
+                    self.logger.error(f"Error cleaning up browser {session_id}: {e}", exc_info=True)
             
             self._available_browsers.clear()
             
@@ -868,7 +870,7 @@ class ScrapelessBrowserPool:
                         await self._release_redis_resource(allocation_id)
                         total_redis_resources_released += 1
                     except Exception as e:
-                        logger.error(f"Failed to release Redis resource for active browser {session_id}: {e}")
+                        self.logger.error(f"Failed to release Redis resource for active browser {session_id}: {e}")
                 
                 try:
                     # Close with profile cleanup
@@ -882,18 +884,18 @@ class ScrapelessBrowserPool:
                         try:
                             await self.profile_manager.release_profile(allocated_profile.profile_id)
                         except Exception as e:
-                            logger.error(f"Error releasing profile during cleanup: {e}")
+                            self.logger.error(f"Error releasing profile during cleanup: {e}")
                     
                     total_cleaned += 1
                 except Exception as e:
-                    logger.error(f"Error cleaning up active browser {session_id}: {e}", exc_info=True)
+                    self.logger.error(f"Error cleaning up active browser {session_id}: {e}", exc_info=True)
             
             self._active_browsers.clear()
             
             # Reset local counter
             self._local_active_count = 0
             
-            logger.info(f"✅ Cleaned up {total_cleaned} browsers, released {total_redis_resources_released} Redis resources from pool: {self.pool_id}")
+            self.logger.info(f"✅ Cleaned up {total_cleaned} browsers, released {total_redis_resources_released} Redis resources from pool: {self.pool_id}")
             return total_cleaned
     
     async def get_pool_status(self) -> Dict:
@@ -909,7 +911,7 @@ class ScrapelessBrowserPool:
             try:
                 redis_pool_info = await self.redis_client.get_pool_info(self.pool_key)
             except Exception as e:
-                logger.error(f"Error getting Redis pool info: {e}")
+                self.logger.error(f"Error getting Redis pool info: {e}")
                 redis_pool_info = {'error': str(e)}
             
             # Get profile manager stats if available
@@ -918,7 +920,7 @@ class ScrapelessBrowserPool:
                 try:
                     profile_stats = await self.profile_manager.get_stats()
                 except Exception as e:
-                    logger.error(f"Error getting profile stats: {e}")
+                    self.logger.error(f"Error getting profile stats: {e}")
                     profile_stats = {'error': str(e)}
             
             return {
@@ -951,16 +953,16 @@ class ScrapelessBrowserPool:
             try:
                 # Open profile manager (this initializes it if needed)
                 await self.profile_manager.open()
-                logger.info(f"Profile manager initialized for pool: {self.pool_id}")
+                self.logger.info(f"Profile manager initialized for pool: {self.pool_id}")
             except Exception as e:
-                logger.error(f"Failed to initialize profile manager: {e}")
+                self.logger.error(f"Failed to initialize profile manager: {e}")
                 # Continue without profiles if profile manager fails
                 self.use_profiles = False
         
         # Start cleanup task
         self._cleanup_task = asyncio.create_task(self._cleanup_expired_browsers())
         
-        logger.info(f"ScrapelessBrowserPool activated with keep-alive: {self.pool_id}")
+        self.logger.info(f"ScrapelessBrowserPool activated with keep-alive: {self.pool_id}")
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -986,11 +988,11 @@ class ScrapelessBrowserPool:
         if self.use_profiles and self.profile_manager and self._profile_manager_owned:
             try:
                 await self.profile_manager.close()
-                logger.info(f"Profile manager closed for pool: {self.pool_id}")
+                self.logger.info(f"Profile manager closed for pool: {self.pool_id}")
             except Exception as e:
-                logger.error(f"Error closing profile manager: {e}")
+                self.logger.error(f"Error closing profile manager: {e}")
         
-        logger.info(f"ScrapelessBrowserPool deactivated and cleaned up: {self.pool_id}")
+        self.logger.info(f"ScrapelessBrowserPool deactivated and cleaned up: {self.pool_id}")
 
 
 async def cleanup_scrapeless_redis_pool(redis_url: Optional[str] = None) -> bool:
@@ -1008,6 +1010,7 @@ async def cleanup_scrapeless_redis_pool(redis_url: Optional[str] = None) -> bool
     Returns:
         True if cleanup was successful, False otherwise
     """
+    logger = get_prefect_or_regular_python_logger(__name__)
     try:
         from redis_client.redis_client import AsyncRedisClient
         from global_config.settings import global_settings
@@ -1066,6 +1069,7 @@ class ScrapelessBrowserContextManager:
         self.timeout = timeout
         self.session_config = session_config or {}
         self.force_close_on_error = force_close_on_error
+        self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
         
         # Profile settings - use provided overrides or inherit from pool
         self.use_profiles = use_profiles if use_profiles is not None else pool.use_profiles
@@ -1139,7 +1143,7 @@ class ScrapelessBrowserContextManager:
             )
             
             if should_force_close:
-                logger.info(f"Force closing browser due to {'explicit request' if self._force_close_requested else 'exception'}: {exc_type}")
+                self.logger.info(f"Force closing browser due to {'explicit request' if self._force_close_requested else 'exception'}: {exc_type}")
                 await self.pool.force_close_browser(self.browser_data)
             else:
                 await self.pool.release_browser(self.browser_data)

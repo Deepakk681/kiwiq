@@ -20,12 +20,9 @@ from workflow_service.services.scraping.browsers.actors.openai_logged_out import
 from workflow_service.services.scraping.settings import scraping_settings
 from workflow_service.services.scraping.browsers.config import MAX_CONCURRENT_SCRAPELESS_BROWSERS, ACQUISITION_TIMEOUT, BROWSER_TTL
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from global_config.logger import get_prefect_or_regular_python_logger
+
+
 
 
 @dataclass
@@ -69,6 +66,7 @@ class MultiProviderQueryEngine:
             output_file: JSON output file name (defaults to timestamped file)
             data_dir: Output directory (defaults to data subdir relative to this file)
         """
+        self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
         self.queries = queries
         
         # Set up default provider configurations
@@ -105,11 +103,11 @@ class MultiProviderQueryEngine:
             "perplexity": PerplexityBrowserActor,
         }
         
-        logger.info(f"MultiProviderQueryEngine initialized:")
-        logger.info(f"  📋 Queries: {len(queries)}")
-        logger.info(f"  🌐 Enabled providers: {[p for p, cfg in self.providers_config.items() if cfg.enabled]}")
-        logger.info(f"  🔄 Max concurrent browsers: {max_concurrent_browsers}")
-        logger.info(f"  💾 Output file: {self.output_file}")
+        self.logger.info(f"MultiProviderQueryEngine initialized:")
+        self.logger.info(f"  📋 Queries: {len(queries)}")
+        self.logger.info(f"  🌐 Enabled providers: {[p for p, cfg in self.providers_config.items() if cfg.enabled]}")
+        self.logger.info(f"  🔄 Max concurrent browsers: {max_concurrent_browsers}")
+        self.logger.info(f"  💾 Output file: {self.output_file}")
     
     async def process_all_queries(self) -> Dict[str, Any]:
         """
@@ -119,7 +117,7 @@ class MultiProviderQueryEngine:
             Dictionary containing all results and metadata
         """
         start_time = datetime.now()
-        logger.info(f"🚀 Starting query processing at {start_time.isoformat()}")
+        self.logger.info(f"🚀 Starting query processing at {start_time.isoformat()}")
         
         all_results = {
             "metadata": {
@@ -145,7 +143,7 @@ class MultiProviderQueryEngine:
         # This saves resources by not keeping browsers alive unnecessarily
         enable_keep_alive = total_queries_to_execute > self.max_concurrent_browsers
         
-        logger.info(f"🔧 Keep-alive optimization: {'ENABLED' if enable_keep_alive else 'DISABLED'} "
+        self.logger.info(f"🔧 Keep-alive optimization: {'ENABLED' if enable_keep_alive else 'DISABLED'} "
                    f"(queries: {total_queries_to_execute}, browsers: {self.max_concurrent_browsers})")
         
         # Create and configure browser pool
@@ -159,20 +157,20 @@ class MultiProviderQueryEngine:
         
         # Process queries with browser pool keep-alive
         async with ScrapelessBrowserPool(**pool_config) as browser_pool:
-            logger.info(f"🔄 Browser pool activated with keep-alive {'ENABLED' if enable_keep_alive else 'DISABLED'}")
+            self.logger.info(f"🔄 Browser pool activated with keep-alive {'ENABLED' if enable_keep_alive else 'DISABLED'}")
             disabled_providers = [name for name, config in self.providers_config.items() if not config.enabled]
             
             if disabled_providers:
-                logger.info(f"⏸️ Disabled providers: {', '.join(disabled_providers)}")
+                self.logger.info(f"⏸️ Disabled providers: {', '.join(disabled_providers)}")
             
             if not enabled_providers:
-                logger.warning("⚠️ No providers enabled! Nothing to process.")
+                self.logger.warning("⚠️ No providers enabled! Nothing to process.")
                 return all_results
             
             total_tasks = len(self.queries) * len(enabled_providers)
-            logger.info(f"🚀 Processing {len(self.queries)} queries across {len(enabled_providers)} providers "
+            self.logger.info(f"🚀 Processing {len(self.queries)} queries across {len(enabled_providers)} providers "
                        f"({total_tasks} total tasks) in FULL PARALLEL mode")
-            logger.info(f"🔄 Browser pool capacity: {browser_pool.effective_max_concurrent} concurrent browsers")
+            self.logger.info(f"🔄 Browser pool capacity: {browser_pool.effective_max_concurrent} concurrent browsers")
             
             # Create tasks for ALL queries across ALL providers simultaneously
             all_tasks = []
@@ -200,7 +198,7 @@ class MultiProviderQueryEngine:
                         "query": query
                     })
             
-            logger.info(f"⏳ Executing {len(all_tasks)} tasks across ALL providers in parallel...")
+            self.logger.info(f"⏳ Executing {len(all_tasks)} tasks across ALL providers in parallel...")
             
             try:
                 # Execute ALL tasks across ALL providers simultaneously
@@ -216,7 +214,7 @@ class MultiProviderQueryEngine:
                     
                     # Handle exceptions that occurred during parallel execution
                     if isinstance(result, Exception):
-                        logger.error(f"❌ {provider_name.upper()} Query {metadata['query_index']+1} "
+                        self.logger.error(f"❌ {provider_name.upper()} Query {metadata['query_index']+1} "
                                    f"failed with exception: {result}")
                         # Create a failure result for this query
                         failure_result = {
@@ -256,12 +254,12 @@ class MultiProviderQueryEngine:
                         "average_duration_seconds": avg_duration
                     }
                     
-                    logger.info(f"✅ {provider_name.upper()}: {successful_queries}/{len(self.queries)} queries "
+                    self.logger.info(f"✅ {provider_name.upper()}: {successful_queries}/{len(self.queries)} queries "
                               f"({successful_queries/len(self.queries)*100:.1f}%) in {total_duration:.1f}s "
                               f"(avg: {avg_duration:.1f}s/query)")
                 
             except Exception as e:
-                logger.error(f"❌ Fatal error during cross-provider parallel processing: {e}", exc_info=True)
+                self.logger.error(f"❌ Fatal error during cross-provider parallel processing: {e}", exc_info=True)
                 # Record the global error
                 all_results["errors"]["global_parallel_processing"] = {
                     "error": str(e),
@@ -277,7 +275,7 @@ class MultiProviderQueryEngine:
         # # Save results to JSON
         # self._save_results_to_json(all_results)
         
-        logger.info(f"🎉 Query processing completed in {all_results['metadata']['total_duration_seconds']:.2f}s")
+        self.logger.info(f"🎉 Query processing completed in {all_results['metadata']['total_duration_seconds']:.2f}s")
         
         return all_results
     
@@ -322,7 +320,7 @@ class MultiProviderQueryEngine:
             result["attempts"] = attempt + 1
             
             try:
-                logger.debug(f"  🔄 Attempt {attempt + 1}/{provider_config.max_retries + 1}")
+                self.logger.debug(f"  🔄 Attempt {attempt + 1}/{provider_config.max_retries + 1}")
                 
                 # Acquire browser with context manager and retry support
                 async with ScrapelessBrowserContextManager(
@@ -353,7 +351,7 @@ class MultiProviderQueryEngine:
                         result["duration_seconds"] = time.time() - start_time
                         result["end_time"] = datetime.now().isoformat()
                         
-                        logger.info(f"  ✅ Success on attempt {attempt + 1}")
+                        self.logger.info(f"  ✅ Success on attempt {attempt + 1}")
                         return result
                         
                     except asyncio.TimeoutError:
@@ -361,7 +359,7 @@ class MultiProviderQueryEngine:
                         
             except Exception as e:
                 error_msg = str(e)
-                logger.warning(f"  ❌ Attempt {attempt + 1} failed: {error_msg}")
+                self.logger.warning(f"  ❌ Attempt {attempt + 1} failed: {error_msg}")
                 
                 result["error"] = {
                     "message": error_msg,
@@ -372,10 +370,10 @@ class MultiProviderQueryEngine:
                 # If this is not the last attempt, wait before retrying
                 if attempt < provider_config.max_retries:
                     retry_delay = provider_config.retry_delay * (2 ** attempt)  # Exponential backoff
-                    logger.debug(f"  ⏳ Retrying in {retry_delay:.1f}s...")
+                    self.logger.debug(f"  ⏳ Retrying in {retry_delay:.1f}s...")
                     await asyncio.sleep(retry_delay)
                 else:
-                    logger.error(f"  ❌ All {provider_config.max_retries + 1} attempts failed", exc_info=True)
+                    self.logger.error(f"  ❌ All {provider_config.max_retries + 1} attempts failed", exc_info=True)
         
         result["duration_seconds"] = time.time() - start_time
         result["end_time"] = datetime.now().isoformat()
@@ -462,9 +460,9 @@ class MultiProviderQueryEngine:
                 backup_file = f"{self.output_file}.backup"
                 try:
                     os.rename(self.output_file, backup_file)
-                    logger.debug(f"📋 Created backup: {backup_file}")
+                    self.logger.debug(f"📋 Created backup: {backup_file}")
                 except OSError as e:
-                    logger.warning(f"Could not create backup: {e}")
+                    self.logger.warning(f"Could not create backup: {e}")
             
             # Add save metadata similar to profiles cache
             save_data = {
@@ -479,10 +477,10 @@ class MultiProviderQueryEngine:
                 json.dump(save_data, f, indent=2, ensure_ascii=False)
             
             file_size = os.path.getsize(self.output_file)
-            logger.info(f"💾 Results saved to: {self.output_file} ({file_size:,} bytes)")
+            self.logger.info(f"💾 Results saved to: {self.output_file} ({file_size:,} bytes)")
             
         except Exception as e:
-            logger.error(f"❌ Error saving results to JSON: {e}")
+            self.logger.error(f"❌ Error saving results to JSON: {e}")
             raise
     
     def get_summary_statistics(self, results: Dict[str, Any]) -> Dict[str, Any]:

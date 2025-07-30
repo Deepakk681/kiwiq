@@ -1,0 +1,999 @@
+"""
+🤖 AI Answer Engine Scraper Node for querying AI providers and storing results.
+
+This node provides a workflow interface to query multiple AI answer engines
+(Google, OpenAI, Perplexity) and automatically store the results in MongoDB
+using the customer data service.
+
+Key Features:
+🌐 Multi-provider AI querying with configurable providers
+📝 Template-based query construction with variable substitution
+💾 Automatic MongoDB storage via customer data service
+🔍 Result caching to avoid redundant queries
+🚀 Configurable browser pool for parallel queries
+🔄 Per-provider configuration with retry logic
+
+The node integrates with the multi-provider query engine infrastructure and stores
+all query results in MongoDB with proper user/org isolation.
+"""
+
+import json
+import asyncio
+import uuid
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Union, ClassVar, Type
+from urllib.parse import urlparse
+
+from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
+from pydantic import Field, model_validator
+
+# Node framework imports - matching crawler_scraper_node.py pattern
+from kiwi_app.workflow_app.service_customer_data import CustomerDataService
+from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, BaseDynamicNode, BaseNode
+from workflow_service.registry.schemas.base import BaseNodeConfig, BaseSchema
+from kiwi_app.workflow_app.constants import LaunchStatus
+from workflow_service.config.constants import APPLICATION_CONTEXT_KEY, EXTERNAL_CONTEXT_MANAGER_KEY
+
+# Scraping and customer data imports
+from workflow_service.services.scraping.settings import scraping_settings
+from kiwi_app.workflow_app import schemas as customer_data_schemas
+from global_config.logger import get_prefect_or_regular_python_logger
+from workflow_service.services.scraping.browsers.multi_provider_query_engine import (
+    MultiProviderQueryEngine, 
+    ProviderConfig
+)
+from workflow_service.services.scraping.browsers.config import (
+    MAX_CONCURRENT_SCRAPELESS_BROWSERS, 
+    ACQUISITION_TIMEOUT, 
+    BROWSER_TTL
+)
+
+logger = get_prefect_or_regular_python_logger(
+    name="workflow_service.registry.nodes.scraping.ai_answer_engine_scraper_node",
+    return_non_prefect_logger=False
+)
+
+
+class AIAnswerEngineScraperConfig(BaseNodeConfig):
+    """
+    Configuration for the AI answer engine scraper node.
+    
+    Controls querying behavior, performance settings, provider configuration,
+    and storage options. These settings apply to all queries triggered by the node.
+    """
+    
+    # Query templates
+    query_templates: Dict[str, List[str]] = Field(
+        default={
+            "basic_info": [
+                "What is {entity_name}?",
+                "Tell me about {entity_name}",
+                "What does {entity_name} do?"
+            ],
+            "leadership": [
+                "Who is the founder of {entity_name}?",
+                "Who are the key executives at {entity_name}?"
+            ],
+            "business": [
+                "What products or services does {entity_name} offer?",
+                "What is the business model of {entity_name}?"
+            ],
+            "market": [
+                "Who are the competitors of {entity_name}?",
+                "What is the market position of {entity_name}?"
+            ],
+            "recent": [
+                "What is the latest news about {entity_name}?",
+                "What are the key achievements of {entity_name}?"
+            ]
+        },
+        description="Categorized query templates with variables in {var_name} format. "
+                   "Variables will be replaced with values from input template_vars."
+    )
+    
+    # Provider configurations
+    default_providers_config: Dict[str, Dict[str, Any]] = Field(
+        default={
+            "google": {"enabled": True, "max_retries": 2, "retry_delay": 2.0, "timeout": ACQUISITION_TIMEOUT},
+            "openai": {"enabled": True, "max_retries": 3, "retry_delay": 2.0, "timeout": ACQUISITION_TIMEOUT},
+            "perplexity": {"enabled": True, "max_retries": 2, "retry_delay": 2.0, "timeout": ACQUISITION_TIMEOUT}
+        },
+        description="Default configuration for each AI provider. Can be overridden by input."
+    )
+    
+    # Browser pool settings
+    max_concurrent_browsers: int = Field(
+        default=35,
+        ge=1,
+        le=MAX_CONCURRENT_SCRAPELESS_BROWSERS,
+        description="Maximum number of concurrent browser instances. "
+                   "More browsers allow more parallel queries."
+    )
+    browser_ttl: int = Field(
+        default=BROWSER_TTL,
+        ge=60,
+        le=900,
+        description="Browser time-to-live in seconds. Browsers are reused within this time."
+    )
+    acquisition_timeout: int = Field(
+        default=ACQUISITION_TIMEOUT,
+        ge=10,
+        le=300,
+        description="Timeout for acquiring a browser from the pool."
+    )
+    use_browser_profiles: bool = Field(
+        default=True,
+        description="Whether to use browser profiles for better anti-detection."
+    )
+    persist_browser_profile: bool = Field(
+        default=False,
+        description="Whether to persist browser profiles between sessions."
+    )
+
+
+class AIAnswerEngineScraperInput(BaseSchema):
+    """
+    Input schema for the AI answer engine scraper node.
+    
+    Provides template variables for query construction and optional
+    provider configuration overrides.
+    """
+    
+    list_template_vars: List[Dict[str, str]] = Field(
+        ...,
+        description="List of template variables for multiple entities. "
+                   "Each dict must include 'entity_name' key. "
+                   "Example: [{'entity_name': 'OpenAI', 'location': 'San Francisco'}, "
+                   "{'entity_name': 'Tesla', 'industry': 'Automotive'}]"
+    )
+    
+    query_templates: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Optional categorized query templates to override config defaults. "
+                   "Templates use {var_name} format for variable substitution."
+    )
+    
+    providers_config: Optional[Dict[str, Dict[str, Any]]] = Field(
+        default=None,
+        description="Optional provider configuration to override defaults. "
+                   "Example: {'openai': {'enabled': False}, 'google': {'max_retries': 5}}"
+    )
+    
+    # MongoDB caching settings
+    enable_mongodb_cache: bool = Field(
+        default=True,
+        description="Enable checking MongoDB for cached query results before running new queries."
+    )
+    cache_lookback_days: int = Field(
+        default=14,
+        ge=1,
+        le=90,
+        description="Number of days to look back for cached results. "
+                   "Results older than this are considered stale."
+    )
+    
+    # Storage settings
+    is_shared: bool = Field(
+        default=False,
+        description="Store query results as organization-shared (accessible to all org users). "
+                   "If False, data is only accessible to the user who triggered the job."
+    )
+    
+    @model_validator(mode='after')
+    def validate_entity_names(self) -> 'AIAnswerEngineScraperInput':
+        """Ensure entity_name is present in each template_vars dict."""
+        for i, template_vars in enumerate(self.list_template_vars):
+            if 'entity_name' not in template_vars:
+                raise ValueError(f"list_template_vars[{i}] must include 'entity_name' key")
+        return self
+
+
+class AIAnswerEngineScraperOutput(BaseSchema):
+    """
+    Output schema for the AI answer engine scraper node.
+    
+    Contains job execution results, statistics, sample data,
+    and metadata about the querying operation.
+    """
+    
+    # Job identification
+    job_id: str = Field(
+        ...,
+        description="Unique identifier for the query job. "
+                   "Format: ai_query_YYYYMMDD_HHMMSS_<uuid>"
+    )
+    status: str = Field(
+        ...,
+        description="Final status of the query job. "
+                   "Values: 'completed', 'completed_from_cache', 'failed'"
+    )
+    
+    # Execution statistics
+    total_queries_executed: int = Field(
+        default=0,
+        description="Total number of queries executed across all providers."
+    )
+    successful_queries: int = Field(
+        default=0,
+        description="Number of queries that completed successfully."
+    )
+    failed_queries: int = Field(
+        default=0,
+        description="Number of queries that failed."
+    )
+    cached_results_used: int = Field(
+        default=0,
+        description="Number of queries served from cache."
+    )
+    
+    provider_stats: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Per-provider statistics including success rate, duration, average attempts per query, etc. "
+                   "Each provider entry contains: total_queries, successful_queries, failed_queries, "
+                   "success_rate, total_duration_seconds, average_duration_seconds, "
+                   "average_attempts_per_query, and total_attempts."
+    )
+    
+    completed_at: str = Field(
+        ...,
+        description="ISO 8601 timestamp when the job completed."
+    )
+    
+    # MongoDB storage information
+    mongodb_namespaces: List[str] = Field(
+        default_factory=list,
+        description="MongoDB namespaces where data is stored. "
+                   "Format: scraping_ai_answers_results_{entity_name}_{YYYYMMDD}"
+    )
+    documents_stored: int = Field(
+        default=0,
+        description="Number of documents successfully stored in MongoDB."
+    )
+    
+    # Query results sample
+    query_results: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Sample of query results (up to 10 items). "
+                   "Each item contains the query, provider, and response data. "
+                   "Full results are stored in MongoDB."
+    )
+    
+    # Per-entity results
+    entity_results: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Results grouped by entity name. "
+                   "Each entity has its own namespace, query count, sample results, "
+                   "and results categorized by query categories."
+    )
+    
+    # Constructed queries
+    executed_queries: List[str] = Field(
+        default_factory=list,
+        description="List of actual queries executed after template substitution."
+    )
+    
+    # Cache information
+    used_cached_results: bool = Field(
+        default=False,
+        description="Whether any cached results were used instead of running new queries."
+    )
+
+
+class AIAnswerEngineScraperNode(BaseNode[AIAnswerEngineScraperInput, AIAnswerEngineScraperOutput, AIAnswerEngineScraperConfig]):
+    """
+    🤖 AI Answer Engine Scraper Node with MongoDB Storage.
+    
+    This node provides a high-level interface for querying AI answer engines,
+    integrating with the multi-provider query engine and storing results
+    in MongoDB via the customer data service.
+    
+    Features:
+    - 📝 **Template-based queries**: Construct queries from templates with variable substitution
+    - 🌐 **Multi-provider support**: Query Google, OpenAI, and Perplexity in parallel
+    - 💾 **Smart caching**: Check MongoDB for recent results before querying
+    - 🔄 **Configurable retry logic**: Per-provider retry configuration
+    - 🚀 **Browser pool optimization**: Efficient browser reuse for parallel queries
+    - 🗄️ **MongoDB storage**: Automatic storage with proper user/org isolation
+    
+    Usage:
+    1. ⚙️ Configure the node with query templates and provider settings
+    2. 📋 Provide template variables (must include entity_name) as input
+    3. 🔄 The node will construct queries, check cache, execute, and store results
+    4. 📊 Results include execution stats and sample data
+    
+    Example Input:
+    ```json
+    {
+        "template_vars": {
+            "entity_name": "OpenAI",
+            "industry": "AI"
+        },
+        "providers_config": {
+            "openai": {"enabled": true, "max_retries": 5}
+        }
+    }
+    ```
+    """
+    
+    node_name: ClassVar[str] = "ai_answer_engine_scraper"
+    node_version: ClassVar[str] = "0.1.0"
+    env_flag: ClassVar[LaunchStatus] = LaunchStatus.PRODUCTION
+    
+    input_schema_cls: ClassVar[Type[AIAnswerEngineScraperInput]] = AIAnswerEngineScraperInput
+    output_schema_cls: ClassVar[Type[AIAnswerEngineScraperOutput]] = AIAnswerEngineScraperOutput
+    config_schema_cls: ClassVar[Type[AIAnswerEngineScraperConfig]] = AIAnswerEngineScraperConfig
+    
+    config: AIAnswerEngineScraperConfig
+
+    def _construct_queries(self, template_vars: Dict[str, str], query_templates: Optional[Dict[str, List[str]]] = None) -> Dict[str, List[str]]:
+        """
+        Construct actual queries from templates by substituting variables.
+        
+        Args:
+            template_vars: Dictionary of variables to substitute
+            query_templates: Optional categorized query templates to override config defaults
+            
+        Returns:
+            Dictionary of category -> list of constructed queries
+        """
+        categorized_queries = {}
+        
+        # Use provided templates or fall back to config templates
+        templates = query_templates if query_templates is not None else self.config.query_templates
+        
+        for category, category_templates in templates.items():
+            queries = []
+            for template in category_templates:
+                query = template
+                # Replace all variables found in the template
+                for var_name, var_value in template_vars.items():
+                    var_placeholder = f"{{{var_name}}}"
+                    if var_placeholder in query:
+                        query = query.replace(var_placeholder, var_value)
+                
+                queries.append(query)
+            
+            # Remove duplicates while preserving order within category
+            seen = set()
+            unique_queries = []
+            for query in queries:
+                if query not in seen:
+                    seen.add(query)
+                    unique_queries.append(query)
+            
+            if unique_queries:  # Only add category if it has queries
+                categorized_queries[category] = unique_queries
+                
+        return categorized_queries
+
+    def _generate_namespace(self, entity_name: str, date_str: str) -> str:
+        """
+        Generate namespace for the AI query results.
+        
+        Format: scraping_ai_answers_results_<entity_name>_YYYYMMDD
+        
+        Args:
+            entity_name: The entity name from template_vars
+            date_str: Date string in YYYYMMDD format
+            
+        Returns:
+            The generated namespace string
+        """
+        # Clean entity name for use in namespace
+        clean_entity = entity_name.lower().replace(' ', '_').replace('-', '_')
+        # Remove any non-alphanumeric characters except underscore
+        clean_entity = ''.join(c for c in clean_entity if c.isalnum() or c == '_')
+        
+        namespace = f"scraping_ai_answers_results_{clean_entity}_{date_str}"
+        return namespace
+
+    def _generate_docname(self, query: str, provider: str, model: str = "default") -> str:
+        """
+        Generate document name for the query result.
+        
+        Format: scraped_query_result_<query_uuid>_<provider>_<model>
+        
+        Args:
+            query: The actual query that was executed
+            provider: The AI provider name
+            model: The model name (default for now)
+            
+        Returns:
+            The generated document name string
+        """
+        # Generate deterministic UUID from query
+        query_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, query)
+        docname = f"scraped_query_result_{query_uuid}_{provider}_{model}"
+        return docname
+
+    async def _check_and_retrieve_cached_results(
+        self,
+        categorized_queries: Dict[str, List[str]],
+        entity_name: str,
+        customer_data_service: CustomerDataService,
+        enable_cache: bool,
+        lookback_days: int,
+    ) -> Dict[str, Any]:
+        """
+        Check MongoDB for cached query results within the lookback period using two-phase search.
+        
+        Args:
+            categorized_queries: Dictionary of category -> list of queries to check
+            entity_name: Entity name for namespace generation
+            customer_data_service: Customer data service instance
+            enable_cache: Whether to enable cache checking
+            lookback_days: Number of days to look back for cached results
+            
+        Returns:
+            Dictionary with cache information and results
+        """
+        cached_results = {
+            'found': False,
+            'results': [],
+            'categorized_results': {},
+            'namespace': None,
+            'cached_count': 0,
+            'remaining_queries': {}
+        }
+        
+        if not enable_cache:
+            # Return all queries as remaining
+            cached_results['remaining_queries'] = categorized_queries.copy()
+            return cached_results
+            
+        try:
+            # Clean entity name for namespace
+            clean_entity = entity_name.lower().replace(' ', '_').replace('-', '_')
+            clean_entity = ''.join(c for c in clean_entity if c.isalnum() or c == '_')
+            
+            # Calculate cutoff date for namespace date check
+            cutoff_date = datetime.now() - timedelta(days=lookback_days)
+            
+            # Phase 1: Search for latest namespace with prefix
+            namespace_prefix = f"scraping_ai_answers_results_{clean_entity}_"
+            
+            # Search for all documents with the namespace prefix
+            search_results = await customer_data_service.system_search_documents(
+                namespace_pattern=f"{namespace_prefix}*",
+                docname_pattern="*",
+                skip=0,
+                limit=1000,  # Get many documents
+                sort_by=customer_data_schemas.CustomerDataSortBy.CREATED_AT,
+                sort_order=customer_data_schemas.SortOrder.DESC
+            )
+            
+            # Extract queries from found documents that are within lookback period
+            found_queries = set()
+            found_by_category = defaultdict(list)
+            
+            if search_results:
+                for doc in search_results:
+                    # Extract date from namespace pattern: scraping_ai_answers_results_{entity}_YYYYMMDD
+                    namespace = doc.metadata.namespace
+                    if namespace.startswith(namespace_prefix):
+                        # Extract YYYYMMDD from the end
+                        date_str = namespace.replace(namespace_prefix, '').strip('_')
+                        if len(date_str) == 8 and date_str.isdigit():
+                            # Parse the date
+                            try:
+                                namespace_date = datetime.strptime(date_str, '%Y%m%d')
+                                # Check if within lookback period
+                                if namespace_date >= cutoff_date:
+                                    if doc.document_contents and 'query' in doc.document_contents and doc.document_contents.get('success', False):
+                                        # Only process successful cached results
+                                        query = doc.document_contents['query']
+                                        found_queries.add(query)
+                                        
+                                        # Try to determine category
+                                        for category, queries in categorized_queries.items():
+                                            if query in queries:
+                                                found_by_category[category].append(doc.document_contents)
+                                                break
+                                        
+                                        cached_results['results'].append(doc.document_contents)
+                                        cached_results['cached_count'] += 1
+                                        if not cached_results['namespace']:
+                                            cached_results['namespace'] = doc.metadata.namespace
+                            except ValueError:
+                                # Invalid date format, skip
+                                pass
+            else:
+                self.info(f"🔍 No documents found for namespace prefix: {namespace_prefix}")
+                cached_results['remaining_queries'] = categorized_queries.copy()
+                return cached_results
+            
+            if cached_results['cached_count'] > 0:
+                cached_results['found'] = True
+                cached_results['categorized_results'] = dict(found_by_category)
+            
+            # Determine remaining queries that weren't found in cache
+            remaining_queries = {}
+            for category, queries in categorized_queries.items():
+                remaining = [q for q in queries if q not in found_queries]
+                if remaining:
+                    remaining_queries[category] = remaining
+            
+            # Phase 2: For remaining queries, do concurrent exact searches
+            if remaining_queries:
+                phase2_tasks = []
+                phase2_metadata = []
+                
+                for category, queries in remaining_queries.items():
+                    for query in queries:
+                        # Generate exact docname for this query
+                        for provider in ["openai", "google", "perplexity"]:  # Check all providers
+                            docname = self._generate_docname(query, provider)
+                            
+                            # Search for exact document within lookback period
+                            for days_ago in range(lookback_days):
+                                check_date = datetime.now() - timedelta(days=days_ago)
+                                date_str = check_date.strftime('%Y%m%d')
+                                namespace = f"scraping_ai_answers_results_{clean_entity}_{date_str}"
+                                
+                                task = customer_data_service.system_search_documents(
+                                    namespace_pattern=namespace,
+                                    docname_pattern=docname,
+                                    skip=0,
+                                    limit=1,
+                                    sort_by=customer_data_schemas.CustomerDataSortBy.CREATED_AT,
+                                    sort_order=customer_data_schemas.SortOrder.DESC
+                                )
+                                phase2_tasks.append(task)
+                                phase2_metadata.append({
+                                    'query': query,
+                                    'category': category,
+                                    'provider': provider,
+                                    'namespace': namespace
+                                })
+                
+                # Execute all phase 2 searches concurrently
+                if phase2_tasks:
+                    phase2_results = await asyncio.gather(*phase2_tasks, return_exceptions=True)
+                    
+                    for result, metadata in zip(phase2_results, phase2_metadata):
+                        if not isinstance(result, Exception) and result:
+                            doc = result[0]
+                            if doc.document_contents and doc.document_contents.get('success', False):
+                                # Only process successful queries
+                                cached_results['results'].append(doc.document_contents)
+                                cached_results['cached_count'] += 1
+                                cached_results['found'] = True
+                                
+                                # Add to categorized results
+                                category = metadata['category']
+                                if category not in cached_results['categorized_results']:
+                                    cached_results['categorized_results'][category] = []
+                                cached_results['categorized_results'][category].append(doc.document_contents)
+                                
+                                # Remove from remaining queries
+                                query = metadata['query']
+                                if category in remaining_queries and query in remaining_queries[category]:
+                                    remaining_queries[category].remove(query)
+                                    if not remaining_queries[category]:
+                                        del remaining_queries[category]
+            
+            cached_results['remaining_queries'] = remaining_queries
+                    
+        except Exception as e:
+            self.error(f"⚠️ Error checking for cached results: {e}", exc_info=True)
+            # Return all queries as remaining on error
+            cached_results['remaining_queries'] = categorized_queries.copy()
+            
+        return cached_results
+
+    async def _store_query_result(
+        self,
+        query: str,
+        provider: str,
+        result: Dict[str, Any],
+        namespace: str,
+        customer_data_service: CustomerDataService,
+        user,
+        org_id,
+        is_shared: bool
+    ) -> bool:
+        """
+        Store a single query result in MongoDB.
+        
+        Args:
+            query: The query that was executed
+            provider: The provider that executed the query
+            result: The query result data
+            namespace: MongoDB namespace
+            customer_data_service: Customer data service instance
+            user: User object
+            org_id: Organization ID
+            is_shared: Whether to share with organization
+            
+        Returns:
+            Boolean indicating success
+        """
+        try:
+            docname = self._generate_docname(query, provider)
+            
+            # Store the full result from MultiProviderQueryEngine
+            # The result contains: query, query_index, provider, success, attempts, 
+            # start_time, end_time, response (normalized), error, duration_seconds
+            document_data = result
+            
+            # Store in MongoDB
+            from db.session import get_async_db_as_manager
+            
+            async with get_async_db_as_manager() as db_session:
+                is_created = await customer_data_service._create_or_update_unversioned_document_no_lock(
+                    db=db_session,
+                    org_id=org_id,
+                    namespace=namespace,
+                    docname=docname,
+                    is_shared=is_shared,
+                    user=user,
+                    data=document_data,
+                    is_called_from_workflow=True,
+                )
+                
+                self.debug(f"💾 Stored query result: namespace={namespace}, docname={docname}, created={is_created}")
+                return True
+                
+        except Exception as e:
+            self.error(f"⚠️ Failed to store query result: {e}", exc_info=True)
+            return False
+
+    async def process(
+        self,
+        input_data: Union[AIAnswerEngineScraperInput, Dict[str, Any]],
+        runtime_config: Optional[Dict[str, Any]] = None,
+        *args: Any,
+        **kwargs: Any
+    ) -> AIAnswerEngineScraperOutput:
+        """
+        Execute the AI query job and return results.
+        
+        This method orchestrates the entire querying workflow:
+        1. Validates input and extracts user/org context
+        2. Constructs queries from templates
+        3. Checks for cached results if caching is enabled
+        4. Executes queries via multi-provider engine
+        5. Stores results in MongoDB
+        6. Returns comprehensive results
+        
+        Args:
+            input_data: Input containing template vars and optional provider config
+            runtime_config: Runtime configuration with context
+            *args: Additional positional arguments
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            AIAnswerEngineScraperOutput with job results and statistics
+            
+        Raises:
+            ValueError: If required context (user, org_id) is missing
+        """
+        
+        # Convert input to proper schema if needed
+        if isinstance(input_data, dict):
+            input_data = AIAnswerEngineScraperInput(**input_data)
+        
+        # Get app context and external context manager
+        runtime_config = runtime_config.get("configurable")
+        app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
+        ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
+        customer_data_service: CustomerDataService = ext_context.customer_data_service
+        
+        # Extract user and org info from app context
+        user = app_context.get("user")
+        run_job: Optional[WorkflowRunJobCreate] = app_context.get("workflow_run_job")
+        org_id = run_job.owner_org_id
+        
+        if not user or not org_id:
+            raise ValueError("User and org_id are required for AI answer engine scraper node")
+        
+        # Process multiple entities
+        start_time = datetime.now()
+        self.info(f"🚀 Starting AI answer engine scraper for {len(input_data.list_template_vars)} entities")
+        
+        # Generate single date_str for consistency
+        date_str = datetime.now().strftime('%Y%m%d')
+        
+        # Collect all queries for all entities
+        all_queries = []
+        entity_query_map = {}  # Map queries back to entities and categories
+        entity_namespaces = {}  # Store namespaces per entity
+        entity_results = {}  # Store results per entity
+        total_cached_results = 0
+        used_any_cache = False
+        
+        # Process each entity
+        for template_vars in input_data.list_template_vars:
+            entity_name = template_vars.get('entity_name', '')
+            
+            # Construct categorized queries for this entity
+            entity_queries = self._construct_queries(template_vars, input_data.query_templates)
+            
+            # Generate namespace for this entity
+            namespace = self._generate_namespace(entity_name, date_str)
+            entity_namespaces[entity_name] = namespace
+            
+            # Map queries to entity and category
+            for category, queries in entity_queries.items():
+                for query in queries:
+                    all_queries.append(query)
+                    entity_query_map[query] = {'entity': entity_name, 'category': category}
+            
+            # Initialize entity results
+            entity_results[entity_name] = {
+                'namespace': namespace,
+                'categorized_queries': entity_queries,
+                'cached_count': 0,
+                'new_count': 0,
+                'results': [],
+                'categorized_results': {}
+            }
+            
+            # Check for cached results if enabled
+            if input_data.enable_mongodb_cache:
+                cached_info = await self._check_and_retrieve_cached_results(
+                    entity_queries, entity_name, customer_data_service,
+                    input_data.enable_mongodb_cache, input_data.cache_lookback_days
+                )
+                
+                if cached_info['found'] and cached_info['cached_count'] > 0:
+                    self.info(f"📋 Found {cached_info['cached_count']} cached results for {entity_name}")
+                    entity_results[entity_name]['cached_count'] = cached_info['cached_count']
+                    entity_results[entity_name]['results'].extend(cached_info['results'])
+                    entity_results[entity_name]['categorized_results'] = cached_info['categorized_results']
+                    total_cached_results += cached_info['cached_count']
+                    used_any_cache = True
+                    
+                    # Remove cached queries from all_queries to avoid re-querying
+                    cached_queries = [r.get('query') for r in cached_info['results'] if 'query' in r]
+                    all_queries = [q for q in all_queries if q not in cached_queries]
+                    
+                    # Update entity queries to only include remaining queries
+                    entity_results[entity_name]['remaining_queries'] = cached_info['remaining_queries']
+        
+        cache_check_elapsed = (datetime.now() - start_time).total_seconds()
+        self.info(f"📊 Total queries to execute: {len(all_queries)} (after removing {total_cached_results} cached) - Cache check took {cache_check_elapsed:.1f}s")
+        
+        # If all results are cached, return early
+        if len(all_queries) == 0 and used_any_cache:
+            # Aggregate all cached results
+            all_cached_results = []
+            for entity_name, entity_data in entity_results.items():
+                all_cached_results.extend(entity_data['results'])
+            
+            total_elapsed = (datetime.now() - start_time).total_seconds()
+            self.info(f"✨ All results served from cache! Completed in ⏱️ {total_elapsed:.1f}s")
+            
+            return AIAnswerEngineScraperOutput(
+                job_id=f"ai_query_cached_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                status='completed_from_cache',
+                total_queries_executed=0,
+                successful_queries=0,
+                failed_queries=0,
+                cached_results_used=total_cached_results,
+                provider_stats={},
+                completed_at=datetime.now().isoformat(),
+                mongodb_namespaces=list(entity_namespaces.values()),
+                documents_stored=total_cached_results,
+                query_results=all_cached_results[:10],  # Sample
+                entity_results=entity_results,
+                executed_queries=[],
+                used_cached_results=True
+            )
+        
+        # Build job configuration
+        job_id = f"ai_query_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+        
+        # Merge provider configurations
+        providers_config = {}
+        for provider, default_config in self.config.default_providers_config.items():
+            provider_config = ProviderConfig(**default_config)
+            
+            # Override with input config if provided
+            if input_data.providers_config and provider in input_data.providers_config:
+                input_config = input_data.providers_config[provider]
+                if 'enabled' in input_config:
+                    provider_config.enabled = input_config['enabled']
+                if 'max_retries' in input_config:
+                    provider_config.max_retries = input_config['max_retries']
+                if 'retry_delay' in input_config:
+                    provider_config.retry_delay = input_config['retry_delay']
+                if 'timeout' in input_config:
+                    provider_config.timeout = input_config['timeout']
+            
+            providers_config[provider] = provider_config
+        
+        # Browser pool configuration
+        browser_pool_config = {
+            "browser_ttl": self.config.browser_ttl,
+            "use_profiles": self.config.use_browser_profiles,
+            "acquisition_timeout": self.config.acquisition_timeout,
+            "persist_profile": self.config.persist_browser_profile,
+        }
+        
+        # Execute queries only if there are any non-cached queries
+        if len(all_queries) > 0:
+            try:
+                # Create and run the multi-provider query engine
+                engine = MultiProviderQueryEngine(
+                    queries=all_queries,
+                    providers_config=providers_config,
+                    max_concurrent_browsers=self.config.max_concurrent_browsers,
+                    browser_pool_config=browser_pool_config,
+                    output_file=None,  # We don't need file output
+                )
+                
+                self.info(f"🔄 Executing {len(all_queries)} queries across enabled providers")
+                
+                # Execute all queries
+                query_start_time = datetime.now()
+                results = await engine.process_all_queries()
+                query_execution_time = (datetime.now() - query_start_time).total_seconds()
+                self.info(f"⏱️ Query execution completed in {query_execution_time:.1f}s")
+                
+                # Process and store results
+                documents_stored = 0
+                all_query_results = []
+                
+                # Prepare storage tasks for concurrent execution
+                storage_tasks = []
+                storage_metadata = []
+                
+                for provider_name, provider_results in results.get('results', {}).items():
+                    for result in provider_results:
+                        if result.get('success', False) and result.get('response'):
+                            query = result['query']
+                            query_info = entity_query_map.get(query, {'entity': 'unknown', 'category': 'unknown'})
+                            entity_name = query_info['entity']
+                            category = query_info['category']
+                            namespace = entity_namespaces.get(entity_name, 'unknown')
+                            
+                            # Create storage task
+                            task = self._store_query_result(
+                                query=query,
+                                provider=provider_name,
+                                result=result,
+                                namespace=namespace,
+                                customer_data_service=customer_data_service,
+                                user=user,
+                                org_id=org_id,
+                                is_shared=input_data.is_shared
+                            )
+                            storage_tasks.append(task)
+                            
+                            # Store metadata for processing results
+                            storage_metadata.append({
+                                'query': query,
+                                'provider': provider_name,
+                                'entity_name': entity_name,
+                                'category': category,
+                                'result': result
+                            })
+                
+                # Execute all storage tasks concurrently
+                if storage_tasks:
+                    storage_results = await asyncio.gather(*storage_tasks, return_exceptions=True)
+                    
+                    for stored, metadata in zip(storage_results, storage_metadata):
+                        if not isinstance(stored, Exception) and stored:
+                            documents_stored += 1
+                            entity_name = metadata['entity_name']
+                            category = metadata['category']
+                            entity_results[entity_name]['new_count'] += 1
+                        
+                        # Add to results regardless of storage success
+                        # Use the full result object from metadata
+                        result_obj = metadata['result']
+                        all_query_results.append(result_obj)
+                        
+                        # Add to entity results
+                        entity_results[entity_name]['results'].append(result_obj)
+                        
+                        # Add to categorized results
+                        if category not in entity_results[entity_name]['categorized_results']:
+                            entity_results[entity_name]['categorized_results'][category] = []
+                        entity_results[entity_name]['categorized_results'][category].append(result_obj)
+                
+                # Get statistics and calculate additional metrics
+                stats = results.get('statistics', {})
+                total_executed = sum(s.get('total_queries', 0) for s in stats.values())
+                total_successful = sum(s.get('successful_queries', 0) for s in stats.values())
+                total_failed = sum(s.get('failed_queries', 0) for s in stats.values())
+                
+                # Calculate average attempts per provider
+                provider_detailed_stats = {}
+                for provider_name, provider_results in results.get('results', {}).items():
+                    if provider_results:
+                        total_attempts = sum(r.get('attempts', 1) for r in provider_results)
+                        avg_attempts = total_attempts / len(provider_results)
+                        success_count = sum(1 for r in provider_results if r.get('success', False))
+                        
+                        provider_detailed_stats[provider_name] = {
+                            **stats.get(provider_name, {}),
+                            'average_attempts_per_query': avg_attempts,
+                            'total_attempts': total_attempts
+                        }
+                        
+                        # Log provider-specific stats
+                        self.info(
+                            f"📈 Provider {provider_name.upper()} stats: "
+                            f"Success rate: {success_count}/{len(provider_results)} ({success_count/len(provider_results)*100:.1f}%), "
+                            f"Avg attempts: {avg_attempts:.2f}, "
+                            f"Avg duration: {stats.get(provider_name, {}).get('average_duration_seconds', 0):.1f}s"
+                        )
+                
+                # Log overall summary stats
+                overall_success_rate = total_successful / total_executed if total_executed > 0 else 0
+                query_elapsed = (datetime.now() - start_time).total_seconds()
+                self.info(
+                    f"🎯 Overall query execution summary: "
+                    f"Total executed: {total_executed}, "
+                    f"Successful: ✅ {total_successful} ({overall_success_rate*100:.1f}%), "
+                    f"Failed: ❌ {total_failed}, "
+                    f"Cached used: 💾 {total_cached_results} - "
+                    f"⏱️ Total time: {query_elapsed:.1f}s"
+                )
+                
+            except Exception as e:
+                self.error(f"❌ AI query job failed: {str(e)}", exc_info=True)
+                
+                return AIAnswerEngineScraperOutput(
+                    job_id=job_id,
+                    status='failed',
+                    total_queries_executed=0,
+                    successful_queries=0,
+                    failed_queries=len(all_queries),
+                    cached_results_used=total_cached_results,
+                    provider_stats={'error': str(e)},
+                    completed_at=datetime.now().isoformat(),
+                    mongodb_namespaces=list(entity_namespaces.values()),
+                    documents_stored=0,
+                    entity_results=entity_results,
+                    executed_queries=all_queries,
+                    used_cached_results=used_any_cache
+                )
+        else:
+            # No new queries to execute
+            stats = {}
+            provider_detailed_stats = {}
+            total_executed = 0
+            total_successful = 0
+            total_failed = 0
+            all_query_results = []
+            documents_stored = 0
+        
+        # Aggregate all results (cached + new) and log per-entity stats
+        final_all_results = []
+        for entity_name, entity_data in entity_results.items():
+            final_all_results.extend(entity_data['results'])
+            
+            # Log per-entity summary
+            self.info(
+                f"🏢 Entity '{entity_name}' summary: "
+                f"Total queries: {len(entity_data['results'])}, "
+                f"Cached: 💾 {entity_data['cached_count']}, "
+                f"New: 🆕 {entity_data['new_count']}, "
+                f"Categories: 📁 {list(entity_data['categorized_results'].keys())}"
+            )
+        
+        # Log final completion time
+        total_elapsed = (datetime.now() - start_time).total_seconds()
+        self.info(f"✨ Completed AI answer engine scraper in ⏱️ {total_elapsed:.1f}s total")
+        
+        return AIAnswerEngineScraperOutput(
+            job_id=job_id,
+            status='completed' if not used_any_cache else 'completed_with_cache',
+            total_queries_executed=total_executed,
+            successful_queries=total_successful,
+            failed_queries=total_failed,
+            cached_results_used=total_cached_results,
+            provider_stats=provider_detailed_stats,
+            completed_at=datetime.now().isoformat(),
+            mongodb_namespaces=list(entity_namespaces.values()),
+            documents_stored=documents_stored + total_cached_results,
+            query_results=final_all_results[:10],  # Sample of 10
+            entity_results=entity_results,
+            executed_queries=all_queries,
+            used_cached_results=used_any_cache
+        )

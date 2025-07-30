@@ -7,7 +7,7 @@ from time import monotonic
 import logging
 
 logger = logging.getLogger(__name__)
-
+from global_config.logger import get_prefect_or_regular_python_logger
 
 class BaseBrowserActor:
     def __init__(self, browser: Browser, context: BrowserContext, page: Page, *args, **kwargs):
@@ -15,6 +15,7 @@ class BaseBrowserActor:
         self.context = context
         self.page = page
         self.live_url = kwargs.get("live_url", None)
+        self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
 
     async def wait_and_click(self, selector: str, timeout: int = 30000) -> str:
         """

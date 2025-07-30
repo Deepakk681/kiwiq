@@ -318,55 +318,6 @@ async def main_test_web_crawler(
     return final_run_status_obj, final_run_outputs
 
 
-# --- Example Usage Functions ---
-
-async def example_crawl_documentation_site():
-    """Example: Crawl a documentation website"""
-    print("\n" + "="*60)
-    print("EXAMPLE 1: Crawling Documentation Website")
-    print("="*60)
-    
-    await main_test_web_crawler(
-        start_urls=["https://docs.prefect.io/latest/"],
-        # allowed_domains=["docs.prefect.io"],
-        max_processed_urls=20,  # Crawl up to 20 pages
-        use_cache=True
-    )
-
-
-async def example_crawl_blog():
-    """Example: Crawl a blog for content aggregation"""
-    print("\n" + "="*60)
-    print("EXAMPLE 2: Crawling Blog Content")
-    print("="*60)
-    
-    await main_test_web_crawler(
-        start_urls=["https://blog.prefect.io/"],
-        # allowed_domains=["blog.prefect.io"],
-        max_processed_urls=15,  # Get latest 15 blog posts
-        use_cache=False  # Force fresh crawl
-    )
-
-
-async def example_crawl_multiple_sites():
-    """Example: Crawl multiple related sites"""
-    print("\n" + "="*60)
-    print("EXAMPLE 3: Multi-Site Crawling")
-    print("="*60)
-    
-    # Note: This is just an example structure
-    # In practice, you'd use real related sites
-    await main_test_web_crawler(
-        start_urls=[
-            "https://example.com/blog",
-            "https://docs.example.com/"
-        ],
-        # allowed_domains=["example.com", "docs.example.com"],
-        max_processed_urls=50,  # Total across all domains
-        use_cache=True
-    )
-
-
 if __name__ == "__main__":
     print("="*60)
     print("Web Crawler Scraper Workflow Examples")
@@ -381,7 +332,7 @@ if __name__ == "__main__":
     # In interactive mode, you could add user input to select examples
 
     kwargs = {
-        "start_urls": ["https://otter.ai/blog", 'https://grain.com/blog'],  # , 'https://grain.com/blog'  # 
+        "start_urls": ["https://otter.ai"],  # , 'https://grain.com/blog'  # , 'https://grain.com/blog'   "https://otter.ai/blog"
         # "allowed_domains": ["otter.ai", "grain.com"],
         "max_processed_urls": 200,  # 
         "use_cache": False,

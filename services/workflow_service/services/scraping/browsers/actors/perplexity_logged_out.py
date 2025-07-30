@@ -16,7 +16,7 @@ from workflow_service.services.scraping.browsers.actors.base_actor import BaseBr
 from workflow_service.services.scraping.browsers.config import PERPLEXITY_SELECTORS
 from workflow_service.services.scraping.utils.markdown_converter import convert_to_markdown_from_raw_file_content
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 class PerplexityBrowserActor(BaseBrowserActor):
@@ -37,7 +37,7 @@ class PerplexityBrowserActor(BaseBrowserActor):
             return True
         except Exception as e:
             # No popup found or couldn't close it - this is fine
-            logger.error(f"Error closing popup: {e}", exc_info=True)
+            self.logger.error(f"Error closing popup: {e}", exc_info=True)
             return False
 
     async def wait_until_perplexity_response_complete(
@@ -67,16 +67,16 @@ class PerplexityBrowserActor(BaseBrowserActor):
         stable_iterations   = 0
         STABLE_REQUIRED     = 2      # must see same length twice
 
-        logger.debug(" Waiting for Perplexity to finish streaming…")
+        self.logger.debug(" Waiting for Perplexity to finish streaming…")
 
         while True:
             
             # 1. grab full HTML
             raw_html  = await self.page.evaluate("() => document.documentElement.outerHTML")
             full_html = "<!DOCTYPE html>\n" + raw_html
-            logger.info(f"full_html extracted!")
+            self.logger.info(f"full_html extracted!")
             segments = await asyncio.to_thread(self.extract_response_from_perplexity_page, full_html)
-            logger.info(f"segments extracted!")
+            self.logger.info(f"segments extracted!")
 
             total    = sum(len(s["text"]) for s in segments)
 
@@ -85,11 +85,11 @@ class PerplexityBrowserActor(BaseBrowserActor):
                 stable_iterations += 1
             else:
                 stable_iterations  = 0
-                logger.debug(f"… still generating ({total} chars captured)")  # progress
+                self.logger.debug(f"… still generating ({total} chars captured)")  # progress
 
             # done?
             if stable_iterations >= STABLE_REQUIRED:
-                logger.debug("Perplexity response complete.")
+                self.logger.debug("Perplexity response complete.")
                 return segments
 
             # timeout guard
@@ -201,25 +201,36 @@ class PerplexityBrowserActor(BaseBrowserActor):
         return segments
 
     async def single_query(self, query: str) -> List[Dict[str, str]]:
+        async def short_prompt_focus_sequence():
+            try:
+                await self.wait_and_click(PERPLEXITY_SELECTORS["close_popup"], timeout=500)
+                await self.wait_for_seconds(0.1)
+            except Exception as e:
+                self.logger.info(f" close popup not found: {e}")
+            
+            try:
+                await self.wait_and_click(PERPLEXITY_SELECTORS["prompt_input"], timeout=500)
+                return True
+            except Exception as e:
+                self.logger.info(f" prompt input not found: {e}")
+            
+            return False
+            
+        clicked = False
         try:
             await self.go_to_page(PERPLEXITY_SELECTORS["base_url"], timeout=10000)
         except Exception as e:
-            logger.error(f"Error going to page: {e}")
-            await self.go_to_page(PERPLEXITY_SELECTORS["base_url"], timeout=20000)
+            self.logger.error(f"Error going to page: {e}")
+            clicked = await short_prompt_focus_sequence()
+            if not clicked:
+                try:
+                    await self.go_to_page(PERPLEXITY_SELECTORS["base_url"], timeout=20000)
+                except Exception as e:
+                    self.logger.error(f"Error going to page: {e}")
         
-        try:
-            await self.wait_and_click(PERPLEXITY_SELECTORS["close_popup"], timeout=500)
-        except Exception as e:
-            logger.info(f" close popup not found: {e}")
- 
-        # Inject localStorage (page-scope) and reload so Perplexity picks it up
+        if not clicked:
+            clicked = await short_prompt_focus_sequence()
         
-        await self.wait_for_seconds(0.1)
-        
-        # Focus the textarea and type your prompt  
-        # await self.wait_and_fill(PERPLEXITY_SELECTORS['prompt_input'], Q1)
-
-        await self.wait_and_click(PERPLEXITY_SELECTORS["prompt_input"])
         await self.page.keyboard.type(query, delay=random.randint(1, 5))
 
         # Press Enter to submit

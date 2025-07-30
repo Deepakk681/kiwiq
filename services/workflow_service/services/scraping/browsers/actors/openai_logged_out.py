@@ -14,7 +14,7 @@ from workflow_service.services.scraping.browsers.actors.base_actor import BaseBr
 from workflow_service.services.scraping.browsers.config import OPENAI_SELECTORS
 from workflow_service.services.scraping.utils.markdown_converter import convert_to_markdown_from_raw_file_content
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 class OpenAIBrowserActor(BaseBrowserActor):
@@ -159,23 +159,38 @@ class OpenAIBrowserActor(BaseBrowserActor):
         return pairs
     
     async def single_query(self, query: str) -> List[Dict[str, str]]:
+        async def short_prompt_focus_sequence():
+            try:
+                await self.wait_and_click(OPENAI_SELECTORS["stay_logged_out"], timeout=500)
+                self.logger.info(f"Stay logged out button clicked")
+                await self.wait_for_seconds(0.1, add_noise=True)
+            except Exception as e:
+                self.logger.info(f"Stay logged out button not found: {e}")
+            try:
+                await self.wait_and_click(OPENAI_SELECTORS["search_web_no_login"])
+                return True
+            except Exception as e:
+                self.logger.info(f"Search web no login button not found: {e}")
+            return False
+        
+        clicked = False
+
         try:
             await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=10000)
         except Exception as e:
-            logger.error(f"Error going to page: {e}")
-            await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=20000)
+            self.logger.error(f"Error going to page: {e}")
+            clicked = await short_prompt_focus_sequence()
+            if not clicked:
+                try:
+                    await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=20000)
+                except Exception as e:
+                    self.logger.error(f"Error going to page: {e}")
 
         # pause_until_confirm()
         # await self.page.reload()
         # # pause_until_confirm()
-        try:
-            await self.wait_and_click(OPENAI_SELECTORS["stay_logged_out"], timeout=500)
-            logger.info(f"Stay logged out button clicked")
-            await self.wait_for_seconds(0.1, add_noise=True)
-        except Exception as e:
-            logger.info(f"Stay logged out button not found: {e}")
-
-        await self.wait_and_click(OPENAI_SELECTORS["search_web_no_login"])
+        if not clicked:
+            clicked = await short_prompt_focus_sequence()
 
         # Send Q1
         await self.wait_for_seconds(0.25, add_noise=True)
@@ -196,7 +211,7 @@ class OpenAIBrowserActor(BaseBrowserActor):
         try:
             await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=10000)
         except Exception as e:
-            logger.error(f"Error going to page: {e}")
+            self.logger.error(f"Error going to page: {e}")
             await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=20000)
 
         # pause_until_confirm()
@@ -204,10 +219,10 @@ class OpenAIBrowserActor(BaseBrowserActor):
         # # pause_until_confirm()
         try:
             await self.wait_and_click(OPENAI_SELECTORS["stay_logged_out"], timeout=500)
-            logger.info(f"Stay logged out button clicked")
+            self.logger.info(f"Stay logged out button clicked")
             await self.wait_for_seconds(0.1, add_noise=True)
         except Exception as e:
-            logger.info(f"Stay logged out button not found: {e}")
+            self.logger.info(f"Stay logged out button not found: {e}")
         # pause_until_confirm()
         # await self.page.reload()
         # # pause_until_confirm()

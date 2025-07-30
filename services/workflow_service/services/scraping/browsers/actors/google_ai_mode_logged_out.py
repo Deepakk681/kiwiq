@@ -16,7 +16,7 @@ from workflow_service.services.scraping.browsers.actors.base_actor import BaseBr
 from workflow_service.services.scraping.browsers.config import AIMODE_SELECTORS
 from workflow_service.services.scraping.utils.markdown_converter import convert_to_markdown_from_raw_file_content
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
 class GoogleAIModeBrowserActor(BaseBrowserActor):
@@ -45,7 +45,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                     query_divs.append(div)
             
             if not query_divs:
-                logger.warning(f"No divs found containing query: {query}")
+                self.logger.warning(f"No divs found containing query: {query}")
                 return soup, []
             
             # Find the outermost div that contains our query
@@ -65,13 +65,13 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                     elder_div = current
             
             if not elder_div:
-                logger.warning(f"No elder div found for query: {query}")
+                self.logger.warning(f"No elder div found for query: {query}")
                 return soup, []
             
             # Get parent of elder div and find all div siblings with text
             elder_parent = elder_div.parent
             if not elder_parent:
-                logger.warning("Elder div has no parent")
+                self.logger.warning("Elder div has no parent")
                 return soup, []
             
             # Find all div children of the parent that have text content
@@ -87,7 +87,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             return soup, results
             
         except Exception as e:
-            logger.error(f"Error in DOM tree navigation for query '{query}': {e}", exc_info=True)
+            self.logger.error(f"Error in DOM tree navigation for query '{query}': {e}", exc_info=True)
             return soup, []
     
     def process_response_elements_from_soup(self, soup_elements: list) -> list[dict]:
@@ -99,7 +99,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                 if result and result.get("text", "").strip():  # Only add if has content
                     results.append(result)
             except Exception as e:
-                logger.warning(f"Failed to process soup element {i}: {e}")
+                self.logger.warning(f"Failed to process soup element {i}: {e}")
                 continue
         return results
 
@@ -127,7 +127,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             turn_elements = soup.find_all(bs_turn_selector["tag"], attrs=bs_turn_selector["attrs"])
             
             if not turn_elements:
-                logger.warning(f"No turn elements found using selector: {bs_turn_selector}")
+                self.logger.warning(f"No turn elements found using selector: {bs_turn_selector}")
                 return soup, []
             
             # Process each turn element - check for response containers within it
@@ -142,15 +142,15 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                 
                 if response_containers:
                     # Found response containers within turn element - use those
-                    logger.debug(f"Found {len(response_containers)} response containers within turn element")
+                    self.logger.debug(f"Found {len(response_containers)} response containers within turn element")
                     elements_to_process.extend(response_containers)
                 else:
                     # No response containers found - process the turn element directly
-                    logger.debug("No response containers found within turn element, processing turn element directly")
+                    self.logger.debug("No response containers found within turn element, processing turn element directly")
                     elements_to_process.append(turn_element)
             
             if not elements_to_process:
-                logger.warning("No elements to process after subselection logic")
+                self.logger.warning("No elements to process after subselection logic")
                 return soup, []
             
             # Process all selected elements
@@ -159,7 +159,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             return soup, results
             
         except Exception as e:
-            logger.error(f"Error in turn selector extraction for query '{query}': {e}", exc_info=True)
+            self.logger.error(f"Error in turn selector extraction for query '{query}': {e}", exc_info=True)
             return soup, []
     
     def process_aimode_element_from_soup(self, soup_element) -> dict:
@@ -254,7 +254,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             }
             
         except Exception as e:
-            logger.error(f"Error processing soup element: {e}", exc_info=True)
+            self.logger.error(f"Error processing soup element: {e}", exc_info=True)
             return {
                 "text": "",
                 "html": "",
@@ -271,7 +271,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
         try:
             await self.wait_and_click(AIMODE_SELECTORS['ai_mode_search_button'], timeout=30000)
         except Exception as e:
-            logger.error(f"Error clicking ai_mode_search_button: {e}", exc_info=True)
+            self.logger.error(f"Error clicking ai_mode_search_button: {e}", exc_info=True)
             await self.page.keyboard.press("Enter")
             await self.wait_and_click(AIMODE_SELECTORS['ai_mode_button'])
 
@@ -297,7 +297,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
         try:
             await self.wait_and_click(AIMODE_SELECTORS['ai_mode_search_button'], timeout=30000)
         except Exception as e:
-            logger.error(f"Error clicking ai_mode_search_button: {e}", exc_info=True)
+            self.logger.error(f"Error clicking ai_mode_search_button: {e}", exc_info=True)
             await self.page.keyboard.press("Enter")
             await self.wait_and_click(AIMODE_SELECTORS['ai_mode_button'])
 
@@ -432,7 +432,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             return links, citations
             
         except Exception as e:
-            logger.error(f"Error extracting links and citations: {e}", exc_info=True)
+            self.logger.error(f"Error extracting links and citations: {e}", exc_info=True)
             return [], []
     
     def get_all_page_links_filtered_from_soup(self, soup: BeautifulSoup) -> list[dict]:
@@ -480,7 +480,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                     continue
                     
         except Exception as e:
-            logger.error(f"Error fetching page links from soup: {e}", exc_info=True)
+            self.logger.error(f"Error fetching page links from soup: {e}", exc_info=True)
             
         return filtered_links
 
@@ -530,7 +530,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                     continue
                     
         except Exception as e:
-            logger.error(f"Error fetching page links: {e}", exc_info=True)
+            self.logger.error(f"Error fetching page links: {e}", exc_info=True)
             
         return filtered_links
     
@@ -563,7 +563,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             }
             
         except Exception as e:
-            logger.error(f"Error processing element: {e}", exc_info=True)
+            self.logger.error(f"Error processing element: {e}", exc_info=True)
             return {
                 "text": "",
                 "html": "",
@@ -600,7 +600,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
         stable_iterations = 0
         STABLE_REQUIRED = 2  # must see same length twice
 
-        logger.debug(f" Waiting for Google AI Mode response to stabilize for query: '{query}'")
+        self.logger.debug(f" Waiting for Google AI Mode response to stabilize for query: '{query}'")
 
         
 
@@ -616,7 +616,7 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
             
             # If no results from turn selector, fallback to DOM tree navigation
             if not response_elements:
-                logger.debug(f"Turn selector found no results, trying DOM tree navigation for query: '{query}'")
+                self.logger.debug(f"Turn selector found no results, trying DOM tree navigation for query: '{query}'")
                 soup, response_elements = await asyncio.to_thread(self.extract_response_from_aimode_page_via_dom_tree_navigation, query, soup, full_html)
 
             if response_elements and isinstance(response_elements[-1], dict) and "query" not in response_elements[-1]:
@@ -634,11 +634,11 @@ class GoogleAIModeBrowserActor(BaseBrowserActor):
                 stable_iterations += 1
             else:
                 stable_iterations = 0
-                logger.debug(f"… still generating ({total} chars captured)")  # progress
+                self.logger.debug(f"… still generating ({total} chars captured)")  # progress
 
             # Done?
             if stable_iterations >= STABLE_REQUIRED:
-                logger.debug("Google AI Mode response complete.")
+                self.logger.debug("Google AI Mode response complete.")
                 break
 
             # Timeout guard

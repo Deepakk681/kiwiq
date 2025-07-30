@@ -39,6 +39,7 @@ from workflow_service.registry.nodes.tools.documents.document_crud_tools import 
 
 async def register_node_templates(db_registry: DBRegistry):
     from workflow_service.registry.nodes.scraping.crawler_scraper_node import CrawlerScraperNode
+    from workflow_service.registry.nodes.scraping.ai_answer_engine_scraper_node import AIAnswerEngineScraperNode
     node_classes = [
         # Core Nodes
         InputNode,
@@ -67,6 +68,7 @@ async def register_node_templates(db_registry: DBRegistry):
         # Scraping
         LinkedInScrapingNode,
         CrawlerScraperNode,
+        AIAnswerEngineScraperNode,
         # Document CRUD Tools
         DocumentViewerTool,
         EditDocumentTool,
