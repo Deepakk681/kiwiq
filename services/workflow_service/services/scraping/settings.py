@@ -27,7 +27,7 @@ class ScrapingSettings(Settings):
     USE_IN_MEMORY_QUEUE: bool = True  # Use in-memory storage instead of Redis (suitable for single-process deployments)
 
     # Browser Pool Configuration for backup scraping strategy
-    BROWSER_POOL_ENABLED: bool = True  # Enable browser pool as backup scraping strategy
+    BROWSER_POOL_ENABLED: bool = False  # Enable browser pool as backup scraping strategy
     BROWSER_POOL_SIZE: int = 5  # Maximum number of browsers to maintain in pool
     BROWSER_POOL_LOCAL_CONCURRENCY_LIMIT: int = 5  # Local concurrency limit for browser pool operations
     BROWSER_POOL_TIMEOUT: int = 30  # Timeout in seconds for browser acquisition
