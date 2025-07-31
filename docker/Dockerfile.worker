@@ -49,14 +49,11 @@ WORKDIR /app
 
 RUN python -m spacy download en_core_web_sm
 
-# Run Redis pool cleanup script
-RUN python services/workflow_service/services/scraping/browsers/scripts/cleanup_redis_pool.py
-
-# Default command: run both processes directly with bash
+# Default command: cleanup Redis pool first, then run both processes directly with bash
 # This starts both the workflow worker and the spider server with gunicorn
 # For testing, override the command with: PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest
 # Virtual env not needed as poetry is installed without virtual env
-CMD ["bash", "-c", "trap 'kill $(jobs -p) 2>/dev/null' SIGTERM SIGINT; python services/workflow_service/services/worker.py & gunicorn services.workflow_service.services.scraping.spider_server:app -c services/workflow_service/services/scraping/spider_gunicorn.conf.py & wait -n"]
+CMD ["bash", "-c", "trap 'kill $(jobs -p) 2>/dev/null' SIGTERM SIGINT; echo 'Running Redis pool cleanup before starting services...'; python services/workflow_service/services/scraping/browsers/scripts/cleanup_redis_pool.py; echo 'Redis cleanup completed, starting main services...'; python services/workflow_service/services/worker.py & gunicorn services.workflow_service.services.scraping.spider_server:app -c services/workflow_service/services/scraping/spider_gunicorn.conf.py & wait -n"]
 # Previous script-based approach (had permission issues):
 # CMD ["/app/docker/worker_entrypoint.sh"]
 # Previous single-process command: CMD ["python", "services/workflow_service/services/worker.py"]
