@@ -55,17 +55,17 @@ workflow_graph_schema = {
                 # to ensure all template variables can be replaced
                 "query_templates": {
                     "basic_info": [
-                        # "What is {entity_name}?",
-                        "Tell me about {entity_name}",
+                        "What is {entity_name}?",
+                        # "Tell me about {entity_name}",
                         # "What does {entity_name} do?"
                     ],
                     "business": [
-                        # "What products or services does {entity_name} offer?",
-                        "What is the business model of {entity_name}?"
+                        "What products or services does {entity_name} offer?",
+                        # "What is the business model of {entity_name}?"
                     ],
                     "market": [
-                        # "Who are the competitors of {entity_name}?",
-                        "What is the market position of {entity_name}?"
+                        "Who are the competitors of {entity_name}?",
+                        # "What is the market position of {entity_name}?"
                     ],
                     # "recent": [
                     #     "What is the latest news about {entity_name}?",
@@ -74,20 +74,20 @@ workflow_graph_schema = {
                 },
                 
                 # # Provider configuration
-                "default_providers_config": {
-                    "google": {
-                        "enabled": True,
-                        "max_retries": 2,
-                    },
-                    "openai": {
-                        "enabled": True,
-                        "max_retries": 3,
-                    },
-                    "perplexity": {
-                        "enabled": True,
-                        "max_retries": 2,
-                    }
-                },
+                # "default_providers_config": {
+                #     "google": {
+                #         "enabled": True,
+                #         "max_retries": 2,
+                #     },
+                #     "openai": {
+                #         "enabled": True,
+                #         "max_retries": 3,
+                #     },
+                #     "perplexity": {
+                #         "enabled": True,
+                #         "max_retries": 2,
+                #     }
+                # },
                 
                 # # Browser pool configuration
                 # "max_concurrent_browsers": 30,
@@ -392,8 +392,8 @@ if __name__ == "__main__":
     # to ensure all queries can be properly constructed for each entity
     example1_entities = [
         {"entity_name": "OpenAI", "location": "San Francisco", "industry": "AI"},
-        # {"entity_name": "Anthropic", "location": "San Francisco", "industry": "AI"},
-        # {"entity_name": "Tesla", "location": "Palo Alto", "industry": "Automotive"}  # Added location
+        {"entity_name": "Anthropic", "location": "San Francisco", "industry": "AI"},
+        {"entity_name": "Tesla", "location": "Palo Alto", "industry": "Automotive"}  # Added location
     ]
     
     # Example 2: Custom query templates
