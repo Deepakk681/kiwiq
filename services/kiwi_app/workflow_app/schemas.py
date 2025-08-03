@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union, Sequence
+from typing import List, Optional, Dict, Any, Union, Sequence, Literal
 from pydantic import BaseModel, Field, validator, ConfigDict, field_validator, model_validator
 from enum import Enum
 
@@ -1014,6 +1014,237 @@ class DocumentOperationResult(BaseModel):
     error_message: Optional[str] = Field(None, description="Error message if the operation failed")
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Asset Schemas --- #
+
+# --- Enums --- #
+
+class AssetType(str, Enum):
+    """Enum for asset types."""
+    LINKEDIN_PROFILE = "linkedin_profile"
+    BLOG_URL = "blog_url"
+
+
+class AssetAppDataOperation(str, Enum):
+    """Enum for asset app_data update operations."""
+    ADD_OR_UPDATE = "add_or_update"
+    DELETE = "delete"
+    REPLACE = "replace"
+
+
+# --- Asset App Data Schemas --- #
+
+class LinkedInProfileAppData(BaseModel):
+    """Schema for LinkedIn Profile asset app_data."""
+    profile_url: str = Field(..., pattern="^https?://([a-z]{2,3}\\.)?linkedin\\.com/in/[a-zA-Z0-9_-]+/?$", description="Full LinkedIn profile URL")
+    # last_scraped: Optional[datetime] = Field(None, description="Last time the profile was scraped")
+    # scrape_frequency: Optional[str] = Field("weekly", pattern="^(daily|weekly|monthly|manual)$", description="How often to scrape this profile")
+    # extracted_data: Optional[Dict[str, Any]] = Field(None, description="Extracted profile data from last scrape")
+    # monitoring_enabled: Optional[bool] = Field(True, description="Whether to monitor this profile for changes")
+    
+    model_config = ConfigDict(extra='allow')  # Allow additional fields for flexibility
+
+
+class BlogUrlAppData(BaseModel):
+    """Schema for Blog URL asset app_data."""
+    blog_url: str = Field(..., description="Full URL of the blog or blog post")
+    # blog_type: Optional[str] = Field("unknown", pattern="^(wordpress|medium|substack|ghost|custom|unknown)$", description="Type of blog platform")
+    # last_scraped: Optional[datetime] = Field(None, description="Last time the blog was scraped")
+    # scrape_frequency: Optional[str] = Field("weekly", pattern="^(daily|weekly|monthly|manual)$", description="How often to scrape this blog")
+    # extracted_content: Optional[Dict[str, Any]] = Field(None, description="Extracted blog content from last scrape")
+    # rss_feed_url: Optional[str] = Field(None, description="RSS feed URL if available")
+    # monitoring_enabled: Optional[bool] = Field(True, description="Whether to monitor this blog for new posts")
+    
+    model_config = ConfigDict(extra='allow')  # Allow additional fields for flexibility
+
+class AssetBase(BaseModel):
+    """Base schema for Asset."""
+    asset_type: AssetType = Field(..., description="Type of the asset (linkedin_profile or blog_url)")
+    asset_name: str = Field(..., description="Name of the asset (linkedin username for linkedin_profile, domain or domain+path for blog_url)")
+    is_shared: bool = Field(True, description="Whether the asset is shared within the organization")
+    is_active: bool = Field(True, description="Whether the asset is currently active")
+    app_data: Optional[Dict[str, Any]] = Field(None, description="Application-specific data for the asset")
+
+
+class AssetCreate(AssetBase):
+    """Schema for creating a new Asset."""
+    org_id: Optional[uuid.UUID] = Field(None, description="Organization ID (optional for regular users, uses current org)")
+    managing_user_id: Optional[uuid.UUID] = Field(None, description="Managing user ID (optional, defaults to current user)")
+    on_behalf_of_user_id: Optional[uuid.UUID] = Field(None, description="Act on behalf of another user (superusers only)")
+
+
+class AssetUpdate(BaseModel):
+    """Schema for updating an existing Asset. Allows partial updates."""
+    asset_name: Optional[str] = Field(None, description="Name of the asset")
+    is_shared: Optional[bool] = Field(None, description="Whether the asset is shared within the organization")
+    is_active: Optional[bool] = Field(None, description="Whether the asset is currently active")
+    app_data: Optional[Dict[str, Any]] = Field(None, description="Application-specific data for the asset")
+
+
+class AssetAppDataUpdate(BaseModel):
+    """Schema for updating asset app_data with specific operations."""
+    operation: AssetAppDataOperation = Field(..., description="Operation to perform on app_data")
+    path: Optional[List[str]] = Field(None, description="JSON path for add_or_update/delete operations (e.g., ['field1', 'subfield'])")
+    value: Optional[Any] = Field(None, description="Value for add_or_update/replace operations")
+    
+    @model_validator(mode='after')
+    def validate_operation(self):
+        """Validate that required fields are present for each operation."""
+        if self.operation == AssetAppDataOperation.ADD_OR_UPDATE and (self.path is None or self.value is None):
+            raise ValueError(f"'path' and 'value' are required for '{self.operation.value}' operation")
+        elif self.operation == AssetAppDataOperation.DELETE and self.path is None:
+            raise ValueError("'path' is required for 'delete' operation")
+        elif self.operation == AssetAppDataOperation.REPLACE and self.value is None:
+            raise ValueError("'value' is required for 'replace' operation")
+        return self
+
+
+class AssetAppDataIncrement(BaseModel):
+    """Schema for atomically incrementing a numeric field in asset app_data."""
+    path: List[str] = Field(..., description="JSON path to the numeric field to increment (e.g., ['counter'])")
+    increment: Union[int, float] = Field(1, description="Amount to increment by (default 1), can be int or float")
+    
+    @field_validator('path')
+    @classmethod
+    def path_not_empty(cls, v):
+        """Ensure path is not empty."""
+        if not v:
+            raise ValueError("Path cannot be empty")
+        return v
+
+
+class AssetRead(AssetBase):
+    """Schema for reading an Asset."""
+    id: uuid.UUID
+    org_id: uuid.UUID
+    managing_user_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AssetSortBy(str, Enum):
+    """Enum for sorting asset results."""
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    ASSET_NAME = "asset_name"
+    ASSET_TYPE = "asset_type"
+
+
+class AssetListQuery(CommonListQuery):
+    """Query parameters for listing assets."""
+    asset_type: Optional[AssetType] = Field(None, description="Filter by asset type (linkedin_profile or blog_url)")
+    is_active: Optional[bool] = Field(None, description="Filter by active status")
+    is_shared: Optional[bool] = Field(None, description="Filter by shared status")
+    managing_user_id: Optional[uuid.UUID] = Field(None, description="Filter by managing user (UUID or 'me')")
+    org_id: Optional[uuid.UUID] = Field(None, description="Filter by organization (superuser only)")
+    managed_only: bool = Field(False, description="Only show assets where current user is managing user")
+    include_all_orgs: bool = Field(False, description="Include assets from all user's organizations (for managed_only=true)")
+    app_data_fields: Optional[Union[str, List[str]]] = Field(None, description="Specific app_data fields to include in response (comma-separated string or list)")
+    sort_by: AssetSortBy = Field(AssetSortBy.UPDATED_AT, description="Field to sort by")
+    sort_order: SortOrder = Field(SortOrder.DESC, description="Sort order ('asc' or 'desc')")
+    
+    @field_validator('app_data_fields', mode='before')
+    def parse_app_data_fields(cls, v):
+        """Parse comma-separated string into list if needed."""
+        if isinstance(v, str):
+            return [field.strip() for field in v.split(',') if field.strip()]
+        return v
+
+
+class AssetReadQuery(BaseModel):
+    """Query parameters for reading a single asset."""
+    app_data_fields: Optional[Union[str, List[str]]] = Field(None, description="Specific app_data fields to include in response (comma-separated string or list)")
+    
+    @field_validator('app_data_fields', mode='before')
+    def parse_app_data_fields(cls, v):
+        """Parse comma-separated string into list if needed."""
+        if isinstance(v, str):
+            return [field.strip() for field in v.split(',') if field.strip()]
+        return v
+
+
+class AssetTypeInfo(BaseModel):
+    """Information about an asset type and its schema."""
+    asset_type: str = Field(..., description="Asset type identifier")
+    display_name: str = Field(..., description="Human-readable name for the asset type")
+    description: Optional[str] = Field(None, description="Description of the asset type")
+    app_data_schema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for validating app_data")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- UserAppResumeMetadata Schemas --- #
+
+class UserAppResumeMetadataBase(BaseModel):
+    """Base schema for UserAppResumeMetadata."""
+    workflow_name: Optional[str] = Field(None, description="Associated workflow name")
+    asset_id: Optional[uuid.UUID] = Field(None, description="Associated asset ID")
+    entity_tag: Optional[str] = Field(None, description="Entity tag for grouping/filtering")
+    frontend_stage: Optional[str] = Field(None, description="Frontend application stage/state")
+    run_id: Optional[uuid.UUID] = Field(None, description="Associated workflow run ID")
+    app_metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata for resuming application state")
+    
+    @model_validator(mode='after')
+    def validate_identifiers(self):
+        """Validate that at least one identifier and one data field are present."""
+        identifiers = [self.workflow_name, self.asset_id, self.entity_tag, self.frontend_stage]
+        data_fields = [self.run_id, self.app_metadata]
+        
+        if not any(field is not None for field in identifiers):
+            raise ValueError("At least one of workflow_name, asset_id, entity_tag, or frontend_stage must be provided")
+        
+        if not any(field is not None for field in data_fields):
+            raise ValueError("At least one of run_id or app_metadata must be provided")
+        
+        return self
+
+
+class UserAppResumeMetadataCreate(UserAppResumeMetadataBase):
+    """Schema for creating UserAppResumeMetadata."""
+    org_id: Optional[uuid.UUID] = Field(None, description="Organization ID (optional for regular users, uses current org). Can be used by superusers to create metadata for any orgs.")
+    on_behalf_of_user_id: Optional[uuid.UUID] = Field(None, description="Act on behalf of another user (superusers only)")
+
+
+class UserAppResumeMetadataUpdate(BaseModel):
+    """Schema for updating UserAppResumeMetadata. Allows partial updates."""
+    workflow_name: Optional[str] = None
+    asset_id: Optional[uuid.UUID] = None
+    entity_tag: Optional[str] = None
+    frontend_stage: Optional[str] = None
+    run_id: Optional[uuid.UUID] = None
+    app_metadata: Optional[Dict[str, Any]] = None
+    
+    @model_validator(mode='after')
+    def validate_update(self):
+        """Ensure update maintains the constraint requirements."""
+        # For updates, we don't enforce the constraints since we're doing partial updates
+        # The service layer should ensure the resulting record still meets constraints
+        return self
+
+
+class UserAppResumeMetadataRead(UserAppResumeMetadataBase):
+    """Schema for reading UserAppResumeMetadata."""
+    id: uuid.UUID
+    org_id: uuid.UUID
+    user_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserAppResumeMetadataListQuery(CommonListQuery):
+    """Query parameters for listing UserAppResumeMetadata."""
+    workflow_name: Optional[str] = Field(None, description="Filter by workflow name")
+    asset_id: Optional[uuid.UUID] = Field(None, description="Filter by asset ID")
+    entity_tag: Optional[str] = Field(None, description="Filter by entity tag")
+    frontend_stage: Optional[str] = Field(None, description="Filter by frontend stage")
+    run_id: Optional[uuid.UUID] = Field(None, description="Filter by run ID")
+    user_id: Optional[uuid.UUID] = Field(None, description="Filter by user ID (superuser only)")
+    org_id: Optional[uuid.UUID] = Field(None, description="Filter by organization (superuser only)")
 
 
 # Legacy aliases for backward compatibility

@@ -571,6 +571,98 @@ class HITLJob(SQLModel, table=True):
         }
     )
 
+
+class Asset(SQLModel, table=True):
+    """Represents a reusable asset owned by an organization and managed by a user."""
+    __tablename__ = f"{table_prefix}asset"
+    __table_args__ = (
+        # Ensure unique asset names within an org for a given type
+        UniqueConstraint('org_id', 'asset_type', 'asset_name', name=f'{table_prefix}asset_org_type_name_uc'),
+        # Index for common queries
+        Index(f'{table_prefix}asset_org_managing_user_idx', 'org_id', 'managing_user_id'),
+        Index(f'{table_prefix}asset_type_active_idx', 'asset_type', 'is_active'),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    asset_type: str = Field(index=True, description="Type of the asset (e.g., 'document_template', 'data_source')")
+    asset_name: str = Field(index=True, description="Name of the asset, unique within org+type")
+    is_shared: bool = Field(default=True, index=True, description="Whether the asset is shared within the organization")
+    org_id: uuid.UUID = Field(
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=False, index=True),
+        description="Organization that owns this asset"
+    )
+    managing_user_id: uuid.UUID = Field(
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="RESTRICT"), nullable=False, index=True),
+        description="User who manages this asset"
+    )
+    is_active: bool = Field(default=True, index=True, description="Whether the asset is currently active")
+    app_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="Application-specific data for the asset, validated by asset type schemas"
+    )
+    
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, index=True))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc, index=True))
+
+    # Relationships
+    organization: "Organization" = Relationship()
+    managing_user: "User" = Relationship()
+
+
+class UserAppResumeMetadata(SQLModel, table=True):
+    """Stores metadata for resuming user application state."""
+    __tablename__ = f"{table_prefix}user_app_resume_metadata"
+    __table_args__ = (
+        # Composite index for common query patterns
+        Index(f'{table_prefix}user_app_resume_org_user_idx', 'org_id', 'user_id'),
+        Index(f'{table_prefix}user_app_resume_workflow_idx', 'workflow_name', 'user_id'),
+        Index(f'{table_prefix}user_app_resume_asset_idx', 'asset_id', 'user_id'),
+        Index(f'{table_prefix}user_app_resume_tag_idx', 'entity_tag', 'user_id'),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}org.id", ondelete="CASCADE"), nullable=False, index=True),
+        description="Organization context for this metadata"
+    )
+    user_id: uuid.UUID = Field(
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{auth_table_prefix}user.id", ondelete="CASCADE"), nullable=False, index=True),
+        description="User who owns this metadata"
+    )
+    
+    # At least one of these identifiers must be present
+    workflow_name: Optional[str] = Field(default=None, nullable=True, index=True, description="Associated workflow name")
+    asset_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}asset.id", ondelete="CASCADE"), nullable=True, index=True),
+        description="Associated asset ID"
+    )
+    entity_tag: Optional[str] = Field(default=None, nullable=True, index=True, description="Entity tag for grouping/filtering")
+    frontend_stage: Optional[str] = Field(default=None, nullable=True, index=True, description="Frontend application stage/state")
+    
+    # At least one of these data fields must be present
+    run_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}workflow_run.id", ondelete="SET NULL"), nullable=True, index=True),
+        description="Associated workflow run ID"
+    )
+    app_metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="Additional metadata for resuming application state"
+    )
+    
+    created_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=datetime_now_utc, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, onupdate=datetime_now_utc))
+
+    # Relationships
+    organization: "Organization" = Relationship()
+    user: "User" = Relationship()
+    asset: Optional["Asset"] = Relationship()
+    workflow_run: Optional["WorkflowRun"] = Relationship()
+
+
 # --- Update Forward Refs --- #
 # Needed for relationships defined using string type hints if classes are defined out of order
 # Make sure all models referencing others are included.
@@ -585,6 +677,8 @@ SchemaTemplate.model_rebuild()
 UserNotification.model_rebuild()
 HITLJob.model_rebuild()
 ChatThread.model_rebuild()
+Asset.model_rebuild()
+UserAppResumeMetadata.model_rebuild()
 
 # TODO: FIXME
 # --- Add back_populates to Auth Models (Requires modifying auth/models.py) --- #

@@ -77,5 +77,7 @@ class WorkflowPermissions(str, Enum):
     ORG_DATA_READ = "org_data:read"
     ORG_DATA_WRITE = "org_data:write"
 
+    ORG_MANAGE_ASSETS = "org:manage_assets" # Create/update/delete assets within the org
+
     # # Admin-only Template Permissions
     # TEMPLATE_MANAGE_SYSTEM = "template:manage_system" # CRUD for Node Templates and system prompt/schema 

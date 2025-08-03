@@ -26,6 +26,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from global_utils import datetime_now_utc
 from global_config.logger import get_logger
 from sqlmodel import or_, select
+from kiwi_app.auth.dependencies import _check_permissions_for_org, get_user_dao
+from kiwi_app.auth.exceptions import PermissionDeniedException
+from kiwi_app.workflow_app.constants import WorkflowPermissions
 from kiwi_app.workflow_app import models, schemas, crud
 from kiwi_app.workflow_app.constants import WorkflowRunStatus, NotificationType, HITLJobStatus, LaunchStatus # Import LaunchStatus
 from kiwi_app.auth.models import User, Organization # For type hinting and context
@@ -37,6 +40,7 @@ from kiwi_app.billing.models import CreditType
 
 # MongoDB Client and Event Schemas
 from mongo_client import AsyncMongoDBClient
+from redis_client import AsyncRedisClient
 from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME, STATE_KEY_DELIMITER
 from workflow_service.graph.graph import GraphSchema
 from workflow_service.services import events as event_schemas # For Run Details
@@ -2567,4 +2571,830 @@ class WorkflowService:
             limit=limit
         )
 
-# --- Helper Functions/Classes (Optional) --- #
+
+# --- Asset Services --- #
+
+# Asset type registry - mapping asset types to their Pydantic schemas for app_data validation
+ASSET_TYPE_REGISTRY: Dict[str, Dict[str, Any]] = {
+    # LinkedIn Profile asset type
+    schemas.AssetType.LINKEDIN_PROFILE.value: {
+        "display_name": "LinkedIn Profile",
+        "description": "LinkedIn profile for data extraction and monitoring",
+        "app_data_schema": schemas.LinkedInProfileAppData
+    },
+    schemas.AssetType.BLOG_URL.value: {
+        "display_name": "Blog URL",
+        "description": "Blog URL for content extraction and monitoring",
+        "app_data_schema": schemas.BlogUrlAppData
+    }
+}
+
+
+class AssetService:
+    """Service layer for managing assets."""
+    
+    def __init__(
+        self,
+        asset_dao: crud.AssetDAO,
+        user_app_resume_metadata_dao: crud.UserAppResumeMetadataDAO,
+        redis_client: Optional['AsyncRedisClient'] = None,
+    ):
+        """
+        Initialize AssetService with required DAOs and optional Redis client.
+        
+        Args:
+            asset_dao: DAO for asset operations
+            user_app_resume_metadata_dao: DAO for user app resume metadata operations
+            redis_client: Optional Redis client for distributed locking
+        """
+        self.asset_dao = asset_dao
+        self.user_app_resume_metadata_dao = user_app_resume_metadata_dao
+        self.redis_client = redis_client
+        self.logger = get_logger(__name__)
+    
+    # --- Asset Type Registry Methods --- #
+    
+    def get_asset_type_info(self, asset_type: str) -> schemas.AssetTypeInfo:
+        """Get information about an asset type including its schema."""
+        if asset_type not in ASSET_TYPE_REGISTRY:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Asset type '{asset_type}' not found"
+            )
+        
+        type_info = ASSET_TYPE_REGISTRY[asset_type]
+        schema_class = type_info["app_data_schema"]
+        
+        # Convert Pydantic schema to JSON schema if it's a Pydantic model
+        json_schema = None
+        if schema_class and hasattr(schema_class, 'model_json_schema'):
+            json_schema = schema_class.model_json_schema()
+        
+        return schemas.AssetTypeInfo(
+            asset_type=asset_type,
+            display_name=type_info["display_name"],
+            description=type_info["description"],
+            app_data_schema=json_schema
+        )
+    
+    def list_asset_types(self) -> List[schemas.AssetTypeInfo]:
+        """List all available asset types."""
+        result = []
+        for asset_type, info in ASSET_TYPE_REGISTRY.items():
+            schema_class = info["app_data_schema"]
+            
+            # Convert Pydantic schema to JSON schema if it's a Pydantic model
+            json_schema = None
+            if schema_class and hasattr(schema_class, 'model_json_schema'):
+                json_schema = schema_class.model_json_schema()
+            
+            result.append(schemas.AssetTypeInfo(
+                asset_type=asset_type,
+                display_name=info["display_name"],
+                description=info["description"],
+                app_data_schema=json_schema
+            ))
+        
+        return result
+    
+    def validate_asset_app_data(self, asset_type: str, app_data: Optional[Dict[str, Any]]) -> None:
+        """Validate app_data against the asset type's schema."""
+        if asset_type not in ASSET_TYPE_REGISTRY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid asset type: {asset_type}"
+            )
+        
+        schema_class = ASSET_TYPE_REGISTRY[asset_type]["app_data_schema"]
+        
+        # Skip validation if no schema is defined (e.g., for custom assets)
+        if schema_class is None:
+            return
+        
+        # Skip validation if app_data is None
+        if app_data is None:
+            return
+        
+        try:
+            # Use Pydantic model for validation
+            if hasattr(schema_class, 'model_validate'):
+                schema_class.model_validate(app_data)
+            else:
+                # Fallback to jsonschema if not a Pydantic model
+                validate(instance=app_data, schema=schema_class)
+        except ValidationError as e:
+            # Pydantic validation error
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid app_data: {str(e)}"
+            )
+        except Exception as e:
+            # Other validation errors
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid app_data for asset type '{asset_type}': {str(e)}"
+            )
+    
+    # --- Asset Data Filtering Methods --- #
+    
+    def filter_app_data_fields(self, asset: models.Asset, fields: Optional[List[str]] = None) -> models.Asset:
+        """
+        Filter app_data to include only specified fields.
+        
+        If fields is None or empty, returns the asset unchanged.
+        If fields are specified, creates a new dict with only those fields.
+        
+        Args:
+            asset: The asset model instance
+            fields: List of field names to include (supports nested paths with dots)
+            
+        Returns:
+            The asset with filtered app_data
+        """
+        if not fields or not asset.app_data:
+            return asset
+        
+        # Extract requested fields from app_data
+        filtered_data = {}
+        
+        for field in fields:
+            # Support nested field access with dot notation
+            parts = field.split('.')
+            source = asset.app_data
+            target = filtered_data
+            
+            # Navigate through nested structure
+            for i, part in enumerate(parts[:-1]):
+                if isinstance(source, dict) and part in source:
+                    source = source[part]
+                    if part not in target:
+                        target[part] = {}
+                    target = target[part]
+                else:
+                    # Field doesn't exist, skip it
+                    break
+            else:
+                # Add the final field if it exists
+                if isinstance(source, dict) and parts[-1] in source:
+                    target[parts[-1]] = source[parts[-1]]
+        
+        # Create a new Asset object with filtered app_data
+        # This avoids modifying the original SQLAlchemy object
+        filtered_asset = models.Asset(
+            id=asset.id,
+            asset_type=asset.asset_type,
+            asset_name=asset.asset_name,
+            is_shared=asset.is_shared,
+            org_id=asset.org_id,
+            managing_user_id=asset.managing_user_id,
+            is_active=asset.is_active,
+            app_data=filtered_data if filtered_data else None,
+            created_at=asset.created_at,
+            updated_at=asset.updated_at
+        )
+        return filtered_asset
+    
+    def filter_assets_app_data(self, assets: List[models.Asset], fields: Optional[List[str]] = None) -> List[models.Asset]:
+        """Filter app_data fields for a list of assets."""
+        if not fields:
+            return assets
+        
+        return [self.filter_app_data_fields(asset, fields) for asset in assets]
+    
+    # --- Asset CRUD Methods --- #
+    
+    async def create_asset(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_in: schemas.AssetCreate,
+        org_id: Optional[uuid.UUID] = None,
+        is_superuser: bool = False
+    ) -> models.Asset:
+        """Create a new asset."""
+        # Determine effective org_id
+        effective_org_id = org_id
+        if asset_in.org_id and is_superuser:
+            effective_org_id = asset_in.org_id
+        elif not effective_org_id:
+            # Use user's current org if not specified
+            effective_org_id = org_id
+        
+        if not effective_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization ID must be specified"
+            )
+        
+        # Validate app_data against asset type schema
+        self.validate_asset_app_data(asset_in.asset_type, asset_in.app_data)
+        
+        # Check if asset with same type and name exists in the org
+        existing = await self.asset_dao.get_by_type_and_name(
+            db,
+            org_id=effective_org_id,
+            asset_type=asset_in.asset_type,
+            asset_name=asset_in.asset_name
+        )
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Asset with type '{asset_in.asset_type}' and name '{asset_in.asset_name}' already exists in this organization"
+            )
+        
+        # Determine managing user
+        managing_user_id = user.id
+        if asset_in.managing_user_id and is_superuser:
+            managing_user_id = asset_in.managing_user_id
+        elif asset_in.on_behalf_of_user_id and is_superuser:
+            managing_user_id = asset_in.on_behalf_of_user_id
+        
+        # Create the asset
+        db_asset = models.Asset(
+            asset_type=asset_in.asset_type,
+            asset_name=asset_in.asset_name,
+            is_shared=asset_in.is_shared,
+            is_active=asset_in.is_active,
+            app_data=asset_in.app_data,
+            org_id=effective_org_id,
+            managing_user_id=managing_user_id
+        )
+        
+        db.add(db_asset)
+        await db.commit()
+        await db.refresh(db_asset)
+        
+        self.logger.info(f"Created asset {db_asset.id} of type {db_asset.asset_type} for org {effective_org_id}")
+        
+        return db_asset
+    
+    async def get_asset(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_id: uuid.UUID,
+        org_id: uuid.UUID,
+        is_superuser: bool = False,
+        app_data_fields: Optional[List[str]] = None
+    ) -> models.Asset:
+        """Get an asset by ID, checking permissions."""
+        asset = await self.asset_dao.get(db, id=asset_id)
+        if not asset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Asset not found"
+            )
+        
+        # Check permissions
+        if not is_superuser:
+            # Must be in the same org
+            if asset.org_id != org_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Asset belongs to a different organization"
+                )
+            
+            # Must be accessible (shared or user is managing user)
+            if not asset.is_shared and asset.managing_user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You don't have permission to access this asset"
+                )
+        
+        # Filter app_data fields if requested
+        if app_data_fields:
+            asset = self.filter_app_data_fields(asset, app_data_fields)
+        
+        return asset
+    
+    async def update_asset(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_id: uuid.UUID,
+        asset_update: schemas.AssetUpdate,
+        org_id: uuid.UUID,
+        is_superuser: bool = False,
+        is_asset_manage_update: bool = False
+    ) -> models.Asset:
+        """Update an asset."""
+        # Get existing asset
+        asset = await self.get_asset(db, user=user, asset_id=asset_id, org_id=org_id, is_superuser=is_superuser)
+        
+        # Check update permissions
+        if (not is_superuser) and (asset.managing_user_id != user.id):
+            # Only managing user can update (org-level permission already checked by route)
+            if is_asset_manage_update:
+                await _check_permissions_for_org(
+                    db=db,
+                    user_dao=get_user_dao(),
+                    user=user,
+                    org_id=org_id,
+                    required_permissions=[WorkflowPermissions.ORG_MANAGE_ASSETS]
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the managing user can update this asset"
+                )
+        
+        # Validate app_data if being updated
+        if asset_update.app_data is not None:
+            self.validate_asset_app_data(asset.asset_type, asset_update.app_data)
+        
+        # Check if name is being changed and would conflict
+        if asset_update.asset_name and asset_update.asset_name != asset.asset_name:
+            existing = await self.asset_dao.get_by_type_and_name(
+                db,
+                org_id=asset.org_id,
+                asset_type=asset.asset_type,
+                asset_name=asset_update.asset_name
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Asset with type '{asset.asset_type}' and name '{asset_update.asset_name}' already exists"
+                )
+        
+        # Update the asset
+        updated_asset = await self.asset_dao.update(db, db_obj=asset, obj_in=asset_update)
+        
+        self.logger.info(f"Updated asset {asset_id}")
+        
+        return updated_asset
+    
+    async def update_asset_app_data(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_id: uuid.UUID,
+        app_data_update: schemas.AssetAppDataUpdate,
+        org_id: uuid.UUID,
+        is_superuser: bool = False
+    ) -> models.Asset:
+        """Update asset app_data using JSONB operations with distributed locking."""
+        # First check permissions without lock
+        asset = await self.get_asset(db, user=user, asset_id=asset_id, org_id=org_id, is_superuser=is_superuser)
+        
+        # Check update permissions
+        if not is_superuser:
+            # Only managing user can update (org-level permission already checked by route)
+            if asset.managing_user_id != user.id and (not asset.is_shared):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the managing user can update this asset"
+                )
+        
+        # For replace operation, validate the new app_data
+        if app_data_update.operation == schemas.AssetAppDataOperation.REPLACE:
+            self.validate_asset_app_data(asset.asset_type, app_data_update.value)
+        
+        # Use Redis lock if available to prevent race conditions during concurrent updates
+        if self.redis_client:
+            lock_key = f"asset:{asset_id}:app_data"
+            async with self.redis_client.with_lock(lock_key, timeout=30, ttl=60):
+                # Perform the JSONB update within the lock
+                success = await self.asset_dao.update_app_data_jsonb(
+                    db,
+                    asset_id=asset_id,
+                    operation=app_data_update.operation,
+                    path=app_data_update.path,
+                    value=app_data_update.value
+                )
+        else:
+            # No Redis client available, perform update without lock
+            self.logger.warning(f"Redis client not available for asset {asset_id}, updating without distributed lock")
+            success = await self.asset_dao.update_app_data_jsonb(
+                db,
+                asset_id=asset_id,
+                operation=app_data_update.operation,
+                path=app_data_update.path,
+                value=app_data_update.value
+            )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update asset app_data"
+            )
+        
+        # Fetch and return updated asset
+        updated_asset = await self.asset_dao.get(db, id=asset_id)
+        
+        self.logger.info(f"Updated app_data for asset {asset_id} using operation {app_data_update.operation}")
+        
+        return updated_asset
+    
+    async def increment_asset_app_data_field(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_id: uuid.UUID,
+        path: List[str],
+        increment: Union[int, float] = 1,
+        org_id: uuid.UUID
+    ) -> models.Asset:
+        """
+        Atomically increment a numeric field in asset app_data.
+        
+        Args:
+            db: Database session
+            user: User performing the operation
+            asset_id: ID of the asset to update
+            path: JSON path to the numeric field
+            increment: Amount to increment by (default 1), can be int or float
+            org_id: Optional organization ID for permission check
+            
+        Returns:
+            Updated asset
+            
+        Raises:
+            HTTPException: If asset not found, user lacks permission, or field is not numeric
+        """
+        # Get and validate asset (this also checks basic permissions)
+        asset = await self.get_asset(db, user=user, asset_id=asset_id, org_id=org_id)
+        
+        # Check update permissions (only managing user can update)
+        if asset.managing_user_id != user.id and (not asset.is_shared) and (not user.is_superuser):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the managing user can update this asset"
+            )
+        
+        # Use Redis lock if available
+        lock_key = f"asset:{asset_id}:app_data"
+        async with self.redis_client.with_lock(lock_key, timeout=30, ttl=60):
+            success = await self.asset_dao.increment_app_data_field(
+                db,
+                asset_id=asset_id,
+                path=path,
+                increment=increment
+            )
+        
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to increment field at path {path} for asset {asset_id}"
+            )
+        
+        # Return updated asset
+        updated_asset = await self.asset_dao.get(db, id=asset_id)
+        return updated_asset
+    
+    async def deactivate_asset(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        asset_id: uuid.UUID,
+        org_id: uuid.UUID,
+        is_superuser: bool = False
+    ) -> models.Asset:
+        """Deactivate an asset (soft delete)."""
+        # Use update_asset with is_active=False
+        asset_update = schemas.AssetUpdate(is_active=False)
+        
+        updated_asset = await self.update_asset(
+            db,
+            user=user,
+            asset_id=asset_id,
+            asset_update=asset_update,
+            org_id=org_id,
+            is_superuser=is_superuser,
+            is_asset_manage_update=True,
+        )
+        
+        self.logger.info(f"Deactivated asset {asset_id}")
+        
+        return updated_asset
+    
+    async def list_accessible_assets(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        org_id: uuid.UUID,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        is_shared: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+        is_superuser: bool = False,
+        app_data_fields: Optional[List[str]] = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> List[models.Asset]:
+        """List assets accessible to a user within an organization."""
+        # For superusers listing a specific org, show all assets
+        if is_superuser:
+            assets = await self.asset_dao.get_all_org_assets(
+                db,
+                org_id=org_id,
+                asset_type=asset_type,
+                is_active=is_active,
+                is_shared=is_shared,
+                skip=skip,
+                limit=limit,
+                sort_by=sort_by,
+                sort_order=sort_order
+            )
+        else:
+            # For regular users, show only accessible assets
+            assets = await self.asset_dao.get_accessible_assets(
+                db,
+                org_id=org_id,
+                user_id=user.id,
+                asset_type=asset_type,
+                is_active=is_active,
+                is_shared=is_shared,
+                skip=skip,
+                limit=limit,
+                sort_by=sort_by,
+                sort_order=sort_order
+            )
+        
+        # Filter app_data fields if requested
+        if app_data_fields:
+            assets = self.filter_assets_app_data(assets, app_data_fields)
+        
+        return assets
+    
+    async def list_managed_assets(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        org_id: Optional[uuid.UUID] = None,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        include_all_orgs: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+        is_superuser: bool = False,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        app_data_fields: Optional[List[str]] = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> List[models.Asset]:
+        """List all assets managed by a user."""
+        # Determine target user
+        target_user_id = user.id
+        if on_behalf_of_user_id and is_superuser:
+            target_user_id = on_behalf_of_user_id
+        
+        # If include_all_orgs is False and org_id is provided, filter by org
+        effective_org_id = None if include_all_orgs else org_id
+        
+        assets = await self.asset_dao.get_managed_assets(
+            db,
+            user_id=target_user_id,
+            org_id=effective_org_id,
+            asset_type=asset_type,
+            is_active=is_active,
+            skip=skip,
+            limit=limit,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        # Filter app_data fields if requested
+        if app_data_fields:
+            assets = self.filter_assets_app_data(assets, app_data_fields)
+        
+        return assets
+    
+    async def list_all_org_assets(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        org_id: uuid.UUID,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        is_shared: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+        is_superuser: bool = False,
+        app_data_fields: Optional[List[str]] = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> List[models.Asset]:
+        """List all assets in an organization (requires ORG_DATA_WRITE permission)."""
+        # Permission checking is handled by the route dependency
+        
+        assets = await self.asset_dao.get_all_org_assets(
+            db,
+            org_id=org_id,
+            asset_type=asset_type,
+            is_active=is_active,
+            is_shared=is_shared,
+            skip=skip,
+            limit=limit,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        
+        # Filter app_data fields if requested
+        if app_data_fields:
+            assets = self.filter_assets_app_data(assets, app_data_fields)
+        
+        return assets
+    
+    # --- UserAppResumeMetadata Methods --- #
+    
+    async def create_user_app_resume_metadata(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        metadata_in: schemas.UserAppResumeMetadataCreate,
+        org_id: Optional[uuid.UUID] = None,
+        is_superuser: bool = False
+    ) -> models.UserAppResumeMetadata:
+        """Create a new user app resume metadata record."""
+        # Determine effective org_id and user_id
+        effective_org_id = org_id
+        if metadata_in.org_id and is_superuser:
+            effective_org_id = metadata_in.org_id
+        elif not effective_org_id:
+            effective_org_id = org_id
+        
+        if not effective_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization ID must be specified"
+            )
+        
+        effective_user_id = user.id
+        if metadata_in.on_behalf_of_user_id and is_superuser:
+            effective_user_id = metadata_in.on_behalf_of_user_id
+        
+        # Create the metadata record
+        db_metadata = await self.user_app_resume_metadata_dao.create(
+            db,
+            obj_in=metadata_in,
+            org_id=effective_org_id,
+            user_id=effective_user_id
+        )
+        
+        self.logger.info(f"Created user app resume metadata {db_metadata.id} for user {effective_user_id}")
+        
+        return db_metadata
+    
+    async def get_user_app_resume_metadata(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        metadata_id: uuid.UUID,
+        is_superuser: bool = False
+    ) -> models.UserAppResumeMetadata:
+        """Get a user app resume metadata record by ID."""
+        if is_superuser:
+            metadata = await self.user_app_resume_metadata_dao.get(db, id=metadata_id)
+        else:
+            metadata = await self.user_app_resume_metadata_dao.get_by_id_and_user(db, id=metadata_id, user_id=user.id)
+        
+        if not metadata:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User app resume metadata not found"
+            )
+        
+        return metadata
+    
+    async def update_user_app_resume_metadata(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        metadata_id: uuid.UUID,
+        metadata_update: schemas.UserAppResumeMetadataUpdate,
+        is_superuser: bool = False
+    ) -> models.UserAppResumeMetadata:
+        """Update a user app resume metadata record with distributed locking."""
+        # First check permissions without lock
+        metadata = await self.get_user_app_resume_metadata(db, user=user, metadata_id=metadata_id, is_superuser=is_superuser)
+        
+        # Use Redis lock if available to prevent race conditions during concurrent updates
+        async def _perform_update() -> models.UserAppResumeMetadata:
+            # Re-fetch metadata inside lock to ensure we have the latest version
+            metadata = await self.get_user_app_resume_metadata(db, user=user, metadata_id=metadata_id, is_superuser=is_superuser)
+            
+            # Validate that update maintains constraints
+            # Create a copy of the current object and apply updates to check constraints
+            test_obj = {
+                "workflow_name": metadata.workflow_name,
+                "asset_id": metadata.asset_id,
+                "entity_tag": metadata.entity_tag,
+                "frontend_stage": metadata.frontend_stage,
+                "run_id": metadata.run_id,
+                "app_metadata": metadata.app_metadata
+            }
+            
+            # Apply updates
+            update_data = metadata_update.model_dump(exclude_unset=True)
+            for field, value in update_data.items():
+                test_obj[field] = value
+            
+            # Check constraints
+            identifiers = [test_obj["workflow_name"], test_obj["asset_id"], test_obj["entity_tag"], test_obj["frontend_stage"]]
+            data_fields = [test_obj["run_id"], test_obj["app_metadata"]]
+            
+            if not any(field is not None for field in identifiers):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="At least one of workflow_name, asset_id, entity_tag, or frontend_stage must remain after update"
+                )
+            
+            if not any(field is not None for field in data_fields):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="At least one of run_id or app_metadata must remain after update"
+                )
+            
+            # Update the metadata
+            return await self.user_app_resume_metadata_dao.update(db, db_obj=metadata, obj_in=metadata_update)
+        
+        if self.redis_client:
+            lock_key = f"user_app_resume_metadata:{metadata_id}"
+            async with self.redis_client.with_lock(lock_key, timeout=30, ttl=60):
+                updated_metadata = await _perform_update()
+        else:
+            # No Redis client available, perform update without lock
+            self.logger.warning(f"Redis client not available for metadata {metadata_id}, updating without distributed lock")
+            updated_metadata = await _perform_update()
+        
+        self.logger.info(f"Updated user app resume metadata {metadata_id}")
+        
+        return updated_metadata
+    
+    async def delete_user_app_resume_metadata(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        metadata_id: uuid.UUID,
+        is_superuser: bool = False
+    ) -> bool:
+        """Delete a user app resume metadata record."""
+        # Get existing metadata to check permissions
+        metadata = await self.get_user_app_resume_metadata(db, user=user, metadata_id=metadata_id, is_superuser=is_superuser)
+        
+        # Delete the metadata
+        deleted = await self.user_app_resume_metadata_dao.remove(db, id=metadata_id)
+        
+        if deleted:
+            self.logger.info(f"Deleted user app resume metadata {metadata_id}")
+            return True
+        
+        return False
+    
+    async def list_user_app_resume_metadata(
+        self,
+        db: AsyncSession,
+        *,
+        user: User,
+        org_id: Optional[uuid.UUID] = None,
+        workflow_name: Optional[str] = None,
+        asset_id: Optional[uuid.UUID] = None,
+        entity_tag: Optional[str] = None,
+        frontend_stage: Optional[str] = None,
+        run_id: Optional[uuid.UUID] = None,
+        user_id: Optional[uuid.UUID] = None,
+        skip: int = 0,
+        limit: int = 100,
+        is_superuser: bool = False
+    ) -> List[models.UserAppResumeMetadata]:
+        """List user app resume metadata records with filters."""
+        # Determine effective org_id and user_id
+        effective_org_id = org_id
+        if not effective_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization ID must be specified"
+            )
+        
+        effective_user_id = user.id
+        if user_id and is_superuser:
+            effective_user_id = user_id
+        
+        return await self.user_app_resume_metadata_dao.get_by_filters(
+            db,
+            org_id=effective_org_id,
+            user_id=effective_user_id,
+            workflow_name=workflow_name,
+            asset_id=asset_id,
+            entity_tag=entity_tag,
+            frontend_stage=frontend_stage,
+            run_id=run_id,
+            skip=skip,
+            limit=limit
+        )
+

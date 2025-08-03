@@ -6,12 +6,14 @@ database models defined in models.py, encapsulating the database query logic.
 
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional, Type, TypeVar, Generic, Any, Dict, Sequence, Union
+from typing import List, Optional, Type, TypeVar, Generic, Any, Dict, Sequence, Union, Tuple
 import copy
+import json
 
 from sqlalchemy import select, update, delete, func, or_, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import text
 
 from pydantic import BaseModel as PydanticBaseModel
 
@@ -1878,3 +1880,504 @@ class WorkflowConfigOverrideDAO(BaseDAO[models.WorkflowConfigOverride, PydanticB
         
         result = await db.exec(stmt)
         return result.scalars().all()
+
+
+class AssetDAO(BaseDAO[models.Asset, schemas.AssetCreate, schemas.AssetUpdate]):
+    """DAO for Asset operations."""
+    
+    def __init__(self):
+        super().__init__(models.Asset)
+
+    async def get_by_type_and_name(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        asset_type: str,
+        asset_name: str
+    ) -> Optional[models.Asset]:
+        """Get an asset by type and name within an organization."""
+        stmt = select(self.model).where(
+            and_(
+                self.model.org_id == org_id,
+                self.model.asset_type == asset_type,
+                self.model.asset_name == asset_name
+            )
+        )
+        result = await db.exec(stmt)
+        return result.scalars().first()
+
+    async def get_accessible_assets(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        is_shared: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> Sequence[models.Asset]:
+        """
+        Get assets accessible to a user within an organization.
+        An asset is accessible if:
+        - The user is the managing user, OR
+        - The asset is shared within the organization
+        """
+        conditions = [
+            self.model.org_id == org_id,
+            or_(
+                self.model.managing_user_id == user_id,
+                self.model.is_shared == True
+            )
+        ]
+        
+        if asset_type is not None:
+            conditions.append(self.model.asset_type == asset_type)
+        if is_active is not None:
+            conditions.append(self.model.is_active == is_active)
+        if is_shared is not None:
+            conditions.append(self.model.is_shared == is_shared)
+
+        # Build order by clause
+        order_column = getattr(self.model, sort_by, self.model.updated_at)
+        order_by = order_column.desc() if sort_order == "desc" else order_column.asc()
+
+        stmt = select(self.model).where(
+            and_(*conditions)
+        ).offset(skip).limit(limit).order_by(order_by)
+        
+        result = await db.exec(stmt)
+        return result.scalars().all()
+
+    async def get_managed_assets(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: uuid.UUID,
+        org_id: Optional[uuid.UUID] = None,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> Sequence[models.Asset]:
+        """Get all assets managed by a specific user, optionally filtered by org."""
+        conditions = [self.model.managing_user_id == user_id]
+        
+        if org_id is not None:
+            conditions.append(self.model.org_id == org_id)
+        if asset_type is not None:
+            conditions.append(self.model.asset_type == asset_type)
+        if is_active is not None:
+            conditions.append(self.model.is_active == is_active)
+
+        # Build order by clause
+        order_column = getattr(self.model, sort_by, self.model.updated_at)
+        order_by = order_column.desc() if sort_order == "desc" else order_column.asc()
+
+        stmt = select(self.model).where(
+            and_(*conditions)
+        ).offset(skip).limit(limit).order_by(order_by)
+        
+        result = await db.exec(stmt)
+        return result.scalars().all()
+
+    async def get_all_org_assets(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        asset_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        is_shared: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc"
+    ) -> Sequence[models.Asset]:
+        """Get all assets in an organization (for org admins)."""
+        conditions = [self.model.org_id == org_id]
+        
+        if asset_type is not None:
+            conditions.append(self.model.asset_type == asset_type)
+        if is_active is not None:
+            conditions.append(self.model.is_active == is_active)
+        if is_shared is not None:
+            conditions.append(self.model.is_shared == is_shared)
+
+        # Build order by clause
+        order_column = getattr(self.model, sort_by, self.model.updated_at)
+        order_by = order_column.desc() if sort_order == "desc" else order_column.asc()
+
+        stmt = select(self.model).where(
+            and_(*conditions)
+        ).offset(skip).limit(limit).order_by(order_by)
+        
+        result = await db.exec(stmt)
+        return result.scalars().all()
+
+    def _navigate_to_path(self, data: Dict[str, Any], path: List[str], create_missing: bool = False) -> Tuple[Any, str, bool]:
+        """
+        Navigate through nested data structure to the parent of the target path.
+        
+        Args:
+            data: The data structure to navigate
+            path: List of keys/indices to navigate
+            create_missing: Whether to create missing intermediate structures
+            
+        Returns:
+            Tuple of (parent_container, last_key, success)
+            - parent_container: The dict/list containing the target
+            - last_key: The final key/index in the path
+            - success: Whether navigation was successful
+        """
+        if not path:
+            return data, "", False
+            
+        current = data
+        for i, part in enumerate(path[:-1]):
+            if isinstance(current, dict):
+                if part not in current:
+                    if create_missing:
+                        current[part] = {}
+                    else:
+                        return None, "", False
+                current = current[part]
+            elif isinstance(current, list):
+                try:
+                    idx = int(part)
+                    if create_missing:
+                        # Extend list if needed
+                        while len(current) <= idx:
+                            current.append({})
+                    elif idx >= len(current):
+                        return None, "", False
+                    current = current[idx]
+                except (ValueError, IndexError):
+                    return None, "", False
+            else:
+                # Can't navigate further
+                return None, "", False
+                
+        return current, path[-1], True
+    
+    def _apply_add_or_update_operation(self, data: Dict[str, Any], path: List[str], value: Any) -> bool:
+        """
+        Apply add or update operation to the data.
+        
+        Args:
+            data: The data structure to modify
+            path: Path to the target location
+            value: Value to set
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        parent, last_key, success = self._navigate_to_path(data, path, create_missing=True)
+        if not success:
+            return False
+            
+        if isinstance(parent, dict):
+            parent[last_key] = value
+            return True
+        elif isinstance(parent, list) and last_key.isdigit():
+            idx = int(last_key)
+            while len(parent) <= idx:
+                parent.append(None)
+            parent[idx] = value
+            return True
+        else:
+            return False
+    
+    def _apply_delete_operation(self, data: Dict[str, Any], path: List[str]) -> bool:
+        """
+        Apply delete operation to the data.
+        
+        Args:
+            data: The data structure to modify
+            path: Path to the target location
+            
+        Returns:
+            True if successful (even if key doesn't exist), False if path is invalid
+        """
+        parent, last_key, success = self._navigate_to_path(data, path, create_missing=False)
+        if not success:
+            # Path doesn't exist, which is OK for delete
+            return True
+            
+        try:
+            if isinstance(parent, dict) and last_key in parent:
+                del parent[last_key]
+            elif isinstance(parent, list) and last_key.isdigit():
+                idx = int(last_key)
+                if 0 <= idx < len(parent):
+                    parent.pop(idx)
+        except (KeyError, IndexError, TypeError):
+            # Key doesn't exist or operation failed - still considered success for delete
+            pass
+            
+        return True
+
+    async def update_app_data_jsonb(
+        self,
+        db: AsyncSession,
+        *,
+        asset_id: uuid.UUID,
+        operation: str,
+        path: Optional[List[str]] = None,
+        value: Optional[Any] = None
+    ) -> bool:
+        """
+        Update app_data using JSON operations.
+        
+        Operations:
+        - 'add_or_update': Add a new key or update existing value at path
+        - 'delete': Delete a key at path
+        - 'replace': Replace entire app_data
+        
+        Args:
+            db: Database session
+            asset_id: ID of the asset to update
+            operation: Operation to perform (AssetAppDataOperation enum or string)
+            path: JSON path for add_or_update/delete operations
+            value: Value for add_or_update/replace operations
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        from kiwi_app.workflow_app.schemas import AssetAppDataOperation
+        import copy
+        
+        # Convert string operation to enum if needed
+        if isinstance(operation, str):
+            operation = AssetAppDataOperation(operation)
+        
+        # Validate operation parameters
+        if operation == AssetAppDataOperation.REPLACE and value is None:
+            raise ValueError("Value is required for replace operation")
+        elif operation in (AssetAppDataOperation.ADD_OR_UPDATE, AssetAppDataOperation.DELETE) and not path:
+            raise ValueError(f"Path is required for {operation.value} operation")
+        elif operation == AssetAppDataOperation.ADD_OR_UPDATE and value is None:
+            raise ValueError("Value is required for add_or_update operation")
+        
+        
+        try:
+            # Ensure we're working with the latest data
+            # First, close any existing transaction to ensure we get fresh data
+            await db.rollback()
+            
+            # Set READ COMMITTED isolation level to see committed changes immediately
+            await db.exec(text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
+            
+            # Start a new transaction with row-level lock to prevent concurrent modifications
+            stmt = select(self.model).where(self.model.id == asset_id).with_for_update()
+            result = await db.exec(stmt)
+            asset = result.scalars().first()
+            if not asset:
+                return False
+            
+            # Get current app_data or initialize empty dict
+            current_data = asset.app_data or {}
+            
+            # Apply the operation
+            if operation == AssetAppDataOperation.REPLACE:
+                new_data = value
+            else:
+                # Deep copy for modifications
+                new_data = copy.deepcopy(current_data)
+                
+                if operation == AssetAppDataOperation.ADD_OR_UPDATE:
+                    success = self._apply_add_or_update_operation(new_data, path, value)
+                    if not success:
+                        return False
+                elif operation == AssetAppDataOperation.DELETE:
+                    success = self._apply_delete_operation(new_data, path)
+                    if not success:
+                        return False
+                else:
+                    raise ValueError(f"Invalid operation: {operation}")
+            
+            # Update the asset with new data
+            asset.app_data = new_data
+            asset.updated_at = datetime_now_utc()
+            
+            # Mark the JSONB field as modified to ensure SQLAlchemy tracks the change
+            from sqlalchemy.orm import attributes
+            attributes.flag_modified(asset, 'app_data')
+            
+            db.add(asset)
+            await db.commit()
+            await db.refresh(asset)
+            
+            return True
+        except Exception as e:
+            await db.rollback()
+            raise e
+    
+    async def increment_app_data_field(
+        self,
+        db: AsyncSession,
+        *,
+        asset_id: uuid.UUID,
+        path: List[str],
+        increment: Union[int, float] = 1
+    ) -> bool:
+        """
+        Atomically increment a numeric field in app_data.
+        
+        Args:
+            db: Database session
+            asset_id: ID of the asset to update
+            path: JSON path to the numeric field
+            increment: Amount to increment by (default 1), can be int or float
+            
+        Returns:
+            True if update was successful, False otherwise
+        """
+        from sqlalchemy import text
+        
+        try:
+            await db.rollback()
+            
+            # Set READ COMMITTED isolation level to see committed changes immediately
+            await db.exec(text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED"))
+            
+            # Lock the row for update - this will wait if another transaction has the lock
+            stmt = select(self.model).where(self.model.id == asset_id).with_for_update()
+            result = await db.exec(stmt)
+            asset = result.scalars().first()
+            if not asset:
+                return False
+            
+            # Get current app_data
+            current_data = asset.app_data or {}
+            
+            # Navigate to the field and increment
+            parent, last_key, success = self._navigate_to_path(current_data, path, create_missing=True)
+            if not success or not isinstance(parent, dict):
+                return False
+            
+            # Get current value and increment
+            current_val = parent.get(last_key, 0)
+            
+            # If field doesn't exist or is None, treat as 0
+            if current_val is None:
+                current_val = 0
+            
+            # Validate that current value is numeric
+            if not isinstance(current_val, (int, float)):
+                return False
+            
+            # Validate increment is numeric
+            if not isinstance(increment, (int, float)):
+                return False
+                
+            parent[last_key] = current_val + increment
+            
+            # Update the asset
+            asset.app_data = current_data
+            asset.updated_at = datetime_now_utc()
+            
+            # Mark the JSONB field as modified to ensure SQLAlchemy tracks the change
+            from sqlalchemy.orm import attributes
+            attributes.flag_modified(asset, 'app_data')
+            
+            db.add(asset)
+            await db.commit()
+            await db.refresh(asset)
+            
+            return True
+        except Exception as e:
+            await db.rollback()
+            raise e
+
+
+class UserAppResumeMetadataDAO(BaseDAO[models.UserAppResumeMetadata, schemas.UserAppResumeMetadataCreate, schemas.UserAppResumeMetadataUpdate]):
+    """DAO for UserAppResumeMetadata operations."""
+    
+    def __init__(self):
+        super().__init__(models.UserAppResumeMetadata)
+
+    async def get_by_filters(
+        self,
+        db: AsyncSession,
+        *,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+        workflow_name: Optional[str] = None,
+        asset_id: Optional[uuid.UUID] = None,
+        entity_tag: Optional[str] = None,
+        frontend_stage: Optional[str] = None,
+        run_id: Optional[uuid.UUID] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> Sequence[models.UserAppResumeMetadata]:
+        """Get metadata records by various filters."""
+        conditions = [
+            self.model.org_id == org_id,
+            self.model.user_id == user_id
+        ]
+        
+        if workflow_name is not None:
+            conditions.append(self.model.workflow_name == workflow_name)
+        if asset_id is not None:
+            conditions.append(self.model.asset_id == asset_id)
+        if entity_tag is not None:
+            conditions.append(self.model.entity_tag == entity_tag)
+        if frontend_stage is not None:
+            conditions.append(self.model.frontend_stage == frontend_stage)
+        if run_id is not None:
+            conditions.append(self.model.run_id == run_id)
+
+        stmt = select(self.model).where(
+            and_(*conditions)
+        ).offset(skip).limit(limit).order_by(self.model.updated_at.desc())
+        
+        result = await db.exec(stmt)
+        return result.scalars().all()
+
+    async def get_by_id_and_user(
+        self,
+        db: AsyncSession,
+        *,
+        id: uuid.UUID,
+        user_id: uuid.UUID
+    ) -> Optional[models.UserAppResumeMetadata]:
+        """Get a metadata record by ID ensuring it belongs to the user."""
+        stmt = select(self.model).where(
+            and_(
+                self.model.id == id,
+                self.model.user_id == user_id
+            )
+        )
+        result = await db.exec(stmt)
+        return result.scalars().first()
+
+    async def create(
+        self,
+        db: AsyncSession,
+        *,
+        obj_in: schemas.UserAppResumeMetadataCreate,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID
+    ) -> models.UserAppResumeMetadata:
+        """Create a new metadata record."""
+        db_obj = self.model(
+            org_id=org_id,
+            user_id=user_id,
+            workflow_name=obj_in.workflow_name,
+            asset_id=obj_in.asset_id,
+            entity_tag=obj_in.entity_tag,
+            frontend_stage=obj_in.frontend_stage,
+            run_id=obj_in.run_id,
+            app_metadata=obj_in.app_metadata
+        )
+        db.add(db_obj)
+        await db.commit()
+        await db.refresh(db_obj)
+        return db_obj

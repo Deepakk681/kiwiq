@@ -65,6 +65,14 @@ def get_hitl_job_dao() -> crud.HITLJobDAO:
 def get_workflow_config_override_dao() -> crud.WorkflowConfigOverrideDAO:
     return crud.WorkflowConfigOverrideDAO()
 
+
+def get_asset_dao() -> crud.AssetDAO:
+    return crud.AssetDAO()
+
+
+def get_user_app_resume_metadata_dao() -> crud.UserAppResumeMetadataDAO:
+    return crud.UserAppResumeMetadataDAO()
+
 db_registry = None
 
 async def get_node_template_registry() -> registry.DBRegistry:
@@ -250,6 +258,30 @@ async def get_customer_data_service_dependency(
     #             logger.error(f"Error closing customer versioned mongo client: {e}", exc_info=True)
 
 
+# --- Asset Service Dependency --- #
+
+async def get_asset_service_dependency(
+    request: Request,
+    asset_dao: crud.AssetDAO = Depends(get_asset_dao),
+    user_app_resume_metadata_dao: crud.UserAppResumeMetadataDAO = Depends(get_user_app_resume_metadata_dao),
+) -> AsyncGenerator[services.AssetService, None]:
+    """
+    Get AssetService dependency with proper cleanup.
+    """
+    redis_client = request.app.state.redis_client
+    asset_service = services.AssetService(
+        asset_dao=asset_dao,
+        user_app_resume_metadata_dao=user_app_resume_metadata_dao,
+        redis_client=redis_client,
+    )
+    
+    try:
+        yield asset_service
+    finally:
+        # No cleanup needed for now
+        pass
+
+
 # --- Permission Checkers (using Auth checkers) --- #
 # We can reuse the permission checker logic from the auth service.
 # Create instances with specific workflow permissions.
@@ -278,6 +310,13 @@ RequireTemplateDeleteActiveOrg = AuthPermissionChecker([WorkflowPermissions.TEMP
 # Add checkers for Organization Data
 RequireOrgDataReadActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_READ])
 RequireOrgDataWriteActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_WRITE])
+
+# Asset Permissions (using ORG_DATA permissions)
+RequireAssetReadActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_READ])
+RequireAssetCreateActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_WRITE])
+RequireAssetUpdateActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_WRITE])
+RequireAssetDeleteActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_DATA_WRITE])
+# RequireAssetManageActiveOrg = AuthPermissionChecker([WorkflowPermissions.ORG_MANAGE_ASSETS])
 
 # --- Resource Fetching Dependencies with Permission Checks --- #
 
@@ -369,3 +408,6 @@ async def get_hitl_job_for_org(
             detail="HITL job not found or does not belong to the active organization"
         )
     return job
+
+
+

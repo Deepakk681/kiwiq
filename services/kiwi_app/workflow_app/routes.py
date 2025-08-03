@@ -75,6 +75,8 @@ chat_thread_router = APIRouter(
     prefix="/chat-threads",
     tags=["Chat Threads"],
 )
+asset_router = APIRouter(prefix="/assets", tags=["Assets"])
+user_app_resume_router = APIRouter(prefix="/user-app-resume", tags=["User App Resume Metadata"])
 
 # === Template Endpoints ===
 
@@ -2167,6 +2169,364 @@ async def delete_chat_thread(
             detail=f"Error deleting chat thread: {str(e)}"
         )
 
+# === Asset Endpoints ===
+
+@asset_router.get("/types", response_model=List[schemas.AssetTypeInfo])
+async def list_asset_types(
+    current_user: User = Depends(get_current_active_verified_user),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """List all available asset types and their schemas."""
+    return asset_service.list_asset_types()
+
+
+@asset_router.get("/types/{asset_type}", response_model=schemas.AssetTypeInfo)
+async def get_asset_type_info(
+    asset_type: str = Path(..., description="Asset type identifier"),
+    current_user: User = Depends(get_current_active_verified_user),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Get information about a specific asset type including its schema."""
+    return asset_service.get_asset_type_info(asset_type)
+
+
+@asset_router.post("/", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetCreateActiveOrg)])
+async def create_asset(
+    asset_in: schemas.AssetCreate,
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Create a new asset."""
+    return await asset_service.create_asset(
+        db,
+        user=current_user,
+        asset_in=asset_in,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@asset_router.get("/{asset_id}", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetReadActiveOrg)])
+async def get_asset(
+    asset_id: uuid.UUID = Path(..., description="Asset ID"),
+    query: schemas.AssetReadQuery = Depends(),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Get an asset by ID."""
+    return await asset_service.get_asset(
+        db,
+        user=current_user,
+        asset_id=asset_id,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser,
+        app_data_fields=query.app_data_fields
+    )
+
+
+@asset_router.patch("/{asset_id}", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetUpdateActiveOrg)])
+async def update_asset(
+    asset_id: uuid.UUID = Path(..., description="Asset ID"),
+    asset_update: schemas.AssetUpdate = Body(...),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Update an asset."""
+    return await asset_service.update_asset(
+        db,
+        user=current_user,
+        asset_id=asset_id,
+        asset_update=asset_update,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@asset_router.patch("/{asset_id}/app-data", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetUpdateActiveOrg)])
+async def update_asset_app_data(
+    asset_id: uuid.UUID = Path(..., description="Asset ID"),
+    app_data_update: schemas.AssetAppDataUpdate = Body(...),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Update asset app_data using JSONB operations. 
+    
+    If the asset is shared, any user can update the asset app_data. eg. if asset app data includes onboarding, any org user can complete the onboarding and update the asset app data.
+    If the asset is not shared, only the managing user can update the asset app_data.
+    """
+    return await asset_service.update_asset_app_data(
+        db,
+        user=current_user,
+        asset_id=asset_id,
+        app_data_update=app_data_update,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@asset_router.patch("/{asset_id}/app-data/increment", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetUpdateActiveOrg)])
+async def increment_asset_app_data_field(
+    asset_id: uuid.UUID = Path(..., description="Asset ID"),
+    increment_data: schemas.AssetAppDataIncrement = Body(...),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Atomically increment a numeric field in asset app_data. NOTE: increment can be any float/int, including negative values.
+    
+    If the asset is shared, any user can update the asset app_data. eg. if asset app data includes onboarding, any org user can complete the onboarding and update the asset app data.
+    If the asset is not shared, only the managing user can update the asset app_data.
+    """
+    return await asset_service.increment_asset_app_data_field(
+        db,
+        user=current_user,
+        asset_id=asset_id,
+        path=increment_data.path,
+        increment=increment_data.increment,
+        org_id=org_id
+    )
+
+
+@asset_router.post("/{asset_id}/deactivate", response_model=schemas.AssetRead, dependencies=[Depends(wf_deps.RequireAssetDeleteActiveOrg)])
+async def deactivate_asset(
+    asset_id: uuid.UUID = Path(..., description="Asset ID"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Deactivate an asset (soft delete).
+    
+    Can be deactivated by Org admins, superusers, or the asset managing user.
+    NOTE: only managing user can activate the asset again!
+    """
+    return await asset_service.deactivate_asset(
+        db,
+        user=current_user,
+        asset_id=asset_id,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@asset_router.get("/managed", response_model=List[schemas.AssetRead], dependencies=[Depends(wf_deps.RequireAssetReadActiveOrg)])
+async def list_managed_assets(
+    query: schemas.AssetListQuery = Depends(),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """
+    List all assets managed by the current user.
+    
+    If include_all_orgs is True, returns assets from all organizations.
+    Otherwise, returns assets only from the current organization.
+    """
+    # Handle 'me' for managing_user_id
+    on_behalf_of_user_id = None
+    if query.managing_user_id and str(query.managing_user_id) != "me":
+        on_behalf_of_user_id = query.managing_user_id
+    
+    return await asset_service.list_managed_assets(
+        db,
+        user=current_user,
+        org_id=org_id if not query.include_all_orgs else None,
+        asset_type=query.asset_type,
+        is_active=query.is_active,
+        include_all_orgs=query.include_all_orgs,
+        skip=query.skip,
+        limit=query.limit,
+        is_superuser=current_user.is_superuser,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        app_data_fields=query.app_data_fields,
+        sort_by=query.sort_by,
+        sort_order=query.sort_order
+    )
+
+
+@asset_router.get("/org/all", response_model=List[schemas.AssetRead], dependencies=[Depends(wf_deps.RequireAssetUpdateActiveOrg)])
+async def list_all_org_assets(
+    query: schemas.AssetListQuery = Depends(),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """
+    List all assets in an organization.
+    
+    Requires ORG_DATA_WRITE permission.
+    """
+    # Handle superuser override for org_id
+    effective_org_id = query.org_id if query.org_id and current_user.is_superuser else org_id
+    
+    return await asset_service.list_all_org_assets(
+        db,
+        user=current_user,
+        org_id=effective_org_id,
+        asset_type=query.asset_type,
+        is_active=query.is_active,
+        is_shared=query.is_shared,
+        skip=query.skip,
+        limit=query.limit,
+        is_superuser=current_user.is_superuser,
+        app_data_fields=query.app_data_fields,
+        sort_by=query.sort_by,
+        sort_order=query.sort_order
+    )
+
+
+@asset_router.get("/", response_model=List[schemas.AssetRead], dependencies=[Depends(wf_deps.RequireAssetReadActiveOrg)])
+async def list_assets(
+    query: schemas.AssetListQuery = Depends(),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """
+    List assets accessible to the current user within an organization.
+    
+    An asset is accessible if:
+    - The user is the managing user, OR
+    - The asset is shared within the organization
+    """
+    # Handle superuser override for org_id
+    effective_org_id = query.org_id if query.org_id and current_user.is_superuser else org_id
+    
+    return await asset_service.list_accessible_assets(
+        db,
+        user=current_user,
+        org_id=effective_org_id,
+        asset_type=query.asset_type,
+        is_active=query.is_active,
+        is_shared=query.is_shared,
+        skip=query.skip,
+        limit=query.limit,
+        is_superuser=current_user.is_superuser,
+        app_data_fields=query.app_data_fields,
+        sort_by=query.sort_by,
+        sort_order=query.sort_order
+    )
+
+
+# === UserAppResumeMetadata Endpoints ===
+
+@user_app_resume_router.post("/", response_model=schemas.UserAppResumeMetadataRead, dependencies=[Depends(wf_deps.RequireOrgDataWriteActiveOrg)])
+async def create_user_app_resume_metadata(
+    metadata_in: schemas.UserAppResumeMetadataCreate,
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Create a new user app resume metadata record."""
+    return await asset_service.create_user_app_resume_metadata(
+        db,
+        user=current_user,
+        metadata_in=metadata_in,
+        org_id=org_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@user_app_resume_router.get("/{metadata_id}", response_model=schemas.UserAppResumeMetadataRead, dependencies=[Depends(wf_deps.RequireOrgDataReadActiveOrg)])
+async def get_user_app_resume_metadata(
+    metadata_id: uuid.UUID = Path(..., description="Metadata ID"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Get a user app resume metadata record by ID."""
+    return await asset_service.get_user_app_resume_metadata(
+        db,
+        user=current_user,
+        metadata_id=metadata_id,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@user_app_resume_router.patch("/{metadata_id}", response_model=schemas.UserAppResumeMetadataRead, dependencies=[Depends(wf_deps.RequireOrgDataWriteActiveOrg)])
+async def update_user_app_resume_metadata(
+    metadata_id: uuid.UUID = Path(..., description="Metadata ID"),
+    metadata_update: schemas.UserAppResumeMetadataUpdate = Body(...),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Update a user app resume metadata record."""
+    return await asset_service.update_user_app_resume_metadata(
+        db,
+        user=current_user,
+        metadata_id=metadata_id,
+        metadata_update=metadata_update,
+        is_superuser=current_user.is_superuser
+    )
+
+
+@user_app_resume_router.delete("/{metadata_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(wf_deps.RequireOrgDataWriteActiveOrg)])
+async def delete_user_app_resume_metadata(
+    metadata_id: uuid.UUID = Path(..., description="Metadata ID"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """Delete a user app resume metadata record."""
+    success = await asset_service.delete_user_app_resume_metadata(
+        db,
+        user=current_user,
+        metadata_id=metadata_id,
+        is_superuser=current_user.is_superuser
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User app resume metadata not found"
+        )
+    return None
+
+
+@user_app_resume_router.get("/", response_model=List[schemas.UserAppResumeMetadataRead], dependencies=[Depends(wf_deps.RequireOrgDataReadActiveOrg)])
+async def list_user_app_resume_metadata(
+    query: schemas.UserAppResumeMetadataListQuery = Depends(),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    current_user: User = Depends(get_current_active_verified_user),
+    org_id: uuid.UUID = Depends(get_active_org_id),
+    asset_service: services.AssetService = Depends(wf_deps.get_asset_service_dependency),
+):
+    """List user app resume metadata records with filters."""
+    # Handle superuser overrides
+    effective_org_id = query.org_id if query.org_id and current_user.is_superuser else org_id
+    effective_user_id = query.user_id if query.user_id and current_user.is_superuser else None
+    
+    return await asset_service.list_user_app_resume_metadata(
+        db,
+        user=current_user,
+        org_id=effective_org_id,
+        workflow_name=query.workflow_name,
+        asset_id=query.asset_id,
+        entity_tag=query.entity_tag,
+        frontend_stage=query.frontend_stage,
+        run_id=query.run_id,
+        user_id=effective_user_id,
+        skip=query.skip,
+        limit=query.limit,
+        is_superuser=current_user.is_superuser
+    )
+
+
 # Don't forget to include the router in the main application
 # In services/kiwi_app/main.py or wherever you include your routers:
 # app.include_router(workflow_app.routes.chat_thread_router, prefix="/api/v1/workflow")
+# app.include_router(workflow_app.routes.asset_router, prefix="/api/v1/workflow")
+# app.include_router(workflow_app.routes.user_app_resume_router, prefix="/api/v1/workflow")
