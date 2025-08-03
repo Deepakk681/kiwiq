@@ -509,235 +509,235 @@ class DeleteUserStateDocumentResponse(BaseModel):
 
 # --- FastAPI Router ---
 
-app_state_router = APIRouter(prefix="/app-state", tags=["User Application State"])
+# app_state_router = APIRouter(prefix="/app-state", tags=["User Application State"])
 
-class UserStateInitResponse(BaseModel):
-    """Response model for initializing user state."""
-    user_state: UserState
-    docname: str
+# class UserStateInitResponse(BaseModel):
+#     """Response model for initializing user state."""
+#     user_state: UserState
+#     docname: str
 
 
-@app_state_router.post(
-    "",
-    response_model=UserStateInitResponse, # Return the full state after initialization with the state docname
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
-    summary="Initialize User Application State",
-    description=(
-        "Initializes a new user application state document with linkedin_ghostwriter and/or ai_answer_optimization states. "
-    )
-)
-async def initialize_user_state(
-    request_data: InitializeUserStateRequest,
-    active_org_id: uuid.UUID = Depends(get_active_org_id),
-    current_user: User = Depends(get_current_active_verified_user),
-    db: AsyncSession = Depends(get_async_db_dependency),
-    service: CustomerDataService = Depends(get_customer_data_service_dependency),
-):
-    """
-    Initializes or completely overwrites the user application state for the given
-    namespace and document name, based on the specified applications to initialize.
-    """
+# @app_state_router.post(
+#     "",
+#     response_model=UserStateInitResponse, # Return the full state after initialization with the state docname
+#     status_code=status.HTTP_201_CREATED,
+#     dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
+#     summary="Initialize User Application State",
+#     description=(
+#         "Initializes a new user application state document with linkedin_ghostwriter and/or ai_answer_optimization states. "
+#     )
+# )
+# async def initialize_user_state(
+#     request_data: InitializeUserStateRequest,
+#     active_org_id: uuid.UUID = Depends(get_active_org_id),
+#     current_user: User = Depends(get_current_active_verified_user),
+#     db: AsyncSession = Depends(get_async_db_dependency),
+#     service: CustomerDataService = Depends(get_customer_data_service_dependency),
+# ):
+#     """
+#     Initializes or completely overwrites the user application state for the given
+#     namespace and document name, based on the specified applications to initialize.
+#     """
 
-    namespace = settings.USER_STATE_NAMESPACE
+#     namespace = settings.USER_STATE_NAMESPACE
     
-    # Determine docname - use LinkedIn username if available, otherwise use a default
-    docname = "user_state_default"
-    entity_username = None
+#     # Determine docname - use LinkedIn username if available, otherwise use a default
+#     docname = "user_state_default"
+#     entity_username = None
     
-    if request_data.initialize_linkedin_ghostwriter and request_data.linkedin_profile_url:
-        # Parse LinkedIn URL to get username
-        try:
-            # parse_linkedin_url expects a dict with a 'url' key
-            parsed_url_data_dict = {'url': str(request_data.linkedin_profile_url)}
-            # The function modifies the dict in place if set_in_data is True, and also returns username, type
-            entity_username, _ = parse_linkedin_url(parsed_url_data_dict, set_in_data=False) # set_in_data False as we only need return
+#     if request_data.initialize_linkedin_ghostwriter and request_data.linkedin_profile_url:
+#         # Parse LinkedIn URL to get username
+#         try:
+#             # parse_linkedin_url expects a dict with a 'url' key
+#             parsed_url_data_dict = {'url': str(request_data.linkedin_profile_url)}
+#             # The function modifies the dict in place if set_in_data is True, and also returns username, type
+#             entity_username, _ = parse_linkedin_url(parsed_url_data_dict, set_in_data=False) # set_in_data False as we only need return
 
-            if entity_username:
-                docname = settings.USER_STATE_DOCNAME.format(entity_username=entity_username)
-            else:
-                raise ValueError("Could not extract username from LinkedIn URL.")
+#             if entity_username:
+#                 docname = settings.USER_STATE_DOCNAME.format(entity_username=entity_username)
+#             else:
+#                 raise ValueError("Could not extract username from LinkedIn URL.")
                 
-        except ValueError as e:
-            app_state_logger.warning(f"Invalid LinkedIn URL provided '{request_data.linkedin_profile_url}': {e}")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid LinkedIn URL: {e}")
-        except Exception as e:
-            app_state_logger.error(f"Error parsing LinkedIn URL '{request_data.linkedin_profile_url}': {e}", exc_info=True)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing LinkedIn URL.")
+#         except ValueError as e:
+#             app_state_logger.warning(f"Invalid LinkedIn URL provided '{request_data.linkedin_profile_url}': {e}")
+#             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid LinkedIn URL: {e}")
+#         except Exception as e:
+#             app_state_logger.error(f"Error parsing LinkedIn URL '{request_data.linkedin_profile_url}': {e}", exc_info=True)
+#             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing LinkedIn URL.")
 
-    app_state_logger.info(
-        f"Attempting to initialize app state for org {active_org_id}, user {current_user.id} "
-        f"at path {namespace}/{docname} with linkedin_ghostwriter={request_data.initialize_linkedin_ghostwriter}, "
-        f"ai_answer_optimization={request_data.initialize_ai_answer_optimization}"
-    )
+#     app_state_logger.info(
+#         f"Attempting to initialize app state for org {active_org_id}, user {current_user.id} "
+#         f"at path {namespace}/{docname} with linkedin_ghostwriter={request_data.initialize_linkedin_ghostwriter}, "
+#         f"ai_answer_optimization={request_data.initialize_ai_answer_optimization}"
+#     )
 
-    # --- Construct the initial state dictionary ---
-    initial_state_dict_payload = {"states": {}}
+#     # --- Construct the initial state dictionary ---
+#     initial_state_dict_payload = {"states": {}}
 
-    # Add linkedin_ghostwriter state if requested
-    if request_data.initialize_linkedin_ghostwriter:
-        initial_state_dict_payload["states"]["linkedin_ghostwriter"] = {
-            "state_value_type_name": "dict",
-            "description": "LinkedIn ghostwriter application state containing all ghostwriter-related functionality.",
-            "state_value": {},
-            "sub_states": {
-                "is_active": {
-                    "state_value_type_name": "bool",
-                    "description": "Whether the LinkedIn ghostwriter is active.",
-                    "state_value": True
-                },
-                "linkedin_profile_url": {
-                    "state_value_type_name": "str",
-                    "description": "The user's full LinkedIn profile URL.",
-                    "state_value": str(request_data.linkedin_profile_url)
-                },
-                "entity_username": {
-                    "state_value_type_name": "str",
-                    "description": "The username extracted from the LinkedIn profile URL.",
-                    "state_value": entity_username or ""
-                },
-                "is_completed": {
-                    "state_value_type_name": "bool",
-                    "description": "Overall status tracking completion of various document generation stages.",
-                    "state_value": False, # Computed by UserStateEntry
-                    "combine_values_from_sub_states": True,
-                    "sub_states_combine_logic": "AND",
-                    "sub_states": {
-                        "linkedin_scraped_profile_doc": {"state_value_type_name": "bool", "description": "Profile scraping document creation status.", "state_value": False},
-                        "linkedin_scraped_posts_doc": {"state_value_type_name": "bool", "description": "Posts scraping document creation status.", "state_value": False},
-                        "content_analysis_doc": {"state_value_type_name": "bool", "description": "Content analysis document creation status.", "state_value": False},
-                        "user_source_analysis": {"state_value_type_name": "bool", "description": "User source analysis document creation status.", "state_value": False},
-                        "user_preferences_doc": {"state_value_type_name": "bool", "description": "User preferences document creation status.", "state_value": False},
-                        "core_beliefs_perspectives_doc": {"state_value_type_name": "bool", "description": "Core beliefs and perspectives document creation status.", "state_value": False},
-                        "content_pillars_doc": {"state_value_type_name": "bool", "description": "Content pillars document creation status.", "state_value": False},
-                        "content_strategy_doc": {"state_value_type_name": "bool", "description": "Content strategy document creation status.", "state_value": False},
-                        "user_dna_doc": {"state_value_type_name": "bool", "description": "User DNA document creation status.", "state_value": False},
-                        "writing_style_posts_doc": {
-                            "state_value_type_name": "bool",
-                            "description": "Writing style posts document creation status.",
-                            "state_value": False,
-                        },
-                    }
-                },
-                "onboarded": {
-                    "state_value_type_name": "bool",
-                    "description": "Overall onboarding completion status, true if all onboarding pages are completed.",
-                    "state_value": False, # This will be computed based on sub_states
-                    "combine_values_from_sub_states": True,
-                    "sub_states_combine_logic": "AND",
-                    "sub_states": {
-                        "page_1_linkedin": {
-                            "state_value_type_name": "bool",
-                            "description": "LinkedIn URL input and validation.",
-                            "state_value": False
-                        },
-                        "page_2_sources": {
-                            "state_value_type_name": "bool",
-                            "description": "Upload source docs or input manually.",
-                            "state_value": False
-                        },
-                        "page_3_goals": {
-                            "state_value_type_name": "bool",
-                            "description": "Select content goals.",
-                            "state_value": False
-                        },
-                        "page_4_audience": {
-                            "state_value_type_name": "bool",
-                            "description": "Select target audiences.",
-                            "state_value": False
-                        },
-                        "page_5_time": {
-                            "state_value_type_name": "bool",
-                            "description": "Choose posting time and automation level.",
-                            "state_value": False
-                        },
-                        "page_6_content_perspectives": {
-                            "state_value_type_name": "bool",
-                            "description": "Add answers to perspective questions.",
-                            "state_value": False
-                        },
-                        "page_7_content_beliefs": {
-                            "state_value_type_name": "bool",
-                            "description": "Add answers to belief questions.",
-                            "state_value": False
-                        },
-                        "page_8_content_pillars": {
-                            "state_value_type_name": "bool",
-                            "description": "Review and update content pillars.",
-                            "state_value": False
-                        },
-                        "page_9_strategy": {
-                            "state_value_type_name": "bool",
-                            "description": "Generate and edit content strategy document.",
-                            "state_value": False
-                        },
-                        "page_10_dna_summary": {
-                            "state_value_type_name": "bool",
-                            "description": "Review user DNA and complete onboarding.",
-                            "state_value": False
-                        },
-                        "page_11_content_style_analysis": {
-                            "state_value_type_name": "bool",
-                            "description": "Analyze and review content writing style patterns.",
-                            "state_value": False
-                        },
-                        "page_12_style_test": {
-                            "state_value_type_name": "bool",
-                            "description": "Test and validate content style preferences.",
-                            "state_value": False
-                        },
-                    }
-                }
-            }
-        }
+#     # Add linkedin_ghostwriter state if requested
+#     if request_data.initialize_linkedin_ghostwriter:
+#         initial_state_dict_payload["states"]["linkedin_ghostwriter"] = {
+#             "state_value_type_name": "dict",
+#             "description": "LinkedIn ghostwriter application state containing all ghostwriter-related functionality.",
+#             "state_value": {},
+#             "sub_states": {
+#                 "is_active": {
+#                     "state_value_type_name": "bool",
+#                     "description": "Whether the LinkedIn ghostwriter is active.",
+#                     "state_value": True
+#                 },
+#                 "linkedin_profile_url": {
+#                     "state_value_type_name": "str",
+#                     "description": "The user's full LinkedIn profile URL.",
+#                     "state_value": str(request_data.linkedin_profile_url)
+#                 },
+#                 "entity_username": {
+#                     "state_value_type_name": "str",
+#                     "description": "The username extracted from the LinkedIn profile URL.",
+#                     "state_value": entity_username or ""
+#                 },
+#                 "is_completed": {
+#                     "state_value_type_name": "bool",
+#                     "description": "Overall status tracking completion of various document generation stages.",
+#                     "state_value": False, # Computed by UserStateEntry
+#                     "combine_values_from_sub_states": True,
+#                     "sub_states_combine_logic": "AND",
+#                     "sub_states": {
+#                         "linkedin_scraped_profile_doc": {"state_value_type_name": "bool", "description": "Profile scraping document creation status.", "state_value": False},
+#                         "linkedin_scraped_posts_doc": {"state_value_type_name": "bool", "description": "Posts scraping document creation status.", "state_value": False},
+#                         "content_analysis_doc": {"state_value_type_name": "bool", "description": "Content analysis document creation status.", "state_value": False},
+#                         "user_source_analysis": {"state_value_type_name": "bool", "description": "User source analysis document creation status.", "state_value": False},
+#                         "user_preferences_doc": {"state_value_type_name": "bool", "description": "User preferences document creation status.", "state_value": False},
+#                         "core_beliefs_perspectives_doc": {"state_value_type_name": "bool", "description": "Core beliefs and perspectives document creation status.", "state_value": False},
+#                         "content_pillars_doc": {"state_value_type_name": "bool", "description": "Content pillars document creation status.", "state_value": False},
+#                         "content_strategy_doc": {"state_value_type_name": "bool", "description": "Content strategy document creation status.", "state_value": False},
+#                         "user_dna_doc": {"state_value_type_name": "bool", "description": "User DNA document creation status.", "state_value": False},
+#                         "writing_style_posts_doc": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Writing style posts document creation status.",
+#                             "state_value": False,
+#                         },
+#                     }
+#                 },
+#                 "onboarded": {
+#                     "state_value_type_name": "bool",
+#                     "description": "Overall onboarding completion status, true if all onboarding pages are completed.",
+#                     "state_value": False, # This will be computed based on sub_states
+#                     "combine_values_from_sub_states": True,
+#                     "sub_states_combine_logic": "AND",
+#                     "sub_states": {
+#                         "page_1_linkedin": {
+#                             "state_value_type_name": "bool",
+#                             "description": "LinkedIn URL input and validation.",
+#                             "state_value": False
+#                         },
+#                         "page_2_sources": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Upload source docs or input manually.",
+#                             "state_value": False
+#                         },
+#                         "page_3_goals": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Select content goals.",
+#                             "state_value": False
+#                         },
+#                         "page_4_audience": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Select target audiences.",
+#                             "state_value": False
+#                         },
+#                         "page_5_time": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Choose posting time and automation level.",
+#                             "state_value": False
+#                         },
+#                         "page_6_content_perspectives": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Add answers to perspective questions.",
+#                             "state_value": False
+#                         },
+#                         "page_7_content_beliefs": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Add answers to belief questions.",
+#                             "state_value": False
+#                         },
+#                         "page_8_content_pillars": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Review and update content pillars.",
+#                             "state_value": False
+#                         },
+#                         "page_9_strategy": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Generate and edit content strategy document.",
+#                             "state_value": False
+#                         },
+#                         "page_10_dna_summary": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Review user DNA and complete onboarding.",
+#                             "state_value": False
+#                         },
+#                         "page_11_content_style_analysis": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Analyze and review content writing style patterns.",
+#                             "state_value": False
+#                         },
+#                         "page_12_style_test": {
+#                             "state_value_type_name": "bool",
+#                             "description": "Test and validate content style preferences.",
+#                             "state_value": False
+#                         },
+#                     }
+#                 }
+#             }
+#         }
 
-    # Add ai_answer_optimization state if requested
-    if request_data.initialize_ai_answer_optimization:
-        initial_state_dict_payload["states"]["ai_answer_optimization"] = {
-            "state_value_type_name": "dict",
-            "description": "AI answer optimization application state for company-specific optimizations.",
-            "state_value": {},
-            "sub_states": {
-                "is_active": {
-                    "state_value_type_name": "bool",
-                    "description": "Whether the AI answer optimization is active.",
-                    "state_value": True
-                },
-                "company_name": {
-                    "state_value_type_name": "str",
-                    "description": "The company name for AI answer optimization.",
-                    "state_value": request_data.company_name or ""
-                }
-            }
-        }
+#     # Add ai_answer_optimization state if requested
+#     if request_data.initialize_ai_answer_optimization:
+#         initial_state_dict_payload["states"]["ai_answer_optimization"] = {
+#             "state_value_type_name": "dict",
+#             "description": "AI answer optimization application state for company-specific optimizations.",
+#             "state_value": {},
+#             "sub_states": {
+#                 "is_active": {
+#                     "state_value_type_name": "bool",
+#                     "description": "Whether the AI answer optimization is active.",
+#                     "state_value": True
+#                 },
+#                 "company_name": {
+#                     "state_value_type_name": "str",
+#                     "description": "The company name for AI answer optimization.",
+#                     "state_value": request_data.company_name or ""
+#                 }
+#             }
+#         }
 
-    try:
-        user_state = UserState.initialize(initial_state_dict_payload)
-    except Exception as e:
-        app_state_logger.error(f"Error initializing UserState from generated dict: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid initial state structure generated: {e}")
+#     try:
+#         user_state = UserState.initialize(initial_state_dict_payload)
+#     except Exception as e:
+#         app_state_logger.error(f"Error initializing UserState from generated dict: {e}", exc_info=True)
+#         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid initial state structure generated: {e}")
 
-    try:
-        _, _ = await service.create_or_update_unversioned_document(
-            db=db,
-            org_id=active_org_id,
-            namespace=namespace, # "user_state"
-            docname=docname,     # entity_username or default
-            is_shared=False,     # Hardcoded
-            user=current_user,
-            data=user_state.model_dump(exclude_none=True), # Store the validated and initialized state
-            on_behalf_of_user_id=request_data.on_behalf_of_user_id,
-            is_system_entity=False, # Hardcoded
-        )
-        app_state_logger.info(f"App state for {namespace}/{docname} initialized/overwritten successfully.")
-        # Return the full state after initialization with the state docname
-        return UserStateInitResponse(user_state=user_state, docname=docname)
-    except HTTPException as e:
-        # Re-raise known HTTP exceptions from the service
-        raise e
-    except Exception as e:
-        app_state_logger.error(f"Failed to save app state for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save application state.")
+#     try:
+#         _, _ = await service.create_or_update_unversioned_document(
+#             db=db,
+#             org_id=active_org_id,
+#             namespace=namespace, # "user_state"
+#             docname=docname,     # entity_username or default
+#             is_shared=False,     # Hardcoded
+#             user=current_user,
+#             data=user_state.model_dump(exclude_none=True), # Store the validated and initialized state
+#             on_behalf_of_user_id=request_data.on_behalf_of_user_id,
+#             is_system_entity=False, # Hardcoded
+#         )
+#         app_state_logger.info(f"App state for {namespace}/{docname} initialized/overwritten successfully.")
+#         # Return the full state after initialization with the state docname
+#         return UserStateInitResponse(user_state=user_state, docname=docname)
+#     except HTTPException as e:
+#         # Re-raise known HTTP exceptions from the service
+#         raise e
+#     except Exception as e:
+#         app_state_logger.error(f"Failed to save app state for {namespace}/{docname}: {e}", exc_info=True)
+#         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save application state.")
 
 
 # @app_state_router.get(

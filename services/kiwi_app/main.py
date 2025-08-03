@@ -17,7 +17,7 @@ from kiwi_app.workflow_app import customer_data_routes as customer_data_routes
 from kiwi_app.workflow_app import event_consumer
 from kiwi_app.workflow_app import dependencies as wf_deps
 from scraper_service import scraping_routes
-from kiwi_app.workflow_app import app_state as app_state_routes
+# from kiwi_app.workflow_app import app_state as app_state_routes
 from kiwi_app.workflow_app import app_artifacts as app_artifacts_routes
 from kiwi_app.workflow_app import websockets as websocket_routes
 from kiwi_app.billing import routers as billing_routers
@@ -713,7 +713,7 @@ app.include_router(workflow_routes.hitl_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.asset_router, prefix=settings.API_V1_PREFIX)
 app.include_router(workflow_routes.user_app_resume_router, prefix=settings.API_V1_PREFIX)
 app.include_router(scraping_routes.scraping_router, prefix=settings.API_V1_PREFIX)
-app.include_router(app_state_routes.app_state_router, prefix=settings.API_V1_PREFIX)
+# app.include_router(app_state_routes.app_state_router, prefix=settings.API_V1_PREFIX)
 app.include_router(app_artifacts_routes.artifact_router, prefix=settings.API_V1_PREFIX)
 app.include_router(websocket_routes.websocket_router, prefix=settings.API_V1_PREFIX)
 app.include_router(data_jobs_routers.data_jobs_admin_router, prefix=settings.API_V1_PREFIX)
