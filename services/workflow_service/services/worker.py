@@ -15,6 +15,7 @@ from prefect.server.schemas.schedules import CronSchedule
 # from prefect.filesystems import S3, GitHub, LocalFileSystem
 from prefect.cache_policies import NO_CACHE
 from prefect.context import get_run_context
+from prefect import runtime
 
 # LangGraph and DB imports
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -212,6 +213,27 @@ async def run_graph(
     final_output_node_id = None # Initialize
     final_outputs = None
     sequence_id_counter = 0 # Start event sequence counter
+    parent_run_id = workflow_run_job.parent_run_id
+
+
+    if parent_run_id is not None:
+        async with get_async_db_as_manager() as db:
+            flow_id = runtime.flow_run.id
+            lock_key = "prefect_parent_run_lock:" + str(parent_run_id)
+            async with external_context.redis.text_client.with_lock(
+                lock_name=lock_key, 
+                timeout=10,
+                ttl=10,
+            ):
+                workflow_run = await external_context.daos.workflow_run.get_run_by_id_and_org(db, run_id=parent_run_id, org_id=org_id)
+                if str(flow_id) not in workflow_run.prefect_run_ids:
+                    workflow_run = await external_context.daos.workflow_run.update(
+                        db,
+                        db_obj=workflow_run,
+                        obj_in={
+                            "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_id)]) if workflow_run.prefect_run_ids else str(flow_id)
+                        }
+                    )
 
     try:
         ################################################################
@@ -348,6 +370,39 @@ async def run_graph(
                 )
             logger.info(f"Updated Run {run_id} status to RUNNING in DB.")
 
+            ######  ######  ######  ######  ######  ######  ######  ######  ######  ######
+            # Publish initial status update event to stream
+            ######  ######  ######  ######  ######  ######  ######  ######  ######  ######
+            initial_status_event = WorkflowRunStatusUpdateEvent(
+                event_id=str(uuid.uuid4()),
+                run_id=run_id,
+                org_id=org_id,
+                user_id=user_id,
+                sequence_i=sequence_id_counter, # Final sequence ID
+                status=current_status,
+                error_message=None,
+                timestamp=datetime.now(tz=timezone.utc),
+                payload=None,
+                parent_run_id=workflow_run_job.parent_run_id,
+            )
+            try:
+                initial_status_event_dump = initial_status_event.model_dump(mode='json', exclude_defaults=False)
+
+                mongo_path = [str(initial_status_event_dump[key]) for key in settings.MONGO_WORKFLOW_STREAM_SEGMENTS]
+                await external_context.mongo.workflow.create_object(
+                    path=mongo_path,
+                    data=initial_status_event_dump
+                    # No need for allowed_prefixes here, internal system operation
+                )
+                logger.info(f"Persisted event {initial_status_event.event_type} (RunID: {initial_status_event.run_id}, SeqID: {initial_status_event.sequence_i}) to MongoDB.")
+                
+                await external_context.rabbit.publish_workflow_event(initial_status_event_dump)
+                sequence_id_counter += 1
+                
+            except Exception as e:
+                logger.error(f"Error publishing initial status event: {e}", exc_info=True)
+            ######  ######  ######  ######  ######  ######  ######  ######  ######  ######
+
             async for chunk in adapter.aexecute_graph_stream(
                 graph=compiled_graph,
                 input_data=initial_input,
@@ -372,6 +427,7 @@ async def run_graph(
                         "event_id": str(uuid.uuid4()),
                         "sequence_i": sequence_id_counter,
                         "timestamp": timestamp,
+                        "parent_run_id": workflow_run_job.parent_run_id,
                     }
 
                     # Build the final path list in the order defined by settings
@@ -534,23 +590,23 @@ async def run_graph(
                                 
                                 sequence_id_counter += 1
 
-                                # 5. Send User Notification for HITL
-                                if assigned_user:
-                                     await external_context.rabbit.publish_notification(
-                                         hitl_event,
-                                    #      {
-                                    #      "user_id": str(assigned_user),
-                                    #      "org_id": str(org_id),
-                                    #      "notification_type": NotificationType.HITL_REQUEST.value,
-                                    #      "message": {
-                                    #          "summary": "Action required: Input needed for workflow",
-                                    #          "run_id": str(run_id),
-                                    #          "prompt": hitl_prompt # Include prompt in notification
-                                    #      },
-                                    #      "related_run_id": str(run_id)
-                                    #  }
-                                     )
-                                     logger.info(f"Sent HITL notification for Run {run_id} to user {assigned_user}.")
+                                # # 5. Send User Notification for HITL
+                                # if assigned_user:
+                                #      await external_context.rabbit.publish_notification(
+                                #          hitl_event,
+                                #     #      {
+                                #     #      "user_id": str(assigned_user),
+                                #     #      "org_id": str(org_id),
+                                #     #      "notification_type": NotificationType.HITL_REQUEST.value,
+                                #     #      "message": {
+                                #     #          "summary": "Action required: Input needed for workflow",
+                                #     #          "run_id": str(run_id),
+                                #     #          "prompt": hitl_prompt # Include prompt in notification
+                                #     #      },
+                                #     #      "related_run_id": str(run_id)
+                                #     #  }
+                                #      )
+                                #      logger.info(f"Sent HITL notification for Run {run_id} to user {assigned_user}.")
 
                             else:
                                 # --- Handle Node Output ---
@@ -713,7 +769,8 @@ async def run_graph(
                 status=workflow_run_update.status,
                 error_message=workflow_run_update.error_message,
                 timestamp=ended_at or datetime.now(tz=timezone.utc),
-                payload=final_outputs if current_status == wf_schemas.WorkflowRunStatus.COMPLETED else None # Include output in final event
+                payload=final_outputs if current_status == wf_schemas.WorkflowRunStatus.COMPLETED else None, # Include output in final event
+                parent_run_id=workflow_run_job.parent_run_id,
             )
             try:
                 # default: field: event_type!
@@ -740,9 +797,9 @@ async def run_graph(
                         related_run_id=run_id
                     )
                 logger.info(f"Published final status update event ({current_status.value}) for Run ID: {run_id}")
-                await external_context.rabbit.publish_notification(
-                    final_status_event,
-                )
+                # await external_context.rabbit.publish_notification(
+                #     final_status_event,
+                # )
             except Exception as publish_err:
                 logger.error(f"Failed to publish final status event for Run ID {run_id}: {publish_err}", exc_info=True)
 

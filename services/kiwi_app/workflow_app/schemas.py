@@ -114,6 +114,7 @@ class WorkflowRunCreate(BaseModel):
     inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs to provide to the workflow run")
     # TODO: add checkpoint ID as well for resume!
     thread_id: Optional[uuid.UUID] = Field(None, description="Optional existing thread ID to reuse")
+    parent_run_id: Optional[uuid.UUID] = Field(None, description="Optional parent run ID to reuse")
     graph_schema: Optional[GraphSchema] = None
     resume_after_hitl: Optional[bool] = False
     force_resume_experimental_option: Optional[bool] = Field(default=False, description="Experimental option to force resume after HITL even if not in WAITING_HITL state or without pending HITL jobs! (Use with caution!)")
@@ -175,10 +176,10 @@ class WorkflowRunRead(WorkflowRunBase):
     ended_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    # prefect_run_ids: Optional[str] = None
+    # run_ids: Optional[str] = Field(None, description="Comma-separated list of Prefect run IDs that are part of this run", alias="prefect_run_ids")
     tag: Optional[str] = Field(None, description="Optional tag marking this run for experimentation tracking")
     applied_workflow_config_overrides: Optional[str] = Field(None, description="Comma-separated list of override IDs that were applied to this run")
-
+    parent_run_id: Optional[uuid.UUID] = Field(None, description="Optional parent run ID to reuse")
     model_config = ConfigDict(from_attributes=True)
 
 class WorkflowRunState(BaseModel):

@@ -183,6 +183,7 @@ class OpenAIBrowserActor(BaseBrowserActor):
             if not clicked:
                 try:
                     await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=20000)
+                    # NOTE: here you can try short focus sequence again and wait 10-20s as last resort, to counter any captchas!
                 except Exception as e:
                     self.logger.error(f"Error going to page: {e}")
 

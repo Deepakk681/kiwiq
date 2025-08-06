@@ -457,7 +457,8 @@ class WorkflowRunDAO(BaseDAO[models.WorkflowRun, schemas.WorkflowRunCreate, sche
         thread_id: Optional[uuid.UUID] = None,
         status: WorkflowRunStatus = WorkflowRunStatus.SCHEDULED,
         tag: Optional[str] = None,
-        applied_workflow_config_overrides: Optional[str] = None
+        applied_workflow_config_overrides: Optional[str] = None,
+        parent_run_id: Optional[uuid.UUID] = None
     ) -> models.WorkflowRun:
         """Creates a new workflow run record."""
         db_obj = self.model(
@@ -469,7 +470,8 @@ class WorkflowRunDAO(BaseDAO[models.WorkflowRun, schemas.WorkflowRunCreate, sche
             thread_id=thread_id,
             workflow_name=workflow_name,
             tag=tag,
-            applied_workflow_config_overrides=applied_workflow_config_overrides
+            applied_workflow_config_overrides=applied_workflow_config_overrides,
+            parent_run_id=parent_run_id,
         )
         db.add(db_obj)
         await db.commit()

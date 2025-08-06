@@ -1,4 +1,5 @@
 """
+cd standalone_test_client && poetry run python kiwi_client/websocket_client.py
 API Test client for WebSocket endpoints defined in /services/kiwi_app/workflow_app/websockets.py.
 
 Tests connections and basic interactions with:

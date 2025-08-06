@@ -27,6 +27,7 @@ from workflow_service.registry.nodes.db.load_multiple_customer_node import (
     LoadMultipleCustomerDataNode,
 )
 from workflow_service.registry.nodes.core.router_node import RouterNode
+from workflow_service.registry.nodes.core.workflow_runner_node import WorkflowRunnerNode
 from workflow_service.registry.nodes.scraping.linkedin_scraping import LinkedInScrapingNode
 from workflow_service.registry.nodes.tools.tool_executor_node import ToolExecutorNode
 
@@ -52,6 +53,8 @@ async def register_node_templates(db_registry: DBRegistry):
         # Routing
         RouterNode,
         MapListRouterNode,
+        # Workflow Execution
+        WorkflowRunnerNode,
         # Data Ops
         TransformerNode,
         DataJoinNode,

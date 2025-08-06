@@ -388,7 +388,8 @@ class WorkflowService:
                 thread_id=run_submit.thread_id, # Pass thread_id if provided
                 status=WorkflowRunStatus.SCHEDULED, # Explicitly set status
                 tag=run_submit.tag,
-                applied_workflow_config_overrides=",".join([str(override.id) for override in overrides]) if overrides else None
+                applied_workflow_config_overrides=",".join([str(override.id) for override in overrides]) if overrides else None,
+                parent_run_id=run_submit.parent_run_id,
             )
             # TODO: FIXME: do the above and below in one step by checking thread_id is None!
             if not workflow_run.thread_id:

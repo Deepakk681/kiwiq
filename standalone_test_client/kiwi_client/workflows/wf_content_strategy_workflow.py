@@ -416,6 +416,9 @@ async def main_test_idea_to_brief_workflow():
         }
     ]
 
+    # print(json.dumps(INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW, indent=4))
+    # import ipdb; ipdb.set_trace()
+
     test_context_docs = INPUT_DOCS_TO_BE_LOADED_IN_WORKFLOW
     
     entity_username = "test_entity"

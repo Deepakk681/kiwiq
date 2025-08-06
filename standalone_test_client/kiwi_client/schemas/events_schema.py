@@ -19,6 +19,7 @@ class WorkflowEvent(str, Enum):
 
 class WorkflowBaseEvent(BaseModel):
     run_id: uuid.UUID
+    parent_run_id: Optional[uuid.UUID] = None
     event_id: uuid.UUID
     user_id: uuid.UUID
     org_id: uuid.UUID

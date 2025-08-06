@@ -27,7 +27,7 @@ from global_config.logger import get_logger
 from kiwi_app.workflow_app.websockets import get_websocket_manager, ConnectionManager
 
 # Import queue/stream definitions
-from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
+# from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
 from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
 
 
@@ -143,80 +143,80 @@ async def route_event_to_websockets(event: Dict[str, Any], stream_offset: Option
 # Queue and Stream consumers
 # ==========================================
 
-@broker.subscriber(workflow_notifications_queue)
-async def handle_workflow_notification(
-    msg: Any,
-    message: RabbitMessage,
-    context: ContextRepo
-):
-    """
-    Consumes messages from the workflow notifications queue and routes them to WebSockets.
+# @broker.subscriber(workflow_notifications_queue)
+# async def handle_workflow_notification(
+#     msg: Any,
+#     message: RabbitMessage,
+#     context: ContextRepo
+# ):
+#     """
+#     Consumes messages from the workflow notifications queue and routes them to WebSockets.
     
-    Args:
-        msg: The decoded message payload
-        message: The raw RabbitMQ message object
-        context: FastStream context repository
-    """
-    notification_payload: Optional[Dict] = None
+#     Args:
+#         msg: The decoded message payload
+#         message: The raw RabbitMQ message object
+#         context: FastStream context repository
+#     """
+#     notification_payload: Optional[Dict] = None
     
-    try:
-        # Decode message if needed
-        if isinstance(msg, dict):
-            notification_payload = msg
-        elif isinstance(msg, (str, bytes)):
-            try:
-                notification_payload = json.loads(msg)
-                logger.debug("Successfully decoded notification JSON")
-            except json.JSONDecodeError:
-                logger.error(f"Failed to decode notification JSON: {msg!r}", exc_info=True)
-                await message.reject(requeue=False)
-                return
-        else:
-            logger.warning(f"Received notification in unexpected format: {type(msg)}")
-            await message.reject(requeue=False)
-            return
+#     try:
+#         # Decode message if needed
+#         if isinstance(msg, dict):
+#             notification_payload = msg
+#         elif isinstance(msg, (str, bytes)):
+#             try:
+#                 notification_payload = json.loads(msg)
+#                 logger.debug("Successfully decoded notification JSON")
+#             except json.JSONDecodeError:
+#                 logger.error(f"Failed to decode notification JSON: {msg!r}", exc_info=True)
+#                 await message.reject(requeue=False)
+#                 return
+#         else:
+#             logger.warning(f"Received notification in unexpected format: {type(msg)}")
+#             await message.reject(requeue=False)
+#             return
         
-        if not notification_payload:
-            logger.warning(f"Empty notification payload: {msg!r}")
-            await message.reject(requeue=False)
-            return
+#         if not notification_payload:
+#             logger.warning(f"Empty notification payload: {msg!r}")
+#             await message.reject(requeue=False)
+#             return
         
-        # Log the notification
-        logger.debug(f"Processing notification: {notification_payload.get('notification_type', 'unknown')}")
+#         # Log the notification
+#         logger.debug(f"Processing notification: {notification_payload.get('notification_type', 'unknown')}")
         
-        # Check for targets to route to
-        user_id = notification_payload.get("user_id")
-        run_id = notification_payload.get("run_id")
+#         # Check for targets to route to
+#         user_id = notification_payload.get("user_id")
+#         run_id = notification_payload.get("run_id")
         
-        if not user_id and not run_id:
-            logger.warning("Notification missing both user_id and run_id, cannot route")
-            await message.ack()  # Still ack so we don't reprocess
-            return
+#         if not user_id and not run_id:
+#             logger.warning("Notification missing both user_id and run_id, cannot route")
+#             await message.ack()  # Still ack so we don't reprocess
+#             return
         
-        # Check if any matching users are connected before trying to route
-        if user_id and not websocket_manager.is_user_connected(user_id):
-            logger.debug(f"No active connections for user {user_id}, skipping routing")
-            await message.ack()
-            return
+#         # Check if any matching users are connected before trying to route
+#         if user_id and not websocket_manager.is_user_connected(user_id):
+#             logger.debug(f"No active connections for user {user_id}, skipping routing")
+#             await message.ack()
+#             return
         
-        # Route notification to WebSockets
-        sent_count = await route_notification_to_websockets(notification_payload)
+#         # Route notification to WebSockets
+#         sent_count = await route_notification_to_websockets(notification_payload)
         
-        if sent_count > 0:
-            logger.debug(f"Notification sent to {sent_count} destination(s)")
-        else:
-            logger.debug("No active WebSocket connections for this notification")
+#         if sent_count > 0:
+#             logger.debug(f"Notification sent to {sent_count} destination(s)")
+#         else:
+#             logger.debug("No active WebSocket connections for this notification")
         
-        # Acknowledge successful processing
-        await message.ack()
+#         # Acknowledge successful processing
+#         await message.ack()
         
-    except Exception as e:
-        logger.error(f"Error processing notification: {e}", exc_info=True)
-        try:
-            # Reject message on error (don't requeue to avoid infinite retry loops)
-            await message.reject(requeue=False)
-        except Exception as reject_err:
-            logger.error(f"Failed to reject message after error: {reject_err}")
+#     except Exception as e:
+#         logger.error(f"Error processing notification: {e}", exc_info=True)
+#         try:
+#             # Reject message on error (don't requeue to avoid infinite retry loops)
+#             await message.reject(requeue=False)
+#         except Exception as reject_err:
+#             logger.error(f"Failed to reject message after error: {reject_err}")
 
 
 @broker.subscriber(workflow_stream)
@@ -273,8 +273,11 @@ async def handle_workflow_event(
             logger.debug(f"No active connections for user {user_id}, skipping routing")
             return
         
-        # Route event to WebSockets
-        sent_count = await route_event_to_websockets(event_payload, stream_offset)
+        # # Route event to WebSockets
+        # sent_count = await route_event_to_websockets(event_payload, stream_offset)
+
+        # Route notification to WebSockets
+        sent_count = await route_notification_to_websockets(event_payload)
         
         if sent_count > 0:
             logger.debug(f"Event sent to {sent_count} destination(s)")

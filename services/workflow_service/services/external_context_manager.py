@@ -21,7 +21,7 @@ from workflow_service.services.db_node_register import register_node_templates
 from kiwi_app.workflow_app import crud as wf_crud
 from kiwi_app.auth import crud as auth_crud
 from kiwi_app.billing import services as billing_services, dependencies as billing_dependencies
-from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
+# from kiwi_app.workflow_app.wf_queue.queue import workflow_notifications_queue
 from kiwi_app.workflow_app.wf_stream.stream import workflow_stream
 from kiwi_app.data_jobs import crud as data_jobs_crud
 from kiwi_app.data_jobs import services as data_jobs_services
@@ -643,7 +643,7 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         ),
         rabbit=RabbitMQContext(
             broker=clients["rabbit"],
-            notifications_queue=workflow_notifications_queue,
+            # notifications_queue=workflow_notifications_queue,
             stream=workflow_stream,
             logger=logger
         ),

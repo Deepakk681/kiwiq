@@ -305,6 +305,9 @@ async def main_test_ai_scraper(
         poll_interval_sec=3,
         timeout_sec=600  # 5 minutes for AI queries
     )
+
+    # import ipdb; ipdb.set_trace()
+    # final_run_outputs["query_results"][0]["response"]["processed_data"]["markdown"][:50]
     
     # Display sample results if available
     if final_run_outputs:

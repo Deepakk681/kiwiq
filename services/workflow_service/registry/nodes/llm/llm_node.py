@@ -2689,6 +2689,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # TODO: add cached tokens costs!
             try:
                 input_tokens_cost = calculate_cost_by_tokens(input_tokens, tokencost_model, "input")
+                input_tokens_cost = float(input_tokens_cost)
             except Exception as e:
                 if model_metadata.input_token_price_per_M > 0.:
                     input_tokens_cost = model_metadata.input_token_price_per_M * input_tokens / 1000000.
@@ -2712,5 +2713,5 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             return actual_cost
             
         except Exception as e:
-            self.warning(f"Error calculating actual token cost: {str(e)}")
+            self.error(f"Error calculating actual token cost: {str(e)}", exc_info=True)
             return 0.0

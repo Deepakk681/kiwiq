@@ -308,6 +308,11 @@ class WorkflowRun(SQLModel, table=True):
     __tablename__ = f"{table_prefix}workflow_run"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True, description="Unique ID for this specific run")
+    parent_run_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(PG_UUID(as_uuid=True), ForeignKey(f"{table_prefix}workflow_run.id", ondelete="SET NULL"), nullable=True, index=True),
+        description="Reference to the parent run ID"
+    )
     thread_id: Optional[uuid.UUID] = Field(default=None, nullable=True, index=True, description="Associated thread ID (e.g., from LangGraph) for shared memory across runs")
     workflow_id: Optional[uuid.UUID] = Field(
         default=None,

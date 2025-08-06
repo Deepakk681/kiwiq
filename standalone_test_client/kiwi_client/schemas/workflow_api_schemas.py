@@ -111,6 +111,7 @@ class WorkflowRunBase(BaseModel):
 class WorkflowRunCreate(BaseModel):
     """Schema used internally or by other services to create a run record."""
     run_id: Optional[uuid.UUID] = None
+    parent_run_id: Optional[uuid.UUID] = Field(None, description="Optional parent run ID to reuse")
     workflow_id: Optional[uuid.UUID] = None
     inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs to provide to the workflow run")
     # TODO: add checkpoint ID as well for resume!
@@ -162,6 +163,7 @@ class WorkflowRunLogs(BaseModel):
 class WorkflowRunRead(WorkflowRunBase):
     """Schema for reading a WorkflowRun summary (SQL data mainly)."""
     id: uuid.UUID
+    parent_run_id: Optional[uuid.UUID] = Field(None, description="Optional parent run ID to reuse")
     workflow_id: Optional[uuid.UUID] = None
     workflow_name: Optional[str] = Field(None, description="Name of the workflow this run belongs to")
     owner_org_id: uuid.UUID
