@@ -21,6 +21,9 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 
 | Provider | Model | Reasoning | Web Search | Code Interpreter | Tool Use | Multimodal | Context Limit | Output Tokens |
 |----------|-------|-----------|------------|------------------|----------|------------|---------------|---------------|
+| **OpenAI** | gpt-5 | ✅ | ✅ | ✅ | ✅ | ✅ | 400k | 128k |
+| | gpt-5-mini | ✅ | ✅ | ✅ | ✅ | ✅ | 400k | 128k |
+| | gpt-5-nano | ✅ | ❌ | ✅ | ✅ | ✅ | 400k | 128k |
 | **OpenAI** | o4-mini | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 100k |
 | | o4-mini-deep-research | ✅ | ⚠️ | ⚠️ | ✅ | ✅ | 200k | 100k |
 | | o3-deep-research | ✅ | ⚠️ | ⚠️ | ✅ | ✅ | 200k | 100k |
@@ -69,6 +72,9 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 
 | Provider | Model | Requests/min | Tokens/min | Special Limits |
 |----------|-------|--------------|------------|----------------|
+| **OpenAI** | gpt-5 | 15,000 | 40M | - |
+| | gpt-5-mini | 30,000 | 180M | - |
+| | gpt-5-nano | 30,000 | 180M | - |
 | **OpenAI** | o4-mini | 30,000 | 150M | - |
 | | o4-mini-deep-research | 30,000 | 150M | - |
 | | o3-deep-research | 10,000 | 30M | - |
@@ -214,6 +220,11 @@ Deep Research models support `max_tool_calls` to control costs (this parameter i
 OpenAI provides the most comprehensive set of models with strong reasoning capabilities, code interpretation, and tool use.
 
 #### Available Models
+**GPT-5 Series:**
+- `gpt-5` - Next-gen reasoning model with multimodal support and optional verbosity control
+- `gpt-5-mini` - Smaller, cost-efficient tier (1/5th price of gpt-5)
+- `gpt-5-nano` - Ultra-efficient tier (1/25th price of gpt-5); web search tool not supported
+
 
 **Reasoning Models:**
 - `o4-mini` - Enhanced reasoning with multimodal support
@@ -260,10 +271,11 @@ OpenAI provides the most comprehensive set of models with strong reasoning capab
     "llm_config": {
       "model_spec": {
         "provider": "openai",
-        "model": "gpt-4o"
+        "model": "gpt-5"
       },
       "temperature": 0.7,
-      "max_tokens": 4096
+      "max_tokens": 4096,
+      "verbosity": "low"
     },
     "tool_calling_config": {
       "enable_tool_calling": true,
@@ -296,6 +308,14 @@ OpenAI provides the most comprehensive set of models with strong reasoning capab
   }
 }
 ```
+
+#### Pricing (per 1M tokens)
+
+- `gpt-5`: input $1.25, output $10.00
+- `gpt-5-mini`: input $0.25, output $2.00 (1/5th of gpt-5)
+- `gpt-5-nano`: input $0.05, output $0.40 (1/5th of mini)
+
+All GPT-5 series models support an extra `reasoning_effort` value: `"minimal"` (in addition to standard OpenAI values), and a `verbosity` parameter `"low" | "medium" | "high"` (exposed in `llm_config.verbosity`).
 
 ### Anthropic
 

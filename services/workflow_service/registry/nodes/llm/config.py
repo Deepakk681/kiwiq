@@ -93,6 +93,10 @@ class ModelMetadata(BaseModel):
     input_token_price_per_M: float = 0.
     output_token_price_per_M: float = 0.
 
+    # GPT-5 series: optional verbosity control support (unique to select models)
+    verbosity_supported: bool = False
+    verbosity_levels: Optional[List[str]] = None
+
 
 # class ModelMetadata(ModelMetadata):
 #     """Extends base model metadata with web search capabilities."""
@@ -217,7 +221,7 @@ class OpenAIModels(str, EnumWithAttr):
         "output_token_limit": 100000,
     }))
     # GPT_4_5 = "gpt-4.5-preview", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 10000, "tokens_per_minute": 2000000}}))
-    GPT_4_1 = "gpt-4.1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"context_limit": 1000000}))
+    GPT_4_1 = "gpt-4.1", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"context_limit": 1000000, "output_token_limit": 32768}))
     GPT_4o = "gpt-4o", DEFAULT_OPENAI_METADATA
     # ChatGPT-4o-latest model - optimized for conversational use without tool support
     CHATGPT_4O_LATEST = "chatgpt-4o-latest", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
@@ -226,9 +230,9 @@ class OpenAIModels(str, EnumWithAttr):
         "tool_choice": [],  # No tool choice options
         "parallel_tool_calling_configurable": False,  # No parallel tool calling
     }))
-    GPT_4_1_MINI = "gpt-4.1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
+    GPT_4_1_MINI = "gpt-4.1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000, "output_token_limit": 32768}))
     GPT_4o_mini = "gpt-4o-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}}))
-    GPT_4_1_NANO = "gpt-4.1-nano", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"inbuilt_tools": {k:v for k,v in OPENAI_TOOLS_REGISTRY.items() if not k.startswith("web_search")}, "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000}))
+    GPT_4_1_NANO = "gpt-4.1-nano", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {"inbuilt_tools": {k:v for k,v in OPENAI_TOOLS_REGISTRY.items() if not k.startswith("web_search")}, "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}, "context_limit": 1000000, "output_token_limit": 32768}))
     # O1_MINI = "o1-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
     #     "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000},
     #     "reasoning": True,
@@ -256,6 +260,61 @@ class OpenAIModels(str, EnumWithAttr):
     }))
     GPT_4O_MINI_SEARCH_PREVIEW = "gpt-4o-mini-search-preview", ModelMetadata(**(DEFAULT_OPENAI_SEARCH_METADATA.model_dump() | {
         "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 150000000}
+    }))
+
+    # GPT-5 series
+    GPT_5 = "gpt-5", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "rate_limits": {"requests_per_minute": 15000, "tokens_per_minute": 40000000},
+        "reasoning": True,
+        "non_reasoning_mode": False,
+        "reasoning_effort_class": ["minimal", "low", "medium", "high"],
+        "multimodal": True,
+        "context_limit": 400000,
+        "output_token_limit": 128000,
+        # Pricing (per 1M tokens)
+        "input_token_price_per_M": 1.25,
+        "output_token_price_per_M": 10.0,
+        "cached_token_price_per_M": 0.125,
+        # Verbosity support unique to GPT-5 series
+        "verbosity_supported": True,
+        "verbosity_levels": ["low", "medium", "high"],
+    }))
+
+    GPT_5_MINI = "gpt-5-mini", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 180000000},
+        "reasoning": True,
+        "non_reasoning_mode": False,
+        "reasoning_effort_class": ["minimal", "low", "medium", "high"],
+        "multimodal": True,
+        "context_limit": 400000,
+        "output_token_limit": 128000,
+        # Mini pricing = 1/5 of GPT-5
+        "input_token_price_per_M": 0.25,
+        "output_token_price_per_M": 2.0,
+        "cached_token_price_per_M": 0.025,
+        # Verbosity support unique to GPT-5 series
+        "verbosity_supported": True,
+        "verbosity_levels": ["low", "medium", "high"],
+    }))
+
+    GPT_5_NANO = "gpt-5-nano", ModelMetadata(**(DEFAULT_OPENAI_METADATA.model_dump() | {
+        "rate_limits": {"requests_per_minute": 30000, "tokens_per_minute": 180000000},
+        "reasoning": True,
+        "non_reasoning_mode": False,
+        "reasoning_effort_class": ["minimal", "low", "medium", "high"],
+        "multimodal": True,
+        "context_limit": 400000,
+        "output_token_limit": 128000,
+        # Nano pricing = 1/5 of Mini (i.e., 1/25 of GPT-5)
+        "input_token_price_per_M": 0.05,
+        "output_token_price_per_M": 0.40,
+        "cached_token_price_per_M": 0.005,
+        # Nano does not support web search tool
+        "web_search": False,
+        "inbuilt_tools": {k: v for k, v in OPENAI_TOOLS_REGISTRY.items() if not k.startswith("web_search")},
+        # Verbosity support unique to GPT-5 series
+        "verbosity_supported": True,
+        "verbosity_levels": ["low", "medium", "high"],
     }))
 
 

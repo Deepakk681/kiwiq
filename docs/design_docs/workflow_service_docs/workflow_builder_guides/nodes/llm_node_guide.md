@@ -30,11 +30,12 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
           "model_spec": {
             // See llm_node.py/config.py for specific enum values
             "provider": "openai",   // e.g., "openai", "anthropic", "google_genai", "perplexity", "fireworks", "aws_bedrock"
-            "model": "gpt-4-turbo" // e.g., "gpt-4-turbo", "claude-3-7-sonnet-20250219", "gemini-2.5-pro-exp-03-25", "sonar-reasoning-pro"
+            "model": "gpt-4-turbo" // e.g., "gpt-4-turbo", "gpt-5", "gpt-5-mini", "gpt-5-nano", "claude-3-7-sonnet-20250219", "gemini-2.5-pro-exp-03-25", "sonar-reasoning-pro"
           },
           "temperature": 0.5,       // 0.0 (deterministic) to 1.0+ (creative)
           "max_tokens": 1024,       // Max tokens in the *response* (check model limits)
           "max_tool_calls": 10,     // Maximum number of tool calls allowed (for cost control)
+          "verbosity": null,        // Optional: "low" | "medium" | "high" (GPT-5 series only)
           // --- Reasoning (Optional, Model-Dependent) ---
           "reasoning_effort_class": null, // e.g., "low", "high" (OpenAI O1/O3 Mini, Fireworks)
           "reasoning_effort_number": null, // e.g., 50 (Fireworks, range 0-20000)
@@ -203,6 +204,7 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 1.  **`llm_config`**:
     *   `model_spec`: **Required**. Specifies the AI `provider` and the exact `model` name. Check `llm_node.py` or `config.py` for available provider/model enums (e.g., `LLMModelProvider.ANTHROPIC`, `AnthropicModels.CLAUDE_3_7_SONNET`).
     *   `temperature`: Controls randomness (0.0 deterministic, ~1.0 creative). **Note:** Models in reasoning/thinking mode often default to or require a high temperature (e.g., 1.0 for Anthropic).
+    *   `verbosity`: Optional string `"low" | "medium" | "high"`. Supported only on GPT-5 series models. Passed as `text={"verbosity": "..."}`.
     *   `max_tokens`: Limits the length of the *generated response*. Ensure this is within the model's limits.
     *   `max_tool_calls`: **Optional & OpenAI Deep Research Models Only**. Maximum number of tool calls allowed in a single request. Currently only supported for OpenAI's Deep Research models (`o4-mini-deep-research`, `o3-deep-research`) for cost control. These autonomous models can make multiple tool calls, so this parameter limits the number of calls. If not specified, the model can make unlimited tool calls (subject to provider limits).
     *   `reasoning_effort_class` / `reasoning_effort_number` / `reasoning_tokens_budget`: **Optional & Model-Specific**. Use *only one* of these to enable reasoning modes if the model supports it (see `llm_node.py` metadata or tests). Provide the type supported by the specific model (e.g., budget for Claude 3.7+, class/number for Fireworks, class for OpenAI O1/O3 Mini).
@@ -412,6 +414,7 @@ OpenAI's Deep Research models (`o4-mini-deep-research` and `o3-deep-research`) a
     *   For *custom tools* (other workflow nodes), ensure their input schemas are designed to expose only necessary fields to the AI.
     *   For *provider-inbuilt tools* (like web search or code interpreter on some models), set `is_provider_inbuilt_tool: true` and use `provider_inbuilt_user_config` to pass any specific settings for that tool.
 -   **Enable Web Search:** Use `web_search_options` for models that support it as a general option (like Perplexity or some OpenAI models), OR configure an inbuilt web search tool via the `tools` array if the provider offers it that way.
+    Note: `gpt-5-nano` does not support the web search tool.
 -   **Enable Code Execution (OpenAI):** Add the code interpreter tool to your `tools` array to let the AI write and run Python code:
     *   **What it does:** The AI can analyze data, create charts/graphs, perform calculations, process files, and debug code automatically.
     *   **Container Options:** Use `{"type": "auto"}` for automatic setup (recommended for most users), or specify a custom container ID like `"cntr_abc123"` if you need consistent execution environments.

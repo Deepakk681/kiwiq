@@ -536,6 +536,10 @@ class LLMModelConfig(BaseNodeConfig):
         NOTE: OpenAI Web Search models don't seem to support temperature!
         """
     )
+    # verbosity: Optional[Literal["low", "medium", "high"]] = Field(
+    #     default=None,
+    #     description="Verbosity level for models that support it (GPT-5 series only)."
+    # )
     max_tool_calls: Optional[int] = Field(
         None,
         description="Maximum number of tool calls to make"
@@ -1122,6 +1126,32 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         model_name = self.config.llm_config.model_spec.model
         model_metadata: ModelMetadata = PROVIDER_MODEL_MAP[provider](model_name).metadata
 
+        if hasattr(model_metadata, "web_search") and model_metadata.web_search:
+            if self.config.web_search_options is not None:
+                # Validate web search capabilities against model metadata
+                web_search_options = self.config.web_search_options.model_dump(exclude_none=True)
+                
+                # Check if model supports specific web search features
+                if self.config.web_search_options.search_recency_filter and (not model_metadata.search_recency_filter):
+                    raise ValueError(f"Model {model_metadata.model_name} does not support recency filtering for web search, but it was configured")
+                    # self.warning(f"Model {model_metadata.model_name} does not support recency filtering, but it was configured")
+                
+                if self.config.web_search_options.search_domain_filter and (not model_metadata.search_domain_filter):
+                    raise ValueError(f"Model {model_metadata.model_name} does not support domain filtering for web search, but it was configured")
+                
+                if self.config.web_search_options.search_context_size and (not model_metadata.search_context_size):
+                    raise ValueError(f"Model {model_metadata.model_name} does not support search context size configuration for web search, but it was configured")
+                
+                if self.config.web_search_options.user_location and (not model_metadata.user_location):
+                    raise ValueError(f"Model {model_metadata.model_name} does not support user location for web search, but it was configured")
+                
+                # Add validated options to the request
+                key = "extra_body" if provider == LLMModelProvider.OPENAI else "model_kwargs"
+                if key not in model_kwargs:
+                    model_kwargs[key] = {}
+                model_kwargs[key]["web_search_options"] = web_search_options
+                self.info(f"Web search options in extra body: {json.dumps(web_search_options, indent=4)}")
+
         if model_metadata.max_tool_calls_param_key and self.config.llm_config.max_tool_calls is not None:
             model_kwargs[model_metadata.max_tool_calls_param_key] = self.config.llm_config.max_tool_calls
         
@@ -1129,6 +1159,14 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
            model_kwargs["stream_usage"] = True
            model_kwargs["use_responses_api"] = True
            # model_kwargs["stream_options"] = {"include_usage": True}
+        #    # GPT-5 series: optional verbosity control
+        #    if self.config.llm_config.verbosity and model_metadata.verbosity_supported:
+        #         # model_kwargs["text"] = {"verbosity": self.config.llm_config.verbosity}
+        #         if "model_kwargs" not in model_kwargs:
+        #             model_kwargs["model_kwargs"] = {}
+        #         # model_kwargs["extra_body"]["verbosity"] = self.config.llm_config.verbosity
+        #         model_kwargs["model_kwargs"]["verbosity"] = self.config.llm_config.verbosity
+        #         self.info(f"Verbosity in extra body: {self.config.llm_config.verbosity}")
 
         assert model_kwargs.get("max_tokens") <= model_metadata.output_token_limit, f"Max tokens ({model_kwargs['max_tokens']}) exceeds the model's {provider.value} -> `{model_name}` output token limit ({model_metadata.output_token_limit})"
 
@@ -1608,29 +1646,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         # web_search_options = None
         invoke_kwargs = kwargs
-        if hasattr(model_metadata, "web_search") and model_metadata.web_search:
-            if self.config.web_search_options is not None:
-                # Validate web search capabilities against model metadata
-                web_search_options = self.config.web_search_options.model_dump(exclude_none=True)
-                
-                # Check if model supports specific web search features
-                if self.config.web_search_options.search_recency_filter and (not model_metadata.search_recency_filter):
-                    raise ValueError(f"Model {model_metadata.model_name} does not support recency filtering for web search, but it was configured")
-                    # self.warning(f"Model {model_metadata.model_name} does not support recency filtering, but it was configured")
-                
-                if self.config.web_search_options.search_domain_filter and (not model_metadata.search_domain_filter):
-                    raise ValueError(f"Model {model_metadata.model_name} does not support domain filtering for web search, but it was configured")
-                
-                if self.config.web_search_options.search_context_size and (not model_metadata.search_context_size):
-                    raise ValueError(f"Model {model_metadata.model_name} does not support search context size configuration for web search, but it was configured")
-                
-                if self.config.web_search_options.user_location and (not model_metadata.user_location):
-                    raise ValueError(f"Model {model_metadata.model_name} does not support user location for web search, but it was configured")
-                
-                # Add validated options to the request
-                invoke_kwargs["extra_body"] = {
-                    "web_search_options": web_search_options
-                }
+        
         # NOTE: this arg is not supported by some langchain integrations with providers, eg: perplexity
         # invoke_kwargs["max_concurrency"] = 50
         # import ipdb; ipdb.set_trace()
