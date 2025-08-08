@@ -34,7 +34,7 @@ from kiwi_app.auth.models import User
 from kiwi_app.auth.dependencies import (
     get_current_active_verified_user,
     get_active_org_id,
-    get_current_active_superuser
+    get_current_active_superuser,
 )
 from kiwi_app.workflow_app import crud as wf_crud
 # Import function to fetch user from auth crud (used in websocket auth)
@@ -1128,11 +1128,14 @@ async def list_runs(
     "/{run_id}/logs",
     response_model=schemas.WorkflowRunLogs,
     summary="Get Workflow Run Logs",
-    dependencies=[Depends(wf_deps.RequireRunReadActiveOrg)] # Basic check on active org context
+    # dependencies=[Depends(wf_deps.RequireRunReadActiveOrg)] # Basic check on active org context
 )
 async def get_run_logs(
     # Use dependency to fetch run and ensure it belongs to active org
-    run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
+    # run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
+    run_id: uuid.UUID = Path(..., description="The ID of the workflow run"),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    run_dao: wf_crud.WorkflowRunDAO = Depends(wf_deps.get_workflow_run_dao),
     current_superuser: User = Depends(auth_deps.get_current_active_superuser),
     skip: int = Query(0, ge=0, description="Number of items to skip"),
     limit: int = Query(100, ge=1, le=200, description="Maximum number of items to return"),
@@ -1146,6 +1149,9 @@ async def get_run_logs(
     - Requires `run:read` permission on the active organization.
     """
     try:
+        run = await run_dao.get(db, id=run_id)
+        if not run:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found")
         if not run.prefect_run_ids:
             return {"logs": []}
             
@@ -1240,7 +1246,9 @@ async def get_run_status(
 )
 async def get_run_state(
     # Use dependency to fetch run and ensure it belongs to active org
-    run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
+    # run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
+    run_id: uuid.UUID = Path(..., description="The ID of the workflow run"),
+    run_dao: wf_crud.WorkflowRunDAO = Depends(wf_deps.get_workflow_run_dao),
     # Re-inject active_org_id for service call if needed, though run object has it
     current_superuser: User = Depends(auth_deps.get_current_active_superuser),
     db: AsyncSession = Depends(get_async_db_dependency),
@@ -1254,6 +1262,9 @@ async def get_run_state(
     - Requires `run:read` permission on the active organization.
     """
     try:
+        run = await run_dao.get(db, id=run_id)
+        if not run:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found")
         state = await workflow_service.get_run_state(db, run=run)
         workflow_logger.info(f"Retrieved workflow run state for run {run.id}")
         return state
