@@ -3540,18 +3540,18 @@ mistral = ["langchain-mistralai (>=0.2.0,<1)"]
 
 [[package]]
 name = "langchain-openai"
-version = "0.3.27"
+version = "0.3.28"
 description = "An integration package connecting OpenAI and LangChain"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "langchain_openai-0.3.27-py3-none-any.whl", hash = "sha256:efe636c3523978c44adc41cf55c8b3766c05c77547982465884d1258afe705df"},
-    {file = "langchain_openai-0.3.27.tar.gz", hash = "sha256:5d5a55adbff739274dfc3a4102925771736f893758f63679b64ae62fed79ca30"},
+    {file = "langchain_openai-0.3.28-py3-none-any.whl", hash = "sha256:4cd6d80a5b2ae471a168017bc01b2e0f01548328d83532400a001623624ede67"},
+    {file = "langchain_openai-0.3.28.tar.gz", hash = "sha256:6c669548dbdea325c034ae5ef699710e2abd054c7354fdb3ef7bf909dc739d9e"},
 ]
 
 [package.dependencies]
-langchain-core = ">=0.3.66,<1.0.0"
+langchain-core = ">=0.3.68,<1.0.0"
 openai = ">=1.86.0,<2.0.0"
 tiktoken = ">=0.7,<1"
 
@@ -4773,14 +4773,14 @@ sympy = "*"
 
 [[package]]
 name = "openai"
-version = "1.95.0"
+version = "1.99.3"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "openai-1.95.0-py3-none-any.whl", hash = "sha256:a7afc9dca7e7d616371842af8ea6dbfbcb739a85d183f5f664ab1cc311b9ef18"},
-    {file = "openai-1.95.0.tar.gz", hash = "sha256:54bc42df9f7142312647dd485d34cca5df20af825fa64a30ca55164be2cf4cc9"},
+    {file = "openai-1.99.3-py3-none-any.whl", hash = "sha256:c786a03f6cddadb5ee42c6d749aa4f6134fe14fdd7d69a667e5e7ce7fd29a719"},
+    {file = "openai-1.99.3.tar.gz", hash = "sha256:1a0e2910e4545d828c14218f2ac3276827c94a043f5353e43b9413b38b497897"},
 ]
 
 [package.dependencies]
@@ -4794,7 +4794,7 @@ tqdm = ">4"
 typing-extensions = ">=4.11,<5"
 
 [package.extras]
-aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.6)"]
+aiohttp = ["aiohttp", "httpx-aiohttp (>=0.1.8)"]
 datalib = ["numpy (>=1)", "pandas (>=1.2.3)", "pandas-stubs (>=1.1.0.11)"]
 realtime = ["websockets (>=13,<16)"]
 voice-helpers = ["numpy (>=2.0.2)", "sounddevice (>=0.5.1)"]
@@ -7925,14 +7925,14 @@ testing = ["mypy", "pytest", "pytest-gitignore", "pytest-mock", "responses", "ru
 
 [[package]]
 name = "tokencost"
-version = "0.1.24"
+version = "0.1.25"
 description = "To calculate token and translated USD cost of string and message calls to OpenAI, for example when used by AI agents"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "tokencost-0.1.24-py3-none-any.whl", hash = "sha256:928d1af30c4dc8e7251571fd374ecff862af0c4814954a4986222140a88fbdab"},
-    {file = "tokencost-0.1.24.tar.gz", hash = "sha256:0cde4531f9014c3d7d3b089863c088b3afd191d7dabea5dfc4194796f0c6361e"},
+    {file = "tokencost-0.1.25-py3-none-any.whl", hash = "sha256:6efed6237e7df7cb03f89e3b476be0097a3db017139c7d4050c28da84acf28a9"},
+    {file = "tokencost-0.1.25.tar.gz", hash = "sha256:ee928bab995e59855e1f108deb8ce5e84da732e2623ef00c0cbfc524b7d43b30"},
 ]
 
 [package.dependencies]
@@ -9079,4 +9079,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "7c363456596435309cf5c73c5b7d3e1fc8915cbf9af3ac385fd2ea87c065f29f"
+content-hash = "29851e43e521782fb3a7ff0dfc8d065224456df47884297a4d10eb1918e6e138"

@@ -2614,7 +2614,11 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     ).input_tokens
                 prompt_cost =  calculate_cost_by_tokens(input_tokens, tokencost_model, "input")
             else:
-                prompt_cost = calculate_prompt_cost(prompt_messages, tokencost_model)
+                try:
+                    prompt_cost = calculate_prompt_cost(prompt_messages, tokencost_model)
+                except Exception as e:
+                    self.warning(f"Error calculating prompt cost via direct messages: {str(e)} \n\n; converting to string and trying again...")
+                    prompt_cost = calculate_prompt_cost(str(prompt_messages), tokencost_model)
             
             # Estimate completion cost based on max_output_tokens or a default
             if max_output_tokens is None:

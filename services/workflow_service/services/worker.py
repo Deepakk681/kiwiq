@@ -216,24 +216,25 @@ async def run_graph(
     parent_run_id = workflow_run_job.parent_run_id
 
 
-    if parent_run_id is not None:
-        async with get_async_db_as_manager() as db:
-            flow_id = runtime.flow_run.id
-            lock_key = "prefect_parent_run_lock:" + str(parent_run_id)
-            async with external_context.redis.text_client.with_lock(
-                lock_name=lock_key, 
-                timeout=10,
-                ttl=10,
-            ):
-                workflow_run = await external_context.daos.workflow_run.get_run_by_id_and_org(db, run_id=parent_run_id, org_id=org_id)
-                if str(flow_id) not in workflow_run.prefect_run_ids:
-                    workflow_run = await external_context.daos.workflow_run.update(
-                        db,
-                        db_obj=workflow_run,
-                        obj_in={
-                            "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_id)]) if workflow_run.prefect_run_ids else str(flow_id)
-                        }
-                    )
+    # if parent_run_id is not None:
+    async with get_async_db_as_manager() as db:
+        flow_id = runtime.flow_run.id
+        # lock_key = "prefect_parent_run_lock:" + str(parent_run_id)
+        # async with external_context.redis.text_client.with_lock(
+        #     lock_name=lock_key, 
+        #     timeout=10,
+        #     ttl=10,
+        # ):
+        workflow_run = await external_context.daos.workflow_run.get_run_by_id_and_org(db, run_id=run_id, org_id=org_id)
+        logger.info(f"Info for Workflow run: - Workflow Name: {workflow_run.workflow_name} - Workflow ID: {workflow_run.workflow_id} - Run ID: {workflow_run.id}")
+        if workflow_run and str(flow_id) not in workflow_run.prefect_run_ids:
+            workflow_run = await external_context.daos.workflow_run.update(
+                db,
+                db_obj=workflow_run,
+                obj_in={
+                    "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_id)]) if workflow_run.prefect_run_ids else str(flow_id)
+                }
+            )
 
     try:
         ################################################################
