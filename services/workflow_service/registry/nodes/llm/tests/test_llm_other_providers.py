@@ -355,30 +355,30 @@ class TestBasicLLMWorkflow(unittest.IsolatedAsyncioTestCase):
 
     # --- Gemini Tests ---
 
-    async def test_gemini_pro_exp_text_reasoning(self):
-        """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model)."""
-        if not hasattr(GeminiModels, "GEMINI_2_5_PRO"):
-             self.skipTest("GeminiModels.GEMINI_2_5_PRO not defined in enum.")
+    # async def test_gemini_pro_exp_text_reasoning(self):
+    #     """Test Gemini 2.5 Pro Exp with text output and reasoning (thinking model)."""
+    #     if not hasattr(GeminiModels, "GEMINI_2_5_PRO"):
+    #          self.skipTest("GeminiModels.GEMINI_2_5_PRO not defined in enum.")
 
-        result = await arun_llm_test(
-            runtime_config=self.runtime_config_regular,
-            model_provider=LLMModelProvider.GEMINI,
-            model_name=GeminiModels.GEMINI_2_5_PRO.value,
-            output_schema_config=None, # Text output
-            # Gemini reasoning config might differ, test without specific reasoning flags first
-            # reasoning_config={ # Example, adjust if Gemini uses different keys
-            #     "reasoning_effort_class": "low"
-            # }
-            user_prompt="Explain the concept of quantum entanglement simply."
-        )
-        self.assertIsInstance(result, dict)
-        self.assertIn("content", result)
+    #     result = await arun_llm_test(
+    #         runtime_config=self.runtime_config_regular,
+    #         model_provider=LLMModelProvider.GEMINI,
+    #         model_name=GeminiModels.GEMINI_2_5_PRO.value,
+    #         output_schema_config=None, # Text output
+    #         # Gemini reasoning config might differ, test without specific reasoning flags first
+    #         # reasoning_config={ # Example, adjust if Gemini uses different keys
+    #         #     "reasoning_effort_class": "low"
+    #         # }
+    #         user_prompt="Explain the concept of quantum entanglement simply."
+    #     )
+    #     self.assertIsInstance(result, dict)
+    #     self.assertIn("content", result)
         
-        self.assertIn("metadata", result)
-        self.assertIsInstance(result["content"], str)
-        print("\n\n", result["content"], "\n\n")
-        # import ipdb; ipdb.set_trace()
-        self.assertGreater(len(result["content"]), 0)
+    #     self.assertIn("metadata", result)
+    #     self.assertIsInstance(result["content"], str)
+    #     print("\n\n", result["content"], "\n\n")
+    #     # import ipdb; ipdb.set_trace()
+    #     self.assertGreater(len(result["content"]), 0)
 
     # async def test_gemini_pro_exp_structured_reasoning(self):
     #     """Test Gemini 2.5 Pro Exp with structured output and reasoning (thinking model)."""

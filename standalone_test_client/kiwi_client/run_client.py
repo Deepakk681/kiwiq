@@ -792,6 +792,31 @@ async def main():
             # Initialize test clients
             workflow_tester = WorkflowTestClient(auth_client)
             run_tester = WorkflowRunTestClient(auth_client)
+            print(f"\n5. Getting logs for run {created_run_id}...")
+            logs_data, logs_path = await run_tester.get_run_logs(
+                run_id=created_run_id, 
+                save_to_file=True,
+                test_name="Example_Basic_LLM_Test"
+            )
+            if logs_data:
+                log_count = len(logs_data.get("logs", []))
+                print(f"   Successfully retrieved {log_count} log entries for run {created_run_id}")
+                print(f"   Saved logs to file: Example_Basic_LLM_Test_run_{created_run_id}_logs.json \nPATH: {logs_path}\n")
+            else:
+                print(f"   Failed to retrieve logs for run {created_run_id}")
+            
+            print(f"\n6. Getting state for run {created_run_id} (requires superuser)...")
+            state_data, state_path = await run_tester.get_run_state(
+                run_id=created_run_id, 
+                save_to_file=True,
+                test_name="Example_Basic_LLM_Test"
+            )
+            if state_data:
+                print(f"   Successfully retrieved state for run {created_run_id}")
+                print(f"   Saved state to file: Example_Basic_LLM_Test_run_{created_run_id}_state.json \nPATH: {state_path}\n")
+            else:
+                print(f"   Failed to retrieve state for run {created_run_id} (likely not a superuser)")
+            # --- End Handle Direct Completion ---
             # Initialize HITL tester here for potential use later
             hitl_tester = HITLTestClient(auth_client)
 
@@ -994,9 +1019,3 @@ async def main():
         # --- ---------------------------- ---
         print("\n--- Workflow Run API Test Finished --- ")
 
-if __name__ == "__main__":
-    # Ensure API server is running and config is correct
-    # Run with: PYTHONPATH=. python test_clients/test_run_client_v2.py
-    print("Attempting to run test client main function...")
-    asyncio.run(main()) # Run the main test function
-    print("\nRun this script with `PYTHONPATH=[path_to_project_root] python test_clients/test_run_client_v2.py`")

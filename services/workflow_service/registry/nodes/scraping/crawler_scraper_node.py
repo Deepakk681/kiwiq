@@ -8,15 +8,24 @@ using the customer data service.
 Key Features:
 - Multi-domain web crawling with configurable depth and limits
 - Automatic robots.txt and sitemap handling
+- Robots analysis snapshot persisted alongside results and reused from cache
 - Browser pool support for JavaScript-heavy sites
 - MongoDB storage via customer data service
-- Result caching to avoid redundant scraping
+- Result caching to avoid redundant scraping (with cache age reporting)
 - Configurable processors for domain-specific extraction
+- Optional aggregated technical SEO summary over yielded documents
+
+Notes:
+- Allowed domains are optional. When omitted, domains are derived from `start_urls` (base domain),
+  and subdomains are permitted.
+- MongoDB namespaces can be a list of concrete namespaces (fresh run) or a single namespace pattern
+  string when results are served from cache.
 
 The node integrates with the generic spider infrastructure and stores all
 scraped data in MongoDB with proper user/org isolation.
 """
 
+from dataclasses import asdict
 import json
 import asyncio
 from collections import defaultdict
@@ -47,12 +56,15 @@ from workflow_service.services.scraping.settings import scraping_settings
 from kiwi_app.workflow_app import schemas as customer_data_schemas
 from global_config.logger import get_prefect_or_regular_python_logger
 from workflow_service.services.scraping.pipelines import MongoCustomerDataPipeline
+from workflow_service.services.scraping.technical_seo import compute_summary_from_documents
 
 logger = get_prefect_or_regular_python_logger(
     name="workflow_service.registry.nodes.scraping.crawler_scraper_node",
     return_non_prefect_logger=False
 )
 
+
+ROBOTS_ANALYSIS_DOCNAME = "robots_analysis"
 
 class CrawlerScraperConfig(BaseNodeConfig):
     """
@@ -122,7 +134,7 @@ class CrawlerScraperConfig(BaseNodeConfig):
                    "More browsers allow more parallel JavaScript rendering."
     )
     browser_pool_timeout: Optional[int] = Field(
-        default=scraping_settings.BROWSER_POOL_TIMEOUT,   # 5
+        default=scraping_settings.BROWSER_POOL_TIMEOUT,   # 30
         ge=5,
         le=300,
         description="Timeout (in seconds) for browser operations. "
@@ -141,6 +153,23 @@ class CrawlerScraperConfig(BaseNodeConfig):
                    "Options: DEBUG, INFO, WARNING, ERROR, CRITICAL."
     )
 
+    # Technical SEO analysis
+    perform_technical_seo: bool = Field(
+        default=True,
+        description="Compute high-accuracy technical SEO metrics and page dates per page."
+    )
+    technical_seo_link_sample_size: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Number of sample internal/external links to include in analysis output."
+    )
+    # Aggregate summary at node level (group analysis)
+    aggregate_technical_seo_summary: bool = Field(
+        default=True,
+        description="If enabled, compute a summary report over scraped pages (post-run)."
+    )
+
 
 class CrawlerScraperInput(BaseSchema):
     """
@@ -148,6 +177,10 @@ class CrawlerScraperInput(BaseSchema):
     
     Defines the URLs to crawl, allowed domains, crawling limits,
     and caching behavior for each scraping job.
+
+    Notes:
+    - `allowed_domains` is optional. If not provided, base domains will be derived
+      from `start_urls` and used for scoping. Subdomains are permitted by default.
     """
     
     start_urls: List[str] = Field(
@@ -163,6 +196,7 @@ class CrawlerScraperInput(BaseSchema):
         max_length=5,
         description="List of domains allowed for crawling. "
                    "Only URLs from these domains will be followed and scraped. "
+                   "If omitted, base domains are inferred from start_urls. "
                    "Example: ['example.com', 'subdomain.example.com']"
     )
     
@@ -227,6 +261,16 @@ class CrawlerScraperOutput(BaseSchema):
     
     Contains job execution results, statistics, sample data,
     and metadata about the scraping operation.
+
+    Notes:
+    - `mongodb_namespaces` may be either a list of concrete namespaces (fresh run)
+      or a single namespace pattern string when results are served from cache.
+    - When caching is used, `used_cached_results` is True and `cached_results_age_hours`
+      indicates the freshness of the cache window used to select results.
+    - When enabled, `technical_seo_summary` aggregates per-page SEO metrics.
+    - `robots_analysis` provides per-domain robots.txt insights (disallowed prefixes,
+      agent rules, effective crawl delays), and is also persisted as a snapshot document
+      under each result namespace for future cache hits.
     """
     
     # Job identification
@@ -280,6 +324,16 @@ class CrawlerScraperOutput(BaseSchema):
         ge=0,
         description="Total number of documents available in MongoDB for this job. "
                    "May be larger than documents_stored if using cached results."
+    )
+
+    # Optional aggregated technical SEO summary
+    technical_seo_summary: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Aggregated technical SEO metrics across pages when requested."
+    )
+    robots_analysis: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Per-domain robots.txt analysis (disallow prefixes, agent rules, crawl delays)."
     )
     
     # Cache information
@@ -338,6 +392,88 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
     
     config: CrawlerScraperConfig
 
+    # -------------------- Helpers (no DB duplication, clean patterns) --------------------
+    def _allowlist_output_item(self, obj: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a filtered view of a scraped document limited to safe fields.
+
+        Allowed keys:
+        - url
+        - markdown_content
+        - technical_seo
+        - last_modified_from_sitemap, feed_* dates (if present)
+        - is_url_in_sitemap
+        """
+        out: Dict[str, Any] = {}
+        out['url'] = obj.get('url')
+        out['markdown_content'] = obj.get('markdown_content')
+        if 'technical_seo' in obj:
+            out['technical_seo'] = obj['technical_seo']
+        for k in (
+            'last_modified_from_sitemap',
+            'feed_published_parsed',
+            'feed_updated_parsed',
+            'feed_created_parsed',
+        ):
+            if k in obj:
+                out[k] = obj[k]
+        if 'is_url_in_sitemap' in obj:
+            out['is_url_in_sitemap'] = obj['is_url_in_sitemap']
+        return out
+
+    async def _save_robots_analysis_snapshot(
+        self,
+        customer_data_service: CustomerDataService,
+        namespaces: Dict[str, int],
+        robots_analysis: Dict[str, Any],
+        *,
+        user,
+        org_id,
+        is_shared: bool,
+    ) -> None:
+        """Persist robots analysis snapshot once per namespace for this run."""
+        if not robots_analysis or not namespaces:
+            return
+        try:
+            async with get_async_db_as_manager() as db_session:
+                for namespace in namespaces.keys():
+                    await customer_data_service.create_or_update_unversioned_document(
+                        db=db_session,
+                        org_id=org_id,
+                        namespace=namespace,
+                        docname=ROBOTS_ANALYSIS_DOCNAME,
+                        is_shared=is_shared,
+                        user=user,
+                        data=robots_analysis,
+                        is_called_from_workflow=True,
+                    )
+        except Exception as e:
+            self.warning(f"Failed to persist robots analysis snapshot: {e}")
+
+    async def _load_cached_robots_analysis(
+        self,
+        input_data: CrawlerScraperInput,
+        customer_data_service: CustomerDataService,
+    ) -> Optional[Dict[str, Any]]:
+        """Load the latest robots analysis doc under the given namespace pattern."""
+        start_urls_uuid = MongoCustomerDataPipeline._generate_start_urls_uuid(input_data.start_urls)
+            
+        # Search pattern - only use start_urls_uuid, not netloc
+        namespace_pattern = f"crawler_scraper_results_{start_urls_uuid}_*"
+        try:
+            search_results = await customer_data_service.system_search_documents(
+                namespace_pattern=namespace_pattern,
+                docname_pattern=ROBOTS_ANALYSIS_DOCNAME,
+                skip=0,
+                limit=1,
+                sort_by=customer_data_schemas.CustomerDataSortBy.UPDATED_AT,
+                sort_order=customer_data_schemas.SortOrder.DESC,
+            )
+            if search_results:
+                return search_results[0].document_contents
+        except Exception as e:
+            self.warning(f"Failed to load cached robots analysis: {e}")
+        return None
+
     async def _check_and_search_for_cached_results(
         self,
         input_data: CrawlerScraperInput,
@@ -370,7 +506,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             # Get the single latest document
             search_results = await customer_data_service.system_search_documents(
                 namespace_pattern=namespace_pattern,
-                docname_pattern="*",
+                docname_pattern="scraped_url_result_*",
                 skip=0,
                 limit=1,
                 sort_by=customer_data_schemas.CustomerDataSortBy.UPDATED_AT,
@@ -405,7 +541,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
 
                 search_results = await customer_data_service.system_search_documents(
                     namespace_pattern=namespace_pattern,
-                    docname_pattern="*",
+                    docname_pattern="scraped_url_result_*",
                     skip=0,
                     limit=limit,
                     sort_by=customer_data_schemas.CustomerDataSortBy.CREATED_AT,
@@ -458,7 +594,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         try:
             search_results = await customer_data_service.system_search_documents(
                 namespace_pattern=namespace_pattern,
-                docname_pattern="*",
+                docname_pattern="scraped_url_result_*",
                 skip=0,
                 limit=limit,
                 sort_by=customer_data_schemas.CustomerDataSortBy.CREATED_AT,
@@ -528,30 +664,47 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         
         # Check for cached results if enabled
         if input_data.use_cached_scraping_results:
-            cached_info = await self._check_and_search_for_cached_results(input_data, customer_data_service, limit=10)  # 1000
+            cached_info = await self._check_and_search_for_cached_results(input_data, customer_data_service, limit=1000)  # 1000
             
             if cached_info:
                 self.info(f"Using cached results ({cached_info['age_hours']:.1f}h old)")
                 
                 # Fetch sample of cached data
                 scraped_sample = cached_info['documents']
+
+                # Also try to load cached robots analysis snapshot from the same namespace root
+                metadata = cached_info['metadata']
+                namespace_root = '_'.join(metadata.namespace.split('_')[:-1]) + "*"
+                robots_analysis_cached = await self._load_cached_robots_analysis(
+                    input_data,
+                    customer_data_service,
+                )
                 
                 # Extract job_id from cached document if available
                 job_id = 'cached_unknown'
                 if scraped_sample:
                     job_id = scraped_sample[0].get('_job_id', 'cached_unknown')
                 
+                technical_seo_summary = None
+                if self.config.aggregate_technical_seo_summary and scraped_sample:
+                    technical_seo_summary = await compute_summary_from_documents(scraped_sample)
+                
+                # Allowlist filter for cached sample as well
+                filtered_sample = [self._allowlist_output_item(doc) for doc in scraped_sample]
+
                 return CrawlerScraperOutput(
                     job_id=job_id,
                     status='completed_from_cache',
                     stats={'cached': True, 'namespaces': cached_info['namespaces']},
                     completed_at=datetime.now().isoformat(),
                     mongodb_namespaces=cached_info['namespace_pattern'],
-                    documents_stored=len(scraped_sample),  # At least one document exists
-                    scraped_data=scraped_sample,  # Return first 5 items
-                    total_scraped_count=len(scraped_sample),
+                    documents_stored=len(filtered_sample),  # At least one document exists
+                    scraped_data=filtered_sample,  # Return first 5 items
+                    total_scraped_count=len(filtered_sample),
                     used_cached_results=True,
-                    cached_results_age_hours=cached_info['age_hours']
+                    technical_seo_summary=asdict(technical_seo_summary) if technical_seo_summary else None,
+                    cached_results_age_hours=cached_info['age_hours'],
+                    robots_analysis=robots_analysis_cached,
                 )
         
         # Build job configuration
@@ -598,6 +751,10 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             # Redis
             'redis_url': scraping_settings.REDIS_URL,
             'use_in_memory': scraping_settings.USE_IN_MEMORY_QUEUE,
+            
+            # Technical SEO
+            'perform_technical_seo': self.config.perform_technical_seo,
+            'technical_seo_link_sample_size': self.config.technical_seo_link_sample_size,
             
             # Custom settings for Scrapy
             'custom_settings': {
@@ -680,10 +837,20 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     namespace,
                     user=user,
                     org_id=org_id,
-                    limit=10,
+                    limit=1000,
                     is_shared=input_data.is_shared,
                 )
                 scraped_sample.extend(results)
+
+            # Persist robots analysis snapshot for this run to cache alongside scraped content
+            await self._save_robots_analysis_snapshot(
+                customer_data_service,
+                namespaces=namespaces,
+                robots_analysis=result.get('robots_analysis') or {},
+                user=user,
+                org_id=org_id,
+                is_shared=input_data.is_shared,
+            )
             
             # Billing: Adjust allocated credits with actual usage
             if allocated_credits > 0 and self.billing_mode:
@@ -718,6 +885,13 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 except Exception as e:
                     self.warning(f"⚠️ Failed to adjust allocated credits: {str(e)}")
             
+            technical_seo_summary: Optional[Dict[str, Any]] = None
+            if self.config.aggregate_technical_seo_summary and scraped_sample:
+                technical_seo_summary = await compute_summary_from_documents(scraped_sample)
+
+            # Allowlist filter for scraped sample
+            filtered_sample = [self._allowlist_output_item(doc) for doc in scraped_sample]
+
             return CrawlerScraperOutput(
                 job_id=result['job_id'],
                 status=result['status'],
@@ -725,9 +899,11 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 completed_at=result['completed_at'],
                 mongodb_namespaces=list(namespaces.keys()),
                 documents_stored=documents_stored,
-                scraped_data=scraped_sample,
+                scraped_data=filtered_sample,
                 total_scraped_count=len(scraped_sample),
-                used_cached_results=False
+                used_cached_results=False,
+                technical_seo_summary=asdict(technical_seo_summary) if technical_seo_summary else None,
+                robots_analysis=result.get('robots_analysis'),
             )
             
         except Exception as e:

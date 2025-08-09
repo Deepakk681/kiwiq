@@ -72,9 +72,9 @@ The node comes with carefully tuned default settings. **We strongly recommend us
 - **`download_delay`**: Default 0.005 seconds - respectful delay between requests
 
 ### Browser Pool Settings (Advanced)
-- **`browser_pool_enabled`**: Default depends on system settings
+- **`browser_pool_enabled`**: Default depends on system settings (typically `false`)
 - **`browser_pool_size`**: Default 5 browsers for JavaScript rendering
-- **`browser_pool_timeout`**: Default 5 seconds per page
+- **`browser_pool_timeout`**: Default 30 seconds per page (system-level default)
 
 **Recommendation**: Focus on configuring inputs rather than these settings. The defaults work well for most use cases.
 
@@ -89,10 +89,6 @@ This is where you should focus your configuration efforts. Input parameters dire
   "start_urls": [
     "https://example.com/blog",
     "https://example.com/news"
-  ],
-  "allowed_domains": [
-    "example.com",
-    "blog.example.com"
   ]
 }
 ```
@@ -102,8 +98,9 @@ This is where you should focus your configuration efforts. Input parameters dire
   - These are your entry points - the crawler will discover more pages from here
   - **Impact**: More start URLs = more comprehensive coverage of the site
   
-- **`allowed_domains`** (List[str], **Required**): Domains allowed for crawling
+- **`allowed_domains`** (List[str], Optional): Domains allowed for crawling
   - Only pages from these domains will be scraped
+  - If omitted, domains are automatically derived from `start_urls` (base domains)
   - Maximum 5 domains per job
   - **Impact**: More domains = broader data collection but potentially slower execution
 
@@ -182,9 +179,11 @@ The node provides comprehensive information about the scraping operation and res
 - **`completed_at`** (str): ISO 8601 timestamp when job completed
 
 ### MongoDB Storage Information
-- **`mongodb_namespaces`** (Union[str, List[str]]): MongoDB namespace pattern where data is stored
+- **`mongodb_namespaces`** (Union[str, List[str]]): MongoDB namespace(s) where data is stored
   - Format: `crawler_scraper_results_{uuid}_{YYYYMMDD}_{domain}`
-  - Use this pattern to query stored results in subsequent nodes
+  - On fresh runs, this is a list of concrete namespaces (one per domain)
+  - When results are served from cache, this may be a single namespace pattern string (e.g., `crawler_scraper_results_{uuid}_*`)
+  - Use this value to query stored results in subsequent nodes
 - **`documents_stored`** (int): Number of documents successfully stored
 - **`total_scraped_count`** (int): Total documents available (may include cached results)
 
@@ -196,6 +195,10 @@ The node provides comprehensive information about the scraping operation and res
 ### Cache Information
 - **`used_cached_results`** (bool): Whether cached results were used
 - **`cached_results_age_hours`** (Optional[float]): Age of cached results in hours
+
+### Technical SEO and Robots
+- **`technical_seo_summary`** (Optional[Dict]): Aggregated technical SEO metrics across pages when enabled
+- **`robots_analysis`** (Optional[Dict]): Per-domain robots.txt analysis (disallowed prefixes, agent rules, crawl delays)
 
 ## Example Configurations
 
@@ -287,16 +290,20 @@ Use the `load_customer_data` or `load_multiple_customer_data` nodes with the nam
 ```
 
 ### Document Structure (Typical)
+The node returns a filtered preview of each document with safe, high-signal fields:
 ```json
 {
   "_job_id": "crawler_20240115_143000_abc123",
   "url": "https://example.com/article",
-  "title": "Article Title",
-  "content": "Extracted article content...",
-  "meta_description": "Article description",
-  "published_date": "2024-01-15",
-  "author": "Author Name",
-  // ... additional extracted fields based on processor
+  "markdown_content": "Extracted content converted to Markdown...",
+  "technical_seo": {
+    "dates": { /* detected publish/update dates if available */ }
+  },
+  "is_url_in_sitemap": true,
+  "last_modified_from_sitemap": "2024-01-15T10:30:00Z",
+  "feed_published_parsed": "2024-01-15T08:00:00Z",
+  "feed_updated_parsed": "2024-01-15T09:00:00Z",
+  "feed_created_parsed": "2024-01-14T23:00:00Z"
 }
 ```
 
@@ -375,6 +382,7 @@ Use the `load_customer_data` or `load_multiple_customer_data` nodes with the nam
 - **Focus on Inputs**: Spend your time configuring what to scrape (URLs, domains, limits) rather than how to scrape it
 - **Start Small**: Begin with small limits (50 pages) and increase only if you need more data
 - **Caching**: Leave caching enabled - it makes repeat jobs much faster
+- **Robots/Sitemaps**: The node analyzes robots.txt and sitemaps and stores a robots analysis snapshot alongside results
 - **Storage**: All scraped content automatically goes to your database where other nodes can access it
 - **Performance**: More pages = longer wait times. Balance thoroughness with speed
 - **Respectful**: The node automatically follows website rules and doesn't overload servers
@@ -399,3 +407,7 @@ Use the `load_customer_data` or `load_multiple_customer_data` nodes with the nam
 ### JavaScript Content Missing
 - **Ensure** `browser_pool_enabled` is `true` in system settings
 - **Note**: Browser pool settings are system-wide, not per-job configurable 
+ 
+### Allowed Domains Behavior
+- If `allowed_domains` is omitted, the node will automatically derive base domains from `start_urls`.
+- Include subdomains explicitly (e.g., `blog.example.com`) if you need to restrict crawling to specific subdomains. When omitted, the spider allows subdomains of the base domain.

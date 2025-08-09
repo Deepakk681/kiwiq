@@ -298,58 +298,58 @@ async def main_test_workflow_runner(
     print(f"Execution Mode: {execution_mode}")
     
     # Prepare document configs for the content strategy workflow
-    INPUT_DOCS_TO_BE_LOADED = [
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": USER_PREFERENCES_DOCNAME,
-            },
-            "output_field_name": "user_preferences",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
-            },
-            "output_field_name": "user_source_analysis",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
-            },
-            "output_field_name": "core_beliefs_perspectives",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": CONTENT_PILLARS_DOCNAME,
-            },
-            "output_field_name": "content_pillars",
-        },
-        {
-            "filename_config": {
-                "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-                "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
-            },
-            "output_field_name": "methodology_implementation",
-            "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-            "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-        },
-        {
-            "filename_config": {
-                "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-                "static_docname": BUILDING_BLOCKS_DOCNAME,
-            },
-            "output_field_name": "building_blocks",
-            "is_shared": BUILDING_BLOCKS_IS_SHARED,
-            "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-        }
-    ]
+    # INPUT_DOCS_TO_BE_LOADED = [
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": USER_PREFERENCES_DOCNAME,
+    #         },
+    #         "output_field_name": "user_preferences",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
+    #         },
+    #         "output_field_name": "user_source_analysis",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+    #         },
+    #         "output_field_name": "core_beliefs_perspectives",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": CONTENT_PILLARS_DOCNAME,
+    #         },
+    #         "output_field_name": "content_pillars",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+    #             "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
+    #         },
+    #         "output_field_name": "methodology_implementation",
+    #         "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+    #         "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+    #             "static_docname": BUILDING_BLOCKS_DOCNAME,
+    #         },
+    #         "output_field_name": "building_blocks",
+    #         "is_shared": BUILDING_BLOCKS_IS_SHARED,
+    #         "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+    #     }
+    # ]
     
     # Prepare workflow inputs
     WORKFLOW_RUNNER_INPUTS = {

@@ -573,6 +573,13 @@ class AIAnswerEngineScraperConfig(BaseNodeConfig):
             "all queries are executed once for this entity, and 'list_template_vars' must be a dict if provided."
         ),
     )
+
+    return_nested_entity_results: bool = Field(
+        default=False,
+        description="Whether to return nested entity results. "
+                   "If True, the node will return a dictionary of entity results, "
+                   "where each entity has a 'results' key containing a list of query results."
+    )
     
     # Provider configurations
     default_providers_config: Dict[str, Dict[str, Any]] = Field(
@@ -637,7 +644,7 @@ class AIAnswerEngineScraperInput(DynamicSchema):
     )
 
     entity_name: Optional[str] = Field(
-        default=None,
+        default="generic",
         description=(
             "Explicit single 'entity_name'. When set (or resolved via config path), the node switches to single-entity mode: "
             "all queries are run once for this entity. In this mode, 'list_template_vars' (if provided) must be a dict; "
@@ -779,9 +786,11 @@ class AIAnswerEngineScraperOutput(BaseSchema):
     # Query results sample
     query_results: Optional[List[Dict[str, Any]]] = Field(
         default=None,
-        description="Sample of query results (up to 10 items). "
-                   "Each item contains the query, provider, and response data. "
-                   "Full results are stored in MongoDB."
+        description=(
+            "Sample of flattened query results (up to 10 items). "
+            "Each item has: {query, markdown, provider, category}. "
+            "Full results are stored in MongoDB under their respective namespaces."
+        )
     )
     
     # Per-entity results
@@ -959,6 +968,42 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
         except Exception as e:
             self.error(f"⚠️ Failed to store query result: {e}", exc_info=True)
             return False
+
+    def _flatten_query_results(self, entity_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Flatten categorized results across all entities into a uniform list.
+
+        Output item keys:
+        - query: str
+        - markdown: str
+        - provider: str
+        - category: str
+
+        We rely on `entity_results[entity]['categorized_results']` which already groups
+        result objects (new or cached) by category. Each result object is expected to be the
+        full result dictionary produced by `MultiProviderQueryEngine`, i.e., it contains
+        top-level `query`, `provider`, and a `response` with `processed_data`.
+        """
+        flattened: List[Dict[str, Any]] = []
+        for _entity_name, data in entity_results.items():
+            categorized = data.get("categorized_results", {}) or {}
+            for category, results in categorized.items():
+                for res in results or []:
+                    if not isinstance(res, dict):
+                        continue
+                    query_val = res.get("query", "")
+                    provider_val = res.get("provider", "unknown")
+                    markdown_val = res.get("markdown", "")
+                    links_val = res.get("links", [])
+                    citations_val = res.get("citations", [])
+                    flattened.append({
+                        "query": query_val,
+                        "markdown": markdown_val,
+                        "provider": provider_val,
+                        "category": category,
+                        "links": links_val,
+                        # "citations": citations_val,
+                    })
+        return flattened
 
     async def process(
         self,
@@ -1221,9 +1266,7 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
         # If all results are cached, return early
         if len(all_queries) == 0 and used_any_cache:
             # Aggregate all cached results
-            all_cached_results = []
-            for entity_name, entity_data in entity_results.items():
-                all_cached_results.extend(entity_data['results'])
+            flat_cached_results = self._flatten_query_results(entity_results)
             
             total_elapsed = (datetime.now() - start_time).total_seconds()
             self.info(f"✨ All results served from cache! Completed in ⏱️ {total_elapsed:.1f}s")
@@ -1239,8 +1282,8 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
                 completed_at=datetime.now().isoformat(),
                 mongodb_namespaces=list(entity_namespaces.values()),
                 documents_stored=total_cached_results,
-                query_results=all_cached_results[:10],  # Sample
-                entity_results=entity_results,
+                query_results=flat_cached_results,  # Sample of flattened items
+                entity_results=entity_results if self.config.return_nested_entity_results else None,
                 executed_queries=[],
                 used_cached_results=True
             )
@@ -1423,7 +1466,7 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
                     completed_at=datetime.now().isoformat(),
                     mongodb_namespaces=list(entity_namespaces.values()),
                     documents_stored=0,
-                    entity_results=entity_results,
+                    entity_results=entity_results if self.config.return_nested_entity_results else None,
                     executed_queries=all_queries,
                     used_cached_results=used_any_cache
                 )
@@ -1469,6 +1512,9 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
         total_elapsed = (datetime.now() - start_time).total_seconds()
         self.info(f"✨ Completed AI answer engine scraper in ⏱️ {total_elapsed:.1f}s total")
         
+        # Build flattened query_results structure for output
+        flat_query_results = self._flatten_query_results(entity_results)
+
         return AIAnswerEngineScraperOutput(
             job_id=job_id,
             status='completed' if not used_any_cache else 'completed_with_cache',
@@ -1480,8 +1526,8 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
             completed_at=datetime.now().isoformat(),
             mongodb_namespaces=list(entity_namespaces.values()),
             documents_stored=documents_stored + total_cached_results,
-            query_results=final_all_results[:10],  # Sample of 10
-            entity_results=entity_results,
+            query_results=flat_query_results,  # Sample of 10 flattened items
+            entity_results=entity_results if self.config.return_nested_entity_results else None,
             executed_queries=all_queries,
             used_cached_results=used_any_cache
         )

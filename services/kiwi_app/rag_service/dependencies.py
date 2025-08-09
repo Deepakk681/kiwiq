@@ -72,14 +72,14 @@ async def get_weaviate_client() -> AsyncGenerator[WeaviateChunkClient, None]:
 # --- Ingestion Pipeline Dependencies --- #
 
 async def get_ingestion_pipeline(
-        # weaviate_client: WeaviateChunkClient = Depends(get_weaviate_client), 
         request: Request,
+        weaviate_client: WeaviateChunkClient = Depends(get_weaviate_client), 
         ):
     """Get document ingestion pipeline dependency."""
     try:
         # Import here to avoid circular imports
         
-        weaviate_client = request.app.state.weaviate
+        # weaviate_client = request.app.state.weaviate
         # Create and return ingestion pipeline
         pipeline = DocumentIngestionPipeline(weaviate_client=weaviate_client)
         return pipeline
@@ -94,8 +94,8 @@ async def get_ingestion_pipeline(
 # --- RAG Service Dependencies --- #
 
 async def get_rag_service(
-    # weaviate_client: WeaviateChunkClient = Depends(get_weaviate_client),
     request: Request,
+    weaviate_client: WeaviateChunkClient = Depends(get_weaviate_client), 
     customer_data_service: CustomerDataService = Depends(get_customer_data_service_dependency),
     ingestion_pipeline = Depends(get_ingestion_pipeline)
 ) -> AsyncGenerator[services.RAGService, None]:
@@ -108,7 +108,6 @@ async def get_rag_service(
     - Ingestion pipeline for document processing
     """
     try:
-        weaviate_client = request.app.state.weaviate
         rag_service = services.RAGService(
             weaviate_client=weaviate_client,
             customer_data_service=customer_data_service,

@@ -64,9 +64,9 @@ async def lifespan(app: FastAPI):
     # Add any other startup logic/logging here (e.g., initializing DB connections, loading models)
     # await init_db() # Ensure this is commented out if using Alembic
 
-    weaviate_client = WeaviateChunkClient()
-    await weaviate_client.connect()
-    app.state.weaviate = weaviate_client
+    # weaviate_client = WeaviateChunkClient()
+    # await weaviate_client.connect()
+    # app.state.weaviate = weaviate_client
 
     customer_mongo_client = await get_customer_mongo_client()
     redis_client = await get_redis_client(decode_responses=True)
@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
         
         # Close all clients
         try:
-            await app.state.weaviate.close()
+            # await app.state.weaviate.close()
             await app.state.customer_mongo_client.close()
             await app.state.versioned_mongo_client.client.close()
             await app.state.workflow_mongo_client.close()

@@ -144,6 +144,13 @@ class ScrapingSettings(Settings):
 
     LIMIT_DOMAINS_BY_SUBDOMAIN_INSTEAD_OF_BASE_DOMAIN: bool = False
     
+    # Technical SEO analysis
+    # When enabled, the spider will compute per-page technical SEO metrics and dates
+    PERFORM_TECHNICAL_SEO: bool = False
+    # Optional: number of sample internal/external links to include in analysis output
+    TECHNICAL_SEO_LINK_SAMPLE_SIZE: int = 10
+    DISABLE_HTML_DUMP_IN_DATA: bool = False
+
     # Priority calculation
     BASE_PRIORITY: int = 100
     PRIORITY_DECAY_PER_DEPTH: int = 10  # Reduce priority by 10 for each depth level

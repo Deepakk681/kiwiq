@@ -62,7 +62,7 @@ from kiwi_client.workflows.llm_inputs.content_strategy import (
 
 # LLM Configuration
 LLM_PROVIDER = "openai"
-GENERATION_MODEL = "gpt-4.1"
+GENERATION_MODEL = "gpt-5"
 LLM_TEMPERATURE = 1
 LLM_MAX_TOKENS = 4000
 
@@ -221,7 +221,9 @@ workflow_graph_schema = {
                 "llm_config": {
                     "model_spec": {"provider": LLM_PROVIDER, "model": GENERATION_MODEL},
                     "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS
+                    "max_tokens": LLM_MAX_TOKENS,
+                    "reasoning_effort_class": "minimal",
+                    # "verbosity": "high",
                 },
                 "output_schema": {
                     "schema_definition": GENERATION_SCHEMA,
@@ -516,61 +518,61 @@ async def main_test_idea_to_brief_workflow():
             'initial_version': "default",
             'is_system_entity': False
         },
-        # Methodology Implementation (System document)
-        {
-            'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-            'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
-            'initial_data': {
-                "methodology_name": "AI Copilot Content Strategy",
-                "implementation_steps": [
-                    "Analyze user DNA and preferences",
-                    "Generate content strategy aligned with user goals",
-                    "Create content briefs based on strategy",
-                    "Develop multiple content concepts for review"
-                ],
-                "best_practices": [
-                    "Maintain consistent brand voice",
-                    "Focus on audience pain points",
-                    "Incorporate industry trends",
-                    "Balance educational and promotional content"
-                ]
-            },
-            'is_versioned': False,
-            'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-            'initial_version': None,
-            'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-        },
-        # Building Blocks (System document)
-        {
-            'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-            'docname': BUILDING_BLOCKS_DOCNAME,
-            'initial_data': {
-                "core_building_blocks": [
-                    "Audience analysis",
-                    "Content pillars",
-                    "Content formats",
-                    "Distribution channels",
-                    "Performance metrics"
-                ],
-                "implementation_framework": {
-                    "phase_1": "Discovery and analysis",
-                    "phase_2": "Strategy development",
-                    "phase_3": "Content creation",
-                    "phase_4": "Distribution and promotion",
-                    "phase_5": "Measurement and optimization"
-                },
-                "success_indicators": [
-                    "Engagement rate",
-                    "Conversion metrics",
-                    "Audience growth",
-                    "Content consistency"
-                ]
-            },
-            'is_versioned': False,
-            'is_shared': BUILDING_BLOCKS_IS_SHARED,
-            'initial_version': None,
-            'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-        }
+        # # Methodology Implementation (System document)
+        # {
+        #     'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+        #     'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
+        #     'initial_data': {
+        #         "methodology_name": "AI Copilot Content Strategy",
+        #         "implementation_steps": [
+        #             "Analyze user DNA and preferences",
+        #             "Generate content strategy aligned with user goals",
+        #             "Create content briefs based on strategy",
+        #             "Develop multiple content concepts for review"
+        #         ],
+        #         "best_practices": [
+        #             "Maintain consistent brand voice",
+        #             "Focus on audience pain points",
+        #             "Incorporate industry trends",
+        #             "Balance educational and promotional content"
+        #         ]
+        #     },
+        #     'is_versioned': False,
+        #     'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+        #     'initial_version': None,
+        #     'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        # },
+        # # Building Blocks (System document)
+        # {
+        #     'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+        #     'docname': BUILDING_BLOCKS_DOCNAME,
+        #     'initial_data': {
+        #         "core_building_blocks": [
+        #             "Audience analysis",
+        #             "Content pillars",
+        #             "Content formats",
+        #             "Distribution channels",
+        #             "Performance metrics"
+        #         ],
+        #         "implementation_framework": {
+        #             "phase_1": "Discovery and analysis",
+        #             "phase_2": "Strategy development",
+        #             "phase_3": "Content creation",
+        #             "phase_4": "Distribution and promotion",
+        #             "phase_5": "Measurement and optimization"
+        #         },
+        #         "success_indicators": [
+        #             "Engagement rate",
+        #             "Conversion metrics",
+        #             "Audience growth",
+        #             "Content consistency"
+        #         ]
+        #     },
+        #     'is_versioned': False,
+        #     'is_shared': BUILDING_BLOCKS_IS_SHARED,
+        #     'initial_version': None,
+        #     'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+        # }
     ]
 
     # Define cleanup docs

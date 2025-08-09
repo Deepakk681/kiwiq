@@ -461,7 +461,9 @@ class MultiProviderQueryEngine:
             # "raw_response": raw_response,
             "processed_data": None,
             "links": [],
-            "citations": []
+            "citations": [],
+            "markdown": "",
+            "query": "",
         }
         
         # if provider_name == "google":
@@ -489,10 +491,20 @@ class MultiProviderQueryEngine:
                             normalized["citations"].extend(item["citations"])
                         if "all_links" in item:
                             normalized["links"].extend(item["all_links"])
+                        if "markdown" in item:
+                            if normalized["markdown"]:
+                                normalized["markdown"] += "\n\n"
+                            normalized["markdown"] += item["markdown"]
+                        if "query" in item:
+                            if normalized["query"]:
+                                normalized["query"] += "\n\n"
+                            normalized["query"] += item["query"]
         
         # Remove duplicates from links and citations
         normalized["links"] = self._deduplicate_list_of_dicts(normalized["links"], "url")
         normalized["citations"] = list(set(normalized["citations"]))
+
+        del normalized["processed_data"]
         
         return normalized
     

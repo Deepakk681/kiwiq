@@ -724,36 +724,38 @@ async def example_predictable_output_crawl(choice: int = 0):
     # PROCESSOR_REGISTRY['multi_site'] = MultiSiteProcessor
     # Define available URL sets for random selection
 
-    """
-    [2025-07-29 12:41:26 +0530] [68903] [INFO] Booting worker with pid: 68903
-    [2025-07-29 12:41:26 +0530] [68904] [INFO] Booting worker with pid: 68904
-    [2025-07-29 12:41:26 +0530] [68905] [INFO] Booting worker with pid: 68905
-    [2025-07-29 12:41:26 +0530] [68906] [INFO] Booting worker with pid: 68906
-    """
     url_sets = [
         [
-            'https://otter.ai/blog',
+            'https://www.prefect.io',
+            "https://news.ycombinator.com/rss",
             'https://grain.com/blog',
             'https://www.prefect.io',
             'https://www.momentum.io',
-        ],
-        [
-            'https://www.prefect.io',
-            'https://www.momentum.io',
+            'https://grain.com',
+            'https://otter.ai',
+            'https://otter.ai/blog',
             'https://relevanceai.com',
             'https://www.relay.app',
+            'https://www.taskade.com',
+
+        ],
+        [
+            'https://otter.ai/blog',
+            # 'https://www.momentum.io',
+            # 'https://relevanceai.com',
+            # 'https://www.relay.app',
         ],
         [
             'https://clay.com',
-            'https://www.taskade.com',
-            'https://www.prefect.io',
-            'https://www.momentum.io',
+            # 'https://www.taskade.com',
+            # 'https://www.prefect.io',
+            # 'https://www.momentum.io',
         ],
         [
             'https://relevanceai.com',
-            'https://www.relay.app',
-            'https://www.prefect.io',
-            'https://www.momentum.io',
+            # 'https://www.relay.app',
+            # 'https://www.prefect.io',
+            # 'https://www.momentum.io',
         ]
     ]
     
@@ -775,7 +777,7 @@ async def example_predictable_output_crawl(choice: int = 0):
         'start_urls': selected_urls,
         # "browser_pool_enabled": False,
         
-        # 'allowed_domains': ['otter.ai', 'grain.com', 
+        # 'allowed_domains': ['otter.ai', 'prefect.io', 'ycombinator.com',
         #                     # 'crowdstrike.com'
         #                     ],
         'processor': 'default',  # multi_site  default
@@ -785,16 +787,21 @@ async def example_predictable_output_crawl(choice: int = 0):
         'is_shared': False,
         
         # URL limits
-        'max_urls_per_domain': 250,  # Allow discovering many URLs  # 20000
-        'max_processed_urls_per_domain': 200,  # But only process 50 per domain  # 200
+        'max_urls_per_domain': 25,  # Allow discovering many URLs  # 20000
+        'max_processed_urls_per_domain': 20,  # But only process 50 per domain  # 200
         'max_crawl_depth': 4,  # 4
         # Log filtering stats
         'debug_mode': False,
         'log_level': 'INFO',
+
+        # Technical SEO
+        'perform_technical_seo': True,
+        'technical_seo_link_sample_size': 10,
+        'disable_html_dump_in_data': True,
         
         'custom_settings': {
             'ITEM_PIPELINES': {
-                'workflow_service.services.scraping.pipelines.MongoCustomerDataPipeline': 300,  # MongoCustomerDataPipeline  StreamingFilePipeline
+                'workflow_service.services.scraping.pipelines.StreamingFilePipeline': 300,  # MongoCustomerDataPipeline  StreamingFilePipeline
             },
             
             'PIPELINE_BASE_DIR': 'services/workflow_service/services/scraping/data',
@@ -864,21 +871,14 @@ async def example_predictable_output_crawl(choice: int = 0):
     print("- Feature pages with actual features listed")
     print("- No navigation-only or error pages")
     print()
-    # result = await asyncio.to_thread(run_scraping_job, job_config)
-    # result = run_scraping_job(job_config)
-
-    print("=== Testing RealTimeProcessExecutor ===")
-    # executor = RealTimeProcessExecutor(logger=None)
     
-    # result, stdout, stderr = await executor.execute(
-    #     run_scraping_job,
-    #     args=(job_config,),
-    #     timeout=400.0
-    # )
+    
+    result = await asyncio.to_thread(run_scraping_job, job_config)
+    result = run_scraping_job(job_config)
 
-    from workflow_service.services.scraping.spider_client import request_scrape_and_wait
+    # from workflow_service.services.scraping.spider_client import request_scrape_and_wait
 
-    result = await request_scrape_and_wait(job_config)
+    # result = await request_scrape_and_wait(job_config)
 
     print(json.dumps(result, indent=4, default=str))
 

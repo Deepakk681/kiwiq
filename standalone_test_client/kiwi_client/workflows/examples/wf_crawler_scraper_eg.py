@@ -171,7 +171,9 @@ workflow_graph_schema = {
                 {"src_field": "scraped_data", "dst_field": "scraped_data"},
                 {"src_field": "total_scraped_count", "dst_field": "total_scraped_count"},
                 {"src_field": "used_cached_results", "dst_field": "used_cached_results"},
-                {"src_field": "cached_results_age_hours", "dst_field": "cached_results_age_hours"}
+                {"src_field": "cached_results_age_hours", "dst_field": "cached_results_age_hours"},
+                {"src_field": "technical_seo_summary", "dst_field": "technical_seo_summary"},
+                {"src_field": "robots_analysis", "dst_field": "robots_analysis"}
             ]
         },
     ],
@@ -234,6 +236,12 @@ async def validate_crawler_output(
     
     if outputs.get('used_cached_results'):
         logger.info(f"   Cache age: {outputs.get('cached_results_age_hours', 0):.1f} hours")
+
+    # Optional enrichments
+    if 'technical_seo_summary' in outputs and outputs['technical_seo_summary']:
+        logger.info("   Technical SEO summary present")
+    if 'robots_analysis' in outputs and outputs['robots_analysis']:
+        logger.info("   Robots analysis present")
     
     logger.info("✓ Output structure and content validation passed.")
     return True
@@ -266,7 +274,7 @@ async def main_test_web_crawler(
     CRAWLER_WORKFLOW_INPUTS = {
         "start_urls": start_urls,
         # "allowed_domains": allowed_domains,
-        "max_urls_per_domain": max_processed_urls * 1.25,  # Discover more than we process
+        "max_urls_per_domain": int(max_processed_urls * 1.25),  # Discover more than we process
         "max_processed_urls_per_domain": max_processed_urls,
         "max_crawl_depth": 3,  # Reasonable depth for testing
         "use_cached_scraping_results": use_cache,
@@ -308,9 +316,16 @@ async def main_test_web_crawler(
         for i, doc in enumerate(final_run_outputs['scraped_data'][:3]):  # Show first 3
             print(f"\nDocument {i+1}:")
             print(f"  URL: {doc.get('url', 'N/A')}")
-            print(f"  Title: {doc.get('title', 'N/A')[:100]}...")
-            if 'text' in doc:
-                print(f"  Text preview: {doc['text'][:200]}...")
+            md = doc.get('markdown_content', '') or ''
+            if isinstance(md, str) and md:
+                preview = md.replace('\n', ' ')[:200]
+                print(f"  Markdown preview: {preview}...")
+            if 'technical_seo' in doc:
+                dates = (doc.get('technical_seo') or {}).get('dates')
+                if dates:
+                    print(f"  Dates: {dates}")
+            if doc.get('is_url_in_sitemap') is not None:
+                print(f"  is_url_in_sitemap: {doc.get('is_url_in_sitemap')}")
             print(f"  Fields: {list(doc.keys())}")
     
     print(f"\n--- {test_name} Finished ---")
@@ -335,7 +350,7 @@ if __name__ == "__main__":
         "start_urls": ["https://otter.ai", "https://grain.com"],  # , 'https://grain.com/blog'  # , 'https://grain.com/blog'   "https://otter.ai/blog"
         # "allowed_domains": ["otter.ai", "grain.com"],
         "max_processed_urls": 200,  # 
-        "use_cache": True,
+        "use_cache": False,
     }
     
     # Handle async execution

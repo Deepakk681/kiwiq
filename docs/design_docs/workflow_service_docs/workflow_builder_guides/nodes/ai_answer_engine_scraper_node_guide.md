@@ -127,6 +127,21 @@ The node comes with carefully tuned default settings. **We strongly recommend us
 
 **Recommendation**: These settings are optimized for the AI querying use case. Don't change them.
 
+### Output Mode
+
+- `return_nested_entity_results` (bool, default `false`)
+  - When `false` (default): the node returns a flat sample list in `query_results` and omits nested per-entity data. This is the recommended mode for most consumers.
+  - When `true`: the node additionally returns `entity_results` with per-entity, per-category groupings. `query_results` remains available as a flat list for convenience.
+
+Example enabling nested outputs in node config:
+```json
+{
+  "node_config": {
+    "return_nested_entity_results": true
+  }
+}
+```
+
 ## Input (`AIAnswerEngineScraperInput`) - Focus Here
 
 This is where you should focus your configuration efforts. Input parameters directly control what gets queried and how results are cached.
@@ -292,7 +307,7 @@ In this example, `query_templates` and `list_template_vars` are resolved from th
 
 ## Output (`AIAnswerEngineScraperOutput`)
 
-The node provides comprehensive information about the query operation and results.
+The node provides comprehensive information about the query operation and results. By default, the output is returned in a flat format.
 
 ### Job Identification
 - **`job_id`** (str): Unique identifier (format: `ai_query_YYYYMMDD_HHMMSS_<uuid>`)
@@ -323,15 +338,56 @@ The node provides comprehensive information about the query operation and result
 - **`documents_stored`** (int): Total documents stored (including cached)
 
 ### Results Data
-- **`query_results`** (List[Dict]): Sample of query results (up to 10)
-  - Provides preview of responses
-  - Full results are in MongoDB
-- **`entity_results`** (Dict): Results organized by entity showing:
-  - Namespace for each entity
-  - Cached vs new query counts
-  - Results categorized by query type
+- **`query_results`** (List[Dict]): Default flat sample of results (up to 10). Each item contains:
+  - `query` (str)
+  - `markdown` (str) - processed summary/answer
+  - `provider` (str)
+  - `category` (str)
+  - `links` (List[Dict]) - optional outbound links/citations if available
+- **`entity_results`** (Dict, optional): Only present when `return_nested_entity_results` is `true`.
+  - Results organized by entity showing namespaces, cached vs new counts, and results categorized by query type
 - **`executed_queries`** (List[str]): Actual queries run after template substitution
 - **`used_cached_results`** (bool): Whether any cached results were used
+
+### Output Mode Examples
+
+Flat (default):
+```json
+{
+  "status": "completed_with_cache",
+  "query_results": [
+    {
+      "query": "What is OpenAI?",
+      "markdown": "OpenAI is an AI research and deployment company...",
+      "provider": "google",
+      "category": "basic_info",
+      "links": [{"title": "OpenAI", "url": "https://openai.com"}]
+    }
+  ],
+  "entity_results": null
+}
+```
+
+Nested (when `return_nested_entity_results` = true):
+```json
+{
+  "status": "completed",
+  "query_results": [
+    {"query": "What is OpenAI?", "markdown": "...", "provider": "openai", "category": "basic_info"}
+  ],
+  "entity_results": {
+    "OpenAI": {
+      "namespace": "scraping_ai_answers_results_openai_20240115",
+      "cached_count": 3,
+      "new_count": 2,
+      "categorized_results": {
+        "basic_info": [{"query": "What is OpenAI?", "provider": "openai", "markdown": "..."}],
+        "business": [{"query": "What products...", "provider": "google", "markdown": "..."}]
+      }
+    }
+  }
+}
+```
 
 ## Example Configurations
 
@@ -529,6 +585,8 @@ Use the `load_customer_data` or `load_multiple_customer_data` nodes:
       "node_name": "ai_answer_engine_scraper",
       "node_config": {
         // Use defaults or add custom query templates
+        // To include nested entity_results in outputs, set:
+        // "return_nested_entity_results": true
       }
     },
     "process_results": {

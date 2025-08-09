@@ -280,7 +280,8 @@ async def main_test_ai_scraper(
     # }
     
     test_name = "AI Answer Engine Scraper Test"
-    entity_names = [e.get('entity_name', 'Unknown') for e in entities]
+    entities_list = [entities] if isinstance(entities, dict) else entities
+    entity_names = [e.get('entity_name', 'Unknown') for e in entities_list]
     
     print(f"\n🚀 --- Starting {test_name} ---")
     print(f"🏢 Entities to research: {', '.join(entity_names)}")
@@ -394,33 +395,11 @@ if __name__ == "__main__":
     # Example 1: Basic entity research
     # IMPORTANT: All entities in a batch must have the same template variable keys
     # to ensure all queries can be properly constructed for each entity
-    example1_entities = [
-        {"entity_name": "OpenAI", "location": "San Francisco", "industry": "AI"},
-        # {"entity_name": "Anthropic", "location": "San Francisco", "industry": "AI"},
-        # {"entity_name": "Tesla", "location": "Palo Alto", "industry": "Automotive"}  # Added location
-    ]
-    
-    # Example 2: Custom query templates
-    # All entities must have both 'entity_name' and 'product' keys for these templates
-    example2_entities = [
-        {"entity_name": "Microsoft", "product": "cloud services"},
-        {"entity_name": "Amazon", "product": "cloud services"},
-        {"entity_name": "Google", "product": "cloud services"}
-    ]
-    example2_templates = {
-        "financial": [
-            "What is the current stock price of {entity_name}?",
-            "What is the market cap of {entity_name}?"
-        ],
-        "products": [
-            "What are the main {product} offerings from {entity_name}?",
-            "How does {entity_name} compare to AWS in {product}?"
-        ]
-    }
+    template_vars = {"location": "San Francisco", "industry": "AI"}
     
     # For automated testing, run example 1
     kwargs = {
-        "entities": example1_entities,
+        "entities": template_vars,
         "use_cache": False,
         "cache_lookback_days": 7
     }
