@@ -407,15 +407,18 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         out['url'] = obj.get('url')
         out['markdown_content'] = obj.get('markdown_content')
         if 'technical_seo' in obj:
-            out['technical_seo'] = obj['technical_seo']
-        for k in (
-            'last_modified_from_sitemap',
-            'feed_published_parsed',
-            'feed_updated_parsed',
-            'feed_created_parsed',
-        ):
-            if k in obj:
-                out[k] = obj[k]
+            # out['technical_seo'] = obj['technical_seo']
+            if 'dates' in obj['technical_seo']:
+                out['dates'] = obj['technical_seo']['dates']
+        if 'dates' not in out:
+            for k in (
+                'last_modified_from_sitemap',
+                'feed_published_parsed',
+                'feed_updated_parsed',
+                'feed_created_parsed',
+            ):
+                if k in obj:
+                    out[k] = obj[k]
         if 'is_url_in_sitemap' in obj:
             out['is_url_in_sitemap'] = obj['is_url_in_sitemap']
         return out

@@ -350,7 +350,7 @@ if __name__ == "__main__":
         "start_urls": ["https://otter.ai", "https://grain.com"],  # , 'https://grain.com/blog'  # , 'https://grain.com/blog'   "https://otter.ai/blog"
         # "allowed_domains": ["otter.ai", "grain.com"],
         "max_processed_urls": 200,  # 
-        "use_cache": False,
+        "use_cache": True,
     }
     
     # Handle async execution
