@@ -727,16 +727,16 @@ async def example_predictable_output_crawl(choice: int = 0):
     url_sets = [
         [
             'https://www.prefect.io',
-            "https://news.ycombinator.com/rss",
-            'https://grain.com/blog',
-            'https://www.prefect.io',
-            'https://www.momentum.io',
-            'https://grain.com',
-            'https://otter.ai',
-            'https://otter.ai/blog',
-            'https://relevanceai.com',
-            'https://www.relay.app',
-            'https://www.taskade.com',
+            # "https://news.ycombinator.com/rss",
+            # 'https://grain.com/blog',
+            # 'https://www.prefect.io',
+            # 'https://www.momentum.io',
+            # 'https://grain.com',
+            # 'https://otter.ai',
+            # 'https://otter.ai/blog',
+            # 'https://relevanceai.com',
+            # 'https://www.relay.app',
+            # 'https://www.taskade.com',
 
         ],
         [
@@ -787,8 +787,8 @@ async def example_predictable_output_crawl(choice: int = 0):
         'is_shared': False,
         
         # URL limits
-        'max_urls_per_domain': 25,  # Allow discovering many URLs  # 20000
-        'max_processed_urls_per_domain': 20,  # But only process 50 per domain  # 200
+        'max_urls_per_domain': 250,  # Allow discovering many URLs  # 20000
+        'max_processed_urls_per_domain': 200,  # But only process 50 per domain  # 200
         'max_crawl_depth': 4,  # 4
         # Log filtering stats
         'debug_mode': False,
@@ -798,6 +798,9 @@ async def example_predictable_output_crawl(choice: int = 0):
         'perform_technical_seo': True,
         'technical_seo_link_sample_size': 10,
         'disable_html_dump_in_data': True,
+        'classify_pages_as_blog': True,
+        # 'blog_classifier_model': 'gpt-5-nano',
+        # 'blog_classifier_max_length': 5000,
         
         'custom_settings': {
             'ITEM_PIPELINES': {

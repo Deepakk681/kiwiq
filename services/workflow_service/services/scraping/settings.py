@@ -149,7 +149,7 @@ class ScrapingSettings(Settings):
     PERFORM_TECHNICAL_SEO: bool = False
     # Optional: number of sample internal/external links to include in analysis output
     TECHNICAL_SEO_LINK_SAMPLE_SIZE: int = 10
-    DISABLE_HTML_DUMP_IN_DATA: bool = False
+    DISABLE_HTML_DUMP_IN_DATA: bool = True
 
     # Priority calculation
     BASE_PRIORITY: int = 100
@@ -209,7 +209,14 @@ class ScrapingSettings(Settings):
     
     # Billing configuration
     AI_ANSWER_ENGINE_PRICE_PER_QUERY: float = 0.03  # 3 cents per query (any provider)
-    CRAWLER_SCRAPER_PRICE_PER_URL: float = 0.002  # 1 cent / 5 URLs = 0.2 cents per URL
+    CRAWLER_SCRAPER_PRICE_PER_URL: float = 0.003  # 1 cent / 5 URLs = 0.2 cents per URL
+
+    # Blog classifier configuration
+    # Default OpenAI model used for the blog classifier. Must support structured output.
+    CLASSIFY_PAGES_AS_BLOG: bool = True
+    BLOG_CLASSIFIER_MODEL: str = "gpt-5-nano"
+    # Maximum number of characters from the `markdown_content` field to consider during classification
+    BLOG_CLASSIFIER_MAX_CONTENT_LENGTH: int = 10000
     
     @classmethod
     def get_queue_key(cls, spider_name: str, job_id: Optional[str] = None, 

@@ -1159,13 +1159,10 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
            model_kwargs["stream_usage"] = True
            model_kwargs["use_responses_api"] = True
            # model_kwargs["stream_options"] = {"include_usage": True}
-        #    # GPT-5 series: optional verbosity control
+           # GPT-5 series: optional verbosity control
         #    if self.config.llm_config.verbosity and model_metadata.verbosity_supported:
-        #         # model_kwargs["text"] = {"verbosity": self.config.llm_config.verbosity}
-        #         if "model_kwargs" not in model_kwargs:
-        #             model_kwargs["model_kwargs"] = {}
         #         # model_kwargs["extra_body"]["verbosity"] = self.config.llm_config.verbosity
-        #         model_kwargs["model_kwargs"]["verbosity"] = self.config.llm_config.verbosity
+        #         model_kwargs["verbosity"] = self.config.llm_config.verbosity
         #         self.info(f"Verbosity in extra body: {self.config.llm_config.verbosity}")
 
         assert model_kwargs.get("max_tokens") <= model_metadata.output_token_limit, f"Max tokens ({model_kwargs['max_tokens']}) exceeds the model's {provider.value} -> `{model_name}` output token limit ({model_metadata.output_token_limit})"

@@ -11,7 +11,7 @@ import uuid
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple, Set
 from urllib.parse import urlparse
 from logging import Logger
 
@@ -26,6 +26,144 @@ from db.session import get_async_db_as_manager
 from global_utils.utils import datetime_now_utc
 
 from workflow_service.services.external_context_manager import get_customer_data_service_no_dependency, clean_customer_data_service_no_dependency
+from workflow_service.services.scraping.settings import scraping_settings
+from workflow_service.config.settings import settings as workflow_settings
+
+from pydantic import BaseModel, Field
+from openai import AsyncOpenAI
+
+OPENAI_CLIENT = AsyncOpenAI(api_key=workflow_settings.OPENAI_API_KEY)
+
+
+class BlogClassification(BaseModel):
+    """Structured classification result for blog detection.
+
+    - brief_reason: concise, human-readable reason (kept short via max_length and instruction)
+    - is_blog: True if the content is a blog/article-like page, otherwise False
+    """
+
+    brief_reason: str = Field(..., max_length=200)
+    is_blog: bool
+
+
+BLOG_SYSTEM_PROMPT = """You are an expert SEO Analyst tasked with determining whether a given webpage content is a blog post. You will be provided with the URL and content of a webpage, typically from B2B tech companies that are commercial in nature. These blog posts are often used for SEO, Answer Engine Optimization, or as a customer acquisition channel.
+
+Your task is to carefully analyze the provided URL and content to determine whether it is a blog post. Follow these steps:
+
+1. Examine the URL structure and any relevant information it might provide about the content type.
+
+2. Analyze the content for the following characteristics typically associated with blog posts:
+   a. Informative or educational content related to the company's industry or products
+   b. A clear title or headline
+   c. Structured content with headings, subheadings, and paragraphs
+   d. Presence of images, infographics, or other visual elements
+   e. Internal or external links
+   f. Author byline or publication date
+   g. Social sharing buttons or a comments section
+   h. Length of content (generally 300+ words for blog posts)
+
+3. Consider the structure, tone, purpose, and any other relevant factors that might indicate whether this is a blog post.
+
+Carefully analyze the provided content and consider these characteristics. Then, provide your brief reasoning for why you believe this web page is or is not a blog post. Consider the structure, tone, purpose, and any other relevant factors.
+
+After providing your reasoning, give your final classification as either the provided page is a blog post or not.
+
+Response schema (JSON only):
+{
+    "brief_reason": "..."
+    "is_blog": true,    
+}
+
+Remember to base your decision solely on the provided URL and content, and the characteristics of blog posts described above. Do not make assumptions about content that isn't present in the given text.
+"""
+
+
+async def classify_item_is_blog(
+    item: Dict[str, Any],
+    *,
+    allowed_keys: Optional[Set[str]] = None,
+    model: Optional[str] = None,
+    max_content_length: Optional[int] = None,
+) -> Tuple[bool, BlogClassification, Dict[str, Any]]:
+    """
+    Classify whether a scraped JSON item represents a blog post using an OpenAI model
+    with structured output, after pre-filtering item fields.
+
+    This function intentionally avoids dependencies on internal repo utilities to ensure
+    it can be used in isolation.
+
+    Args:
+        item: Arbitrary JSON-like mapping representing a scraped page/item.
+        allowed_keys: Optional white-list of keys from the item that are relevant for
+            classification. If not provided, a sensible default set is used.
+        model: Optional override of the OpenAI model name. Defaults to
+            `scraping_settings.BLOG_CLASSIFIER_MODEL`.
+        max_markdown_length: Optional override for the maximum characters of
+            `markdown_content` considered. Defaults to
+            `scraping_settings.BLOG_CLASSIFIER_MAX_MARKDOWN_LENGTH`.
+
+    Returns:
+        A 3-tuple of:
+            - is_blog (bool): Classification result.
+            - classification (dict): Structured output with keys `is_blog` and `brief_reason`.
+            - filtered_item (dict): The input item reduced to allowed keys, with
+              `markdown_content` truncated as configured.
+
+    Raises:
+        ValueError: If the model response cannot be parsed into the expected schema.
+    """
+
+    # Establish defaults for allowed keys and settings-driven parameters
+    if allowed_keys is None:
+        allowed_keys = {
+            "title",
+            "url",
+            "markdown_content",
+            # "content",
+            # "text",
+            # "description",
+            # "tags",
+            # "category",
+            # "author",
+            # "published_at",
+        }
+
+    model_name: str = model or scraping_settings.BLOG_CLASSIFIER_MODEL
+    max_len: int = (
+        max_content_length
+        if max_content_length is not None
+        else scraping_settings.BLOG_CLASSIFIER_MAX_CONTENT_LENGTH
+    )
+
+    # Filter the item down to allowed keys only
+    filtered_item: Dict[str, Any] = {k: item[k] for k in allowed_keys if k in item}
+
+    # Truncate markdown content if present to avoid excessive token usage
+    if "markdown_content" in filtered_item and isinstance(filtered_item["markdown_content"], str):
+        filtered_item["markdown_content"] = filtered_item["markdown_content"][:max_len]
+
+    user_input: str = (
+        f"Page content:\n\n"
+        f"{json.dumps(filtered_item, ensure_ascii=False)}\n"
+    )
+
+    response = await OPENAI_CLIENT.responses.parse(
+        model=model_name,
+        input=[
+            {"role": "system", "content": BLOG_SYSTEM_PROMPT},
+            {"role": "user", "content": user_input},
+        ],
+        max_output_tokens=200,
+        reasoning={"effort": "minimal"},
+        text_format=BlogClassification,
+    )
+
+    parsed: Optional[BlogClassification] = getattr(response, "output_parsed", None)
+    if parsed is None:
+        # Provide a compact error with available details for debugging
+        raise ValueError("Model did not return a parsed object for BlogClassification.")
+
+    return bool(parsed.is_blog), parsed, filtered_item
 
 
 # logger = 
@@ -42,7 +180,7 @@ class StreamingFilePipeline:
     - Automatic directory creation
     """
     
-    def __init__(self, base_dir: str = "services/workflow_service/services/scraping/data", logger: Logger = None):
+    def __init__(self, base_dir: str = "services/workflow_service/services/scraping/data", logger: Logger = None, config: Dict[str, Any] = None):
         """
         Initialize streaming pipeline.
         
@@ -54,15 +192,18 @@ class StreamingFilePipeline:
         self.file_handles = {}  # job_id -> file handle
         self.item_counts = {}   # job_id -> count
         self.logger = logger
+        self.config = config
         
     @classmethod
     def from_crawler(cls, crawler: Crawler):
         """Create pipeline from crawler settings."""
         settings = crawler.settings
         logger = crawler.spider.prefect_logger
+        config = MongoCustomerDataPipeline._extract_crawler_config(crawler)
         return cls(
             base_dir=settings.get('PIPELINE_BASE_DIR', 'services/workflow_service/services/scraping/data'),
             logger=logger,
+            config=config,
         )
     
     def open_spider(self, spider: Spider):
@@ -96,7 +237,7 @@ class StreamingFilePipeline:
             del self.file_handles[job_id]
             del self.item_counts[job_id]
     
-    def process_item(self, item: Dict[str, Any], spider: Spider) -> Dict[str, Any]:
+    def process_item_sync(self, item: Dict[str, Any], spider: Spider) -> Dict[str, Any]:
         """Write item immediately to file."""
         job_id = getattr(spider, 'job_id', spider.name)
         
@@ -109,6 +250,50 @@ class StreamingFilePipeline:
         item_with_meta['_job_id'] = job_id
         item_with_meta['_spider'] = spider.name
         item_with_meta['_timestamp'] = datetime_now_utc().isoformat()
+        
+        # Write as JSON line
+        try:
+            json_line = json.dumps(item_with_meta, ensure_ascii=False, default=str)
+            self.file_handles[job_id].write(json_line + '\n')
+            self.file_handles[job_id].flush()  # Ensure it's written to disk
+            
+            self.item_counts[job_id] = self.item_counts.get(job_id, 0) + 1
+            
+            # Log every 100 items
+            if self.item_counts[job_id] % 100 == 0:
+                self.logger.info(f"Job {job_id}: {self.item_counts[job_id]} items written")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to write item for job {job_id}: {e}")
+            # Don't raise - we don't want to stop the spider for one bad item
+            
+        return item
+    
+    async def process_item(self, item: Dict[str, Any], spider: Spider) -> Dict[str, Any]:
+        """Write item immediately to file."""
+        job_id = getattr(spider, 'job_id', spider.name)
+        
+        # Ensure file is open
+        if job_id not in self.file_handles:
+            self.open_spider(spider)
+        
+        # Add metadata
+        item_with_meta = dict(item)
+        item_with_meta['_job_id'] = job_id
+        item_with_meta['_spider'] = spider.name
+        item_with_meta['_timestamp'] = datetime_now_utc().isoformat()
+
+        if self.config.get('classify_pages_as_blog'):
+            item_with_meta['is_blog'] = True
+            try:
+                is_blog, _, _ = await classify_item_is_blog(
+                    item_with_meta,
+                    model=self.config.get('blog_classifier_model'),
+                    max_content_length=self.config.get('blog_classifier_max_length'),
+                )
+                item_with_meta['is_blog'] = is_blog
+            except Exception as e:
+                self.logger.error(f"Failed to classify item as blog: {e}. Item URL: {item_with_meta.get('url', 'unknown')}", exc_info=True)
         
         # Write as JSON line
         try:
@@ -166,7 +351,7 @@ class MongoCustomerDataPipeline:
     @classmethod
     def from_crawler(cls, crawler):
         """Create pipeline instance from crawler."""
-        config = cls._extract_crawler_config(crawler)
+        config = MongoCustomerDataPipeline._extract_crawler_config(crawler)
         logger = crawler.spider.prefect_logger
         return cls(
             config=config,
@@ -258,8 +443,8 @@ class MongoCustomerDataPipeline:
             random_uuid = uuid.uuid4()
             return f"scraped_url_result_{random_uuid}"
 
-    @classmethod
-    def _extract_crawler_config(cls, crawler) -> Dict[str, Any]:
+    @staticmethod
+    def _extract_crawler_config(crawler) -> Dict[str, Any]:
         """
         Extract configuration from spider for MongoDB storage.
         
@@ -280,6 +465,10 @@ class MongoCustomerDataPipeline:
         is_shared = settings.get('is_shared', False)
         date_str = settings.get('date_str')
 
+        classify_pages_as_blog = settings.get('CLASSIFY_PAGES_AS_BLOG', scraping_settings.CLASSIFY_PAGES_AS_BLOG)
+        blog_classifier_model = settings.get('BLOG_CLASSIFIER_MODEL', scraping_settings.BLOG_CLASSIFIER_MODEL)
+        blog_classifier_max_length = settings.get('BLOG_CLASSIFIER_MAX_LENGTH', scraping_settings.BLOG_CLASSIFIER_MAX_CONTENT_LENGTH)
+
         if not (org_id and user):
             raise ValueError("Missing required configuration: org_id, user")
         
@@ -287,8 +476,11 @@ class MongoCustomerDataPipeline:
             'org_id': org_id,
             'user': user,
             'is_shared': is_shared,
-            'start_urls_uuid': cls._generate_start_urls_uuid(start_urls),
+            'start_urls_uuid': MongoCustomerDataPipeline._generate_start_urls_uuid(start_urls),
             "date_str": date_str,
+            "classify_pages_as_blog": classify_pages_as_blog,
+            "blog_classifier_model": blog_classifier_model,
+            "blog_classifier_max_length": blog_classifier_max_length,
         }
     
     async def process_item(self, item: Dict[str, Any], spider: Spider) -> Dict[str, Any]:
@@ -312,6 +504,18 @@ class MongoCustomerDataPipeline:
                     )
 
         self.items_processed += 1
+
+        if self.config.get('classify_pages_as_blog'):
+            item['is_blog'] = True
+            try:
+                is_blog, _, _ = await classify_item_is_blog(
+                    item,
+                    model=self.config.get('blog_classifier_model'),
+                    max_content_length=self.config.get('blog_classifier_max_length'),
+                )
+                item['is_blog'] = is_blog
+            except Exception as e:
+                self.logger.error(f"Failed to classify item as blog: {e}. Item URL: {item.get('url', 'unknown')}", exc_info=True)
         
         try:
             # Extract spider configuration
@@ -375,3 +579,45 @@ class MongoCustomerDataPipeline:
             }
         
         return item 
+
+
+if __name__ == "__main__":
+    async def main():
+        # pipeline = StreamingFilePipeline(base_dir="services/workflow_service/services/scraping/data")
+        # item = {
+        #     "url": "https://www.google.com",
+        #     "title": "Google",
+        #     "content": "Google is a search engine."
+        # }
+        # await pipeline.process_item(item, None)
+
+        item = {
+            "url": "https://www.google.com",
+            "title": "Google",
+            "content": "Google is a search engine."
+        }
+        is_blog, classification, filtered_item = await classify_item_is_blog(item)
+        print(is_blog, classification, filtered_item)
+
+        import ipdb; ipdb.set_trace()
+
+        item = {
+            "url": "https://www.google.com/blog/2025/01/google-is-a-search-engine.html",
+            "title": "Google",
+            "content": "Google is a search engine. This is a blog post about Google."
+        }
+        is_blog, classification, filtered_item = await classify_item_is_blog(item)
+        print(is_blog, classification, filtered_item)
+
+        import ipdb; ipdb.set_trace()
+    
+    # asyncio.run(main())
+
+    # system_prompt: str = (
+    #     "You are a precise content classifier. Determine if the provided item is a blog post.\n"
+    #     "Definition of blog: long-form or article-like content such as posts, news, stories, case studies, "
+    #     "or knowledge articles, typically intended for reading.\n\n"
+    #     "Return only the structured object requested by the tool (no extra prose).\n"
+    #     "Constraints: brief_reason must be at most 20 words (keep it succinct)."
+    # )
+    # print(system_prompt)

@@ -170,6 +170,27 @@ class CrawlerScraperConfig(BaseNodeConfig):
         description="If enabled, compute a summary report over scraped pages (post-run)."
     )
 
+    # Content classification and filtering
+    classify_pages_as_blog: bool = Field(
+        default=True,
+        description=(
+            "If True, classify scraped pages as blog posts using an LLM and filter node output "
+            "(`scraped_data`) to include only items where `is_blog` is True."
+        ),
+    )
+    blog_classifier_model: str = Field(
+        default=scraping_settings.BLOG_CLASSIFIER_MODEL,
+        description="OpenAI model to use for blog classification.",
+    )
+    blog_classifier_max_length: int = Field(
+        default=scraping_settings.BLOG_CLASSIFIER_MAX_CONTENT_LENGTH,
+        ge=100,
+        le=20000,
+        description=(
+            "Maximum number of characters from `markdown_content` to consider when classifying."
+        ),
+    )
+
 
 class CrawlerScraperInput(BaseSchema):
     """
@@ -695,6 +716,10 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 # Allowlist filter for cached sample as well
                 filtered_sample = [self._allowlist_output_item(doc) for doc in scraped_sample]
 
+                # Optional filtering by blog classification
+                if self.config.classify_pages_as_blog:
+                    filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+
                 return CrawlerScraperOutput(
                     job_id=job_id,
                     status='completed_from_cache',
@@ -740,6 +765,11 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             'browser_pool_size': self.config.browser_pool_size,
             'browser_pool_timeout': self.config.browser_pool_timeout,
             
+            # Content classification configuration (example_usage.py alignment)
+            'classify_pages_as_blog': self.config.classify_pages_as_blog,
+            'blog_classifier_model': self.config.blog_classifier_model,
+            'blog_classifier_max_length': self.config.blog_classifier_max_length,
+
             # MongoDB pipeline - CRITICAL: Set these for the pipeline to work
             'mongo_pipeline_enabled': True,
             'org_id': str(org_id),
@@ -894,6 +924,10 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
 
             # Allowlist filter for scraped sample
             filtered_sample = [self._allowlist_output_item(doc) for doc in scraped_sample]
+
+            # Optional filtering by blog classification
+            if self.config.classify_pages_as_blog:
+                filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
 
             return CrawlerScraperOutput(
                 job_id=result['job_id'],

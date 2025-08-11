@@ -1997,7 +1997,7 @@ class TestScrapingPipelines(unittest.IsolatedAsyncioTestCase):
                 'title': f'Page {i}',
                 'content': 'Some content for testing'
             }
-            processed = pipeline.process_item(item, spider)
+            processed = pipeline.process_item_sync(item, spider)
             items.append(processed)
         
         # Close spider
@@ -2043,12 +2043,12 @@ class TestScrapingPipelines(unittest.IsolatedAsyncioTestCase):
         }
         
         # Should not raise exception
-        result = pipeline.process_item(item, spider)
+        result = pipeline.process_item_sync(item, spider)
         self.assertEqual(result, item, "Should return item even on error")
         
         # Process a good item after the bad one
         good_item = {'url': 'https://grain.com/good', 'title': 'Good'}
-        result = pipeline.process_item(good_item, spider)
+        result = pipeline.process_item_sync(good_item, spider)
         
         pipeline.close_spider(spider)
         
@@ -2078,7 +2078,7 @@ class TestScrapingPipelines(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs('workflow_service.services.scraping.pipelines', level=logging.INFO) as cm:
             for i in range(105):
                 item = {'url': f'https://otter.ai/page{i}', 'index': i}
-                pipeline.process_item(item, spider)
+                pipeline.process_item_sync(item, spider)
             
             # Should have logged at 100 items
             self.assertTrue(any("100 items written" in msg for msg in cm.output))

@@ -1924,6 +1924,10 @@ def run_scraping_job(job_config: Dict[str, Any], use_prefect_logging: bool = Fal
     settings.set('TECHNICAL_SEO_LINK_SAMPLE_SIZE', job_config.get('technical_seo_link_sample_size', scraping_settings.TECHNICAL_SEO_LINK_SAMPLE_SIZE))
 
     settings.set('DISABLE_HTML_DUMP_IN_DATA', job_config.get('disable_html_dump_in_data', scraping_settings.DISABLE_HTML_DUMP_IN_DATA))
+
+    settings.set('CLASSIFY_PAGES_AS_BLOG', job_config.get('classify_pages_as_blog', scraping_settings.CLASSIFY_PAGES_AS_BLOG))
+    settings.set('BLOG_CLASSIFIER_MODEL', job_config.get('blog_classifier_model', scraping_settings.BLOG_CLASSIFIER_MODEL))
+    settings.set('BLOG_CLASSIFIER_MAX_LENGTH', job_config.get('blog_classifier_max_length', scraping_settings.BLOG_CLASSIFIER_MAX_CONTENT_LENGTH))
     
     # Create process
     process = CrawlerProcess(settings)

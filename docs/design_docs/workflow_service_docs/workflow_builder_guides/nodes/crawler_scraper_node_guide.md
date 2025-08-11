@@ -78,6 +78,18 @@ The node comes with carefully tuned default settings. **We strongly recommend us
 
 **Recommendation**: Focus on configuring inputs rather than these settings. The defaults work well for most use cases.
 
+### Content Classification (New)
+
+The node can classify pages as blog posts using an LLM and filter the returned sample accordingly.
+
+- `classify_pages_as_blog` (bool, default `true`): If enabled, pages are classified and `scraped_data` is filtered to include only items where `is_blog == true`.
+- `blog_classifier_model` (str, default from system settings): OpenAI model used for classification (e.g., `gpt-5-nano`).
+- `blog_classifier_max_length` (int, default from system settings): Maximum characters considered from the `markdown_content` field during classification.
+
+Notes:
+- Classification occurs in the scraping pipeline. When enabled, each stored document includes an `is_blog` boolean.
+- For node output, the preview list `scraped_data` is filtered by `is_blog == true` when classification is enabled.
+
 ## Input (`CrawlerScraperInput`) - Focus Here
 
 This is where you should focus your configuration efforts. Input parameters directly control what gets scraped and how much data is collected.
@@ -191,6 +203,7 @@ The node provides comprehensive information about the scraping operation and res
 - **`scraped_data`** (Optional[List[Dict]]): Sample of scraped documents (up to 5 items)
   - Provides preview of extracted content
   - Full results are in MongoDB - use `mongodb_namespaces` to query them
+  - If `classify_pages_as_blog` is enabled, this list is filtered to include only documents where `is_blog` is `true`
 
 ### Cache Information
 - **`used_cached_results`** (bool): Whether cached results were used
@@ -206,13 +219,26 @@ The node provides comprehensive information about the scraping operation and res
 ```json
 {
   "node_config": {
-    // Use all defaults - no config needed for most cases
+    // Use all defaults - blog classification is enabled by default
   },
   "input": {
     "start_urls": ["https://company.com/blog"],
     "allowed_domains": ["company.com"],
     "max_processed_urls_per_domain": 50,
     "use_cached_scraping_results": true
+  }
+}
+```
+
+### Disable Blog Filtering (Return all page types in preview)
+```json
+{
+  "node_config": {
+    "classify_pages_as_blog": false
+  },
+  "input": {
+    "start_urls": ["https://example.com"],
+    "allowed_domains": ["example.com"]
   }
 }
 ```

@@ -550,10 +550,19 @@ async def main():
         #     "workflow_key": "concept_brainstorm_workflow",
         #     "module_path": "kiwi_client.workflows.wf_concept_brainstorm_from_scratch",
         # },
+        # {
+        #     "workflow_key": "linkedin_brief_to_blog_draft_workflow",
+        #     "module_path": "kiwi_client.workflows.wf_content_creation_workflow",
+        # },
+
         {
-            "workflow_key": "content_calendar_entry_workflow",
-            "module_path": "kiwi_client.workflows.wf_content_calendar_entry",
+            "workflow_key": "blog_content_playbook_workflow",
+            "module_path": "kiwi_client.workflows_for_blog_teammate.wf_blog_content_playbook_generation",
         },
+        # {
+        #     "workflow_key": "linkedin_user_input_to_brief_workflow",
+        #     "module_path": "kiwi_client.workflows.wf_user_input_to_brief",
+        # },
         # {
         #     "workflow_key": "content_creation_workflow",
         #     "module_path": "kiwi_client.workflows.wf_content_generation",
