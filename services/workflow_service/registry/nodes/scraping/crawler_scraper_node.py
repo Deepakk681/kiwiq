@@ -716,24 +716,31 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 # Allowlist filter for cached sample as well
                 filtered_sample = [self._allowlist_output_item(doc) for doc in scraped_sample]
 
-                # Optional filtering by blog classification
-                if self.config.classify_pages_as_blog:
-                    filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+                if len(filtered_sample) >= input_data.max_processed_urls_per_domain // 2:
 
-                return CrawlerScraperOutput(
-                    job_id=job_id,
-                    status='completed_from_cache',
-                    stats={'cached': True, 'namespaces': cached_info['namespaces']},
-                    completed_at=datetime.now().isoformat(),
-                    mongodb_namespaces=cached_info['namespace_pattern'],
-                    documents_stored=len(filtered_sample),  # At least one document exists
-                    scraped_data=filtered_sample,  # Return first 5 items
-                    total_scraped_count=len(filtered_sample),
-                    used_cached_results=True,
-                    technical_seo_summary=asdict(technical_seo_summary) if technical_seo_summary else None,
-                    cached_results_age_hours=cached_info['age_hours'],
-                    robots_analysis=robots_analysis_cached,
-                )
+                    # Optional filtering by blog classification
+                    if self.config.classify_pages_as_blog:
+                        filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+                    
+                    filtered_sample = filtered_sample[:input_data.max_processed_urls_per_domain]
+
+                    return CrawlerScraperOutput(
+                        job_id=job_id,
+                        status='completed_from_cache',
+                        stats={'cached': True, 'namespaces': cached_info['namespaces']},
+                        completed_at=datetime.now().isoformat(),
+                        mongodb_namespaces=cached_info['namespace_pattern'],
+                        documents_stored=len(filtered_sample),  # At least one document exists
+                        scraped_data=filtered_sample,  # Return first 5 items
+                        total_scraped_count=len(filtered_sample),
+                        used_cached_results=True,
+                        technical_seo_summary=asdict(technical_seo_summary) if technical_seo_summary else None,
+                        cached_results_age_hours=cached_info['age_hours'],
+                        robots_analysis=robots_analysis_cached,
+                    )
+                else:
+                    self.warning(f"Cached sample is too small to be useful: {len(filtered_sample)} < {input_data.max_processed_urls_per_domain // 2}")
+                    # Continue with a fresh run
         
         # Build job configuration
         job_id = f"crawler_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
