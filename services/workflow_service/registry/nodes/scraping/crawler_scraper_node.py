@@ -442,10 +442,10 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     out[k] = obj[k]
         if 'is_url_in_sitemap' in obj:
             out['is_url_in_sitemap'] = obj['is_url_in_sitemap']
-        if 'is_blog' in obj:
-            out['is_blog'] = obj['is_blog']
-        if 'is_blog__reason' in obj:
-            out['is_blog__reason'] = obj['is_blog__reason']
+        # if 'is_blog' in obj:
+        #     out['is_blog'] = obj['is_blog']
+        # if 'is_blog__reason' in obj:
+        #     out['is_blog__reason'] = obj['is_blog__reason']
         return out
 
     async def _save_robots_analysis_snapshot(

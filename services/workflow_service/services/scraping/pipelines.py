@@ -28,6 +28,7 @@ from global_utils.utils import datetime_now_utc
 from workflow_service.services.external_context_manager import get_customer_data_service_no_dependency, clean_customer_data_service_no_dependency
 from workflow_service.services.scraping.settings import scraping_settings
 from workflow_service.config.settings import settings as workflow_settings
+from workflow_service.utils.markdown_cleaner import remove_markdown_links
 
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
@@ -140,6 +141,12 @@ async def classify_item_is_blog(
 
     # Truncate markdown content if present to avoid excessive token usage
     if "markdown_content" in filtered_item and isinstance(filtered_item["markdown_content"], str):
+        try:
+            cleaned_markdown_content = remove_markdown_links(filtered_item["markdown_content"], max_chars=25)
+            filtered_item["markdown_content"] = cleaned_markdown_content
+        except Exception as e:
+            # self.logger.error(f"Failed to remove markdown links: {e}. Item URL: {item.get('url', 'unknown')}", exc_info=True)
+            pass  # ignore errors
         filtered_item["markdown_content"] = filtered_item["markdown_content"][:max_len]
 
     user_input: str = (
