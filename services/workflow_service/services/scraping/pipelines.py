@@ -37,7 +37,7 @@ OPENAI_CLIENT = AsyncOpenAI(api_key=workflow_settings.OPENAI_API_KEY)
 
 
 class BlogClassification(BaseModel):
-    """Structured classification result for blog detection.
+    """Classification result for blog detection.
 
     - brief_reason: concise, human-readable reason (kept short via max_length and instruction)
     - is_blog: True if the content is a blog/article-like page, otherwise False
@@ -48,6 +48,7 @@ class BlogClassification(BaseModel):
 
 
 BLOG_SYSTEM_PROMPT = """You are an expert SEO Analyst who analyzes and determines whether scraped web content represents a blog post or non-blog content.
+Web pages we will classify are typically written by B2B tech companies and may include non-blog like content such as product features, product vertical pages, landing pages, or static information.
 
 **Input**
 You will receive:
@@ -55,7 +56,11 @@ You will receive:
 2. **Content**: Markdown-formatted content scraped from the webpage
 
 **Task**
-Classify the content as either "is_blog": true" or "is_blog": false" based on the characteristics below.
+Classify the content as either "is_blog": true" or "is_blog": false" by carefully analyzing the content and the url.
+"""
+
+"""
+based on the characteristics below.
 
 **Classification Criteria**
 
@@ -63,7 +68,7 @@ Classify the content as either "is_blog": true" or "is_blog": false" based on th
 Content is likely a **BLOG POST** if it exhibits these characteristics:
 
 **Structural Elements:**
-* Has a clear title/headline
+* Has a clear title/headline for the blog post
 * Contains publication date or timestamp
 * Includes author attribution or byline
 * Shows article-like structure with introduction, body, conclusion
@@ -96,10 +101,12 @@ Content is likely **NOT A BLOG POST** if it exhibits these characteristics:
 * E-commerce product listings
 * Portfolio or gallery pages
 * Event listings or calendars
+* Product features or product vertical pages
+
 
 **Content Characteristics:**
 * Primarily navigational elements or links
-* Brief, static information without narrative flow
+* Brief, static information or potentially longer form product features or product vertical pages
 * Form fields or interactive elements descriptions
 * Technical documentation or API references
 * Minimal text content or mostly images/media
@@ -108,14 +115,13 @@ Content is likely **NOT A BLOG POST** if it exhibits these characteristics:
 **Output Format**
 ```json
 {
-  "brief_reason": "...",
-  "is_blog": true
+  "is_blog": true or false
 }
 ```
 
 **Additional Guidelines**
 * When in doubt, consider the primary purpose of the content
-* A page can have blog-like elements but still be classified as "is_blog": false" if its primary function is navigation, product sales, or static information
+* A page can have blog-like elements but still be classified as "is_blog": false" if its primary function is navigation, product sales or product features highlighting for the purpose of selling, or static information
 * Focus on content substance over superficial formatting
 * Consider the URL structure as supporting evidence, not the primary determinant
 * Very short content (under 200 words) is less likely to be a blog post unless it's clearly an article format
@@ -129,8 +135,8 @@ Content is likely **NOT A BLOG POST** if it exhibits these characteristics:
 * Product announcement with detailed explanation and context
 
 **NOT_BLOG Examples:**
-* Company homepage with navigation and brief company description
-* Product feature list without narrative explanation
+* Company homepage
+* Product feature or product vertical pages primarily informative / for selling and not blog like
 * Contact page with address and form
 * Simple "About Us" page with basic company information
 * Privacy policy or terms of service
@@ -214,8 +220,8 @@ async def classify_item_is_blog(
             {"role": "system", "content": BLOG_SYSTEM_PROMPT},
             {"role": "user", "content": user_input},
         ],
-        max_output_tokens=200,
-        reasoning={"effort": "minimal"},
+        max_output_tokens=350,
+        reasoning={"effort": "medium"},
         text_format=BlogClassification,
     )
 
@@ -353,7 +359,7 @@ class StreamingFilePipeline:
                     max_content_length=self.config.get('blog_classifier_max_length'),
                 )
                 item_with_meta['is_blog'] = is_blog
-                item_with_meta['is_blog__reason'] = parsed_classification.brief_reason
+                item_with_meta['is_blog__reason'] = item_with_meta.get('url', "") + " : " + parsed_classification.brief_reason
             except Exception as e:
                 self.logger.error(f"Failed to classify item as blog: {e}. Item URL: {item_with_meta.get('url', 'unknown')}", exc_info=True)
         
@@ -576,7 +582,7 @@ class MongoCustomerDataPipeline:
                     max_content_length=self.config.get('blog_classifier_max_length'),
                 )
                 item['is_blog'] = is_blog
-                item['is_blog__reason'] = parsed_classification.brief_reason
+                item['is_blog__reason'] = item.get('url', "") + " : " + parsed_classification.brief_reason
             except Exception as e:
                 self.logger.error(f"Failed to classify item as blog: {e}. Item URL: {item.get('url', 'unknown')}", exc_info=True)
         

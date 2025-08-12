@@ -728,9 +728,6 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 technical_seo_summary = None
                 if self.config.aggregate_technical_seo_summary and scraped_sample:
                     technical_seo_summary = await compute_summary_from_documents(scraped_sample)
-                
-                # Allowlist filter for cached sample as well
-                filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
                 if len(filtered_sample) >= input_data.max_processed_urls_per_domain // 2:
 
@@ -747,6 +744,9 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     #                 d['markdown_content'] = remove_markdown_links(content, max_chars=None)
                     #         except Exception:
                     #             pass
+
+                    # Allowlist filter for cached sample as well
+                    filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
                     filtered_sample = filtered_sample[:input_data.max_processed_urls_per_domain]
 
@@ -957,11 +957,12 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 technical_seo_summary = await compute_summary_from_documents(scraped_sample)
 
             # Allowlist filter for scraped sample
-            filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
             # Optional filtering by blog classification
             if self.config.classify_pages_as_blog:
                 filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+            
+            filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
             # Optional: clean markdown links in output markdown_content
             # if self.config.clean_markdown:
