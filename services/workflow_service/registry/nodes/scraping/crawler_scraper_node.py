@@ -454,8 +454,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     out[k] = obj[k]
         if 'is_url_in_sitemap' in obj:
             out['is_url_in_sitemap'] = obj['is_url_in_sitemap']
-        # if 'is_blog' in obj:
-        #     out['is_blog'] = obj['is_blog']
+        if 'is_blog' in obj:
+            out['is_blog'] = obj['is_blog']
         # if 'is_blog__reason' in obj:
         #     out['is_blog__reason'] = obj['is_blog__reason']
         return out
@@ -728,6 +728,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 technical_seo_summary = None
                 if self.config.aggregate_technical_seo_summary and scraped_sample:
                     technical_seo_summary = await compute_summary_from_documents(scraped_sample)
+                
+                filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
                 if len(filtered_sample) >= input_data.max_processed_urls_per_domain // 2:
 
@@ -746,7 +748,6 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     #             pass
 
                     # Allowlist filter for cached sample as well
-                    filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
                     filtered_sample = filtered_sample[:input_data.max_processed_urls_per_domain]
 
@@ -957,12 +958,11 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 technical_seo_summary = await compute_summary_from_documents(scraped_sample)
 
             # Allowlist filter for scraped sample
+            filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
             # Optional filtering by blog classification
             if self.config.classify_pages_as_blog:
                 filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
-            
-            filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
             # Optional: clean markdown links in output markdown_content
             # if self.config.clean_markdown:
