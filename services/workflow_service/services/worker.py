@@ -395,7 +395,7 @@ async def run_graph(
                     data=initial_status_event_dump
                     # No need for allowed_prefixes here, internal system operation
                 )
-                logger.info(f"Persisted event {initial_status_event.event_type} (RunID: {initial_status_event.run_id}, SeqID: {initial_status_event.sequence_i}) to MongoDB.")
+                logger.debug(f"Persisted event {initial_status_event.event_type} (RunID: {initial_status_event.run_id}, SeqID: {initial_status_event.sequence_i}) to MongoDB.")
                 
                 await external_context.rabbit.publish_workflow_event(initial_status_event_dump)
                 sequence_id_counter += 1
@@ -462,7 +462,7 @@ async def run_graph(
                                     data=message_event_dump
                                     # No need for allowed_prefixes here, internal system operation
                                 )
-                                logger.info(f"Persisted event {message_event.event_type} (RunID: {message_event.run_id}, SeqID: {message_event.sequence_i}) to MongoDB.")
+                                logger.debug(f"Persisted event {message_event.event_type} (RunID: {message_event.run_id}, SeqID: {message_event.sequence_i}) to MongoDB.")
 
                             # Publish to RabbitMQ Stream
                             await external_context.rabbit.publish_workflow_event(message_event_dump)
@@ -489,7 +489,7 @@ async def run_graph(
                                             path=mongo_path,
                                             data=tool_call_event_dump
                                         )
-                                        logger.info(f"Persisted event {tool_call_event.event_type} (RunID: {tool_call_event.run_id}, SeqID: {tool_call_event.sequence_i}) to MongoDB.")
+                                        logger.debug(f"Persisted event {tool_call_event.event_type} (RunID: {tool_call_event.run_id}, SeqID: {tool_call_event.sequence_i}) to MongoDB.")
                                     # Publish to RabbitMQ Stream
                                     await external_context.rabbit.publish_workflow_event(tool_call_event_dump)
                                     sequence_id_counter += 1
@@ -559,7 +559,7 @@ async def run_graph(
                                         data=status_event_dump
                                         # No need for allowed_prefixes here, internal system operation
                                     )
-                                    logger.info(f"Persisted event {status_event.event_type} (RunID: {status_event.run_id}, SeqID: {status_event.sequence_i}) to MongoDB.")
+                                    logger.debug(f"Persisted event {status_event.event_type} (RunID: {status_event.run_id}, SeqID: {status_event.sequence_i}) to MongoDB.")
 
                                 # Publish to RabbitMQ Stream
                                 await external_context.rabbit.publish_workflow_event(status_event_dump)
@@ -583,7 +583,7 @@ async def run_graph(
                                         data=hitl_event_dump
                                         # No need for allowed_prefixes here, internal system operation
                                     )
-                                    logger.info(f"Persisted event {hitl_event.event_type} (RunID: {hitl_event.run_id}, SeqID: {hitl_event.sequence_i}) to MongoDB.")
+                                    logger.debug(f"Persisted event {hitl_event.event_type} (RunID: {hitl_event.run_id}, SeqID: {hitl_event.sequence_i}) to MongoDB.")
 
                                 # Publish to RabbitMQ Stream
                                 await external_context.rabbit.publish_workflow_event(hitl_event_dump)
@@ -661,7 +661,7 @@ async def run_graph(
                                         data=output_event_dump
                                         # No need for allowed_prefixes here, internal system operation
                                     )
-                                    logger.info(f"Persisted event {output_event.event_type} (RunID: {output_event.run_id}, SeqID: {output_event.sequence_i}) to MongoDB.")
+                                    logger.debug(f"Persisted event {output_event.event_type} (RunID: {output_event.run_id}, SeqID: {output_event.sequence_i}) to MongoDB.")
 
                                 # Publish to RabbitMQ Stream
                                 await external_context.rabbit.publish_workflow_event(output_event_dump)
