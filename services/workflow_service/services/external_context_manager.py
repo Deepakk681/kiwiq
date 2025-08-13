@@ -129,7 +129,7 @@ class RabbitMQContext(BaseModel):
                 routing_key=self.stream.name, # Publish targeting the stream/queue name
                 # exchange=... # Typically not needed for streams or default queue publishing
             )
-            self.logger.info(f"Published event {message_body.get('event_type')} (ID: {message_body.get('run_id')} :: {message_body.get('sequence_i')}) to target '{self.stream.name}'")
+            self.logger.debug(f"Published event {message_body.get('event_type')} (ID: {message_body.get('run_id')} :: {message_body.get('sequence_i')}) to target '{self.stream.name}'")
         except Exception as e:
             # Log the exception with traceback for debugging
             self.logger.error(f"Failed to publish workflow event {message_body.get('event_type')} :: {message_body.get('run_id')} :: {message_body.get('sequence_i')} to target '{self.stream.name}': {e}", exc_info=True)
@@ -159,7 +159,7 @@ class RabbitMQContext(BaseModel):
                 queue=self.notifications_queue, # Target the specific queue object
             )
             # Log key details for traceability
-            self.logger.info(f"Published notification type '{message_body.get('event_type')}' for user '{message_body.get('user_id')}' to queue '{self.notifications_queue.name}'")
+            self.logger.debug(f"Published notification type '{message_body.get('event_type')}' for user '{message_body.get('user_id')}' to queue '{self.notifications_queue.name}'")
         except Exception as e:
             # Log the exception with traceback
             self.logger.error(f"Failed to publish notification to queue '{self.notifications_queue.name}': {e}", exc_info=True)
