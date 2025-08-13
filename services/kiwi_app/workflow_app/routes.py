@@ -1138,7 +1138,7 @@ async def get_run_logs(
     run_dao: wf_crud.WorkflowRunDAO = Depends(wf_deps.get_workflow_run_dao),
     current_superuser: User = Depends(auth_deps.get_current_active_superuser),
     skip: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(100, ge=1, le=200, description="Maximum number of items to return"),
+    limit: int = Query(5000, ge=1, le=10000, description="Maximum number of items to return"),
 ):
     """
     Gets the logs of a specific workflow run.

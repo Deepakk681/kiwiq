@@ -1,5 +1,6 @@
 from datetime import datetime
 from pymongo import AsyncMongoClient
+from pymongo.errors import WriteError
 import re
 
 import logging
@@ -997,9 +998,10 @@ class AsyncMongoDBClient:
         
         # Perform upsert
         collection = await self._get_collection()
+        existing = None
         try:
             # Check if document exists
-            existing = await collection.find_one({"_id": doc_id}, {"_id": 1} if (not keep_create_fields_if_missing) else None)
+            existing = await collection.find_one({"_id": doc_id}, None)  # {"_id": 1} if (not keep_create_fields_if_missing) else None
             was_created = existing is None
             
             if was_created:
@@ -1008,12 +1010,16 @@ class AsyncMongoDBClient:
                 logger.info(f"Created document for path '{path}', ID: {doc_id}")
             else:
                 # Update existing document
+                existing_data = existing.get("data", {})
+
                 if create_only_fields:
                     for field in create_only_fields:
-                        existing_data = existing.get("data", {})
                         if (not keep_create_fields_if_missing) or (isinstance(existing_data, dict) and field in existing_data and update_subfields):
                             if isinstance(data, dict) and field in data:
                                 del data[field]
+
+                if not existing_data:
+                    update_subfields = False
 
                 doc_id = await self.update_object(
                     path=path, 
@@ -1024,6 +1030,11 @@ class AsyncMongoDBClient:
                 logger.info(f"Updated document for path '{path}', ID: {doc_id}")
             
             return doc_id, was_created
+        # except WriteError as e:
+        #     logger.error(f"Error during create_or_update for path '{path}': {e}")
+        #     if existing is not None:
+        #         existing = await collection.find_one({"_id": doc_id}, {"_id": 1} if (not keep_create_fields_if_missing) else None)
+            
         except Exception as e:
             logger.error(f"Error during create_or_update for path '{path}': {e}")
             raise
