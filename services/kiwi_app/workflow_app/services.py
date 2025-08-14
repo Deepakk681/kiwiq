@@ -767,9 +767,12 @@ class WorkflowService:
         limit: int = 10000,
     ) -> schemas.WorkflowRunLogs:
         """
-        Retrieve Prefect logs for all flow runs associated with this workflow run.
+        Retrieve Prefect logs for the provided workflow run, including direct child subworkflow runs.
 
-        Returns a list of simplified LogEntry items (level, message, timestamp, flow_run_id).
+        Notes:
+        - Aggregates Prefect `flow_run_id`s from the given run and its direct children (non-recursive).
+        - Does NOT recursively traverse grandchildren or deeper levels.
+        - Returns a list of simplified LogEntry items (level, message, timestamp, flow_run_id).
         """
         try:
             # Lazy import to avoid optional dependency issues at import time
@@ -780,13 +783,45 @@ class WorkflowService:
             return schemas.WorkflowRunLogs(logs=[])
 
         try:
-            if not run or not run.prefect_run_ids:
+            if not run:
                 return schemas.WorkflowRunLogs(logs=[])
+
+            # Collect Prefect flow run IDs for this run and its direct children (non-recursive)
+            aggregated_prefect_run_ids: set[uuid.UUID] = set()
+
+            # Helper to parse comma-separated UUID strings safely
+            def _extend_with_prefect_ids(prefect_ids_str: Optional[str]) -> None:
+                if not prefect_ids_str:
+                    return
+                for _id in prefect_ids_str.split(","):
+                    _id = _id.strip()
+                    if not _id:
+                        continue
+                    try:
+                        aggregated_prefect_run_ids.add(uuid.UUID(_id))
+                    except Exception:
+                        # Skip invalid UUIDs silently
+                        continue
+
+            # Add current run IDs
+            _extend_with_prefect_ids(run.prefect_run_ids)
+
+            # Fetch direct child runs and add their IDs (do not recurse)
             try:
-                prefect_run_ids = [uuid.UUID(_id) for _id in run.prefect_run_ids.split(",") if _id.strip()]
+                child_runs = await self.workflow_run_dao.get_children_by_parent_run_id(
+                    db,
+                    parent_run_id=run.id,
+                    owner_org_id=run.owner_org_id,
+                    order_by="created_at",
+                    order_dir="desc",
+                )
             except Exception:
-                return schemas.WorkflowRunLogs(logs=[])
-            if not prefect_run_ids:
+                child_runs = []
+
+            for child in child_runs:
+                _extend_with_prefect_ids(getattr(child, "prefect_run_ids", None))
+
+            if not aggregated_prefect_run_ids:
                 return schemas.WorkflowRunLogs(logs=[])
 
             flow_logs = []
@@ -796,7 +831,7 @@ class WorkflowService:
                 while remaining > 0:
                     batch_limit = 200 if remaining > 200 else remaining
                     batch = await client.read_logs(
-                        log_filter=_LogFilter(flow_run_id=_LogFilterFlowRunId(any_=prefect_run_ids)),
+                        log_filter=_LogFilter(flow_run_id=_LogFilterFlowRunId(any_=list(aggregated_prefect_run_ids))),
                         limit=batch_limit,
                         offset=current_offset,
                     )

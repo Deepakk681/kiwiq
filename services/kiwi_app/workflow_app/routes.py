@@ -1131,12 +1131,11 @@ async def list_runs(
     # dependencies=[Depends(wf_deps.RequireRunReadActiveOrg)] # Basic check on active org context
 )
 async def get_run_logs(
-    # Use dependency to fetch run and ensure it belongs to active org
-    # run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
-    run_id: uuid.UUID = Path(..., description="The ID of the workflow run"),
+    # Fetch run and ensure it belongs to active org
+    run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
     db: AsyncSession = Depends(get_async_db_dependency),
-    run_dao: wf_crud.WorkflowRunDAO = Depends(wf_deps.get_workflow_run_dao),
-    current_superuser: User = Depends(auth_deps.get_current_active_superuser),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
+    current_user: User = Depends(wf_deps.RequireRunReadActiveOrg),
     skip: int = Query(0, ge=0, description="Number of items to skip"),
     limit: int = Query(10000, ge=1, le=10000, description="Maximum number of items to return"),
 ):
@@ -1144,73 +1143,21 @@ async def get_run_logs(
     Gets the logs of a specific workflow run.
 
     - Fetches data from Prefect for all flow runs associated with this workflow run
+      and its direct subworkflow runs (children with this run as parent). This is
+      non-recursive and does not include grandchildren.
     - Returns logs with level (as string), message, and timestamp
     - Supports pagination via skip and limit
     - Requires `run:read` permission on the active organization.
     """
     try:
-        run = await run_dao.get(db, id=run_id)
-        if not run:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow run not found")
-        if not run.prefect_run_ids:
-            return {"logs": []}
-            
-        prefect_run_ids = [uuid.UUID(_id) for _id in run.prefect_run_ids.split(",") if _id.strip()]
-        if not prefect_run_ids:
-            return {"logs": []}
-            
-        flow_logs = []
-        async with get_client() as client:
-            # Fetch logs for each Prefect run ID
-            # Prefect API enforces a maximum of 200 logs per request. Batch fetch until we
-            # satisfy the requested limit starting from the provided skip offset.
-            remaining = limit
-            current_offset = skip
-            while remaining > 0:
-                batch_limit = 200 if remaining > 200 else remaining
-                batch = await client.read_logs(
-                    log_filter=LogFilter(flow_run_id=LogFilterFlowRunId(any_=prefect_run_ids)),
-                    limit=batch_limit,
-                    offset=current_offset,
-                )
-                if not batch:
-                    break
-                flow_logs.extend(batch)
-                fetched = len(batch)
-                remaining -= fetched
-                current_offset += fetched
-                if fetched < batch_limit:
-                    # No more logs available
-                    break
-        
-        # Sort logs by timestamp
-        flow_logs.sort(key=lambda log: log.timestamp, reverse=True)
-        
-        # Convert log level from int to string
-        level_map = {
-            50: "CRITICAL",
-            40: "ERROR",
-            30: "WARNING",
-            20: "INFO",
-            10: "DEBUG"
-        }
-        
-        # Format logs to include only level (as string), message, and timestamp
-        formatted_logs = [
-            schemas.LogEntry(
-                level=level_map.get(log.level, "UNKNOWN"),
-                message=log.message,
-                timestamp=log.timestamp,
-                flow_run_id=log.flow_run_id
-            )
-            for log in flow_logs
-        ]
-        
-        # Apply pagination
-        paginated_logs = formatted_logs  # [skip:skip + limit] if formatted_logs else []
-        
-        workflow_logger.info(f"Retrieved {len(paginated_logs)} workflow run logs for run {run.id}")
-        return {"logs": paginated_logs}
+        logs = await workflow_service.get_run_logs(
+            db=db,
+            run=run,
+            skip=skip,
+            limit=limit,
+        )
+        workflow_logger.info(f"Retrieved {len(logs.logs)} workflow run logs for run {run.id}")
+        return logs
     except Exception as e:
         workflow_logger.error(f"Error retrieving workflow run logs for run {run.id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while retrieving the workflow run logs")

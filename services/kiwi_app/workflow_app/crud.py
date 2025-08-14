@@ -641,6 +641,39 @@ class WorkflowRunDAO(BaseDAO[models.WorkflowRun, schemas.WorkflowRunCreate, sche
         result = await db.exec(stmt)
         return result.scalars().all()
 
+    async def get_children_by_parent_run_id(
+        self,
+        db: AsyncSession,
+        *,
+        parent_run_id: uuid.UUID,
+        owner_org_id: Optional[uuid.UUID] = None,
+        order_by: str = "created_at",
+        order_dir: str = "desc",
+    ) -> Sequence[models.WorkflowRun]:
+        """
+        Returns direct child workflow runs whose parent_run_id matches the provided run ID.
+
+        Args:
+            db: AsyncSession
+            parent_run_id: The parent workflow run ID
+            owner_org_id: Optional organization scope filter
+            order_by: Field to sort by (defaults to created_at)
+            order_dir: Sort direction ("asc" or "desc")
+
+        Returns:
+            A sequence of WorkflowRun children (non-recursive)
+        """
+        conditions = [self.model.parent_run_id == parent_run_id]
+        if owner_org_id is not None:
+            conditions.append(self.model.owner_org_id == owner_org_id)
+
+        sort_column = getattr(self.model, order_by, self.model.created_at)
+        order_clause = sort_column.desc() if order_dir.lower() == "desc" else sort_column.asc()
+
+        stmt = select(self.model).where(and_(*conditions)).order_by(order_clause)
+        result = await db.exec(stmt)
+        return result.scalars().all()
+
     async def get_multi_by_workflow(
         self, db: AsyncSession, *, workflow_id: uuid.UUID, skip: int = 0, limit: int = 100, filters: Optional[Dict[str, Any]] = None
     ) -> Sequence[models.WorkflowRun]:

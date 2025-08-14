@@ -517,8 +517,9 @@ class WorkflowRunnerNode(BaseDynamicNode):  # [WorkflowRunnerInput, WorkflowRunn
         try:
             async with get_async_db_as_manager() as db:
                 logs_schema = await workflow_service.get_run_logs(db=db, run=run, skip=0, limit=10000)
-        except Exception:
+        except Exception as e:
             # If logs cannot be retrieved, be conservative and treat as errors
+            self.warning(f"Failed to get run logs for run {run.id}: {e}")
             return True
 
         if not logs_schema or not getattr(logs_schema, 'logs', None):
