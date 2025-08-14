@@ -222,8 +222,8 @@ class CrawlerScraperInput(BaseSchema):
     )
     allowed_domains: Optional[List[str]] = Field(
         default=None,
-        min_length=1,
-        max_length=5,
+        # min_length=0,
+        # max_length=5,
         description="List of domains allowed for crawling. "
                    "Only URLs from these domains will be followed and scraped. "
                    "If omitted, base domains are inferred from start_urls. "
