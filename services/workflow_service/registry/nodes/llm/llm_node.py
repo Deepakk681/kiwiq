@@ -1161,6 +1161,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         if provider == LLMModelProvider.OPENAI:
            model_kwargs["stream_usage"] = True
            model_kwargs["use_responses_api"] = True
+           model_kwargs["output_version"] = "responses/v1"
            # model_kwargs["stream_options"] = {"include_usage": True}
            # GPT-5 series: optional verbosity control
            if self.config.llm_config.verbosity and model_metadata.verbosity_supported:
