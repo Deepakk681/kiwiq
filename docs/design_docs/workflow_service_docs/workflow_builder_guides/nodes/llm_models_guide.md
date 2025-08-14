@@ -315,7 +315,7 @@ OpenAI provides the most comprehensive set of models with strong reasoning capab
 - `gpt-5-mini`: input $0.25, output $2.00 (1/5th of gpt-5)
 - `gpt-5-nano`: input $0.05, output $0.40 (1/5th of mini)
 
-All GPT-5 series models support an extra `reasoning_effort` value: `"minimal"` (in addition to standard OpenAI values), and a `verbosity` parameter `"low" | "medium" | "high"` (exposed in `llm_config.verbosity`).
+All GPT-5 series models support an extra `reasoning_effort` value: `"minimal"` (in addition to standard OpenAI values), and a `verbosity` parameter `"low" | "medium" | "high"` (exposed in `llm_config.verbosity`). If omitted (`null`), the provider default of `"medium"` is used.
 
 ### Anthropic
 

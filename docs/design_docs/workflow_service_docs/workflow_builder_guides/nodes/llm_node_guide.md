@@ -35,7 +35,7 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
           "temperature": 0.5,       // 0.0 (deterministic) to 1.0+ (creative)
           "max_tokens": 1024,       // Max tokens in the *response* (check model limits)
           "max_tool_calls": 10,     // Maximum number of tool calls allowed (for cost control)
-          "verbosity": null,        // Optional: "low" | "medium" | "high" (GPT-5 series only)
+          "verbosity": null,        // Optional: "low" | "medium" | "high" (GPT-5 series only). Default: "medium" if null/omitted
           // --- Reasoning (Optional, Model-Dependent) ---
           "reasoning_effort_class": null, // e.g., "low", "high" (OpenAI O1/O3 Mini, Fireworks)
           "reasoning_effort_number": null, // e.g., 50 (Fireworks, range 0-20000)
@@ -204,7 +204,7 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 1.  **`llm_config`**:
     *   `model_spec`: **Required**. Specifies the AI `provider` and the exact `model` name. Check `llm_node.py` or `config.py` for available provider/model enums (e.g., `LLMModelProvider.ANTHROPIC`, `AnthropicModels.CLAUDE_3_7_SONNET`).
     *   `temperature`: Controls randomness (0.0 deterministic, ~1.0 creative). **Note:** Models in reasoning/thinking mode often default to or require a high temperature (e.g., 1.0 for Anthropic).
-    *   `verbosity`: Optional string `"low" | "medium" | "high"`. Supported only on GPT-5 series models. Passed as `text={"verbosity": "..."}`.
+    *   `verbosity`: Optional string `"low" | "medium" | "high"`. Supported only on GPT-5 series models. If omitted (`null`), the provider default of `"medium"` is used. Passed as `text={"verbosity": "..."}`.
     *   `max_tokens`: Limits the length of the *generated response*. Ensure this is within the model's limits.
     *   `max_tool_calls`: **Optional & OpenAI Deep Research Models Only**. Maximum number of tool calls allowed in a single request. Currently only supported for OpenAI's Deep Research models (`o4-mini-deep-research`, `o3-deep-research`) for cost control. These autonomous models can make multiple tool calls, so this parameter limits the number of calls. If not specified, the model can make unlimited tool calls (subject to provider limits).
     *   `reasoning_effort_class` / `reasoning_effort_number` / `reasoning_tokens_budget`: **Optional & Model-Specific**. Use *only one* of these to enable reasoning modes if the model supports it (see `llm_node.py` metadata or tests). Provide the type supported by the specific model (e.g., budget for Claude 3.7+, class/number for Fireworks, class for OpenAI O1/O3 Mini).

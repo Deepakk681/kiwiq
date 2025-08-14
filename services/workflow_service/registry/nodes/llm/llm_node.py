@@ -2678,6 +2678,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             output_tokens = token_usage.get("output_tokens", 0)
             cached_tokens = token_usage.get("cached_tokens", 0)
 
+            if provider == LLMModelProvider.PERPLEXITY:
+                cached_tokens = 0
+
             if provider == LLMModelProvider.PERPLEXITY and "deep-research" in model_name:
                 # https://docs.perplexity.ai/guides/pricing
                 # Perplexity doesn't report reasoning tokens, so we need to add them manually
@@ -2696,14 +2699,16 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             input_tokens = input_tokens - cached_tokens
             # TODO: adjust input tokens cost based on cached tokens!
             #     also add anthropic cache creation costs!
-            try:
-                cached_input_tokens_cost = calculate_cost_by_tokens(cached_tokens, tokencost_model, "cached")
-                cached_input_tokens_cost = float(cached_input_tokens_cost)
-            except Exception as e:
-                if model_metadata.cached_token_price_per_M > 0.:
-                    cached_input_tokens_cost = model_metadata.cached_token_price_per_M * cached_tokens / 1000000.
-                else:
-                    raise e
+            cached_input_tokens_cost = 0.
+            if provider != LLMModelProvider.PERPLEXITY:
+                try:
+                    cached_input_tokens_cost = calculate_cost_by_tokens(cached_tokens, tokencost_model, "cached")
+                    cached_input_tokens_cost = float(cached_input_tokens_cost)
+                except Exception as e:
+                    if model_metadata.cached_token_price_per_M > 0.:
+                        cached_input_tokens_cost = model_metadata.cached_token_price_per_M * cached_tokens / 1000000.
+                    else:
+                        raise e
             # adjusted_input_tokens = input_tokens - cached_tokens
             # adjusted_input_tokens_cost = calculate_cost_by_tokens(adjusted_input_tokens, tokencost_model, "input")
             # adjusted_actual_cost = actual_cost + adjusted_input_tokens_cost + output_tokens_cost
@@ -2727,7 +2732,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 else:
                     raise e
             
-            actual_cost = input_tokens_cost + output_tokens_cost
+            actual_cost = input_tokens_cost + output_tokens_cost + cached_input_tokens_cost
 
             actual_cost = float(actual_cost)
             
