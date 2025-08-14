@@ -1,4 +1,4 @@
-### User App Resume Metadata – Frontend Integration Guide
+# User App Resume Metadata – Frontend Integration Guide
 
 This guide explains how to integrate the User App Resume Metadata service from the frontend. It is written for frontend engineers who do not have access to backend code and need a clear, self-contained reference for endpoints, headers, request/response shapes, constraints, and practical usage patterns. It also covers how this feature relates to Assets.
 
@@ -9,7 +9,7 @@ Path roots from code:
   - `user_app_resume_router = APIRouter(prefix="/user-app-resume")`
   - `asset_router = APIRouter(prefix="/assets")`
 
-### Quick TL;DR
+# Quick TL;DR
 
 - **Base URL (User Resume)**: `/api/v1/user-app-resume`
 - **Base URL (Assets)**: `/api/v1/assets`
@@ -24,7 +24,7 @@ Path roots from code:
   - Delete: `DELETE /{metadata_id}` → 204 No Content
   - List (filtered): `GET /?query...` → returns an array
 
-### Endpoint summary table (global overview)
+# Endpoint summary table (global overview)
 
 | No. | Category | Method & Path | What it does | Auth/Perm | Required headers | Request body | Response |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ Quick links:
 - User Resume: [1) Create `/api/v1/user-app-resume/`](#1-create-metadata) • [2) Get `/api/v1/user-app-resume/{metadata_id}`](#2-get-by-id) • [3) Update `/api/v1/user-app-resume/{metadata_id}`](#3-update-partial) • [4) Delete `/api/v1/user-app-resume/{metadata_id}`](#4-delete) • [5) List `/api/v1/user-app-resume/`](#5-list-filterable)
 - Assets: [6) `/api/v1/assets/types`](#6-assets-types-list) • [7) `/api/v1/assets/types/{asset_type}`](#7-assets-type-info) • [8) `/api/v1/assets/`](#8-create-asset) • [9) `/api/v1/assets/{asset_id}`](#9-get-asset) • [10) `/api/v1/assets/{asset_id}`](#10-update-asset) • [11) `/api/v1/assets/{asset_id}/app-data`](#11-update-asset-app-data) • [12) `/api/v1/assets/{asset_id}/app-data/increment`](#12-increment-asset-app-data) • [13) `/api/v1/assets/{asset_id}/deactivate`](#13-deactivate-asset) • [14) `/api/v1/assets/managed`](#14-list-managed-assets) • [15) `/api/v1/assets/org/all`](#15-list-all-org-assets) • [16) `/api/v1/assets/`](#16-list-accessible-assets)
 
-### Why this exists (philosophy)
+# Why this exists (philosophy)
 
 User App Resume Metadata stores lightweight durable state so your app can resume a workflow or UI flow where the user left off. Think of it as a small, indexed bookmark pointing to a workflow run (`run_id`) and UI state (`app_metadata`). It intentionally keeps the schema minimal and flexible so feature teams can evolve the UI without heavy backend migrations.
 
@@ -60,7 +60,7 @@ Key principles:
 - **Safe partial updates**: Updates are partial; backend ensures final state still respects constraints. Concurrent updates are protected via distributed locks when available.
 - **First-class relation to Assets**: You can link records to an `asset_id` for content-centric resumes (e.g., resume work on a specific blog URL or LinkedIn profile).
 
-### Common headers and auth
+# Common headers and auth
 
 - `Authorization: Bearer <token>`
 - `X-Active-Org: <org-uuid>`
@@ -72,7 +72,7 @@ If the header is missing or invalid, the server returns `400`. Your token must g
 
 Superusers may pass special fields as noted below.
 
-### Schemas
+# Schemas
 
 Record payload fields (create/update) use the following shapes. Types shown for clarity; everything except constraints is straightforward JSON.
 
@@ -143,21 +143,7 @@ Constraints for update:
 }
 ```
 
-### User App Resume Endpoints (with TL;DR and examples)
-
-All endpoints below show full routes with `/api/v1` prefix.
-
-### Endpoint summary table
-
-| No. | Category | Method & Path | What it does | Auth/Perm | Required headers | Request body | Response |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Write | POST `/` | Create a resume record for the current user within the active org. Includes flexible `app_metadata` and optional `run_id`. | `Authorization: Bearer` + `ORG_DATA_WRITE` | `X-Active-Org` | `UserAppResumeMetadataCreate` | `200` `UserAppResumeMetadataRead` | 
-| 2 | Read | GET `/{metadata_id}` | Fetch a single record by ID. Must belong to the caller unless superuser; returns the stored identifiers and data. | `Authorization: Bearer` + `ORG_DATA_READ` | `X-Active-Org` | N/A | `200` `UserAppResumeMetadataRead` |
-| 3 | Write | PATCH `/{metadata_id}` | Partial update of a record; backend enforces identifier/data constraints post-merge. Safe for iterative UI saves. | `Authorization: Bearer` + `ORG_DATA_WRITE` | `X-Active-Org` | `UserAppResumeMetadataUpdate` | `200` `UserAppResumeMetadataRead` |
-| 4 | Write | DELETE `/{metadata_id}` | Delete a record (e.g., when draft is published or discarded). No body required. | `Authorization: Bearer` + `ORG_DATA_WRITE` | `X-Active-Org` | N/A | `204 No Content` |
-| 5 | Read | GET `/` | List records with filters (`workflow_name`, `asset_id`, `entity_tag`, `frontend_stage`, `run_id`). Superusers can target `org_id`/`user_id`. | `Authorization: Bearer` + `ORG_DATA_READ` | `X-Active-Org` | Query params | `200` `UserAppResumeMetadataRead[]` |
-
-Quick links: [1) Create](#1-create-metadata) • [2) Get by ID](#2-get-by-id) • [3) Update](#3-update-partial) • [4) Delete](#4-delete) • [5) List](#5-list-filterable)
+# User App Resume Endpoints (with TL;DR and examples)
 
 #### 1) Create metadata
 
@@ -270,7 +256,7 @@ curl -G \
 
 Response: `200` with `UserAppResumeMetadataRead[]`.
 
-### Assets Endpoints (with TL;DR and examples)
+# Assets Endpoints (with TL;DR and examples)
 
 All endpoints below show full routes with `/api/v1` prefix.
 
@@ -287,6 +273,19 @@ curl -X GET \
 ```
 
 Response: `200` with `AssetTypeInfo[]`.
+ 
+- Details: Use this to build client-side forms for `app_data`. Each `AssetTypeInfo` may include a JSON Schema.
+- Use cases: Initialize asset creation UI; validate fields client-side.
+- Schemas (response item):
+```json
+{
+  "asset_type": "string",
+  "display_name": "string",
+  "description": "string|null",
+  "app_data_schema": {"jsonSchema": "object"} | null
+}
+```
+- Caveats: Schema is advisory; backend also validates.
 
 #### 7) Assets: Type info
 
@@ -301,6 +300,11 @@ curl -X GET \
 ```
 
 Response: `200` with `AssetTypeInfo`.
+
+- Details: Query a single type to render a focused form (e.g., only `blog_url`).
+- Use cases: Dynamic forms by type; show help text per type.
+- Schemas: same as above (`AssetTypeInfo`).
+- Caveats: Types are finite, see list in `AssetType` enum (e.g., `blog_url`, `linkedin_profile`).
 
 #### 8) Create asset
 
@@ -325,6 +329,35 @@ curl -X POST \
 
 Response: `200` with `AssetRead`.
 
+- Details: `asset_name` is a concise identifier (e.g., domain or username). `app_data` must align with type schema when provided.
+- Use cases: Register a blog to manage; add a LinkedIn profile.
+- Request schema (subset):
+```json
+{
+  "asset_type": "blog_url | linkedin_profile",
+  "asset_name": "string",
+  "is_shared": true,
+  "is_active": true,
+  "app_data": {"...": "..."}
+}
+```
+- Response schema (subset):
+```json
+{
+  "id": "uuid",
+  "org_id": "uuid",
+  "managing_user_id": "uuid",
+  "asset_type": "blog_url",
+  "asset_name": "example.com/post-123",
+  "is_shared": true,
+  "is_active": true,
+  "app_data": {"blog_url": "https://example.com/post-123"},
+  "created_at": "ISO8601",
+  "updated_at": "ISO8601"
+}
+```
+- Caveats: `X-Active-Org` required; ensure unique naming conventions in your UX.
+
 #### 9) Get asset
 
 - Method: `GET /api/v1/assets/{asset_id}`
@@ -340,6 +373,11 @@ curl -X GET \
 ```
 
 Response: `200` with `AssetRead`.
+
+- Details: Use `app_data_fields` query to reduce payload size (e.g., `app_data_fields=blog_url,counters`).
+- Use cases: Load before editing; show asset summary cards.
+- Schemas: Response is `AssetRead` (see above subset).
+- Caveats: Requires `X-Active-Org`; 404 if inaccessible.
 
 #### 10) Update asset
 
@@ -358,6 +396,19 @@ curl -X PATCH \
 ```
 
 Response: `200` with `AssetRead`.
+
+- Details: Partial updates; omit fields to leave unchanged.
+- Use cases: Toggle active/shared; rename asset; replace full `app_data`.
+- Request schema (subset):
+```json
+{
+  "asset_name": "string | null",
+  "is_shared": true,
+  "is_active": false,
+  "app_data": {"...": "..."}
+}
+```
+- Caveats: Consider using targeted app-data update (endpoint 11) to avoid clobbering nested fields.
 
 #### 11) Update asset app-data
 
@@ -381,6 +432,18 @@ curl -X PATCH \
 
 Response: `200` with `AssetRead`.
 
+- Details: Fine-grained modification of nested fields using `path`.
+- Use cases: Add a note, toggle a flag, replace a nested object.
+- Request schema:
+```json
+{
+  "operation": "add_or_update | delete | replace",
+  "path": ["nested", "field"],
+  "value": "any (for add_or_update/replace)"
+}
+```
+- Caveats: When `operation=replace` and `path` is omitted, replaces the entire `app_data`.
+
 #### 12) Increment asset app-data
 
 - Method: `PATCH /api/v1/assets/{asset_id}/app-data/increment`
@@ -399,6 +462,17 @@ curl -X PATCH \
 
 Response: `200` with `AssetRead`.
 
+- Details: Atomic increment for counters without race conditions.
+- Use cases: View counters, retry counts.
+- Request schema:
+```json
+{
+  "path": ["counters", "views"],
+  "increment": 1
+}
+```
+- Caveats: Field must be numeric; backend validates.
+
 #### 13) Deactivate asset
 
 - Method: `POST /api/v1/assets/{asset_id}/deactivate`
@@ -414,6 +488,10 @@ curl -X POST \
 ```
 
 Response: `200` with `AssetRead`.
+
+- Details: Soft deactivation; asset remains in DB but is not considered active.
+- Use cases: Temporarily pause monitoring/processing.
+- Caveats: To reactivate, PATCH the asset with `is_active=true`.
 
 #### 14) List managed assets
 
@@ -433,6 +511,22 @@ curl -G \
 
 Response: `200` with `AssetRead[]`.
 
+- Details: Returns assets where current user is managing user; supports filters and sorting.
+- Use cases: “My assets” dashboard.
+- Query schema (subset):
+```json
+{
+  "managed_only": true,
+  "asset_type": "blog_url | linkedin_profile",
+  "is_active": true,
+  "include_all_orgs": false,
+  "app_data_fields": "field1,field2",
+  "skip": 0,
+  "limit": 100
+}
+```
+- Caveats: Requires `X-Active-Org`; to span orgs set `include_all_orgs=true` when supported.
+
 #### 15) List all org assets
 
 - Method: `GET /api/v1/assets/org/all`
@@ -449,6 +543,10 @@ curl -G \
 ```
 
 Response: `200` with `AssetRead[]`.
+
+- Details: Admin/manager view of all assets in the active org.
+- Use cases: Backoffice tooling; org-wide reporting.
+- Caveats: Requires write permission by design.
 
 #### 16) List accessible assets
 
@@ -469,7 +567,12 @@ curl -G \
 
 Response: `200` with `AssetRead[]`.
 
-### Practical integration patterns
+- Details: Includes assets shared in org or owned by the user; supports sorting and field filtering.
+- Use cases: Populate pickers when linking resume metadata to an asset.
+- Query schema (subset): same as managed list without `managed_only`.
+- Caveats: Respect pagination; consider `app_data_fields` to shrink payloads.
+
+# Practical integration patterns
 
 - **Per-workflow resume**: Use `workflow_name` + `entity_tag` to group user drafts. Store UI fields in `app_metadata` and the backend run in `run_id`.
 - **Per-asset resume**: Link to an `asset_id` (e.g., blog URL or LinkedIn profile). Query by `asset_id` to show the last state for that asset.
@@ -477,7 +580,7 @@ Response: `200` with `AssetRead[]`.
 - **Stable keys**: Prefer a stable `entity_tag` (like a client-generated UUID per draft) so you can create/update/list consistently even before you have an `asset_id`.
 - **One record vs many**: You may create multiple records for different drafts. If you want a single, latest record per tag, either overwrite by update or list with sorting client-side and pick the newest.
 
-### Relation to Assets
+# Relation to Assets
 
 Assets represent managed targets (e.g., `blog_url`, `linkedin_profile`) and live under `/api/v1/assets`.
 
@@ -503,7 +606,7 @@ When creating resume metadata linked to content, include the `asset_id` so you c
 }
 ```
 
-### Frontend examples (TypeScript fetch)
+# Frontend examples (TypeScript fetch)
 
 ```ts
 async function createResume(
@@ -550,7 +653,7 @@ async function listResumes(
 }
 ```
 
-### Status codes and errors
+# Status codes and errors
 
 - `200 OK`: Successful read or update
 - `201 Created`: Not used here; create returns `200` with object
@@ -559,7 +662,7 @@ async function listResumes(
 - `403 Forbidden`: Missing required permissions
 - `404 Not Found`: Resource does not exist or not accessible
 
-### Caveats and best practices
+# Caveats and best practices
 
 - Always set `X-Active-Org`. Missing header results in `400` for operations that require it.
 - Maintain the identifier/data constraints across updates; otherwise updates will fail.
@@ -567,7 +670,7 @@ async function listResumes(
 - Use stable identifiers (`entity_tag`, `asset_id`) to avoid duplicate records and simplify list queries.
 - Handle concurrency gracefully. If multiple tabs update the same record, last write wins; the backend uses a distributed lock where possible to reduce races.
 
-### Putting it all together
+# Putting it all together
 
 1) User picks an asset (or creates a draft). You either already have an `asset_id` or generate a client `entity_tag`.
 2) Create a resume record (`POST /`) with `workflow_name`, your identifier (`asset_id` or `entity_tag`), and initial `app_metadata`.

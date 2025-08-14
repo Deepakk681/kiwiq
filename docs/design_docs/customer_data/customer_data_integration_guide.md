@@ -96,34 +96,7 @@ Integration tip: default to the versioned upsert endpoint for critical configs a
 
 ---
 
-### Endpoints overview table
-
-Quick, linked index of all endpoints. Click the number to jump to details.
-
-| No. | Category | Method | Path | Summary | Notes |
-| --- | --- | --- | --- | --- | --- |
-| [01](#api-01) | Versioned | POST | `/versioned/{namespace}/{docname}` | Initialize a new versioned document with optional schema and initial data. | 409 if exists; prefer Upsert if existence uncertain. |
-| [02](#api-02) | Versioned | PUT | `/versioned/{namespace}/{docname}` | Update active or specific version; merges JSON objects, replaces primitives. | Optional schema update before data write. |
-| [03](#api-03) | Versioned | GET | `/versioned/{namespace}/{docname}` | Read active or specific version of a versioned document. | Requires `is_shared` query param. |
-| [04](#api-04) | Versioned | DELETE | `/versioned/{namespace}/{docname}` | Delete the entire versioned document (all versions). | 204 on success. |
-| [05](#api-05) | Versioned | GET | `/versioned/{namespace}/{docname}/versions` | List all versions with active flag, timestamps and edit counts. | Useful for version pickers. |
-| [06](#api-06) | Versioned | POST | `/versioned/{namespace}/{docname}/versions` | Create a new named version (branch), optionally from another. | Does not switch active automatically. |
-| [07](#api-07) | Versioned | POST | `/versioned/{namespace}/{docname}/active-version` | Set the active version to serve by default. | Promote tested versions. |
-| [08](#api-08) | Versioned | GET | `/versioned/{namespace}/{docname}/history` | Get JSON Patch history for a version; supports limit and version filter. | Use for diffs/audit UI. |
-| [09](#api-09) | Versioned | GET | `/versioned/{namespace}/{docname}/preview-restore/{sequence}` | Preview the document at a prior history sequence. | No mutation; safe preview. |
-| [10](#api-10) | Versioned | POST | `/versioned/{namespace}/{docname}/restore` | Restore a versioned document to a historic sequence. | Mutates; consider confirming in UI. |
-| [11](#api-11) | Versioned | GET | `/versioned/{namespace}/{docname}/schema` | Fetch the JSON Schema attached to a versioned document. | May be null if not set. |
-| [12](#api-12) | Versioned | PUT | `/versioned/{namespace}/{docname}/schema` | Attach or update the JSON Schema template for a document. | Affects validation on subsequent writes. |
-| [13](#api-13) | Versioned | POST | `/versioned/{namespace}/{docname}/upsert` | Create or update; auto-initializes or branches missing versions. | Recommended default for writes. |
-| [14](#api-14) | Unversioned | PUT | `/unversioned/{namespace}/{docname}` | Upsert unversioned document; merges JSON objects, replaces primitives. | Optional schema validation via template. |
-| [15](#api-15) | Unversioned | GET | `/unversioned/{namespace}/{docname}` | Read unversioned document data. | 400 if path is actually versioned. |
-| [16](#api-16) | Unversioned | DELETE | `/unversioned/{namespace}/{docname}` | Delete unversioned document. | 204 on success. |
-| [17](#api-17) | Listing/Meta | GET | `/list` | List documents accessible to the user with filters/sort. | Supports shared/user/system filters. |
-| [18](#api-18) | Listing/Meta | POST | `/search` | Search by namespace pattern, text, and value filters. | Returns metadata + content subset. |
-| [19](#api-19) | Listing/Meta | GET | `/metadata/{namespace}/{docname}` | Get metadata for a path (is_versioned, shared/system, etc.). | Use to decide versioned vs unversioned flows. |
-| [20](#api-20) | Admin | DELETE | `/delete-by-pattern` | Delete multiple docs by wildcard patterns. | Superuser only; use `dry_run` first. |
-
----
+ 
 
 ## Versioned Documents
 
