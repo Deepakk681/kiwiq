@@ -227,7 +227,7 @@ async def run_graph(
         # ):
         workflow_run = await external_context.daos.workflow_run.get_run_by_id_and_org(db, run_id=run_id, org_id=org_id)
         logger.info(f"Info for Workflow run: - Workflow Name: {workflow_run.workflow_name} - Workflow ID: {workflow_run.workflow_id} - Run ID: {workflow_run.id}")
-        if workflow_run and str(flow_id) not in workflow_run.prefect_run_ids:
+        if workflow_run and ((not workflow_run.prefect_run_ids) or (str(flow_id) not in workflow_run.prefect_run_ids)):
             workflow_run = await external_context.daos.workflow_run.update(
                 db,
                 db_obj=workflow_run,
