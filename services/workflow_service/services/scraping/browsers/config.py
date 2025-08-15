@@ -21,6 +21,7 @@ OPENAI_SELECTORS = {
     "response_container": "div.markdown.prose",
 
     "stay_logged_out":'a:has-text("Stay logged out")',
+    "retry_button":'button:has-text("Retry")',
    
    "model_switcher_button":'#system-hint-button',
    

@@ -968,6 +968,8 @@ class WorkflowRunnerNode(BaseDynamicNode):  # [WorkflowRunnerInput, WorkflowRunn
                     from datetime import timedelta
                     since_ts = datetime.now(timezone.utc) - timedelta(days=lookback_days)
                     # Query recent successful runs by input hash, preferring name-based search
+                    # TODO: NOTE: this workflow run caching (Org level, not user level) may be buggy due to not being user specific!
+                    #     inputs may still make it work, but what happens when 2 org users run the same workflow with same inputs?? the files for 1 user won't exist if not is_shared!
                     try:
                         async with get_async_db_as_manager() as db:
                             recent_runs = []

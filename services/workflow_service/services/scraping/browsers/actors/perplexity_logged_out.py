@@ -23,7 +23,7 @@ class PerplexityBrowserActor(BaseBrowserActor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     
-    async def close_popup(self) -> bool:
+    async def close_popup(self, timeout=1000) -> bool:
         """
         Attempts to close any popup that might appear on Perplexity.
         
@@ -32,8 +32,8 @@ class PerplexityBrowserActor(BaseBrowserActor):
         """
         try:
             # Wait a short time for popup to potentially appear
-            await self.page.wait_for_selector(PERPLEXITY_SELECTORS["close_popup"], timeout=1000)
-            await self.page.click(PERPLEXITY_SELECTORS["close_popup"])
+            await self.page.wait_for_selector(PERPLEXITY_SELECTORS["close_popup"], timeout=timeout)
+            await self.page.click(PERPLEXITY_SELECTORS["close_popup"], delay=random.randint(5, 10))  # , timeout=timeout
             return True
         except Exception as e:
             # No popup found or couldn't close it - this is fine

@@ -41,7 +41,7 @@ class BaseBrowserActor:
         click_y = middle_y
         
         # Click at the calculated position
-        await page.mouse.click(click_x, click_y)
+        await page.mouse.click(click_x, click_y, delay=random.randint(5, 10))
         
         # print(f"Clicked at position: ({click_x}, {click_y})")
         # print(f"Random offset applied: {random_offset} pixels")
@@ -61,11 +61,118 @@ class BaseBrowserActor:
         """
         try:
             # print(selector)
+            # NOTE: maybe move mouse to selector and hover for 5 ms then click??
+            # TODO: wait for some other event or use playwright's code to find selector instead since this sometimes don't trigger or use force click!
+
             await self.page.wait_for_selector(selector, timeout=timeout)
-            await self.page.click(selector, timeout=timeout)
+            await self.page.click(selector, delay=random.randint(5, 10))  # , timeout=timeout
             return self.page.url
         except Exception as e:
             raise Exception(f"Failed to click selector '{selector}': {e}")
+    
+    async def wait_and_click_optional(self, selector: str, timeout: int = 1500, required: bool = False) -> tuple[bool, str]:
+        """
+        Attempts to click an element if it exists. Won't fail if element is not found.
+        
+        Args:
+            selector: CSS selector to click
+            timeout: Max time to wait for element
+            required: If True, raises exception when element not found. If False, returns gracefully.
+        
+        Returns:
+            Tuple of (success: bool, current_url: str)
+        """
+        try:
+            # First, check if element exists without waiting full timeout
+            try:
+                # Use a short timeout to check existence
+                await self.page.wait_for_selector(selector, timeout=min(timeout, 1000), state="attached")
+            except:
+                # Element doesn't exist, this is okay for optional elements
+                if not required:
+                    self.logger.debug(f"Optional selector '{selector}' not found, skipping")
+                    return (False, self.page.url)
+                else:
+                    raise Exception(f"Required selector '{selector}' not found on page")
+            
+            # Element exists, now try to click it robustly
+            return await self._perform_click(selector, timeout)
+            
+        except Exception as e:
+            if required:
+                raise Exception(f"Failed to click required selector '{selector}': {e}")
+            else:
+                self.logger.info(f"Optional click failed for '{selector}': {e}")
+                return (False, self.page.url)
+
+    async def _perform_click(self, selector: str, timeout: int = 1500) -> tuple[bool, str]:
+        """
+        Internal method to perform the actual click with multiple strategies.
+        Assumes element exists.
+        """
+        locator = self.page.locator(selector).first()
+        
+        try:
+            # Wait for element to be visible and stable
+            await locator.wait_for(state="visible", timeout=timeout)
+            
+            # Small wait for animations/transitions to complete
+            await self.page.wait_for_timeout(100)
+            
+            # Get element info for debugging
+            is_visible = await locator.is_visible()
+            is_enabled = await locator.is_enabled()
+            
+            if not is_visible:
+                self.logger.warning(f"Element '{selector}' not visible, attempting force click")
+            
+            # Try multiple click strategies in order of preference
+            click_strategies = [
+                ("normal", self._try_normal_click),
+                ("force", self._try_force_click),
+                ("javascript", self._try_js_click),
+                ("dispatch", self._try_dispatch_click)
+            ]
+            
+            last_error = None
+            for strategy_name, strategy_func in click_strategies:
+                try:
+                    await strategy_func(locator, timeout)
+                    
+                    # Add delay after successful click (as you had before)
+                    await self.page.wait_for_timeout(random.randint(5, 10))
+                    
+                    self.logger.debug(f"Successfully clicked '{selector}' using {strategy_name} strategy")
+                    return (True, self.page.url)
+                    
+                except Exception as e:
+                    last_error = e
+                    self.logger.debug(f"{strategy_name} click failed for '{selector}': {str(e)[:100]}")
+                    continue
+            
+            # All strategies failed
+            raise Exception(f"All click strategies failed. Last error: {last_error}")
+            
+        except Exception as e:
+            raise Exception(f"Click failed for '{selector}': {e}")
+
+    # Individual click strategies
+    async def _try_normal_click(self, locator, timeout: int):
+        """Normal Playwright click with actionability checks."""
+        await locator.click(timeout=timeout, delay=random.randint(5, 10))
+
+    async def _try_force_click(self, locator, timeout: int):
+        """Force click that bypasses actionability checks."""
+        await locator.click(timeout=timeout, force=True, delay=random.randint(5, 10))
+
+    async def _try_js_click(self, locator, timeout: int):
+        """JavaScript click that bypasses most visibility/overlay issues."""
+        await locator.evaluate("element => element.click()")
+
+    async def _try_dispatch_click(self, locator, timeout: int):
+        """Dispatch click event directly to the element."""
+        await locator.dispatch_event("click")
+
 
     async def wait_and_fill(self, selector: str, value: str) -> str:
         """

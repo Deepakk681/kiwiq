@@ -25,6 +25,7 @@ class OpenAIBrowserActor(BaseBrowserActor):
         self,
         poll_every: float = 10.0,
         timeout: float = 200.0,
+        close_popup_after_timeout: float = 3000,
     ) -> List[Dict[str, str]]:
         """
         Re‑run `extract_response_from_chatgpt_page()` in a loop until no additional
@@ -46,6 +47,10 @@ class OpenAIBrowserActor(BaseBrowserActor):
         STABLE_REQUIRED      = 2           # need the same length twice in a row
 
         while True:
+            if await self.retry_button(timeout=3000):
+                continue
+            await self.stay_logged_out(timeout=close_popup_after_timeout)
+            
             raw_html = await self.page.evaluate("() => document.documentElement.outerHTML")
             full_html = "<!DOCTYPE html>\n" + raw_html
             pairs = await asyncio.to_thread(self.extract_response_from_chatgpt_page, full_html)
@@ -158,35 +163,49 @@ class OpenAIBrowserActor(BaseBrowserActor):
 
         return pairs
     
+    async def retry_button(self, timeout=1000):
+        try:
+            await self.wait_and_click(OPENAI_SELECTORS["retry_button"], timeout=timeout)
+            self.logger.info(f"SUCCESS: Retry button clicked")
+            return True
+        except Exception as e:
+            self.logger.info(f"Retry button not found: {e}")
+            return False
+    
+    async def stay_logged_out(self, timeout=5000):
+        try:
+            await self.wait_and_click(OPENAI_SELECTORS["stay_logged_out"], timeout=timeout)
+            self.logger.info(f"SUCCESS: Stay logged out button clicked")
+            await self.wait_for_seconds(0.1, add_noise=True)
+            return True
+        except Exception as e:
+            self.logger.info(f"Stay logged out button not found: {e}")
+            return False
+    
     async def single_query(self, query: str) -> List[Dict[str, str]]:
-        async def close_popup(timeout=1500):
+        async def close_popup(timeout=5000):
             try:
                 await self.wait_and_click(OPENAI_SELECTORS["close_popup"], timeout=timeout)
                 await self.wait_for_seconds(0.1, add_noise=True)
                 self.logger.info(f"SUCCESS: Close popup button clicked")
             except Exception as e:
                 self.logger.info(f"Close popup button not found: {e}")
-        
+
         async def short_prompt_focus_sequence():
             await self.click_middle_with_offset()
-            try:
-                await self.wait_and_click(OPENAI_SELECTORS["stay_logged_out"], timeout=500)
-                self.logger.info(f"SUCCESS: Stay logged out button clicked")
-                await self.wait_for_seconds(0.1, add_noise=True)
 
-            except Exception as e:
-                self.logger.info(f"Stay logged out button not found: {e}")
-            
+            await self.stay_logged_out()
             await close_popup()
             
             try:
-                await self.wait_and_click(OPENAI_SELECTORS["search_web_no_login"], timeout=1500)
+                await self.wait_and_click(OPENAI_SELECTORS["search_web_no_login"], timeout=5000)
                 # await self.page.click(OPENAI_SELECTORS["search_web_no_login"], timeout=1500)
                 self.logger.info(f"SUCCESS: Search web no login button clicked")
                 return True
             except Exception as e:
 
                 await close_popup()
+                await self.stay_logged_out()
 
                 self.logger.info(f"Search web no login button not found: {e}")
             return False
@@ -200,19 +219,26 @@ class OpenAIBrowserActor(BaseBrowserActor):
         
         clicked = False
         iterations = 0
+        count_navigations = 0
         while (not clicked) and iterations < 5:
             try:
                 current_url = self.page.url
                 self.logger.info(f"Current URL: {current_url}")
                 if (not iterations) or (not current_url.strip(" /").startswith(OPENAI_SELECTORS["base_url"].strip(" /"))):  #  (not current_url) or  current_url != OPENAI_SELECTORS["base_url"]
+                    if count_navigations >= 3:
+                        raise Exception("Too many navigations, giving up this session, current url: {current_url}")
                     await self.go_to_page(OPENAI_SELECTORS["base_url"], timeout=10000)
+                    count_navigations += 1
                 # NOTE: here you can try short focus sequence again and wait 10-20s as last resort, to counter any captchas!
             except Exception as e:
                 self.logger.error(f"Error going to page: {e}")
             clicked = await short_prompt_focus_sequence()
             iterations += 1
         
-        await close_popup(timeout=1000)
+        close_popup_after_timeout = 5000
+        
+        await close_popup(timeout=close_popup_after_timeout)
+        await self.stay_logged_out(timeout=close_popup_after_timeout)
 
         # Send Q1
         await self.wait_for_seconds(0.25, add_noise=True)
@@ -222,13 +248,15 @@ class OpenAIBrowserActor(BaseBrowserActor):
         await self.page.keyboard.type(query, delay=random.randint(1, 5))
         await self.wait_for_seconds(0.25, add_noise=True)
 
-        await close_popup(timeout=1000)
+        await close_popup(timeout=close_popup_after_timeout)
+        await self.stay_logged_out(timeout=close_popup_after_timeout)
 
         try:
             await self.wait_and_click(OPENAI_SELECTORS["send_button"], timeout=1000)
         except Exception as e:
             self.logger.info(f"Send button not found: {e}")
-            await close_popup(timeout=1000)
+            await close_popup(timeout=close_popup_after_timeout)
+            await self.stay_logged_out(timeout=close_popup_after_timeout)
             await self.wait_and_click(OPENAI_SELECTORS["send_button"])
         # pause_until_confirm()
 
@@ -240,7 +268,7 @@ class OpenAIBrowserActor(BaseBrowserActor):
             self.logger.info(f"Stay logged out button not found: {e}")
 
         # Wait for GPT to finish
-        pairs = await self.wait_until_chatgpt_response_complete()
+        pairs = await self.wait_until_chatgpt_response_complete(close_popup_after_timeout=close_popup_after_timeout)
         
         return pairs
     
@@ -320,7 +348,7 @@ if __name__ == "__main__":
         async with ScrapelessBrowser() as browser:  # profile_id="39fd01df-7bf9-44b5-befb-4ea5d238caf8", persist_profile=True
             live_url = await browser.get_live_url()
             print("\n\nlive_url: ---> ",live_url)
-            # import ipdb; ipdb.set_trace()
+            import ipdb; ipdb.set_trace()
             actor = OpenAIBrowserActor(browser=browser.browser, context=browser.context, page=browser.page, live_url=live_url)
             # try:
             #      result = await actor.chatgpt_conversation("What is the capital of France?", "What is the capital of Italy?", "What is the capital of Germany?")
