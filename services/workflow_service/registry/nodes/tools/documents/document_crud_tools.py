@@ -153,6 +153,11 @@ class BaseDocumentInputSchema(BaseSchema):
         description="Entity username for namespace resolution", 
         json_schema_extra={BaseSchema.FOR_LLM_TOOL_CALL_FIELD_KEY: False}
     )
+    company_name: Optional[str] = Field(
+        None,
+        description="Company name for namespace resolution (blog-style docs)",
+        json_schema_extra={BaseSchema.FOR_LLM_TOOL_CALL_FIELD_KEY: False}
+    )
     view_context: Optional[Dict[str, Dict[str, str]]] = Field(
         None,
         description="View context mapping serial number to document info: {'brief_23_1': {'docname': 'doc1', 'version': 'draft'}, ...}",
@@ -597,6 +602,7 @@ class EditDocumentTool(BaseNode[EditDocumentInputSchema, EditDocumentOutputSchem
         document_info = identify_document(
             identifier=input_data.document_identifier,
             entity_username=input_data.entity_username,
+            company_name=input_data.company_name,
             view_context=input_data.view_context
         )
         
@@ -1420,6 +1426,7 @@ class DocumentViewerTool(BaseNode[DocumentViewerInputSchema, DocumentViewerOutpu
         document_info = identify_document(
             identifier=input_data.document_identifier,
             entity_username=input_data.entity_username,
+            company_name=input_data.company_name,
             view_context=input_data.view_context
         )
         
@@ -1498,7 +1505,8 @@ class DocumentViewerTool(BaseNode[DocumentViewerInputSchema, DocumentViewerOutpu
         # Build query parameters
         query_params = build_list_query(
             filter_obj=input_data.list_filter,
-            entity_username=input_data.entity_username
+            entity_username=input_data.entity_username,
+            company_name=input_data.company_name,
         )
         
         try:
@@ -1912,6 +1920,7 @@ class DocumentSearchTool(BaseNode[DocumentSearchInputSchema, DocumentSearchOutpu
                 document_info = identify_document(
                     identifier=input_data.document_identifier,
                     entity_username=input_data.entity_username,
+                    company_name=input_data.company_name,
                     view_context=input_data.view_context
                 )
                 
@@ -1941,7 +1950,8 @@ class DocumentSearchTool(BaseNode[DocumentSearchInputSchema, DocumentSearchOutpu
                     # Build query parameters
                     query_params = build_list_query(
                         filter_obj=input_data.list_filter,
-                        entity_username=input_data.entity_username
+                        entity_username=input_data.entity_username,
+                        company_name=input_data.company_name
                     )
                     
                     # Extract filter parameters
@@ -2361,7 +2371,8 @@ class ListDocumentsTool(BaseNode[ListDocumentsInputSchema, ListDocumentsOutputSc
             # Build query parameters
             query_params = build_list_query(
                 filter_obj=input_data.list_filter,
-                entity_username=input_data.entity_username
+                entity_username=input_data.entity_username,
+                company_name=input_data.company_name
             )
             
             # Extract filter parameters

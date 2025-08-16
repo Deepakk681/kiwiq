@@ -38,8 +38,9 @@ def get_doc_config(doc_key: str) -> Optional[UserDocumentConfig]:
 
 
 def resolve_doc_params(
-    doc_key: str, 
-    entity_username: str,
+    doc_key: str,
+    entity_username: Optional[str] = None,
+    company_name: Optional[str] = None,
     additional_vars: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
@@ -48,6 +49,7 @@ def resolve_doc_params(
     Args:
         doc_key: The document key
         entity_username: The entity username for namespace resolution
+        company_name: The company name for namespace resolution
         additional_vars: Additional template variables (e.g., _uuid_, post_uuid)
         
     Returns:
@@ -58,7 +60,11 @@ def resolve_doc_params(
         return None
     
     # Prepare template variables
-    template_vars = {"entity_username": entity_username}
+    template_vars: Dict[str, Any] = {}
+    if entity_username is not None:
+        template_vars["entity_username"] = entity_username
+    if company_name is not None:
+        template_vars["company_name"] = company_name
     if additional_vars:
         template_vars.update(additional_vars)
     
@@ -93,7 +99,7 @@ def is_high_cardinality_doc(doc_key: str) -> bool:
     all_placeholders = set(template_info.get("all_placeholders", []))
     
     # Remove entity_username from the set
-    placeholders_without_entity_username = all_placeholders - {"entity_username"}
+    placeholders_without_entity_username = all_placeholders - {"entity_username", "company_name"}
     
     # If there are any other placeholders, it's high cardinality
     return len(placeholders_without_entity_username) > 0
@@ -203,11 +209,20 @@ class DocumentIdentifier(BaseModel):
         
         return self
     
-    def resolve(self, entity_username: str, view_context: Optional[Dict[str, Dict[str, str]]] = None) -> Dict[str, Any]:
+    def resolve(
+        self,
+        entity_username: Optional[str] = None,
+        company_name: Optional[str] = None,
+        view_context: Optional[Dict[str, Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
         """Resolve to full document parameters."""
         # For unitary docs (no additional vars needed)
         # if not is_high_cardinality_doc(self.doc_key):
-        resolved_doc_params = resolve_doc_params(self.doc_key, entity_username)
+        resolved_doc_params = resolve_doc_params(
+            self.doc_key,
+            entity_username=entity_username,
+            company_name=company_name,
+        )
         
         # For high cardinality docs
         additional_vars = {}
@@ -336,17 +351,21 @@ class DocumentListFilter(BaseModel):
         
         return self
     
-    def get_doc_params(self, entity_username: str) -> Dict[str, Any]:
+    def get_doc_params(self, entity_username: Optional[str] = None, company_name: Optional[str] = None) -> Dict[str, Any]:
         """Get the doc params for filtering."""
         key_to_use = self.doc_key or self.namespace_of_doc_key
         if key_to_use:
-            params = resolve_doc_params(key_to_use, entity_username)
+            params = resolve_doc_params(
+                key_to_use,
+                entity_username=entity_username,
+                company_name=company_name,
+            )
             return params or {}
         return {}
     
-    def to_query_params(self, entity_username: str) -> Dict[str, Any]:
+    def to_query_params(self, entity_username: Optional[str] = None, company_name: Optional[str] = None) -> Dict[str, Any]:
         """Convert to query parameters for document listing."""
-        doc_params = self.get_doc_params(entity_username)
+        doc_params = self.get_doc_params(entity_username=entity_username, company_name=company_name)
         params = {
             "namespace": doc_params.get("namespace", ""),
             "is_system_entity": doc_params.get("is_system_entity", None),
@@ -399,7 +418,8 @@ class DocumentInfo(BaseModel):
 
 def identify_document(
     identifier: DocumentIdentifier,
-    entity_username: str,
+    entity_username: Optional[str] = None,
+    company_name: Optional[str] = None,
     view_context: Optional[Dict[str, Dict[str, str]]] = None
 ) -> Optional[CustomerDocumentSearchResultMetadata]:
     """
@@ -415,7 +435,11 @@ def identify_document(
     """
     
     try:
-        params = identifier.resolve(entity_username=entity_username, view_context=view_context)
+        params = identifier.resolve(
+            entity_username=entity_username,
+            company_name=company_name,
+            view_context=view_context,
+        )
         if not params:
             return None
         
@@ -441,7 +465,8 @@ def identify_document(
 
 def build_list_query(
     filter_obj: DocumentListFilter,
-    entity_username: str
+    entity_username: Optional[str] = None,
+    company_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Build a query for listing documents using the DocumentListFilter schema.
@@ -454,7 +479,7 @@ def build_list_query(
         Query parameters dict
     """
     try:
-        return filter_obj.to_query_params(entity_username=entity_username)
+        return filter_obj.to_query_params(entity_username=entity_username, company_name=company_name)
     except Exception as e:
         print(f"Error building list query: {e}")
         return {}
