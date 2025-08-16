@@ -641,7 +641,7 @@ async def run_graph(
                                 
                                 try:
                                     node_name = workflow_run_job.graph_schema.nodes.get(node_id).node_name
-                                    if (not user.is_superuser) and node_name in restricted_node_names:
+                                    if (not user.is_superuser):  #  and node_name in restricted_node_names
                                         payload["node_output"] = "DATA_REDACTED"
                                         if "central_state_update" in payload:
                                             payload["central_state_update"] = "DATA_REDACTED"
