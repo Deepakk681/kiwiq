@@ -480,7 +480,7 @@ async def websocket_endpoint(
 @websocket_router.websocket("/ws/notifications")
 async def notifications_websocket_endpoint(
     websocket: WebSocket,
-    access_token: Optional[str] = Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME, description="The JWT token for the user"),
+    token: Optional[str] = None,  # Cookie(None, alias=settings.ACCESS_TOKEN_COOKIE_NAME, description="The JWT token for the user")
     db: AsyncSession = Depends(get_async_db_dependency),
 ):
     """
@@ -501,7 +501,7 @@ async def notifications_websocket_endpoint(
     # logger.debug(f"Access token cookie received: {'present' if access_token else 'missing'}")
     
     # Check if access token is present
-    if not access_token:
+    if not token:
         logger.warning("No access token cookie found for WebSocket general notifications connection")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -509,7 +509,7 @@ async def notifications_websocket_endpoint(
     # Authenticate the user from the token
     try:
         # logger.debug(f"Attempting to authenticate user with token")
-        user, token_data = await get_current_user_from_token_non_dependency(db, access_token)
+        user, token_data = await get_current_user_from_token_non_dependency(db, token)
         if not user:
             logger.warning("Invalid token for WebSocket general notifications connection")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
