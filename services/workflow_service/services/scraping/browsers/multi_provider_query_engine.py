@@ -514,7 +514,8 @@ class MultiProviderQueryEngine:
         
         # Remove duplicates from links and citations
         normalized["links"] = self._deduplicate_list_of_dicts(normalized["links"], "url")
-        normalized["citations"] = list(set(normalized["citations"]))
+        citations_is_str = normalized["citations"] and isinstance(normalized["citations"], list) and isinstance(normalized["citations"][0], str)
+        normalized["citations"] = list(set(normalized["citations"])) if citations_is_str else normalized["citations"]
 
         del normalized["processed_data"]
         
