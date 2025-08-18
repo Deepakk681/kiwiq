@@ -28,7 +28,6 @@ async def main():
         # Import the cleanup function
         from workflow_service.services.scraping.browsers.scrapeless.scrapeless_browser import (
             cleanup_scrapeless_redis_pool,
-            ScrapelessBrowserPool
         )
         from redis_client.redis_client import AsyncRedisClient
         from global_config.settings import global_settings

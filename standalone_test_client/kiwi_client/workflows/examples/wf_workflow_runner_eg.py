@@ -30,7 +30,7 @@ from kiwi_client.test_config import CLIENT_LOG_LEVEL
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
 # Import document models for content strategy workflow
-from kiwi_client.workflows.examples.document_models.customer_docs import (
+from kiwi_client.workflows.deprecated.document_models.older_customer_docs import (
     # Content Strategy
     CONTENT_STRATEGY_DOCNAME,
     CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
@@ -84,11 +84,11 @@ workflow_graph_schema = {
                         "required": True,
                         "description": "Username of the entity for content strategy generation"
                     },
-                    # "customer_context_doc_configs": {
-                    #     "type": "list",
-                    #     "required": True,
-                    #     "description": "List of document configs for loading context"
-                    # },
+                    "customer_context_doc_configs": {
+                        "type": "list",
+                        "required": True,
+                        "description": "List of document configs for loading context"
+                    },
                     
                     # Optional workflow runner control fields
                     "execution_mode": {
@@ -152,7 +152,7 @@ workflow_graph_schema = {
             "dst_node_id": "strategy_workflow_runner",
             "mappings": [
                 {"src_field": "entity_username", "dst_field": "entity_username"},
-                # {"src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
+                {"src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
                 # Pass optional control field for thread ID if needed
                 # {"src_field": "thread_id", "dst_field": "_thread_id"}
             ]
@@ -298,63 +298,63 @@ async def main_test_workflow_runner(
     print(f"Execution Mode: {execution_mode}")
     
     # Prepare document configs for the content strategy workflow
-    # INPUT_DOCS_TO_BE_LOADED = [
-    #     {
-    #         "filename_config": {
-    #             "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
-    #             "input_namespace_field": "entity_username",
-    #             "static_docname": USER_PREFERENCES_DOCNAME,
-    #         },
-    #         "output_field_name": "user_preferences",
-    #     },
-    #     {
-    #         "filename_config": {
-    #             "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
-    #             "input_namespace_field": "entity_username",
-    #             "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
-    #         },
-    #         "output_field_name": "user_source_analysis",
-    #     },
-    #     {
-    #         "filename_config": {
-    #             "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
-    #             "input_namespace_field": "entity_username",
-    #             "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
-    #         },
-    #         "output_field_name": "core_beliefs_perspectives",
-    #     },
-    #     {
-    #         "filename_config": {
-    #             "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
-    #             "input_namespace_field": "entity_username",
-    #             "static_docname": CONTENT_PILLARS_DOCNAME,
-    #         },
-    #         "output_field_name": "content_pillars",
-    #     },
-    #     {
-    #         "filename_config": {
-    #             "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-    #             "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
-    #         },
-    #         "output_field_name": "methodology_implementation",
-    #         "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-    #         "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-    #     },
-    #     {
-    #         "filename_config": {
-    #             "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-    #             "static_docname": BUILDING_BLOCKS_DOCNAME,
-    #         },
-    #         "output_field_name": "building_blocks",
-    #         "is_shared": BUILDING_BLOCKS_IS_SHARED,
-    #         "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-    #     }
-    # ]
+    INPUT_DOCS_TO_BE_LOADED = [
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_PREFERENCES_DOCNAME,
+            },
+            "output_field_name": "user_preferences",
+        },
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
+            },
+            "output_field_name": "user_source_analysis",
+        },
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            },
+            "output_field_name": "core_beliefs_perspectives",
+        },
+        {
+            "filename_config": {
+                "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "static_docname": CONTENT_PILLARS_DOCNAME,
+            },
+            "output_field_name": "content_pillars",
+        },
+        {
+            "filename_config": {
+                "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+                "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
+            },
+            "output_field_name": "methodology_implementation",
+            "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+            "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+        },
+        {
+            "filename_config": {
+                "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+                "static_docname": BUILDING_BLOCKS_DOCNAME,
+            },
+            "output_field_name": "building_blocks",
+            "is_shared": BUILDING_BLOCKS_IS_SHARED,
+            "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+        }
+    ]
     
     # Prepare workflow inputs
     WORKFLOW_RUNNER_INPUTS = {
         "entity_username": entity_username,
-        # "customer_context_doc_configs": INPUT_DOCS_TO_BE_LOADED,
+        "customer_context_doc_configs": INPUT_DOCS_TO_BE_LOADED,
         "execution_mode": execution_mode,
         "timeout_seconds": 600
     }
@@ -367,156 +367,156 @@ async def main_test_workflow_runner(
         # Define prerequisite documents for the content strategy workflow
         setup_docs = [
             # User Preferences
-            {
-                'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username),
-                'docname': USER_PREFERENCES_DOCNAME,
-                'initial_data': {
-                    "posts_per_week": 3,
-                    "preferred_posting_days": ["Tuesday", "Thursday", "Saturday"],
-                    "preferred_topics": ["AI Innovation", "Tech Leadership", "Digital Transformation"],
-                    "content_tone": "Thought Leadership"
-                },
-                'is_versioned': USER_PREFERENCES_IS_VERSIONED,
-                'is_shared': False,
-                'initial_version': "default",
-                'is_system_entity': False
-            },
-            # Source Analysis
-            {
-                'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username),
-                'docname': USER_SOURCE_ANALYSIS_DOCNAME,
-                'initial_data': {
-                    "primary_sources": ["Tech blogs", "Research papers", "Industry reports"],
-                    "content_gaps": ["Practical implementation guides", "ROI case studies"],
-                    "audience_interests": ["AI applications", "Automation", "Future of work"],
-                    "engagement_patterns": {
-                        "high_engagement": ["Tutorial content", "Industry predictions"],
-                        "low_engagement": ["Product updates", "Company announcements"]
-                    }
-                },
-                'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED,
-                'is_shared': False,
-                'initial_version': "default",
-                'is_system_entity': False
-            },
-            # Core Beliefs and Perspectives
-            {
-                'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username),
-                'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME,
-                'initial_data': {
-                    "core_beliefs": [
-                        "AI should augment human capabilities, not replace them",
-                        "Ethical AI development is non-negotiable",
-                        "Continuous learning is essential in tech"
-                    ],
-                    "key_perspectives": [
-                        "The future of work is human-AI collaboration",
-                        "Data privacy and AI advancement can coexist",
-                        "Open-source accelerates innovation"
-                    ],
-                    "unique_viewpoints": [
-                        "Small teams with AI can outperform large traditional teams",
-                        "AI literacy should be universal education"
-                    ]
-                },
-                'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
-                'is_shared': False,
-                'initial_version': "default",
-                'is_system_entity': False
-            },
-            # Content Pillars
-            {
-                'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username),
-                'docname': CONTENT_PILLARS_DOCNAME,
-                'initial_data': {
-                    "pillars": [
-                        {
-                            "name": "AI Innovation",
-                            "topics": ["Machine Learning", "Natural Language Processing", "Computer Vision"],
-                            "audience_pain_points": ["Implementation complexity", "ROI uncertainty", "Skill gaps"]
-                        },
-                        {
-                            "name": "Tech Leadership",
-                            "topics": ["Team building", "Strategic planning", "Change management"],
-                            "audience_pain_points": ["Talent retention", "Technology adoption", "Cultural transformation"]
-                        },
-                        {
-                            "name": "Future of Work",
-                            "topics": ["Automation impact", "Skill evolution", "Remote collaboration"],
-                            "audience_pain_points": ["Job displacement fears", "Reskilling needs", "Productivity concerns"]
-                        }
-                    ]
-                },
-                'is_versioned': CONTENT_PILLARS_IS_VERSIONED,
-                'is_shared': False,
-                'initial_version': "default",
-                'is_system_entity': False
-            },
-            # System documents (Methodology and Building Blocks)
-            {
-                'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-                'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
-                'initial_data': {
-                    "methodology_name": "AI-Driven Content Strategy",
-                    "implementation_steps": [
-                        "Analyze user profile and preferences",
-                        "Generate strategic content framework",
-                        "Create targeted content briefs",
-                        "Optimize for audience engagement"
-                    ],
-                    "best_practices": [
-                        "Data-driven content decisions",
-                        "Consistent brand voice",
-                        "Audience-first approach",
-                        "Iterative improvement"
-                    ]
-                },
-                'is_versioned': False,
-                'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-                'initial_version': None,
-                'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-            },
-            {
-                'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-                'docname': BUILDING_BLOCKS_DOCNAME,
-                'initial_data': {
-                    "core_building_blocks": [
-                        "Target audience analysis",
-                        "Content pillar definition",
-                        "Engagement optimization",
-                        "Performance measurement",
-                        "Content calendar planning"
-                    ],
-                    "implementation_framework": {
-                        "phase_1": "Strategic foundation",
-                        "phase_2": "Content development",
-                        "phase_3": "Distribution strategy",
-                        "phase_4": "Performance analysis",
-                        "phase_5": "Continuous optimization"
-                    },
-                    "success_indicators": [
-                        "Engagement rate increase",
-                        "Audience growth",
-                        "Content consistency",
-                        "Brand authority"
-                    ]
-                },
-                'is_versioned': False,
-                'is_shared': BUILDING_BLOCKS_IS_SHARED,
-                'initial_version': None,
-                'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-            }
+            # {
+            #     'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username),
+            #     'docname': USER_PREFERENCES_DOCNAME,
+            #     'initial_data': {
+            #         "posts_per_week": 3,
+            #         "preferred_posting_days": ["Tuesday", "Thursday", "Saturday"],
+            #         "preferred_topics": ["AI Innovation", "Tech Leadership", "Digital Transformation"],
+            #         "content_tone": "Thought Leadership"
+            #     },
+            #     'is_versioned': USER_PREFERENCES_IS_VERSIONED,
+            #     'is_shared': False,
+            #     'initial_version': "default",
+            #     'is_system_entity': False
+            # },
+            # # Source Analysis
+            # {
+            #     'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            #     'docname': USER_SOURCE_ANALYSIS_DOCNAME,
+            #     'initial_data': {
+            #         "primary_sources": ["Tech blogs", "Research papers", "Industry reports"],
+            #         "content_gaps": ["Practical implementation guides", "ROI case studies"],
+            #         "audience_interests": ["AI applications", "Automation", "Future of work"],
+            #         "engagement_patterns": {
+            #             "high_engagement": ["Tutorial content", "Industry predictions"],
+            #             "low_engagement": ["Product updates", "Company announcements"]
+            #         }
+            #     },
+            #     'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED,
+            #     'is_shared': False,
+            #     'initial_version': "default",
+            #     'is_system_entity': False
+            # },
+            # # Core Beliefs and Perspectives
+            # {
+            #     'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username),
+            #     'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+            #     'initial_data': {
+            #         "core_beliefs": [
+            #             "AI should augment human capabilities, not replace them",
+            #             "Ethical AI development is non-negotiable",
+            #             "Continuous learning is essential in tech"
+            #         ],
+            #         "key_perspectives": [
+            #             "The future of work is human-AI collaboration",
+            #             "Data privacy and AI advancement can coexist",
+            #             "Open-source accelerates innovation"
+            #         ],
+            #         "unique_viewpoints": [
+            #             "Small teams with AI can outperform large traditional teams",
+            #             "AI literacy should be universal education"
+            #         ]
+            #     },
+            #     'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+            #     'is_shared': False,
+            #     'initial_version': "default",
+            #     'is_system_entity': False
+            # },
+            # # Content Pillars
+            # {
+            #     'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username),
+            #     'docname': CONTENT_PILLARS_DOCNAME,
+            #     'initial_data': {
+            #         "pillars": [
+            #             {
+            #                 "name": "AI Innovation",
+            #                 "topics": ["Machine Learning", "Natural Language Processing", "Computer Vision"],
+            #                 "audience_pain_points": ["Implementation complexity", "ROI uncertainty", "Skill gaps"]
+            #             },
+            #             {
+            #                 "name": "Tech Leadership",
+            #                 "topics": ["Team building", "Strategic planning", "Change management"],
+            #                 "audience_pain_points": ["Talent retention", "Technology adoption", "Cultural transformation"]
+            #             },
+            #             {
+            #                 "name": "Future of Work",
+            #                 "topics": ["Automation impact", "Skill evolution", "Remote collaboration"],
+            #                 "audience_pain_points": ["Job displacement fears", "Reskilling needs", "Productivity concerns"]
+            #             }
+            #         ]
+            #     },
+            #     'is_versioned': CONTENT_PILLARS_IS_VERSIONED,
+            #     'is_shared': False,
+            #     'initial_version': "default",
+            #     'is_system_entity': False
+            # },
+            # # System documents (Methodology and Building Blocks)
+            # {
+            #     'namespace': METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+            #     'docname': METHODOLOGY_IMPLEMENTATION_DOCNAME,
+            #     'initial_data': {
+            #         "methodology_name": "AI-Driven Content Strategy",
+            #         "implementation_steps": [
+            #             "Analyze user profile and preferences",
+            #             "Generate strategic content framework",
+            #             "Create targeted content briefs",
+            #             "Optimize for audience engagement"
+            #         ],
+            #         "best_practices": [
+            #             "Data-driven content decisions",
+            #             "Consistent brand voice",
+            #             "Audience-first approach",
+            #             "Iterative improvement"
+            #         ]
+            #     },
+            #     'is_versioned': False,
+            #     'is_shared': METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+            #     'initial_version': None,
+            #     'is_system_entity': METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+            # },
+            # {
+            #     'namespace': BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+            #     'docname': BUILDING_BLOCKS_DOCNAME,
+            #     'initial_data': {
+            #         "core_building_blocks": [
+            #             "Target audience analysis",
+            #             "Content pillar definition",
+            #             "Engagement optimization",
+            #             "Performance measurement",
+            #             "Content calendar planning"
+            #         ],
+            #         "implementation_framework": {
+            #             "phase_1": "Strategic foundation",
+            #             "phase_2": "Content development",
+            #             "phase_3": "Distribution strategy",
+            #             "phase_4": "Performance analysis",
+            #             "phase_5": "Continuous optimization"
+            #         },
+            #         "success_indicators": [
+            #             "Engagement rate increase",
+            #             "Audience growth",
+            #             "Content consistency",
+            #             "Brand authority"
+            #         ]
+            #     },
+            #     'is_versioned': False,
+            #     'is_shared': BUILDING_BLOCKS_IS_SHARED,
+            #     'initial_version': None,
+            #     'is_system_entity': BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+            # }
         ]
         
         # Define cleanup documents
         cleanup_docs = [
             # User-specific documents
-            {'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': USER_PREFERENCES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
-            {'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_SOURCE_ANALYSIS_DOCNAME, 'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
-            {'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME, 'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
-            {'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': CONTENT_PILLARS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
-            # Output document created by the child workflow
-            {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_STRATEGY_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+            # {'namespace': USER_PREFERENCES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_PREFERENCES_DOCNAME, 'is_versioned': USER_PREFERENCES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+            # {'namespace': USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_SOURCE_ANALYSIS_DOCNAME, 'is_versioned': USER_SOURCE_ANALYSIS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+            # {'namespace': CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CORE_BELIEFS_PERSPECTIVES_DOCNAME, 'is_versioned': CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+            # {'namespace': CONTENT_PILLARS_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_PILLARS_DOCNAME, 'is_versioned': CONTENT_PILLARS_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+            # # Output document created by the child workflow
+            # {'namespace': CONTENT_STRATEGY_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': CONTENT_STRATEGY_DOCNAME, 'is_versioned': CONTENT_STRATEGY_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
         ]
     
     # Execute the test

@@ -58,6 +58,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 
 from global_config.settings import global_settings
+from global_config.logger import get_prefect_or_regular_python_logger
 
 import requests
 
@@ -123,6 +124,7 @@ class ScrapelessAPIClient:
         # Validate API key is present and not empty (allow empty for browser-only mode)
         api_key = scraping_settings.SCRAPELESS_API_KEY
         self.has_api_key = bool(api_key and api_key.strip())
+        self.logger = get_prefect_or_regular_python_logger(__name__)
         
         if self.has_api_key:
             self.api_config = {
@@ -132,10 +134,10 @@ class ScrapelessAPIClient:
                     "Content-Type": "application/json"
                 }
             }
-            print(f"🔑 API Client initialized with key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
+            self.logger.debug(f"🔑 API Client initialized with key: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
         else:
             self.api_config = None
-            print("⚠️ No API key found - will use browser automation only")
+            self.logger.debug("⚠️ No API key found - will use browser automation only")
         
         # Browser automation configuration
         self.use_browser_fallback = use_browser_fallback
@@ -145,7 +147,7 @@ class ScrapelessAPIClient:
         self._browser_actor: Optional[ScrapelessLoggedInBrowserActor] = None
         self._browser_logged_in = False
         
-        print(f"🔧 Browser fallback {'enabled' if use_browser_fallback else 'disabled'}")
+        self.logger.debug(f"🔧 Browser fallback {'enabled' if use_browser_fallback else 'disabled'}")
     
     async def _ensure_browser_session(self) -> bool:
         """
@@ -164,7 +166,7 @@ class ScrapelessAPIClient:
         """
         try:
             if self._browser_session is None:
-                print("🔄 Initializing browser session for profile creation...")
+                self.logger.debug("🔄 Initializing browser session for profile creation...")
                 from workflow_service.services.scraping.browsers.scrapeless.scrapeless_browser import ScrapelessBrowser
                 from workflow_service.services.scraping.browsers.actors.scrapeless_logged_in_browser_actor import ScrapelessLoggedInBrowserActor
                 self._browser_session = ScrapelessBrowser(profile_id="39fd01df-7bf9-44b5-befb-4ea5d238caf8", persist_profile=True)
@@ -176,18 +178,18 @@ class ScrapelessAPIClient:
                     page=self._browser_session.page,
                     live_url=self._browser_session.get_live_url()
                 )
-                print("✅ Browser session initialized")
+                self.logger.debug("✅ Browser session initialized")
             
             if not self._browser_logged_in:
-                print("🔐 Starting browser login flow...")
+                self.logger.debug("🔐 Starting browser login flow...")
                 await self._browser_actor.wait_for_manual_login()
                 self._browser_logged_in = True
-                print("✅ Browser session logged in and ready")
+                self.logger.debug("✅ Browser session logged in and ready")
             
             return True
             
         except Exception as e:
-            print(f"❌ Error ensuring browser session: {e}")
+            self.logger.debug(f"❌ Error ensuring browser session: {e}")
             await self._cleanup_browser_session()
             return False
     
@@ -203,9 +205,9 @@ class ScrapelessAPIClient:
                 self._browser_session = None
                 self._browser_actor = None
                 self._browser_logged_in = False
-                print("🧹 Browser session cleaned up")
+                self.logger.debug("🧹 Browser session cleaned up")
         except Exception as e:
-            print(f"⚠️ Error during browser cleanup: {e}")
+            self.logger.debug(f"⚠️ Error during browser cleanup: {e}")
     
     async def create_profile_via_browser(self, name: str) -> Dict[str, Any] | None:
         """
@@ -226,27 +228,27 @@ class ScrapelessAPIClient:
             First call will trigger manual login flow with ipdb.set_trace()
         """
         try:
-            print(f"🌐 Creating profile via browser automation: {name}")
+            self.logger.debug(f"🌐 Creating profile via browser automation: {name}")
             
             # Ensure browser session is ready
             if not await self._ensure_browser_session():
-                print("❌ Failed to ensure browser session for profile creation")
+                self.logger.debug("❌ Failed to ensure browser session for profile creation")
                 return None
             
             # Create profile using browser automation
             result = await self._browser_actor.create_profile_automatically(name)
             
             if result and result.get("success"):
-                print(f"✅ Profile created successfully via browser: {name}")
+                self.logger.debug(f"✅ Profile created successfully via browser: {name}")
                 
                 # Extract actual profile ID from browser automation result
                 actual_profile_id = result.get("profile_id")
                 
                 if actual_profile_id:
-                    print(f"   - Extracted actual profile ID: {actual_profile_id}")
+                    self.logger.debug(f"   - Extracted actual profile ID: {actual_profile_id}")
                     profile_id = actual_profile_id
                 else:
-                    print(f"   - No profile ID extracted, using fallback ID")
+                    self.logger.debug(f"   - No profile ID extracted, using fallback ID")
                     # Fallback to generated ID if extraction failed
                     profile_id = f"browser_created_{name}_{int(time.time())}"
                 
@@ -261,11 +263,11 @@ class ScrapelessAPIClient:
                 }
             else:
                 error_msg = result.get("message", "Unknown error") if result else "No result returned"
-                print(f"❌ Browser profile creation failed: {error_msg}")
+                self.logger.debug(f"❌ Browser profile creation failed: {error_msg}")
                 return None
                 
         except Exception as e:
-            print(f"❌ Error creating profile via browser: {e}")
+            self.logger.debug(f"❌ Error creating profile via browser: {e}")
             # Cleanup browser session on error
             await self._cleanup_browser_session()
             return None
@@ -278,16 +280,16 @@ class ScrapelessAPIClient:
     #         True if connection successful, False otherwise
     #     """
     #     try:
-    #         print("🔍 Testing API connection...")
+    #         self.logger.debug("🔍 Testing API connection...")
     #         response = self.get_profiles(page=1, page_size=1)
     #         if response is not None:
-    #             print("✅ API connection test successful")
+    #             self.logger.debug("✅ API connection test successful")
     #             return True
     #         else:
-    #             print("❌ API connection test failed")
+    #             self.logger.debug("❌ API connection test failed")
     #             return False
     #     except Exception as e:
-    #         print(f"❌ API connection test failed: {e}")
+    #         self.logger.debug(f"❌ API connection test failed: {e}")
     #         return False
     
     async def create_profile(self, name: str, timeout: int = 30, force_browser: bool = False) -> Dict[str, Any] | None:
@@ -316,21 +318,21 @@ class ScrapelessAPIClient:
             if api_result is not None:
                 return api_result
             
-            print(f"⚠️ API profile creation failed for '{name}', attempting browser fallback...")
+            self.logger.debug(f"⚠️ API profile creation failed for '{name}', attempting browser fallback...")
         
         # Fallback to browser automation if enabled
         if self.use_browser_fallback:
             if not self.has_api_key:
-                print(f"🌐 No API key available, using browser automation for '{name}'")
+                self.logger.debug(f"🌐 No API key available, using browser automation for '{name}'")
             elif force_browser:
-                print(f"🌐 Browser automation forced for '{name}'")
+                self.logger.debug(f"🌐 Browser automation forced for '{name}'")
             else:
-                print(f"🌐 Using browser automation fallback for '{name}'")
+                self.logger.debug(f"🌐 Using browser automation fallback for '{name}'")
                 
             return await self.create_profile_via_browser(name)
         
         # All methods failed or disabled
-        print(f"❌ All profile creation methods failed or disabled for '{name}'")
+        self.logger.debug(f"❌ All profile creation methods failed or disabled for '{name}'")
         return None
     
     async def _create_profile_via_api(self, name: str, timeout: int = 30) -> Dict[str, Any] | None:
@@ -345,14 +347,14 @@ class ScrapelessAPIClient:
             Profile data dict if successful, None if failed
         """
         if not self.api_config:
-            print(f"❌ No API configuration available for '{name}'")
+            self.logger.debug(f"❌ No API configuration available for '{name}'")
             return None
             
         url = f"{self.api_config['host']}/browser/profiles"
         payload = {"name": name}
         
         try:
-            print(f"🔌 Attempting API profile creation: {name}")
+            self.logger.debug(f"🔌 Attempting API profile creation: {name}")
             response = requests.post(
                 url, 
                 headers=self.api_config["headers"], 
@@ -365,7 +367,7 @@ class ScrapelessAPIClient:
             
             # Debug: Print full response only if verbose debugging is needed
             # Uncomment the next line for detailed API response debugging:
-            # print(f"🔍 API Response for '{name}': {profile_data}")
+            # self.logger.debug(f"🔍 API Response for '{name}': {profile_data}")
             
             # Check for profile ID in common possible fields
             profile_id = None
@@ -375,23 +377,23 @@ class ScrapelessAPIClient:
                     break
             
             if profile_id:
-                print(f"✅ Profile created successfully via API: {name} (ID: {profile_id})")
+                self.logger.debug(f"✅ Profile created successfully via API: {name} (ID: {profile_id})")
                 profile_data["created_via"] = "api"
                 return profile_data
             else:
-                print(f"⚠️ API profile creation response missing ID field: {name}")
-                print(f"   Available fields: {list(profile_data.keys())}")
+                self.logger.debug(f"⚠️ API profile creation response missing ID field: {name}")
+                self.logger.debug(f"   Available fields: {list(profile_data.keys())}")
                 return None
             
         except requests.RequestException as error:
-            print(f"❌ API error creating profile '{name}': {error}")
+            self.logger.debug(f"❌ API error creating profile '{name}': {error}")
             if hasattr(error, 'response') and error.response is not None:
                 try:
                     error_data = error.response.json()
-                    print(f"   API Error Details: {error_data}")
+                    self.logger.debug(f"   API Error Details: {error_data}")
                 except:
-                    print(f"   Response Status: {error.response.status_code}")
-                    print(f"   Response Text: {error.response.text}")
+                    self.logger.debug(f"   Response Status: {error.response.status_code}")
+                    self.logger.debug(f"   Response Text: {error.response.text}")
             return None
     
     async def cleanup(self) -> None:
@@ -401,7 +403,7 @@ class ScrapelessAPIClient:
         Should be called when done with the API client to properly clean up browser resources.
         """
         await self._cleanup_browser_session()
-        print("🧹 ScrapelessAPIClient cleanup completed")
+        self.logger.debug("🧹 ScrapelessAPIClient cleanup completed")
     
     def get_profiles(self, page: int = 1, page_size: int = 100) -> Dict[str, Any] | None:
         """
@@ -414,17 +416,24 @@ class ScrapelessAPIClient:
         Returns:
             API response with profile list if successful, None if failed
         """
+        if not self.has_api_key or not self.api_config:
+            self.logger.debug(f"⚠️ No API key configured, skipping profile fetch")
+            return None
+            
         query = {"page": page, "pageSize": page_size}
         query_str = urlencode(query)
         url = f"{self.api_config['host']}/browser/profiles?{query_str}"
         
         try:
-            response = requests.get(url, headers=self.api_config["headers"])
+            response = requests.get(url, headers=self.api_config["headers"], timeout=30)
             response.raise_for_status()
             return response.json()
             
         except requests.RequestException as error:
-            print(f"❌ Error retrieving profiles: {error}")
+            self.logger.debug(f"❌ Error retrieving profiles: {error}")
+            if hasattr(error, 'response') and error.response is not None:
+                self.logger.debug(f"   Response status: {error.response.status_code}")
+                self.logger.debug(f"   Response text: {error.response.text[:500]}")
             return None
     
     def get_profile(self, profile_id: str) -> Dict[str, Any] | None:
@@ -445,7 +454,7 @@ class ScrapelessAPIClient:
             return response.json()
             
         except requests.RequestException as error:
-            print(f"❌ Error retrieving profile {profile_id}: {error}")
+            self.logger.debug(f"❌ Error retrieving profile {profile_id}: {error}")
             return None
     
     def delete_profile(self, profile_id: str) -> bool:
@@ -463,11 +472,11 @@ class ScrapelessAPIClient:
         try:
             response = requests.delete(url, headers=self.api_config["headers"])
             response.raise_for_status()
-            print(f"✅ Profile deleted successfully: {profile_id}")
+            self.logger.debug(f"✅ Profile deleted successfully: {profile_id}")
             return True
             
         except requests.RequestException as error:
-            print(f"❌ Error deleting profile {profile_id}: {error}")
+            self.logger.debug(f"❌ Error deleting profile {profile_id}: {error}")
             return False
 
 
@@ -497,6 +506,7 @@ class ProfileAllocationManager:
             allocation_penalty: Penalty increase on allocation (default: 2)
             release_recovery: Penalty decrease on release (default: 1)
         """
+        self.logger = get_prefect_or_regular_python_logger(__name__)
         self._allocation_lock = threading.RLock()  # Reentrant lock for nested calls
         self._profile_heap: List[Tuple[int, str]] = []  # (penalty_score, profile_id)
         self._profile_data: Dict[str, ProfileData] = {}
@@ -511,9 +521,9 @@ class ProfileAllocationManager:
         self._lifetime_releases = 0
         self._over_release_attempts = 0
         
-        print(f"🔧 Profile allocation manager initialized with asymmetrical penalties:")
-        print(f"   ➕ Allocation penalty: +{allocation_penalty}")
-        print(f"   ➖ Release recovery: -{release_recovery}")
+        self.logger.debug(f"🔧 Profile allocation manager initialized with asymmetrical penalties:")
+        self.logger.debug(f"   ➕ Allocation penalty: +{allocation_penalty}")
+        self.logger.debug(f"   ➖ Release recovery: -{release_recovery}")
     
     def load_profiles(self, profiles: List[ProfileData]) -> None:
         """
@@ -528,7 +538,7 @@ class ProfileAllocationManager:
             Thread-safe operation that rebuilds internal priority queue using penalty scores
         """
         with self._allocation_lock:
-            print(f"📥 Loading {len(profiles)} profiles into allocation manager...")
+            self.logger.debug(f"📥 Loading {len(profiles)} profiles into allocation manager...")
             
             self._profile_data.clear()
             self._profile_heap.clear()
@@ -537,7 +547,7 @@ class ProfileAllocationManager:
             # Randomly shuffle profiles before loading to avoid allocation patterns
             shuffled_profiles = profiles.copy()  # Create copy to avoid modifying original list
             random.shuffle(shuffled_profiles)
-            print(f"🔀 Randomly shuffled {len(shuffled_profiles)} profiles for load balancing")
+            self.logger.debug(f"🔀 Randomly shuffled {len(shuffled_profiles)} profiles for load balancing")
             
             for profile in shuffled_profiles:
                 self._profile_data[profile.profile_id] = profile
@@ -550,13 +560,13 @@ class ProfileAllocationManager:
                     # Calculate penalty based on active allocations
                     # Each active allocation should contribute the allocation penalty
                     profile.penalty_score = profile.actual_allocations * self.allocation_penalty
-                    print(f"   Seeded {profile.name} penalty to {profile.penalty_score} "
+                    self.logger.debug(f"   Seeded {profile.name} penalty to {profile.penalty_score} "
                           f"(based on {profile.actual_allocations} active allocations)")
                 
                 # Add to heap with penalty score as priority (lower = higher priority)
                 heappush(self._profile_heap, (profile.penalty_score, profile.profile_id))
             
-            print(f"✅ Successfully loaded {len(profiles)} profiles (penalty scores seeded from cache)")
+            self.logger.debug(f"✅ Successfully loaded {len(profiles)} profiles (penalty scores seeded from cache)")
     
     def allocate_profile(self) -> ProfileData | None:
         """
@@ -576,7 +586,7 @@ class ProfileAllocationManager:
         """
         with self._allocation_lock:
             if not self._profile_heap:
-                print("⚠️ No profiles available for allocation - pool is empty")
+                self.logger.debug("⚠️ No profiles available for allocation - pool is empty")
                 return None
             
             # Get profile with lowest penalty score, handling stale heap entries
@@ -597,7 +607,7 @@ class ProfileAllocationManager:
                     continue
             else:
                 # No valid entries found (shouldn't happen)
-                print("⚠️ No valid profiles found in heap")
+                self.logger.debug("⚠️ No valid profiles found in heap")
                 return None
             
             # Apply asymmetrical penalties
@@ -618,7 +628,7 @@ class ProfileAllocationManager:
             # Determine status message
             status = "🔄 REUSING" if profile.actual_allocations > 1 else "🎯 ALLOCATED"
             
-            print(f"{status} profile: {profile.name} (ID: {profile_id[:8]}..., "
+            self.logger.debug(f"{status} profile: {profile.name} (ID: {profile_id[:8]}..., "
                   f"Penalty: {profile.penalty_score}, Active: {profile.actual_allocations}, "
                   f"Total: {profile.total_allocations})")
             
@@ -645,21 +655,21 @@ class ProfileAllocationManager:
         """
         with self._allocation_lock:
             if profile_id not in self._profile_data:
-                print(f"⚠️ Cannot release profile {profile_id}: profile not found")
+                self.logger.debug(f"⚠️ Cannot release profile {profile_id}: profile not found")
                 return False
             
             profile = self._profile_data[profile_id]
             
             # Safeguard: Check if profile has any active allocations
             if profile.actual_allocations <= 0:
-                print(f"⚠️ Cannot release profile {profile.name}: no active allocations "
+                self.logger.debug(f"⚠️ Cannot release profile {profile.name}: no active allocations "
                       f"(current: {profile.actual_allocations})")
                 self._over_release_attempts += 1
                 return False
             
             # Safeguard: Check if we have tracked allocations for this profile
             if profile_id not in self._allocated_profiles or not self._allocated_profiles[profile_id]:
-                print(f"⚠️ Cannot release profile {profile.name}: no tracked allocations")
+                self.logger.debug(f"⚠️ Cannot release profile {profile.name}: no tracked allocations")
                 self._over_release_attempts += 1
                 return False
             
@@ -685,7 +695,7 @@ class ProfileAllocationManager:
             # Determine status message
             status = "🔄 RELEASED" if profile.actual_allocations > 0 else "✅ FULLY RELEASED"
             
-            print(f"{status} profile: {profile.name} (ID: {profile_id[:8]}..., "
+            self.logger.debug(f"{status} profile: {profile.name} (ID: {profile_id[:8]}..., "
                   f"Penalty: {profile.penalty_score}, Active: {profile.actual_allocations}, "
                   f"Thread: {str(released_thread)[:20]}...)")
             
@@ -789,7 +799,9 @@ class ScrapelessProfileManager:
                  name_prefix: str = DEFAULT_ENTITY_PREFIX,
                  cache_file: str = "scrapeless_profiles_cache.json",
                  redis_url: str = global_settings.REDIS_URL,
-                 save_cache_on_operations: bool = False):
+                 save_cache_on_operations: bool = False,
+                 start_profile_index: Optional[int] = None,
+                 end_profile_index: Optional[int] = None):
         """
         Initialize profile manager with configuration.
         
@@ -799,10 +811,30 @@ class ScrapelessProfileManager:
             cache_file: Local JSON cache file path (relative to data directory)
             redis_url: Redis URL for multi-processing safe cache operations
             save_cache_on_operations: If True, save cache on every allocate/release (default: False)
+            start_profile_index: Optional start index for profile range (inclusive). If specified,
+                                only profiles with indices >= start_profile_index will be used.
+                                Useful for bootstrapping/warming up specific profile subsets.
+            end_profile_index: Optional end index for profile range (inclusive). If specified,
+                              only profiles with indices <= end_profile_index will be used.
+                              Must be >= start_profile_index if both are specified.
         """
+        self.logger = get_prefect_or_regular_python_logger(__name__)
         self.num_profiles = num_profiles
         self.name_prefix = name_prefix
         self.save_cache_on_operations = save_cache_on_operations
+        
+        # Profile range configuration
+        self.start_profile_index = start_profile_index if start_profile_index is not None else 1
+        self.end_profile_index = end_profile_index if end_profile_index is not None else num_profiles
+        
+        # Validate range
+        if self.end_profile_index < self.start_profile_index:
+            raise ValueError(f"end_profile_index ({self.end_profile_index}) must be >= start_profile_index ({self.start_profile_index})")
+        
+        # Adjust num_profiles based on range if specified
+        if start_profile_index is not None or end_profile_index is not None:
+            self.num_profiles = min(num_profiles, self.end_profile_index - self.start_profile_index + 1)
+            self.logger.debug(f"🎯 Profile range configured: indices {self.start_profile_index} to {self.end_profile_index} (max {self.num_profiles} profiles)")
         
         # Create data directory path relative to current file
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -820,13 +852,13 @@ class ScrapelessProfileManager:
         
         self.redis_client = AsyncRedisClient(redis_url)
         self.cache_lock_key = f"scrapeless_cache_lock:{os.path.basename(self.cache_file)}"
-        print(f"🔒 Redis-based locking enabled for cache operations")
+        self.logger.debug(f"🔒 Redis-based locking enabled for cache operations")
         
         # Initialize components
         try:
             self.api_client = ScrapelessAPIClient()
         except ValueError as e:
-            print(f"❌ Failed to initialize API client: {e}")
+            self.logger.debug(f"❌ Failed to initialize API client: {e}")
             self.api_client = None
             
         self.allocation_manager = ProfileAllocationManager()
@@ -840,12 +872,14 @@ class ScrapelessProfileManager:
         # Track initial state for delta calculations during cache save
         self._initial_profile_state: Dict[str, Dict[str, int]] = {}
         
-        print(f"🚀 ScrapelessProfileManager initialized:")
-        print(f"   📊 Target profiles: {num_profiles}")
-        print(f"   🏷️  Name prefix: {name_prefix}")
-        print(f"   📁 Data directory: {self.data_dir}")
-        print(f"   💾 Cache file: {self.cache_file}")
-        print(f"   🔄 Save on operations: {save_cache_on_operations}")
+        self.logger.debug(f"🚀 ScrapelessProfileManager initialized:")
+        self.logger.debug(f"   📊 Target profiles: {self.num_profiles}")
+        self.logger.debug(f"   🏷️  Name prefix: {name_prefix}")
+        self.logger.debug(f"   📁 Data directory: {self.data_dir}")
+        self.logger.debug(f"   💾 Cache file: {self.cache_file}")
+        self.logger.debug(f"   🔄 Save on operations: {save_cache_on_operations}")
+        if start_profile_index is not None or end_profile_index is not None:
+            self.logger.debug(f"   🎯 Profile range: {self.start_profile_index} to {self.end_profile_index} (indices)")
     
     async def __aenter__(self):
         """Async context manager entry - opens the profile manager."""
@@ -870,21 +904,21 @@ class ScrapelessProfileManager:
             True if opened successfully, False otherwise
         """
         if self._is_opened:
-            print("ℹ️ Profile manager already opened")
+            self.logger.debug("ℹ️ Profile manager already opened")
             return True
         
         # Initialize profile pool
         if not self._is_initialized:
             success = await self.init()
             if not success:
-                print("❌ Failed to open profile manager: initialization failed")
+                self.logger.debug("❌ Failed to open profile manager: initialization failed")
                 return False
         
         # Record initial state for delta tracking
         self._record_initial_state()
         
         self._is_opened = True
-        print(f"✅ Profile manager opened (save_on_operations: {self.save_cache_on_operations})")
+        self.logger.debug(f"✅ Profile manager opened (save_on_operations: {self.save_cache_on_operations})")
         return True
     
     async def close(self) -> None:
@@ -898,25 +932,25 @@ class ScrapelessProfileManager:
         4. Performs cleanup operations
         """
         if not self._is_opened:
-            print("ℹ️ Profile manager already closed or never opened")
+            self.logger.debug("ℹ️ Profile manager already closed or never opened")
             return
         
         try:
             # Save final cache state with all accumulated deltas
             await self._save_profiles_to_cache()
-            print("💾 Final cache state saved during close")
+            self.logger.debug("💾 Final cache state saved during close")
         except Exception as e:
-            print(f"⚠️ Error saving cache during close: {e}")
+            self.logger.debug(f"⚠️ Error saving cache during close: {e}")
         
         try:
             # Clean up API client resources (browser sessions, etc.)
             if self.api_client:
                 await self.api_client.cleanup()
         except Exception as e:
-            print(f"⚠️ Error cleaning up API client during close: {e}")
+            self.logger.debug(f"⚠️ Error cleaning up API client during close: {e}")
         
         self._is_opened = False
-        print("🔒 Profile manager closed")
+        self.logger.debug("🔒 Profile manager closed")
     
     def _record_initial_state(self) -> None:
         """
@@ -934,7 +968,7 @@ class ScrapelessProfileManager:
                 "penalty_score": profile.penalty_score
             }
         
-        print(f"📊 Recorded initial state for {len(self._profiles)} profiles")
+        self.logger.debug(f"📊 Recorded initial state for {len(self._profiles)} profiles")
     
     async def _generate_profile_name(self, index: int) -> str:
         """Generate profile name using configured prefix and index."""
@@ -954,11 +988,11 @@ class ScrapelessProfileManager:
             List of ProfileData objects for existing profiles on the API server
         """
         if not self.api_client or not self.api_client.has_api_key:
-            print("ℹ️ No API client available, skipping API profile fetch")
+            self.logger.debug("ℹ️ No API client available, skipping API profile fetch")
             return []
         
         try:
-            print(f"🔍 Fetching existing profiles from API with prefix: {self.name_prefix}")
+            self.logger.debug(f"🔍 Fetching existing profiles from API with prefix: {self.name_prefix}")
             
             all_api_profiles = []
             page = 1
@@ -968,61 +1002,140 @@ class ScrapelessProfileManager:
             while True:
                 response = self.api_client.get_profiles(page=page, page_size=page_size)
                 if not response:
+                    self.logger.debug(f"⚠️ No response from API for page {page}")
                     break
                 
-                profiles = response.get('data', [])
+                # Debug: Log response structure
+                if page == 1:
+                    self.logger.debug(f"🔍 API response structure keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
+                
+                # Try different possible response structures
+                profiles = []
+                if isinstance(response, list):
+                    # Response is directly a list of profiles
+                    profiles = response
+                elif isinstance(response, dict):
+                    # Response is an object, profiles might be in 'docs', 'data', 'profiles', 'items', or 'results'
+                    for key in ['docs', 'data', 'profiles', 'items', 'results']:
+                        if key in response:
+                            profiles = response[key]
+                            if page == 1:
+                                self.logger.debug(f"   Found profiles in response['{key}']")
+                            break
+                    
+                    # If still no profiles, maybe the response itself contains profile list at root
+                    if not profiles and 'id' in response:
+                        # Single profile response
+                        profiles = [response]
+                
                 if not profiles:
+                    if page == 1:
+                        self.logger.debug(f"⚠️ No profiles found in API response structure")
                     break
                 
-                all_api_profiles.extend(profiles)
+                all_api_profiles.extend(profiles if isinstance(profiles, list) else [profiles])
                 
                 # Check if there are more pages
-                total = response.get('total', 0)
-                if len(all_api_profiles) >= total:
-                    break
+                if isinstance(response, dict):
+                    # Handle various pagination formats
+                    total = response.get('total', response.get('totalDocs', response.get('totalCount', response.get('count', 0))))
+                    has_more = response.get('hasMore', response.get('has_more', response.get('hasNextPage', False)))
+                    
+                    # Debug pagination info on first page
+                    if page == 1 and total > 0:
+                        self.logger.debug(f"   Total profiles available: {total}")
+                    
+                    # If we have a total count, check if we've fetched all
+                    if total > 0 and len(all_api_profiles) >= total:
+                        break
+                    
+                    # Check hasNextPage for this API structure
+                    if 'hasNextPage' in response and not response['hasNextPage']:
+                        break
+                    
+                    # If there's a hasMore flag, use it
+                    if 'hasMore' in response and not response['hasMore']:
+                        break
+                    
+                    # If we got fewer profiles than page_size, assume no more pages
+                    if len(profiles) < page_size:
+                        break
+                else:
+                    # For list responses, if we got fewer than page_size, assume no more
+                    if len(profiles) < page_size:
+                        break
                 
                 page += 1
+                
+                # Safety limit to prevent infinite loops
+                if page > 20:
+                    self.logger.debug(f"⚠️ Reached page limit (20), stopping profile fetch")
+                    break
             
-            print(f"📥 Fetched {len(all_api_profiles)} total profiles from API")
+            self.logger.debug(f"📥 Fetched {len(all_api_profiles)} total profiles from API")
             
-            # Filter profiles that match our naming pattern
+            # Filter profiles that match our naming pattern and are within the configured range
             matching_profiles = []
             for api_profile in all_api_profiles:
-                profile_name = api_profile.get('name', '')
+                # Try to get profile name from different possible fields
+                profile_name = api_profile.get('name', api_profile.get('profileName', api_profile.get('title', '')))
+                
+                # Debug first few profiles to see structure
+                if len(matching_profiles) < 3:
+                    self.logger.debug(f"   Profile sample: name='{profile_name}', id='{api_profile.get('id', 'N/A')}'")
+                
                 if profile_name.startswith(f"{self.name_prefix}-"):
                     try:
-                        # Extract index from name (e.g., "profile-1" -> 1)
+                        # Extract index from name (e.g., "quickIQ-1" -> 1)
                         index_str = profile_name[len(f"{self.name_prefix}-"):]
                         index = int(index_str)
                         
+                        # Check if profile is within the configured range
+                        if index < self.start_profile_index or index > self.end_profile_index:
+                            # Only log first few skips to avoid spam
+                            if index < self.start_profile_index and index <= self.start_profile_index + 3:
+                                self.logger.debug(f"⏭️ Skipping profile outside range: {profile_name} (index {index} < {self.start_profile_index})")
+                            elif index > self.end_profile_index and index <= self.end_profile_index + 3:
+                                self.logger.debug(f"⏭️ Skipping profile outside range: {profile_name} (index {index} > {self.end_profile_index})")
+                            continue
+                        
+                        # Try to get profile ID from different possible fields
+                        profile_id = str(api_profile.get('id', api_profile.get('profileId', api_profile.get('_id', api_profile.get('uuid', '')))))
+                        
+                        # Try to get creation date from different fields
+                        created_at = api_profile.get('createdAt', api_profile.get('created_at', api_profile.get('created', datetime.now().isoformat())))
+                        
                         # Convert to ProfileData
                         profile_data = ProfileData(
-                            profile_id=str(api_profile.get('id', '')),
+                            profile_id=profile_id,
                             name=profile_name,
-                            created_at=api_profile.get('createdAt', datetime.now().isoformat()),
+                            created_at=created_at,
                             penalty_score=0,  # Initialize with no penalty
                             actual_allocations=0,  # Reset allocations
                             total_allocations=0  # Reset lifetime allocations
                         )
                         matching_profiles.append((index, profile_data))
                         
-                    except (ValueError, TypeError):
-                        print(f"⚠️ Skipping profile with invalid index: {profile_name}")
+                    except (ValueError, TypeError) as e:
+                        self.logger.debug(f"⚠️ Skipping profile with invalid index: {profile_name} - {e}")
                         continue
             
             # Sort by index and return ProfileData objects
             matching_profiles.sort(key=lambda x: x[0])
             sorted_profiles = [profile_data for _, profile_data in matching_profiles]
             
-            print(f"✅ Found {len(sorted_profiles)} matching profiles on API server")
+            self.logger.debug(f"✅ Found {len(sorted_profiles)} matching profiles on API server within range [{self.start_profile_index}, {self.end_profile_index}]")
             if sorted_profiles:
                 indices = [int(p.name.split('-')[-1]) for p in sorted_profiles]
-                print(f"   Profile indices: {indices[:10]}{'...' if len(indices) > 10 else ''}")
+                indices.sort()
+                if indices:
+                    self.logger.debug(f"   Profile indices found: {indices[:10]}{'...' if len(indices) > 10 else ''}")
+                    self.logger.debug(f"   Range: {min(indices)} to {max(indices)}")
             
             return sorted_profiles
             
         except Exception as e:
-            print(f"❌ Error fetching profiles from API: {e}")
+            self.logger.debug(f"❌ Error fetching profiles from API: {e}")
             return []
     
     async def _save_profiles_to_cache(self) -> None:
@@ -1061,7 +1174,7 @@ class ScrapelessProfileManager:
         
         for attempt in range(max_retries):
             try:
-                print(f"🔒 Attempting to acquire cache lock (attempt {attempt + 1}/{max_retries})...")
+                self.logger.debug(f"🔒 Attempting to acquire cache lock (attempt {attempt + 1}/{max_retries})...")
                 
                 # Acquire distributed lock with timeout
                 async with self.redis_client.with_lock(
@@ -1069,7 +1182,7 @@ class ScrapelessProfileManager:
                     timeout=lock_timeout, 
                     ttl=lock_timeout + 10
                 ):
-                    print(f"✅ Cache lock acquired, performing safe delta merge operation...")
+                    self.logger.debug(f"✅ Cache lock acquired, performing safe delta merge operation...")
                     
                     # Read existing cache data while holding lock
                     existing_data = {}
@@ -1084,10 +1197,10 @@ class ScrapelessProfileManager:
                             for profile_dict in existing_data.get("profiles", []):
                                 existing_profiles[profile_dict["profile_id"]] = profile_dict
                                 
-                            print(f"📥 Read {len(existing_profiles)} existing profiles from cache")
+                            self.logger.debug(f"📥 Read {len(existing_profiles)} existing profiles from cache")
                             
                         except (json.JSONDecodeError, IOError) as e:
-                            print(f"⚠️ Could not read existing cache, will create new: {e}")
+                            self.logger.debug(f"⚠️ Could not read existing cache, will create new: {e}")
                     
                     # Merge current profiles with existing data using delta tracking
                     merged_profiles = []
@@ -1125,12 +1238,12 @@ class ScrapelessProfileManager:
                             
                             # Log delta information for monitoring
                             if total_allocations_delta > 0 or actual_allocations_delta != 0:
-                                print(f"📈 Profile {profile.name} deltas: "
+                                self.logger.debug(f"📈 Profile {profile.name} deltas: "
                                       f"total_allocations +{total_allocations_delta}, "
                                       f"actual_allocations {actual_allocations_delta:+d}")
                         else:
                             # New profile - use current values as-is
-                            print(f"🆕 New profile {profile.name}: using current values")
+                            self.logger.debug(f"🆕 New profile {profile.name}: using current values")
                         
                         merged_profiles.append(profile_dict)
                         
@@ -1138,16 +1251,16 @@ class ScrapelessProfileManager:
                     for profile_id, existing_profile in existing_profiles.items():
                         if profile_id not in current_profile_ids:
                             merged_profiles.append(existing_profile)
-                            print(f"📝 Preserved profile {existing_profile.get('name', profile_id)} from cache")
+                            self.logger.debug(f"📝 Preserved profile {existing_profile.get('name', profile_id)} from cache")
                     
                     # Create backup before saving
                     if os.path.exists(self.cache_file):
                         backup_file = f"{self.cache_file}.backup"
                         try:
                             os.rename(self.cache_file, backup_file)
-                            print(f"📋 Created cache backup: {backup_file}")
+                            self.logger.debug(f"📋 Created cache backup: {backup_file}")
                         except OSError as e:
-                            print(f"⚠️ Could not create backup: {e}")
+                            self.logger.debug(f"⚠️ Could not create backup: {e}")
                     
                     # Save merged data with delta tracking metadata
                     cache_data = {
@@ -1162,31 +1275,31 @@ class ScrapelessProfileManager:
                     with open(self.cache_file, 'w') as f:
                         json.dump(cache_data, f, indent=2)
                     
-                    print(f"💾 Safely saved {len(merged_profiles)} profiles to cache with delta tracking: {self.cache_file}")
+                    self.logger.debug(f"💾 Safely saved {len(merged_profiles)} profiles to cache with delta tracking: {self.cache_file}")
                     
                     # Update initial state after successful save if in immediate save mode
                     # This prevents double-counting deltas in subsequent saves during the same session
                     if self.save_cache_on_operations:
-                        print(f"🔄 Updating initial state after cache save (immediate mode)")
+                        self.logger.debug(f"🔄 Updating initial state after cache save (immediate mode)")
                         self._update_initial_state_after_save()
                     
-                    print(f"🔓 Cache lock released")
+                    self.logger.debug(f"🔓 Cache lock released")
                     return  # Success - exit retry loop
                     
             except asyncio.TimeoutError:
-                print(f"⏳ Lock acquisition timeout on attempt {attempt + 1}")
+                self.logger.debug(f"⏳ Lock acquisition timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
                 continue
                 
             except Exception as error:
-                print(f"❌ Error in cache save attempt {attempt + 1}: {error}")
+                self.logger.debug(f"❌ Error in cache save attempt {attempt + 1}: {error}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
                 continue
         
         # All retries failed
-        print(f"❌ Failed to acquire cache lock after {max_retries} attempts")
+        self.logger.debug(f"❌ Failed to acquire cache lock after {max_retries} attempts")
         raise Exception("Could not acquire cache lock for safe save operation")
     
     def _update_initial_state_after_save(self) -> None:
@@ -1205,7 +1318,7 @@ class ScrapelessProfileManager:
                     "penalty_score": profile.penalty_score
                 })
         
-        print(f"📊 Updated initial state for {len(self._profiles)} profiles (prevents double-counting)")
+        self.logger.debug(f"📊 Updated initial state for {len(self._profiles)} profiles (prevents double-counting)")
     
     async def _load_profiles_from_cache(self) -> bool:
         """
@@ -1215,7 +1328,7 @@ class ScrapelessProfileManager:
             True if cache loaded successfully, False otherwise
         """
         if not os.path.exists(self.cache_file):
-            print(f"ℹ️ No cache file found: {self.cache_file}")
+            self.logger.debug(f"ℹ️ No cache file found: {self.cache_file}")
             return False
         
         try:
@@ -1225,11 +1338,11 @@ class ScrapelessProfileManager:
             profile_dicts = cache_data.get("profiles", [])
             self._profiles = [ProfileData(**profile_dict) for profile_dict in profile_dicts]
             
-            print(f"📥 Loaded {len(self._profiles)} profiles from cache")
+            self.logger.debug(f"📥 Loaded {len(self._profiles)} profiles from cache")
             return True
             
         except Exception as error:
-            print(f"❌ Error loading profiles from cache: {error}")
+            self.logger.debug(f"❌ Error loading profiles from cache: {error}")
             return False
     
     async def init(self) -> bool:
@@ -1248,12 +1361,12 @@ class ScrapelessProfileManager:
         """
         with self._initialization_lock:
             if self._is_initialized:
-                print("ℹ️ Profile manager already initialized")
+                self.logger.debug("ℹ️ Profile manager already initialized")
                 return True
             
             # Check if API client is available
             if not self.api_client:
-                print("❌ Cannot initialize: API client not available (check API key configuration)")
+                self.logger.debug("❌ Cannot initialize: API client not available (check API key configuration)")
                 return False
             
             # Use Redis-based locking for multi-processing safety
@@ -1273,7 +1386,7 @@ class ScrapelessProfileManager:
         
         for attempt in range(max_retries):
             try:
-                print(f"🔒 Attempting to acquire init lock (attempt {attempt + 1}/{max_retries})...")
+                self.logger.debug(f"🔒 Attempting to acquire init lock (attempt {attempt + 1}/{max_retries})...")
                 
                 # Acquire distributed lock with longer timeout for init
                 async with self.redis_client.with_lock(
@@ -1281,7 +1394,7 @@ class ScrapelessProfileManager:
                     timeout=lock_timeout, 
                     ttl=lock_timeout + 30
                 ):
-                    print(f"✅ Init lock acquired, performing safe initialization...")
+                    self.logger.debug(f"✅ Init lock acquired, performing safe initialization...")
                     
                     # Load existing profiles from cache if available
                     existing_profiles = []
@@ -1296,10 +1409,10 @@ class ScrapelessProfileManager:
                             for profile in existing_profiles:
                                 cache_profiles_dict[profile.get('profile_id')] = profile
                             
-                            print(f"📥 Found {len(existing_profiles)} existing profiles in cache")
+                            self.logger.debug(f"📥 Found {len(existing_profiles)} existing profiles in cache")
                             
                         except (json.JSONDecodeError, IOError) as e:
-                            print(f"⚠️ Could not read existing cache during init: {e}")
+                            self.logger.debug(f"⚠️ Could not read existing cache during init: {e}")
                     
                     # Fetch existing profiles from API to avoid recreating them
                     api_profiles = await self._fetch_existing_profiles_from_api()
@@ -1316,7 +1429,7 @@ class ScrapelessProfileManager:
                             api_profile.penalty_score = cache_data.get('penalty_score', 0)
                             api_profile.actual_allocations = cache_data.get('actual_allocations', 0)
                             api_profile.total_allocations = cache_data.get('total_allocations', 0)
-                            print(f"   📊 Merged cache stats for {api_profile.name}")
+                            self.logger.debug(f"   📊 Merged cache stats for {api_profile.name}")
                         
                         merged_profiles.append(asdict(api_profile))
                         merged_profile_ids.add(api_profile.profile_id)
@@ -1325,24 +1438,38 @@ class ScrapelessProfileManager:
                     for cache_profile in existing_profiles:
                         if cache_profile.get('profile_id') not in merged_profile_ids:
                             merged_profiles.append(cache_profile)
-                            print(f"   ⚠️ Profile {cache_profile.get('name')} exists in cache but not in API")
+                            self.logger.debug(f"   ⚠️ Profile {cache_profile.get('name')} exists in cache but not in API")
                     
                     # Use merged profiles as our existing profiles
                     existing_profiles = merged_profiles
                     existing_count = len(existing_profiles)
                     
                     if api_profiles:
-                        print(f"📊 Profile sync summary:")
-                        print(f"   - Cache profiles: {len(cache_profiles_dict)}")
-                        print(f"   - API profiles: {len(api_profiles)}")
-                        print(f"   - Merged profiles: {existing_count}")
+                        self.logger.debug(f"📊 Profile sync summary:")
+                        self.logger.debug(f"   - Cache profiles: {len(cache_profiles_dict)}")
+                        self.logger.debug(f"   - API profiles: {len(api_profiles)}")
+                        self.logger.debug(f"   - Merged profiles: {existing_count}")
                     
-                    if existing_count >= self.num_profiles:
-                        # We have enough or more profiles than requested
-                        print(f"ℹ️ Cache has {existing_count} profiles, requested {self.num_profiles} - loading from cache")
+                    # Filter profiles within the configured range first
+                    filtered_profiles = []
+                    for profile_dict in existing_profiles:
+                        profile_name = profile_dict.get('name', '')
+                        if profile_name.startswith(f"{self.name_prefix}-"):
+                            try:
+                                index = int(profile_name.split('-')[-1])
+                                if self.start_profile_index <= index <= self.end_profile_index:
+                                    filtered_profiles.append(profile_dict)
+                            except (ValueError, IndexError):
+                                continue
+                    
+                    filtered_count = len(filtered_profiles)
+                    
+                    if filtered_count >= self.num_profiles:
+                        # We have enough profiles in the range
+                        self.logger.debug(f"ℹ️ Cache has {existing_count} total profiles, {filtered_count} in range [{self.start_profile_index}, {self.end_profile_index}], requested {self.num_profiles} - loading from cache")
                         
                         # Load existing profiles (up to num_profiles if we have more)
-                        profiles_to_load = existing_profiles[:self.num_profiles]
+                        profiles_to_load = filtered_profiles[:self.num_profiles]
                         self._profiles = [ProfileData(**profile_dict) for profile_dict in profiles_to_load]
                         self.allocation_manager.load_profiles(self._profiles)
                         self._is_initialized = True
@@ -1350,20 +1477,22 @@ class ScrapelessProfileManager:
                         # Record initial state for delta tracking
                         self._record_initial_state()
                         
-                        print(f"✅ Loaded {len(self._profiles)} profiles from cache")
-                        print(f"🔓 Init lock released (loaded from cache)")
+                        self.logger.debug(f"✅ Loaded {len(self._profiles)} profiles from cache")
+                        self.logger.debug(f"🔓 Init lock released (loaded from cache)")
                         return True
                     
-                    elif existing_count > 0:
-                        # We have some profiles but need more - delta creation
-                        delta_needed = self.num_profiles - existing_count
-                        print(f"📊 Delta profile creation needed:")
-                        print(f"   - Existing profiles: {existing_count}")
-                        print(f"   - Requested profiles: {self.num_profiles}")
-                        print(f"   - Delta to create: {delta_needed}")
+                    else:
+                        # Either we have some profiles but need more, or no profiles in range at all
+                        # Note: filtered_profiles and filtered_count already computed above
+                        delta_needed = self.num_profiles - filtered_count
+                        self.logger.debug(f"📊 Delta profile creation needed:")
+                        self.logger.debug(f"   - Existing profiles (total): {existing_count}")
+                        self.logger.debug(f"   - Existing profiles (in range): {filtered_count}")
+                        self.logger.debug(f"   - Requested profiles: {self.num_profiles}")
+                        self.logger.debug(f"   - Delta to create: {max(0, delta_needed)}")
                         
-                        # Load existing profiles
-                        self._profiles = [ProfileData(**profile_dict) for profile_dict in existing_profiles]
+                        # Load existing profiles that are within range (might be empty list)
+                        self._profiles = [ProfileData(**profile_dict) for profile_dict in filtered_profiles]
                         
                         # Build set of existing indices to avoid duplicates
                         existing_indices = set()
@@ -1374,12 +1503,18 @@ class ScrapelessProfileManager:
                             except (ValueError, AttributeError):
                                 continue
                         
-                        # Create only the delta profiles, skipping existing indices
-                        result = await self._create_delta_profiles(
-                            start_index=1,  # Start from 1 to fill gaps if any
-                            count=delta_needed,
-                            existing_indices=existing_indices
-                        )
+                        # Create only the delta profiles if needed
+                        if delta_needed > 0:
+                            # Start from the configured range start index to ensure we create profiles in the correct range
+                            result = await self._create_delta_profiles(
+                                start_index=self.start_profile_index,  # Start from configured range start
+                                count=delta_needed,
+                                existing_indices=existing_indices
+                            )
+                        else:
+                            # No new profiles needed
+                            result = True
+                            self.logger.debug(f"ℹ️ No new profiles needed - {filtered_count} profiles already exist in range")
                         
                         if result:
                             # Load all profiles (existing + new) into allocation manager
@@ -1389,32 +1524,25 @@ class ScrapelessProfileManager:
                             # Record initial state for delta tracking after loading all profiles
                             self._record_initial_state()
                             
-                            print(f"✅ Profile pool expanded from {existing_count} to {len(self._profiles)} profiles")
+                            self.logger.debug(f"✅ Profile pool expanded from {existing_count} to {len(self._profiles)} profiles")
                         
-                        print(f"🔓 Init lock released")
-                        return result
-                    
-                    else:
-                        # No existing profiles - create all from scratch
-                        print(f"🆕 No existing profiles found - creating {self.num_profiles} new profiles")
-                        result = await self._init_profiles()
-                        print(f"🔓 Init lock released")
+                        self.logger.debug(f"🔓 Init lock released")
                         return result
                     
             except asyncio.TimeoutError:
-                print(f"⏳ Init lock acquisition timeout on attempt {attempt + 1}")
+                self.logger.debug(f"⏳ Init lock acquisition timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay * (attempt + 1))
                 continue
                 
             except Exception as error:
-                print(f"❌ Error in init attempt {attempt + 1}: {error}")
+                self.logger.debug(f"❌ Error in init attempt {attempt + 1}: {error}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
                 continue
         
         # All retries failed
-        print(f"❌ Failed to acquire init lock after {max_retries} attempts")
+        self.logger.debug(f"❌ Failed to acquire init lock after {max_retries} attempts")
         raise Exception("Could not acquire init lock for safe initialization")
     
     async def _create_delta_profiles(self, start_index: int, count: int, existing_indices: set = None) -> bool:
@@ -1444,9 +1572,9 @@ class ScrapelessProfileManager:
                 except (ValueError, AttributeError):
                     continue
         
-        print(f"🔧 Creating {count} additional profiles starting from index {start_index}...")
+        self.logger.debug(f"🔧 Creating {count} additional profiles starting from index {start_index}...")
         if existing_indices:
-            print(f"   📊 Existing indices to skip: {sorted(existing_indices)[:10]}{'...' if len(existing_indices) > 10 else ''}")
+            self.logger.debug(f"   📊 Existing indices to skip: {sorted(existing_indices)[:10]}{'...' if len(existing_indices) > 10 else ''}")
         
         created_profiles = []
         success_count = 0
@@ -1454,15 +1582,25 @@ class ScrapelessProfileManager:
         current_index = start_index
         
         while success_count < profiles_needed:
-            # Skip indices that already exist
+            # Skip indices that already exist or are outside the configured range
             if current_index in existing_indices:
-                print(f"   ⏭️ Skipping index {current_index} - profile already exists")
+                self.logger.debug(f"   ⏭️ Skipping index {current_index} - profile already exists")
                 current_index += 1
+                continue
+            
+            # Check if index is within the configured range
+            if current_index < self.start_profile_index or current_index > self.end_profile_index:
+                self.logger.debug(f"   ⏭️ Skipping index {current_index} - outside configured range [{self.start_profile_index}, {self.end_profile_index}]")
+                current_index += 1
+                # If we've exceeded the range, stop trying
+                if current_index > self.end_profile_index:
+                    self.logger.debug(f"   ⚠️ Reached end of configured range, stopping profile creation")
+                    break
                 continue
             
             profile_name = await self._generate_profile_name(current_index)
             
-            print(f"📝 Creating delta profile {success_count + 1}/{profiles_needed}: {profile_name}")
+            self.logger.debug(f"📝 Creating delta profile {success_count + 1}/{profiles_needed}: {profile_name}")
             
             # Create profile via API with browser fallback
             api_response = await self.api_client.create_profile(profile_name)
@@ -1488,9 +1626,9 @@ class ScrapelessProfileManager:
                     self._profiles.append(profile_data)  # Add to existing profiles
                     success_count += 1
                 else:
-                    print(f"⚠️ Delta profile creation failed - no valid ID in response: {profile_name}")
+                    self.logger.debug(f"⚠️ Delta profile creation failed - no valid ID in response: {profile_name}")
             else:
-                print(f"⚠️ Delta profile creation failed - no response: {profile_name}")
+                self.logger.debug(f"⚠️ Delta profile creation failed - no response: {profile_name}")
             
             current_index += 1
             
@@ -1499,15 +1637,15 @@ class ScrapelessProfileManager:
             
             # Safety check to prevent infinite loop
             if current_index > start_index + profiles_needed + len(existing_indices) + 100:
-                print(f"⚠️ Safety limit reached while creating delta profiles")
+                self.logger.debug(f"⚠️ Safety limit reached while creating delta profiles")
                 break
         
         # Save to cache with merging (preserves existing profile stats)
         await self._save_profiles_to_cache()
         
-        print(f"✅ Delta profile creation complete:")
-        print(f"   🎯 Successfully created: {success_count}/{profiles_needed} new profiles")
-        print(f"   📊 Total profiles now: {len(self._profiles)}")
+        self.logger.debug(f"✅ Delta profile creation complete:")
+        self.logger.debug(f"   🎯 Successfully created: {success_count}/{profiles_needed} new profiles")
+        self.logger.debug(f"   📊 Total profiles now: {len(self._profiles)}")
         
         return success_count > 0
 
@@ -1518,21 +1656,22 @@ class ScrapelessProfileManager:
         Returns:
             True if initialization successful, False otherwise
         """
-        print(f"🔄 Creating {self.num_profiles} profiles...")
+        self.logger.debug(f"🔄 Creating profiles in range [{self.start_profile_index}, {self.end_profile_index}]...")
         
         # # Test API connection before creating profiles
         # if not self.api_client.test_connection():
-        #     print("❌ Profile initialization failed: Cannot connect to Scrapeless API")
-        #     print("   Please check your API key and network connection")
+        #     self.logger.debug("❌ Profile initialization failed: Cannot connect to Scrapeless API")
+        #     self.logger.debug("   Please check your API key and network connection")
         #     return False
         
         created_profiles = []
         success_count = 0
         
-        for i in range(1, self.num_profiles + 1):
+        # Only create profiles within the configured range
+        for i in range(self.start_profile_index, min(self.end_profile_index + 1, self.start_profile_index + self.num_profiles)):
             profile_name = await self._generate_profile_name(i)
             
-            print(f"📝 Creating profile {i}/{self.num_profiles}: {profile_name}")
+            self.logger.debug(f"📝 Creating profile {i}/{self.num_profiles}: {profile_name}")
             
             # Create profile via API with browser fallback
             api_response = await self.api_client.create_profile(profile_name)
@@ -1557,9 +1696,9 @@ class ScrapelessProfileManager:
                     created_profiles.append(profile_data)
                     success_count += 1
                 else:
-                    print(f"⚠️ Profile creation failed - no valid ID in response: {profile_name}")
+                    self.logger.debug(f"⚠️ Profile creation failed - no valid ID in response: {profile_name}")
             else:
-                print(f"⚠️ Profile creation failed - no response: {profile_name}")
+                self.logger.debug(f"⚠️ Profile creation failed - no response: {profile_name}")
             
             # Add small delay to avoid rate limiting
             await asyncio.sleep(0.1)
@@ -1575,9 +1714,9 @@ class ScrapelessProfileManager:
         
         self._is_initialized = True
         
-        print(f"✅ Profile pool initialization complete:")
-        print(f"   🎯 Successfully created: {success_count}/{self.num_profiles}")
-        print(f"   💾 Cached profiles: {len(self._profiles)}")
+        self.logger.debug(f"✅ Profile pool initialization complete:")
+        self.logger.debug(f"   🎯 Successfully created: {success_count}/{self.num_profiles}")
+        self.logger.debug(f"   💾 Cached profiles: {len(self._profiles)}")
         
         return success_count > 0
     
@@ -1594,9 +1733,9 @@ class ScrapelessProfileManager:
                 backup_file = f"{self.cache_file}.init_backup"
                 try:
                     os.rename(self.cache_file, backup_file)
-                    print(f"📋 Created init backup: {backup_file}")
+                    self.logger.debug(f"📋 Created init backup: {backup_file}")
                 except OSError as e:
-                    print(f"⚠️ Could not create init backup: {e}")
+                    self.logger.debug(f"⚠️ Could not create init backup: {e}")
             
             # Save fresh profiles data
             cache_data = {
@@ -1610,10 +1749,10 @@ class ScrapelessProfileManager:
             with open(self.cache_file, 'w') as f:
                 json.dump(cache_data, f, indent=2)
             
-            print(f"💾 Saved {len(self._profiles)} profiles to cache (fresh init): {self.cache_file}")
+            self.logger.debug(f"💾 Saved {len(self._profiles)} profiles to cache (fresh init): {self.cache_file}")
             
         except Exception as error:
-            print(f"❌ Error saving profiles to cache (fresh init): {error}")
+            self.logger.debug(f"❌ Error saving profiles to cache (fresh init): {error}")
     
     async def reset(self) -> bool:
         """
@@ -1630,7 +1769,7 @@ class ScrapelessProfileManager:
             True if reset successful, False otherwise
         """
         if not self.api_client:
-            print("❌ Cannot reset: API client not available")
+            self.logger.debug("❌ Cannot reset: API client not available")
             return False
         
         # Use Redis-based locking for multi-processing safety
@@ -1649,7 +1788,7 @@ class ScrapelessProfileManager:
         
         for attempt in range(max_retries):
             try:
-                print(f"🔒 Attempting to acquire reset lock (attempt {attempt + 1}/{max_retries})...")
+                self.logger.debug(f"🔒 Attempting to acquire reset lock (attempt {attempt + 1}/{max_retries})...")
                 
                 # Acquire distributed lock with longer timeout for reset
                 async with self.redis_client.with_lock(
@@ -1657,30 +1796,30 @@ class ScrapelessProfileManager:
                     timeout=lock_timeout, 
                     ttl=lock_timeout + 30
                 ):
-                    print(f"✅ Reset lock acquired, performing safe reset...")
+                    self.logger.debug(f"✅ Reset lock acquired, performing safe reset...")
                     
                     # Completely clear cache file first (no count processing during reset)
                     await self._clear_cache_completely()
                     
                     # Perform actual reset
                     result = await self._reset_profiles()
-                    print(f"🔓 Reset lock released")
+                    self.logger.debug(f"🔓 Reset lock released")
                     return result
                     
             except asyncio.TimeoutError:
-                print(f"⏳ Reset lock acquisition timeout on attempt {attempt + 1}")
+                self.logger.debug(f"⏳ Reset lock acquisition timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay * (attempt + 1))
                 continue
                 
             except Exception as error:
-                print(f"❌ Error in reset attempt {attempt + 1}: {error}")
+                self.logger.debug(f"❌ Error in reset attempt {attempt + 1}: {error}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
                 continue
         
         # All retries failed
-        print(f"❌ Failed to acquire reset lock after {max_retries} attempts")
+        self.logger.debug(f"❌ Failed to acquire reset lock after {max_retries} attempts")
         raise Exception("Could not acquire reset lock for safe reset operation")
     
     async def _clear_cache_completely(self) -> None:
@@ -1695,18 +1834,18 @@ class ScrapelessProfileManager:
                 backup_file = f"{self.cache_file}.reset_backup"
                 try:
                     os.rename(self.cache_file, backup_file)
-                    print(f"📋 Created reset backup: {backup_file}")
+                    self.logger.debug(f"📋 Created reset backup: {backup_file}")
                 except OSError as e:
-                    print(f"⚠️ Could not create reset backup: {e}")
+                    self.logger.debug(f"⚠️ Could not create reset backup: {e}")
                     # Continue with reset even if backup fails
                     os.remove(self.cache_file)
                 
-                print(f"🗑️ Completely cleared cache file during reset: {self.cache_file}")
+                self.logger.debug(f"🗑️ Completely cleared cache file during reset: {self.cache_file}")
             else:
-                print(f"ℹ️ No cache file to clear: {self.cache_file}")
+                self.logger.debug(f"ℹ️ No cache file to clear: {self.cache_file}")
                 
         except Exception as error:
-            print(f"❌ Error clearing cache during reset: {error}")
+            self.logger.debug(f"❌ Error clearing cache during reset: {error}")
     
     async def _reset_profiles(self) -> bool:
         """
@@ -1715,17 +1854,17 @@ class ScrapelessProfileManager:
         Returns:
             True if reset successful, False otherwise
         """            
-        print("🔄 Deleting existing profiles...")
+        self.logger.debug("🔄 Deleting existing profiles...")
         
         # Delete all existing profiles
         deleted_count = 0
         for profile in self._profiles:
-            print(f"🗑️ Deleting profile: {profile.name} (ID: {profile.profile_id})")
+            self.logger.debug(f"🗑️ Deleting profile: {profile.name} (ID: {profile.profile_id})")
             if self.api_client.delete_profile(profile.profile_id):
                 deleted_count += 1
             time.sleep(0.1)  # Rate limiting
         
-        print(f"✅ Deleted {deleted_count}/{len(self._profiles)} profiles")
+        self.logger.debug(f"✅ Deleted {deleted_count}/{len(self._profiles)} profiles")
         
         # Clear internal state
         self._profiles.clear()
@@ -1735,7 +1874,7 @@ class ScrapelessProfileManager:
         try:
             await self.api_client.cleanup()
         except Exception as e:
-            print(f"⚠️ Error cleaning up API client during reset: {e}")
+            self.logger.debug(f"⚠️ Error cleaning up API client during reset: {e}")
         
         # Reinitialize with fresh state
         return await self._init_profiles()
@@ -1774,7 +1913,7 @@ class ScrapelessProfileManager:
             ProfileData of allocated profile, None if none available
         """
         if not self._is_initialized:
-            print("⚠️ Profile manager not initialized. Call open() first.")
+            self.logger.debug("⚠️ Profile manager not initialized. Call open() first.")
             return None
         
         profile = self.allocation_manager.allocate_profile()
@@ -1782,7 +1921,7 @@ class ScrapelessProfileManager:
         # Conditionally persist updated allocation counts based on flag
         if profile and self.save_cache_on_operations:
             await self._save_profiles_to_cache()
-            print("💾 Cache saved after allocation (save_cache_on_operations=True)")
+            self.logger.debug("💾 Cache saved after allocation (save_cache_on_operations=True)")
             
         return profile
     
@@ -1803,7 +1942,7 @@ class ScrapelessProfileManager:
         # Conditionally persist updated allocation counts based on flag
         if success and self.save_cache_on_operations:
             await self._save_profiles_to_cache()
-            print("💾 Cache saved after release (save_cache_on_operations=True)")
+            self.logger.debug("💾 Cache saved after release (save_cache_on_operations=True)")
             
         return success
     
@@ -1843,7 +1982,7 @@ class ScrapelessProfileManager:
             True if all profiles deleted successfully
         """
         if not self.api_client:
-            print("❌ Cannot delete profiles: API client not available")
+            self.logger.debug("❌ Cannot delete profiles: API client not available")
             return False
         
         # Use Redis-based locking for multi-processing safety
@@ -1860,7 +1999,7 @@ class ScrapelessProfileManager:
         
         for attempt in range(max_retries):
             try:
-                print(f"🔒 Attempting to acquire delete lock (attempt {attempt + 1}/{max_retries})...")
+                self.logger.debug(f"🔒 Attempting to acquire delete lock (attempt {attempt + 1}/{max_retries})...")
                 
                 # Acquire distributed lock
                 async with self.redis_client.with_lock(
@@ -1868,30 +2007,30 @@ class ScrapelessProfileManager:
                     timeout=lock_timeout, 
                     ttl=lock_timeout + 30
                 ):
-                    print(f"✅ Delete lock acquired, performing safe cleanup...")
+                    self.logger.debug(f"✅ Delete lock acquired, performing safe cleanup...")
                     
                     # Completely clear cache file first (no count processing during cleanup)
                     await self._clear_cache_completely()
                     
                     # Perform actual deletion
                     result = await self._delete_profiles()
-                    print(f"🔓 Delete lock released")
+                    self.logger.debug(f"🔓 Delete lock released")
                     return result
                     
             except asyncio.TimeoutError:
-                print(f"⏳ Delete lock acquisition timeout on attempt {attempt + 1}")
+                self.logger.debug(f"⏳ Delete lock acquisition timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay * (attempt + 1))
                 continue
                 
             except Exception as error:
-                print(f"❌ Error in delete attempt {attempt + 1}: {error}")
+                self.logger.debug(f"❌ Error in delete attempt {attempt + 1}: {error}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
                 continue
         
         # All retries failed
-        print(f"❌ Failed to acquire delete lock after {max_retries} attempts")
+        self.logger.debug(f"❌ Failed to acquire delete lock after {max_retries} attempts")
         raise Exception("Could not acquire delete lock for safe cleanup operation")
     
     async def _delete_profiles(self) -> bool:
@@ -1901,7 +2040,7 @@ class ScrapelessProfileManager:
         Returns:
             True if all profiles deleted successfully
         """
-        print("🗑️ Deleting all managed profiles...")
+        self.logger.debug("🗑️ Deleting all managed profiles...")
         
         deleted_count = 0
         for profile in self._profiles:
@@ -1910,7 +2049,7 @@ class ScrapelessProfileManager:
             time.sleep(0.1)
         
         success = deleted_count == len(self._profiles)
-        print(f"✅ Deleted {deleted_count}/{len(self._profiles)} profiles")
+        self.logger.debug(f"✅ Deleted {deleted_count}/{len(self._profiles)} profiles")
         
         if success:
             self._profiles.clear()
@@ -1920,17 +2059,17 @@ class ScrapelessProfileManager:
             try:
                 await self.api_client.cleanup()
             except Exception as e:
-                print(f"⚠️ Error cleaning up API client during delete: {e}")
+                self.logger.debug(f"⚠️ Error cleaning up API client during delete: {e}")
             
             # Remove cache file completely after successful deletion
             if os.path.exists(self.cache_file):
                 try:
                     backup_file = f"{self.cache_file}.delete_backup"
                     os.rename(self.cache_file, backup_file)
-                    print(f"📋 Created delete backup: {backup_file}")
+                    self.logger.debug(f"📋 Created delete backup: {backup_file}")
                 except OSError:
                     os.remove(self.cache_file)
-                print(f"🗑️ Completely removed cache file: {self.cache_file}")
+                self.logger.debug(f"🗑️ Completely removed cache file: {self.cache_file}")
         
         return success
 

@@ -1377,6 +1377,9 @@ class TieredDownloadHandler:
                 force_close_on_error=True,
                 intercept_media=self.settings.getbool('BROWSER_POOL_INTERCEPT_MEDIA', scraping_settings.BROWSER_POOL_INTERCEPT_MEDIA),
                 intercept_images=self.settings.getbool('BROWSER_POOL_INTERCEPT_IMAGES', scraping_settings.BROWSER_POOL_INTERCEPT_IMAGES),
+                session_config={
+                    'session_name': f'scrapy_{request.url[:50]}',
+                },
             ) as browser:
                 
                 browser_instance = browser

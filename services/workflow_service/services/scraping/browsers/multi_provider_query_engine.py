@@ -54,7 +54,8 @@ class MultiProviderQueryEngine:
         max_concurrent_browsers: int = 3,
         browser_pool_config: Optional[Dict] = None,
         output_file: Optional[str] = None,
-        data_dir: Optional[str] = None
+        data_dir: Optional[str] = None,
+        save_results_to_json: bool = False,
     ):
         """
         Initialize the MultiProviderQueryEngine.
@@ -69,9 +70,11 @@ class MultiProviderQueryEngine:
             browser_pool_config: Additional browser pool configuration
             output_file: JSON output file name (defaults to timestamped file)
             data_dir: Output directory (defaults to data subdir relative to this file)
+            save_results_to_json: Whether to save results to JSON
         """
         self.logger = get_prefect_or_regular_python_logger(self.__class__.__name__)
         self.queries = queries
+        self.save_results_to_json = save_results_to_json
         
         # Set up default provider configurations
         default_config = ProviderConfig()
@@ -333,7 +336,8 @@ class MultiProviderQueryEngine:
         all_results["metadata"]["total_duration_seconds"] = (end_time - start_time).total_seconds()
         
         # # Save results to JSON
-        # self._save_results_to_json(all_results)
+        if self.save_results_to_json:
+            self._save_results_to_json(all_results)
         
         self.logger.info(f"🎉 Query processing completed in {all_results['metadata']['total_duration_seconds']:.2f}s")
         
@@ -362,17 +366,22 @@ class MultiProviderQueryEngine:
         Returns:
             Dictionary with query result and metadata
         """
+        datetime_now = datetime.now()
         result = {
             "query": query,
             "query_index": query_index,
             "provider": provider_name,
             "success": False,
             "attempts": 0,
-            "start_time": datetime.now().isoformat(),
+            "start_time": datetime_now.isoformat(),
             "response": None,
             "error": None,
             "duration_seconds": 0
         }
+
+        query_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, query))
+
+        session_name = f'{provider_name}_{query[:50]}_{datetime_now.strftime("%Y-%m-%d")}_{query_uuid}'
         
         start_time = time.time()
         
@@ -386,7 +395,10 @@ class MultiProviderQueryEngine:
                 async with ScrapelessBrowserContextManager(
                     browser_pool,
                     timeout=ACQUISITION_TIMEOUT,  # Browser acquisition timeout
-                    force_close_on_error=True  # Force close on errors
+                    force_close_on_error=True,  # Force close on errors
+                    session_config={
+                        'session_name': session_name,
+                    },
                 ) as browser:
                     
                     # Create actor instance with the browser

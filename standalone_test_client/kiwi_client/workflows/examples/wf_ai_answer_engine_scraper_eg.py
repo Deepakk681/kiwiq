@@ -75,21 +75,21 @@ workflow_graph_schema = {
                     # ]
                 },
                 
-                # # Provider configuration
-                # "default_providers_config": {
-                #     "google": {
-                #         "enabled": True,
-                #         "max_retries": 2,
-                #     },
-                #     "openai": {
-                #         "enabled": True,
-                #         "max_retries": 3,
-                #     },
-                #     "perplexity": {
-                #         "enabled": True,
-                #         "max_retries": 2,
-                #     }
-                # },
+                # Provider configuration
+                "default_providers_config": {
+                    # "google": {
+                    #     "enabled": True,
+                    #     "max_retries": 2,
+                    # },
+                    # "openai": {
+                    #     "enabled": True,
+                    #     "max_retries": 3,
+                    # },
+                    "perplexity": {
+                        "enabled": True,
+                        "max_retries": 2,
+                    }
+                },
                 
                 # # Browser pool configuration
                 # "max_concurrent_browsers": 30,
@@ -115,6 +115,7 @@ workflow_graph_schema = {
             "src_node_id": "input_node",
             "dst_node_id": "ai_scraper",
             "mappings": [
+                {"src_field": "entity_name", "dst_field": "entity_name"},
                 {"src_field": "list_template_vars", "dst_field": "list_template_vars"},
                 {"src_field": "query_templates", "dst_field": "query_templates"},
                 {"src_field": "providers_config", "dst_field": "providers_config"},
@@ -233,6 +234,7 @@ async def validate_ai_scraper_output(
 
 async def main_test_ai_scraper(
     entities: Optional[List[Dict[str, str]]] = None,
+    entity_name: Optional[str] = None,
     use_cache: bool = True,
     cache_lookback_days: int = 7,
     custom_query_templates: Optional[Dict[str, List[str]]] = None
@@ -244,6 +246,7 @@ async def main_test_ai_scraper(
         entities: List of entities to research with template variables.
                  IMPORTANT: All entities must have the same keys (e.g., if one has 'location',
                  all must have 'location') to ensure query templates work for all entities.
+        entity_name: Single entity name to research.
         use_cache: Whether to use cached results if available
         cache_lookback_days: Number of days to look back for cached results
         custom_query_templates: Optional custom categorized query templates
@@ -262,13 +265,19 @@ async def main_test_ai_scraper(
             {"entity_name": "Tesla", "location": "Palo Alto", "industry": "Automotive"}
         ]
     
+    if not entity_name:
+        entity_name_dict = entities[0] if isinstance(entities, list) else entities
+        entity_name = entity_name_dict.get('entity_name', 'Unknown')
+    
     # Prepare workflow inputs
     AI_SCRAPER_WORKFLOW_INPUTS = {
         "list_template_vars": entities,
         "enable_mongodb_cache": use_cache,
         "cache_lookback_days": cache_lookback_days,
+        "entity_name": entity_name,
         "is_shared": False  # User-specific data for testing
     }
+
     
     # Add custom query templates if provided
     if custom_query_templates:
@@ -280,6 +289,8 @@ async def main_test_ai_scraper(
     # }
     
     test_name = "AI Answer Engine Scraper Test"
+    if isinstance(entities, dict):
+        entities = [entities]
     entity_names = [e.get('entity_name', 'Unknown') for e in entities]
     
     print(f"\n🚀 --- Starting {test_name} ---")
@@ -394,11 +405,11 @@ if __name__ == "__main__":
     # Example 1: Basic entity research
     # IMPORTANT: All entities in a batch must have the same template variable keys
     # to ensure all queries can be properly constructed for each entity
-    example1_entities = [
-        {"entity_name": "OpenAI", "location": "San Francisco", "industry": "AI"},
+    example1_entities = {"entity_name": "OpenAI", "location": "San Francisco", "industry": "AI"}
+    # [
         # {"entity_name": "Anthropic", "location": "San Francisco", "industry": "AI"},
         # {"entity_name": "Tesla", "location": "Palo Alto", "industry": "Automotive"}  # Added location
-    ]
+    # ]
     
     # Example 2: Custom query templates
     # All entities must have both 'entity_name' and 'product' keys for these templates

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from kiwi_app.workflow_app.schemas import WorkflowRunJobCreate
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, field_validator
 
 # Node framework imports - matching crawler_scraper_node.py pattern
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
@@ -619,6 +619,31 @@ class AIAnswerEngineScraperConfig(BaseNodeConfig):
         default=False,
         description="Whether to persist browser profiles between sessions."
     )
+    start_profile_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional start index for profile range (inclusive). If specified, "
+                   "only profiles with indices >= start_profile_index will be used. "
+                   "Useful for bootstrapping/warming up specific profile subsets."
+    )
+    end_profile_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional end index for profile range (inclusive). If specified, "
+                   "only profiles with indices <= end_profile_index will be used. "
+                   "Must be >= start_profile_index if both are specified."
+    )
+    
+    @model_validator(mode="after")
+    def validate_profile_indices(self) -> "AIAnswerEngineScraperConfig":
+        """Validate that profile indices are consistent."""
+        if self.start_profile_index is not None and self.end_profile_index is not None:
+            if self.end_profile_index < self.start_profile_index:
+                raise ValueError(
+                    f"end_profile_index ({self.end_profile_index}) must be >= "
+                    f"start_profile_index ({self.start_profile_index})"
+                )
+        return self
 
 
 class AIAnswerEngineScraperInput(DynamicSchema):
@@ -1298,6 +1323,8 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
             "use_profiles": self.config.use_browser_profiles,
             "acquisition_timeout": self.config.acquisition_timeout,
             "persist_profile": self.config.persist_browser_profile,
+            "start_profile_index": self.config.start_profile_index,
+            "end_profile_index": self.config.end_profile_index
         }
         
         # Billing: Calculate and allocate credits for queries

@@ -30,7 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Test and example usage
-async def test_multi_provider_query_engine(cleanup_redis_pool: bool = True, test_queries: Optional[List[str]] = None):
+async def test_multi_provider_query_engine(cleanup_redis_pool: bool = True, test_queries: Optional[List[str]] = None, persist_profile: bool = False, start_profile_index: Optional[int] = None, end_profile_index: Optional[int] = None):
     """Test the MultiProviderQueryEngine with sample queries."""
     
     if cleanup_redis_pool:
@@ -75,8 +75,11 @@ async def test_multi_provider_query_engine(cleanup_redis_pool: bool = True, test
             "browser_ttl": BROWSER_TTL,  # 15 minutes
             "use_profiles": True,
             "acquisition_timeout": ACQUISITION_TIMEOUT,  # Longer timeout for parallel acquisition
-            "persist_profile": False,
-        }
+            "persist_profile": persist_profile,
+            "start_profile_index": start_profile_index,
+            "end_profile_index": end_profile_index
+        },
+        save_results_to_json=True,
     )
     
     try:
@@ -353,18 +356,25 @@ if __name__ == "__main__":
             "How does Bigtincan GenieAI assist with real-time sales coaching?",
             "sales room prospect communication tracking",
             "automated mutual action plan creation",
-            "What onboarding support does Allego provide for enterprise implementations?",
-            "digital sales room pricing model comparison",
-            "best client portal project tracking",
-            "How does DealHub no-code CPQ compare to traditional configuration tools?",
-            "sales room calendar integration features",
-            "buyer engagement scoring algorithms",
-            "What video analytics does GetAccept provide for sales performance optimization?",
-            "digital sales room scalability enterprise",
-            "best sales room renewal management",
-            "How does FuseBase AI streamline content creation for client communications?"
-            ]
-        await test_multi_provider_query_engine(cleanup_redis_pool=False, test_queries=queries)
+            # "What onboarding support does Allego provide for enterprise implementations?",
+            # "digital sales room pricing model comparison",
+            # "best client portal project tracking",
+            # "How does DealHub no-code CPQ compare to traditional configuration tools?",
+            # "sales room calendar integration features",
+            # "buyer engagement scoring algorithms",
+            # "What video analytics does GetAccept provide for sales performance optimization?",
+            # "digital sales room scalability enterprise",
+            # "best sales room renewal management",
+            # "How does FuseBase AI streamline content creation for client communications?"
+        ]
+        print(len(queries))
+        start_profile_index = 136
+        end_profile_index = 236
+        persist_profile = True
+        queries = queries[:end_profile_index - start_profile_index + 1]
+        await test_multi_provider_query_engine(cleanup_redis_pool=False, test_queries=queries, persist_profile=persist_profile, start_profile_index=start_profile_index, end_profile_index=end_profile_index)
+
+        # 8:29 pm started
         
         # Option 3: Uncomment to run original test
         # await original_test()

@@ -320,7 +320,9 @@ class ScrapelessBrowserPool:
         use_profiles: bool = True,
         persist_profile: bool = False,
         profile_manager: Optional[ScrapelessProfileManager] = None,
-        enable_keep_alive: bool = True  # Control keep-alive behavior
+        enable_keep_alive: bool = True,  # Control keep-alive behavior
+        start_profile_index: Optional[int] = None,  # Profile range start
+        end_profile_index: Optional[int] = None  # Profile range end
     ):
         """
         Initialize the ScrapelessBrowserPool.
@@ -336,6 +338,10 @@ class ScrapelessBrowserPool:
             persist_profile: Whether to persist profiles after browser sessions (default: False)
             profile_manager: Optional external profile manager (if None, creates internal one)
             enable_keep_alive: Whether to enable keep-alive behavior in context manager (default: True)
+            start_profile_index: Optional start index for profile range (inclusive). If specified,
+                                only profiles with indices >= start_profile_index will be used.
+            end_profile_index: Optional end index for profile range (inclusive). If specified,
+                              only profiles with indices <= end_profile_index will be used.
         """
         self.redis_client = redis_client or AsyncRedisClient(global_settings.REDIS_URL)
         self.max_concurrent = max_concurrent
@@ -360,7 +366,9 @@ class ScrapelessBrowserPool:
         # Profile management
         if self.use_profiles:
             self.profile_manager = profile_manager or ScrapelessProfileManager(
-                save_cache_on_operations=False  # Efficient cache saving
+                save_cache_on_operations=False,  # Efficient cache saving
+                start_profile_index=start_profile_index,
+                end_profile_index=end_profile_index
             )
             self._profile_manager_owned = profile_manager is None  # Track if we created it
         else:
@@ -1157,7 +1165,7 @@ class ScrapelessBrowserContextManager:
         Args:
             pool: The ScrapelessBrowserPool to acquire from
             timeout: Timeout for browser acquisition
-            session_config: Optional session configuration
+            session_config: Optional session configuration  # NOTE: use `session_name` key to set custom session names!
             force_close_on_error: If True, force close browser when exceptions occur
             use_profiles: Override pool's profile usage setting (None = use pool setting)
             persist_profile: Override pool's profile persistence setting (None = use pool setting)

@@ -144,6 +144,8 @@ class PerplexityBrowserActor(BaseBrowserActor):
         # Citations strictly derived from the reference list, formatted with brackets
         citations = num_to_url
 
+        citations = [{k: v} for k, v in num_to_url.items()]
+
         return links, citations
 
     async def extract_via_copy_button_after_start(
