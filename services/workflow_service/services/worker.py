@@ -1431,6 +1431,18 @@ if __name__ == "__main__":
     5. weekly-content-calendar-generation/weekly - Weekly content calendar generation for all entities
     6. web-crawler-scraper/on-demand - On-demand web scraping with MongoDB storage
     """
+    from workflow_service.services.scraping.browsers.scrapeless.scrapeless_browser import (
+        cleanup_scrapeless_redis_pool,
+    )
+    from workflow_service.services.scraping.settings import scraping_settings
+    if scraping_settings.CLEANUP_SCRAPELESS_REDIS_POOL_ON_STARTUP:
+        # Cleanup redis pool on restart!
+        try:
+            asyncio.run(cleanup_scrapeless_redis_pool())
+        except Exception as e:
+            print(f"Error cleaning up redis pool: {e}", exc_info=True)
+            # logger.error(f"Error cleaning up redis pool: {e}", exc_info=True)
+
     serve(
         workflow_execution_flow.to_deployment(
             name="prod",
