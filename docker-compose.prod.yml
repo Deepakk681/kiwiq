@@ -118,12 +118,12 @@ services:
     #   options:
     #     max-size: "100m"
     #     max-file: "3"
-    # Resource limits (Reduced for 8 vCPU machine)
+    # Resource limits (Adjusted for 4x workflow concurrency)
     deploy:
       resources:
         limits:
           memory: 4.75G   # ⬆️ from 6G (+256MB)
-          cpus: '2.0'     # unchanged
+          cpus: '2.5'     # ⬆️ from 2.0 (25% increase for higher concurrency)
         reservations:
           memory: 3.75G   # ⬆️ from 4G
           cpus: '1.5'     # unchanged
@@ -188,10 +188,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1.25'
+          memory: 2.5G
+          cpus: '2'
         reservations:
-          memory: 1.5G
+          memory: 2G
           cpus: '1.0'
     # Logging
     logging:
@@ -232,11 +232,11 @@ services:
       - prod_network
     command: |
       mongod
-      --wiredTigerCacheSizeGB=2.5
+      --wiredTigerCacheSizeGB=5              # ⬆️ from 2.5GB (optimized for 8GB memory)
       --wiredTigerJournalCompressor=snappy
       --wiredTigerCollectionBlockCompressor=snappy
       --journalCommitInterval=50
-      --maxConns=200
+      --maxConns=800                         # ⬆️ from 200 (4x for 60 concurrent workflows)
       --quiet
     # No ports exposed externally
     # Optional: Add basic healthcheck for Mongo if needed
@@ -246,14 +246,14 @@ services:
     #   timeout: 10s
     #   retries: 5
     # Optional: Add production logging
-    # Resource limits (Balanced for streaming workload)
+    # Resource limits (Upgraded for 4x workflow concurrency)
     deploy:
       resources:
         limits:
-          memory: 4G
-          cpus: '2'
+          memory: 8G         # ⬆️ from 4G (doubled for higher concurrency)
+          cpus: '2.5'        # ⬆️ from 2 (25% increase)
         reservations:
-          memory: 3.5G
+          memory: 5G         # ⬆️ from 3.5G
           cpus: '1.5'
     # Logging
     logging:
@@ -319,15 +319,15 @@ services:
       # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
       # Ensure it's defined in .env.prod
       # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
-    # Optimized production configuration
+    # Optimized production configuration (4x workflow concurrency)
     command: [
       "postgres",
-      # Connection settings
-      "-c", "max_connections=300",
-      "-c", "shared_buffers=768MB",          # ⬆️ from 640MB
-      "-c", "effective_cache_size=2GB",      # ⬆️ from 1.5GB
+      # Connection settings (increased for 60 concurrent workflows)
+      "-c", "max_connections=600",            # ⬆️ from 300 (4x workflows need more connections)
+      "-c", "shared_buffers=1GB",             # ⬆️ from 640MB
+      "-c", "effective_cache_size=3GB",       # ⬆️ from 1.5GB
       "-c", "work_mem=4MB",
-      "-c", "maintenance_work_mem=256MB",
+      "-c", "maintenance_work_mem=512MB",
       # Checkpoint settings
       "-c", "checkpoint_completion_target=0.9",
       "-c", "wal_buffers=16MB",
@@ -335,11 +335,11 @@ services:
       # Write performance
       "-c", "synchronous_commit=on",
       "-c", "wal_level=replica",
-      "-c", "max_wal_size=2GB",
-      "-c", "min_wal_size=512MB",
-      # Query performance
+      "-c", "max_wal_size=4GB",
+      "-c", "min_wal_size=1GB",
+      # Query performance (increased for higher concurrency)
       "-c", "random_page_cost=1.1",
-      "-c", "effective_io_concurrency=200",
+      "-c", "effective_io_concurrency=400",   # ⬆️ from 200 (doubled for higher concurrent I/O)
       # Logging
       "-c", "log_min_duration_statement=5000",
       "-c", "log_connections=on",
@@ -351,10 +351,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G       # ⬆️ from 2.5G (+500MB)
-          cpus: '1.5'      # unchanged
+          memory: 4G       # ⬆️ from 2.5G (+500MB)
+          cpus: '2.0'      # unchanged
         reservations:
-          memory: 2G       # ⬆️ from 1.5G
+          memory: 3G       # ⬆️ from 1.5G
           cpus: '0.75'     # unchanged
     # Production logging
     logging:
@@ -615,11 +615,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 9G   # ⬆️ from 4G (+256MB)
-          cpus: '3.0'    # ⬆️ from 1.5 (+0.25)
+          memory: 35.5G
+          cpus: '8.0'
         reservations:
-          memory: 7G   # ⬆️ from 2G
-          cpus: '2.0'     # unchanged
+          memory: 26G
+          cpus: '6.0'
     # Logging
     logging:
       driver: "json-file"

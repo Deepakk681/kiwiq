@@ -63,7 +63,7 @@ class WorkflowRunnerConfig(BaseNodeConfig):
     
     # Execution settings
     execution_mode: ExecutionMode = Field(
-        default=ExecutionMode.SUBPROCESS,
+        default=ExecutionMode.INDEPENDENT,
         description="How to execute the workflow. "
                    "'subprocess': Run as true subprocess with parent-child relationship. "
                    "'independent': Submit as independent workflow run."

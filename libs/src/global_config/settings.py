@@ -83,9 +83,6 @@ class Settings(BaseSettings):
     CACHE_TTL: int = 3600  # seconds
 
     SCRAPING_SERVER_URL: Optional[str] = None
-    
-    # Worker pool settings
-    WORKER_POOL_SIZE: int = 4
 
     LOG_LEVEL: str = "INFO"
     LOG_FILE_NAME: str = "kiwiq_backend.log"
