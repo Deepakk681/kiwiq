@@ -741,58 +741,73 @@ class RAGService:
             
             # Fetch document using customer data service
             # org_id is already validated at router level, use as-is
-            if version:
-                # Versioned document
-                document_data = await self.customer_data_service.get_versioned_document(
-                    org_id=org_id,
-                    namespace=namespace,
-                    docname=docname,
-                    is_shared=is_shared,
-                    user=user,
-                    version=version,
-                    on_behalf_of_user_id=on_behalf_of_user_id,
-                    is_system_entity=is_system_entity,
-                    is_called_from_workflow=True  # Allow system access
-                )
-            else:
-                # Unversioned document
-                document_data = await self.customer_data_service.get_unversioned_document(
-                    org_id=org_id,
-                    namespace=namespace,
-                    docname=docname,
-                    is_shared=is_shared,
-                    user=user,
-                    on_behalf_of_user_id=on_behalf_of_user_id,
-                    is_system_entity=is_system_entity,
-                    is_called_from_workflow=True  # Allow system access
-                )
+            document = await self.customer_data_service.get_document(
+                org_id=org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=is_shared,
+                user=user,
+                version=version,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=is_system_entity,
+                is_called_from_workflow=True  # Allow system access
+            )
+
+            return document
+            # document_data = document.document_contents
             
-            if document_data:
-                # Create a mock CustomerDocumentSearchResult for ingestion
-                from kiwi_app.workflow_app.schemas import (
-                    CustomerDocumentSearchResult,
-                    CustomerDocumentSearchResultMetadata
-                )
-                
-                metadata = CustomerDocumentSearchResultMetadata(
-                    id=doc_id,
-                    org_id=org_id,
-                    user_id_or_shared_placeholder=user_segment,
-                    namespace=namespace,
-                    docname=docname,
-                    version=version,
-                    is_versioned=version is not None,
-                    is_shared=is_shared,
-                    is_system_entity=is_system_entity,
-                    is_versioning_metadata=False
-                )
-                
-                return CustomerDocumentSearchResult(
-                    metadata=metadata,
-                    document_contents=document_data
-                )
+            # if version:
+            #     # Versioned document
+            #     document_data = await self.customer_data_service.get_versioned_document(
+            #         org_id=org_id,
+            #         namespace=namespace,
+            #         docname=docname,
+            #         is_shared=is_shared,
+            #         user=user,
+            #         version=version,
+            #         on_behalf_of_user_id=on_behalf_of_user_id,
+            #         is_system_entity=is_system_entity,
+            #         is_called_from_workflow=True  # Allow system access
+            #     )
+            # else:
+            #     # Unversioned document
+            #     document_data = await self.customer_data_service.get_unversioned_document(
+            #         org_id=org_id,
+            #         namespace=namespace,
+            #         docname=docname,
+            #         is_shared=is_shared,
+            #         user=user,
+            #         on_behalf_of_user_id=on_behalf_of_user_id,
+            #         is_system_entity=is_system_entity,
+            #         is_called_from_workflow=True  # Allow system access
+            #     )
             
-            return None
+            # if document_data:
+            #     # Create a mock CustomerDocumentSearchResult for ingestion
+            #     from kiwi_app.workflow_app.schemas import (
+            #         CustomerDocumentSearchResult,
+            #         CustomerDocumentSearchResultMetadata
+            #     )
+                
+            #     metadata = CustomerDocumentSearchResultMetadata(
+            #         id=doc_id,
+            #         org_id=org_id,
+            #         user_id_or_shared_placeholder=user_segment,
+            #         namespace=namespace,
+            #         docname=docname,
+            #         version=version,
+            #         is_versioned=version is not None,
+            #         is_shared=is_shared,
+            #         is_system_entity=is_system_entity,
+            #         is_versioning_metadata=False
+            #     )
+                
+            #     return CustomerDocumentSearchResult(
+            #         metadata=metadata,
+            #         document_contents=document_data
+            #     )
+            
+            # return None
             
         except Exception as e:
             self.logger.error(f"Error fetching document {doc_id}: {e}", exc_info=True)

@@ -2055,7 +2055,7 @@ class CustomerDataService:
         
         try:
             # Include the document type field to determine if it's versioned
-            include_fields = [self.mongo_client.DOC_TYPE_KEY]
+            include_fields = [self.mongo_client.DOC_TYPE_KEY, "data.active_version"]
 
             # print(f"Fetching document at path: {base_path}")
             # print(f"Allowed prefixes: {allowed_prefixes}")
@@ -2086,7 +2086,7 @@ class CustomerDataService:
             user_id_str = self.SHARED_DOC_PLACEHOLDER if is_shared else (
                 str(on_behalf_of_user_id) if on_behalf_of_user_id and user.is_superuser else str(user.id)
             )
-            
+
             # Create and return metadata
             return schemas.CustomerDocumentMetadata(
                 org_id=uuid.UUID(org_id_str) if not is_system_entity else None,
@@ -2096,6 +2096,8 @@ class CustomerDataService:
                 is_versioned=is_versioned,
                 is_shared=is_shared,
                 is_system_entity=is_system_entity,
+                version=document.get("data", {}).get("active_version", None),
+                is_active_version=is_versioned,
             )
             
         except HTTPException:
@@ -2867,6 +2869,141 @@ class CustomerDataService:
                 detail=f"Failed to delete objects: {str(e)}"
             )
 
+    async def get_document(
+        self,
+        org_id: uuid.UUID,
+        namespace: str,
+        docname: str,
+        is_shared: bool,
+        user: User,
+        version: Optional[str] = None,
+        on_behalf_of_user_id: Optional[uuid.UUID] = None,
+        is_system_entity: bool = False,
+        is_called_from_workflow: bool = False,
+    ) -> schemas.CustomerDocumentSearchResult:
+        """
+        Get a document (either versioned or unversioned) by automatically detecting its type.
+        
+        This method first checks the document metadata to determine if it's versioned,
+        then calls the appropriate get method based on the document type.
+        
+        Args:
+            org_id: Organization ID
+            namespace: Document namespace
+            docname: Document name
+            is_shared: Whether this is a shared document
+            user: User object
+            version: Specific version to retrieve (only used if document is versioned)
+            on_behalf_of_user_id: Optional user ID to act on behalf of (superusers only)
+            is_system_entity: Whether this is a system entity
+            is_called_from_workflow: Whether this operation is called from a workflow
+
+        Returns:
+            CustomerDocumentSearchResult: The document data with comprehensive metadata
+            
+        Raises:
+            HTTPException: If document not found, access denied, or other errors
+        """
+        # Permission check for acting on behalf of another user
+        if on_behalf_of_user_id and not user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can act on behalf of other users"
+            )
+            
+        try:
+            # First, get document metadata to determine if it's versioned
+            doc_metadata = await self.get_document_metadata(
+                org_id=org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=is_shared,
+                user=user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=is_system_entity,
+                is_called_from_workflow=is_called_from_workflow,
+            )
+
+            if not doc_metadata:
+                return None
+            
+            is_versioned_doc = doc_metadata.is_versioned
+            
+            if is_versioned_doc:
+                # Get versioned document
+                document_data = await self.get_versioned_document(
+                    org_id=org_id,
+                    namespace=namespace,
+                    docname=docname,
+                    is_shared=is_shared,
+                    user=user,
+                    version=version,
+                    on_behalf_of_user_id=on_behalf_of_user_id,
+                    is_system_entity=is_system_entity,
+                    is_called_from_workflow=is_called_from_workflow,
+                )
+            else:
+                # Get unversioned document
+                document_data = await self.get_unversioned_document(
+                    org_id=org_id,
+                    namespace=namespace,
+                    docname=docname,
+                    is_shared=is_shared,
+                    user=user,
+                    on_behalf_of_user_id=on_behalf_of_user_id,
+                    is_system_entity=is_system_entity,
+                    is_called_from_workflow=is_called_from_workflow,
+                )
+            
+            # Create comprehensive metadata for the search result
+            # Build the document path for metadata
+            base_path = self._build_base_path(
+                org_id=org_id,
+                namespace=namespace,
+                docname=docname,
+                is_shared=is_shared,
+                user=user,
+                on_behalf_of_user_id=on_behalf_of_user_id,
+                is_system_entity=is_system_entity
+            )
+
+            returned_doc_version = version or doc_metadata.version
+
+            if isinstance(base_path, list) and returned_doc_version:
+                base_path = base_path + [returned_doc_version]
+            
+            # Create search result metadata
+            metadata = schemas.CustomerDocumentSearchResultMetadata(
+                id=self.versioned_mongo_client.client._path_to_id(base_path),
+                versionless_path=self.versioned_mongo_client.client._path_to_id(base_path[:4]),
+                org_id=org_id if not is_system_entity else None,
+                user_id_or_shared_placeholder=base_path[1],  # This will be user ID or shared placeholder
+                namespace=namespace,
+                docname=docname,
+                is_versioned=is_versioned_doc,
+                is_shared=is_shared,
+                is_system_entity=is_system_entity,
+                version=returned_doc_version if is_versioned_doc else None,
+                is_versioning_metadata=False,  # This is the actual document data, not versioning metadata
+                is_active_version=returned_doc_version == doc_metadata.version if is_versioned_doc else None,  # True if no specific version was requested
+            )
+            
+            # Create and return the search result
+            return schemas.CustomerDocumentSearchResult(
+                metadata=metadata,
+                document_contents=document_data
+            )
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions (including 404 from metadata check)
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting document '{namespace}/{docname}': {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to get document: {str(e)}"
+            )
+    
     # --- Move/Copy Document Methods --- #
     
     async def _move_or_copy_document(

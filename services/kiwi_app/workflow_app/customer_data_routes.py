@@ -26,6 +26,52 @@ customer_data_logger = get_kiwi_logger(name="kiwi_app.customer_data")
 customer_data_router = APIRouter(prefix="/customer-data", tags=["customer-data"])
 customer_data_router.include_router(upload_router)
 
+
+@customer_data_router.get(
+    "/{namespace}/{docname}",
+    response_model=schemas.CustomerDocumentSearchResult,
+    dependencies=[Depends(RequireOrgDataReadActiveOrg)],
+    summary="Get a document (versioned or unversioned)",
+    description="""Retrieves a document by automatically detecting if it's versioned or unversioned.
+    
+    This endpoint first checks the document metadata to determine its type, then retrieves the document using the appropriate method:
+    - For versioned documents: Returns the specified version (or active version if not specified)
+    - For unversioned documents: Returns the document data (version parameter is ignored)
+    
+    This provides a unified interface for document retrieval without needing to know the document type in advance.
+    
+    Returns comprehensive metadata including document type, version info, path details, and the actual document contents.
+    """,
+    tags=["customer-data"],
+)
+async def get_document(
+    namespace: str = Path(..., description="Namespace for the document"),
+    docname: str = Path(..., description="Name of the document"),
+    is_shared: bool = Query(..., description="Specify true for shared org document, false for user-specific document."),
+    version: Optional[str] = Query(None, description="Specific version to retrieve (only used for versioned documents). If not provided and document is versioned, retrieves the active version."),
+    is_system_entity: bool = Query(False, description="Whether this is a system entity (superusers only)."),
+    on_behalf_of_user_id: Optional[uuid.UUID] = Query(None, description="Optional user ID to act on behalf of (superusers only)."),
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_verified_user),
+    service: CustomerDataService = Depends(get_customer_data_service_dependency),
+):
+    """Get a document (automatically detects versioned vs unversioned)."""
+    customer_data_logger.info(f"Getting document: {namespace}/{docname} for org {active_org_id}, version {version}")
+    document_result = await service.get_document(
+        org_id=active_org_id,
+        namespace=namespace,
+        docname=docname,
+        is_shared=is_shared,
+        user=current_user,
+        version=version,
+        on_behalf_of_user_id=on_behalf_of_user_id,
+        is_system_entity=is_system_entity,
+    )
+    
+    customer_data_logger.debug(f"Retrieved document {namespace}/{docname} (versioned: {document_result.metadata.is_versioned})")
+    return document_result
+
+
 # --- Versioned document routes --- #
 
 @customer_data_router.post(
