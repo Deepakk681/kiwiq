@@ -72,6 +72,135 @@ async def get_document(
     return document_result
 
 
+@customer_data_router.post(
+    "/versioned/{namespace}/{docname}/upsert",
+    response_model=schemas.CustomerDataVersionedUpsertResponse,
+    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
+    summary="Upsert a versioned document",
+    description=(
+        "Updates a versioned document if it exists, or initializes it if it doesn't. "
+        "This operation combines update and initialization logic.\n\n"
+        "**Behavior:**\n"
+        "- If the document at the path exists and is versioned:\n"
+        "  - Attempts to update the specified `version` (or the active version if `version` is null)."
+        "  - If the update targets a specific `version` that *doesn't* exist, it will first attempt to **create** that version (branching from `from_version` or active) and then apply the update."
+        "  - For dictionary document types, updates are treated as partial updates - the provided data will be merged with existing data, preserving any keys not explicitly overwritten."
+        "- If the document does not exist:\n"
+        "  - Initializes a new versioned document using the provided `data`. The initial version name will be the specified `version` (or 'default' if null)."
+        "- If a document exists at the path but is *unversioned*, the operation will fail.\n\n"
+        "**Schema Handling:**\n"
+        "- If `schema_template_name` is provided, the corresponding schema will be fetched and applied/validated during the update or initialization.\n\n"
+        "**Permissions:**\n"
+        "- Requires write permissions for the organization's customer data."
+        "- `is_system_entity=True` and `on_behalf_of_user_id` require superuser privileges."
+    ),
+    status_code=status.HTTP_200_OK, # Or 201 if we want to distinguish creation?
+                                   # Let's use 200 for simplicity, response indicates action.
+    tags=["versioned-customer-data"],
+)
+async def upsert_versioned_document_route(
+    data: schemas.CustomerDataVersionedUpsert,
+    namespace: str = Path(..., description="Namespace for the document"),
+    docname: str = Path(..., description="Name of the document"),
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_verified_user),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: CustomerDataService = Depends(get_customer_data_service_dependency),
+):
+    """Upsert a versioned document (create or update)."""
+    customer_data_logger.info(f"Upserting versioned document: {namespace}/{docname} for org {active_org_id}, target version: {data.version or 'active/default'}")
+
+    try:
+        operation_performed, document_identifier = await service.upsert_versioned_document(
+            db=db,
+            org_id=active_org_id,
+            namespace=namespace,
+            docname=docname,
+            is_shared=data.is_shared,
+            user=current_user,
+            data=data.data,
+            version=data.version,
+            from_version=data.from_version,
+            is_complete=data.is_complete,
+            schema_template_name=data.schema_template_name,
+            schema_template_version=data.schema_template_version,
+            # schema_definition=data.schema_definition, # Not exposing direct definition via API
+            on_behalf_of_user_id=data.on_behalf_of_user_id,
+            is_system_entity=data.is_system_entity,
+            set_active_version=data.set_active_version,
+            create_only_fields=data.create_only_fields,
+            keep_create_fields_if_missing=data.keep_create_fields_if_missing,
+        )
+
+        customer_data_logger.info(f"Upsert successful for {namespace}/{docname}. Operation: {operation_performed}")
+
+        # Manually create the response object as the service returns a tuple
+        # The document_identifier dict from the service matches the schema
+        return schemas.CustomerDataVersionedUpsertResponse(
+            operation_performed=operation_performed,
+            document_identifier=schemas.CustomerDocumentIdentifier(**document_identifier)
+        )
+
+    except HTTPException as e:
+        # Re-raise known HTTP exceptions from the service
+        customer_data_logger.warning(f"Upsert failed for {namespace}/{docname} with status {e.status_code}: {e.detail}")
+        raise e
+    except ValueError as e:
+         # Catch potential ValueErrors (e.g., versioned client not configured)
+        customer_data_logger.error(f"Upsert failed for {namespace}/{docname} due to configuration error: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        # Catch any other unexpected errors
+        customer_data_logger.error(f"Unexpected error during upsert for {namespace}/{docname}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during the upsert operation: {str(e)}"
+        )
+
+
+# --- Unversioned document routes --- #
+
+@customer_data_router.put(
+    "/unversioned/{namespace}/{docname}",
+    response_model=schemas.CustomerDataUnversionedRead,
+    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
+    summary="Create or update an unversioned document",
+    description="Creates or updates an unversioned document with new data.",
+    tags=["unversioned-customer-data"],
+)
+async def create_or_update_unversioned_document(
+    data: schemas.CustomerDataUnversionedCreateUpdate,
+    namespace: str = Path(..., description="Namespace for the document"),
+    docname: str = Path(..., description="Name of the document"),
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_verified_user),
+    db: AsyncSession = Depends(get_async_db_dependency),
+    service: CustomerDataService = Depends(get_customer_data_service_dependency),
+):
+    """Create or update an unversioned document."""
+    customer_data_logger.info(f"Creating or updating unversioned document: {namespace}/{docname} for org {active_org_id}")
+    doc_id, is_created = await service.create_or_update_unversioned_document(
+        db=db,
+        org_id=active_org_id,
+        namespace=namespace,
+        docname=docname,
+        is_shared=data.is_shared,
+        user=current_user,
+        data=data.data,
+        schema_template_name=data.schema_template_name,
+        schema_template_version=data.schema_template_version,
+        on_behalf_of_user_id=data.on_behalf_of_user_id,
+        is_system_entity=data.is_system_entity,
+        create_only_fields=data.create_only_fields,
+        keep_create_fields_if_missing=data.keep_create_fields_if_missing,
+    )
+    
+    action = "Created" if is_created else "Updated"
+    customer_data_logger.info(f"{action} unversioned document: {namespace}/{docname} for org {active_org_id}")
+    # Return the updated document
+    return schemas.CustomerDataUnversionedRead(data=data.data)
+
+
 # --- Versioned document routes --- #
 
 @customer_data_router.post(
@@ -602,135 +731,6 @@ async def update_versioned_document_schema(
     
     customer_data_logger.info(f"Updated schema for document: {namespace}/{docname} for org {active_org_id}")
     return schema
-
-
-@customer_data_router.post(
-    "/versioned/{namespace}/{docname}/upsert",
-    response_model=schemas.CustomerDataVersionedUpsertResponse,
-    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
-    summary="Upsert a versioned document",
-    description=(
-        "Updates a versioned document if it exists, or initializes it if it doesn't. "
-        "This operation combines update and initialization logic.\n\n"
-        "**Behavior:**\n"
-        "- If the document at the path exists and is versioned:\n"
-        "  - Attempts to update the specified `version` (or the active version if `version` is null)."
-        "  - If the update targets a specific `version` that *doesn't* exist, it will first attempt to **create** that version (branching from `from_version` or active) and then apply the update."
-        "  - For dictionary document types, updates are treated as partial updates - the provided data will be merged with existing data, preserving any keys not explicitly overwritten."
-        "- If the document does not exist:\n"
-        "  - Initializes a new versioned document using the provided `data`. The initial version name will be the specified `version` (or 'default' if null)."
-        "- If a document exists at the path but is *unversioned*, the operation will fail.\n\n"
-        "**Schema Handling:**\n"
-        "- If `schema_template_name` is provided, the corresponding schema will be fetched and applied/validated during the update or initialization.\n\n"
-        "**Permissions:**\n"
-        "- Requires write permissions for the organization's customer data."
-        "- `is_system_entity=True` and `on_behalf_of_user_id` require superuser privileges."
-    ),
-    status_code=status.HTTP_200_OK, # Or 201 if we want to distinguish creation?
-                                   # Let's use 200 for simplicity, response indicates action.
-    tags=["versioned-customer-data"],
-)
-async def upsert_versioned_document_route(
-    data: schemas.CustomerDataVersionedUpsert,
-    namespace: str = Path(..., description="Namespace for the document"),
-    docname: str = Path(..., description="Name of the document"),
-    active_org_id: uuid.UUID = Depends(get_active_org_id),
-    current_user: User = Depends(get_current_active_verified_user),
-    db: AsyncSession = Depends(get_async_db_dependency),
-    service: CustomerDataService = Depends(get_customer_data_service_dependency),
-):
-    """Upsert a versioned document (create or update)."""
-    customer_data_logger.info(f"Upserting versioned document: {namespace}/{docname} for org {active_org_id}, target version: {data.version or 'active/default'}")
-
-    try:
-        operation_performed, document_identifier = await service.upsert_versioned_document(
-            db=db,
-            org_id=active_org_id,
-            namespace=namespace,
-            docname=docname,
-            is_shared=data.is_shared,
-            user=current_user,
-            data=data.data,
-            version=data.version,
-            from_version=data.from_version,
-            is_complete=data.is_complete,
-            schema_template_name=data.schema_template_name,
-            schema_template_version=data.schema_template_version,
-            # schema_definition=data.schema_definition, # Not exposing direct definition via API
-            on_behalf_of_user_id=data.on_behalf_of_user_id,
-            is_system_entity=data.is_system_entity,
-            set_active_version=data.set_active_version,
-            create_only_fields=data.create_only_fields,
-            keep_create_fields_if_missing=data.keep_create_fields_if_missing,
-        )
-
-        customer_data_logger.info(f"Upsert successful for {namespace}/{docname}. Operation: {operation_performed}")
-
-        # Manually create the response object as the service returns a tuple
-        # The document_identifier dict from the service matches the schema
-        return schemas.CustomerDataVersionedUpsertResponse(
-            operation_performed=operation_performed,
-            document_identifier=schemas.CustomerDocumentIdentifier(**document_identifier)
-        )
-
-    except HTTPException as e:
-        # Re-raise known HTTP exceptions from the service
-        customer_data_logger.warning(f"Upsert failed for {namespace}/{docname} with status {e.status_code}: {e.detail}")
-        raise e
-    except ValueError as e:
-         # Catch potential ValueErrors (e.g., versioned client not configured)
-        customer_data_logger.error(f"Upsert failed for {namespace}/{docname} due to configuration error: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-    except Exception as e:
-        # Catch any other unexpected errors
-        customer_data_logger.error(f"Unexpected error during upsert for {namespace}/{docname}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred during the upsert operation: {str(e)}"
-        )
-
-
-# --- Unversioned document routes --- #
-
-@customer_data_router.put(
-    "/unversioned/{namespace}/{docname}",
-    response_model=schemas.CustomerDataUnversionedRead,
-    dependencies=[Depends(RequireOrgDataWriteActiveOrg)],
-    summary="Create or update an unversioned document",
-    description="Creates or updates an unversioned document with new data.",
-    tags=["unversioned-customer-data"],
-)
-async def create_or_update_unversioned_document(
-    data: schemas.CustomerDataUnversionedCreateUpdate,
-    namespace: str = Path(..., description="Namespace for the document"),
-    docname: str = Path(..., description="Name of the document"),
-    active_org_id: uuid.UUID = Depends(get_active_org_id),
-    current_user: User = Depends(get_current_active_verified_user),
-    db: AsyncSession = Depends(get_async_db_dependency),
-    service: CustomerDataService = Depends(get_customer_data_service_dependency),
-):
-    """Create or update an unversioned document."""
-    customer_data_logger.info(f"Creating or updating unversioned document: {namespace}/{docname} for org {active_org_id}")
-    doc_id, is_created = await service.create_or_update_unversioned_document(
-        db=db,
-        org_id=active_org_id,
-        namespace=namespace,
-        docname=docname,
-        is_shared=data.is_shared,
-        user=current_user,
-        data=data.data,
-        schema_template_name=data.schema_template_name,
-        schema_template_version=data.schema_template_version,
-        on_behalf_of_user_id=data.on_behalf_of_user_id,
-        is_system_entity=data.is_system_entity,
-        create_only_fields=data.create_only_fields,
-        keep_create_fields_if_missing=data.keep_create_fields_if_missing,
-    )
-    
-    action = "Created" if is_created else "Updated"
-    customer_data_logger.info(f"{action} unversioned document: {namespace}/{docname} for org {active_org_id}")
-    # Return the updated document
-    return schemas.CustomerDataUnversionedRead(data=data.data)
 
 @customer_data_router.get(
     "/unversioned/{namespace}/{docname}",

@@ -2088,6 +2088,7 @@ class CustomerDataService:
             )
 
             # Create and return metadata
+            data = document.get("data", {})
             return schemas.CustomerDocumentMetadata(
                 org_id=uuid.UUID(org_id_str) if not is_system_entity else None,
                 user_id_or_shared_placeholder=user_id_str,
@@ -2096,7 +2097,7 @@ class CustomerDataService:
                 is_versioned=is_versioned,
                 is_shared=is_shared,
                 is_system_entity=is_system_entity,
-                version=document.get("data", {}).get("active_version", None),
+                version=data.get("active_version", None) if isinstance(data, dict) else None,
                 is_active_version=is_versioned,
             )
             
