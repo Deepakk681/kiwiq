@@ -35,6 +35,9 @@ from kiwi_app.rag_service.exceptions import (
 # Get logger for RAG operations
 rag_logger = get_kiwi_logger(name="kiwi_app.rag_service.routers")
 
+# Import trigger function from worker
+from workflow_service.services.worker import trigger_rag_data_ingestion_job
+
 # Create router instances
 rag_router = APIRouter(prefix="/rag", tags=["rag"])
 # rag_admin_router = APIRouter(prefix="/rag/admin", tags=["rag-admin"])
@@ -484,6 +487,117 @@ async def get_rag_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get RAG service status"
+        )
+
+# --- Job Management Endpoints --- #
+
+@rag_router.post("/jobs/ingestion/trigger", response_model=schemas.RAGIngestionJobResponse, tags=["rag-jobs"])
+async def trigger_rag_ingestion_job(
+    job_request: Optional[schemas.RAGIngestionJobRequest] = schemas.RAGIngestionJobRequest(),
+    current_superuser: User = Depends(get_current_active_superuser),
+):
+    """
+    Trigger RAG data ingestion job to process documents from MongoDB into Weaviate.
+    
+    This endpoint allows superusers to manually trigger the RAG data ingestion process,
+    which scans for new or updated documents in MongoDB and processes them into the
+    Weaviate vector database for semantic search.
+    
+    **Permission Requirements:**
+    - Only superusers can trigger RAG ingestion jobs
+    - This is a privileged operation due to resource usage
+    
+    **Job Process:**
+    1. Scans MongoDB for documents matching the specified criteria
+    2. Processes documents through the ingestion pipeline
+    3. Generates vector embeddings (if requested)
+    4. Stores chunks in Weaviate with proper metadata
+    5. Updates ingestion tracking records
+    
+    **Parameters:**
+    - **start_timestamp**: Filter documents updated after this time (None = use last successful job)
+    - **end_timestamp**: Filter documents updated before this time (None = current time)
+    - **document_patterns**: Document name patterns to include (None = use system defaults)
+    - **batch_size**: Documents to process per batch (None = use system default)
+    - **max_batches**: Maximum batches to process (None = use system default)
+    - **generate_vectors**: Whether to generate vector embeddings (True recommended)
+    - **tags**: Optional tags for flow run tracking
+    
+    **Use Cases:**
+    - Manual ingestion after bulk document updates
+    - Recovery from failed ingestion jobs
+    - Testing ingestion with specific parameters
+    - Urgent content updates requiring immediate indexing
+    
+    **Monitoring:**
+    - Returns Prefect flow run ID for tracking job progress
+    - Job status can be monitored via Prefect dashboard
+    - Logs are available in the job execution environment
+    
+    Returns job trigger confirmation with flow run ID and parameters used.
+    """
+    try:
+        rag_logger.info(
+            f"RAG ingestion job trigger requested by superuser {current_superuser.id}"
+        )
+        rag_logger.info(f"Job parameters: {job_request.model_dump()}")
+        
+        # Call the trigger function from worker.py
+        flow_run = await trigger_rag_data_ingestion_job(
+            start_timestamp=job_request.start_timestamp,
+            end_timestamp=job_request.end_timestamp,
+            document_patterns=job_request.document_patterns,
+            batch_size=job_request.batch_size,
+            max_batches=job_request.max_batches,
+            generate_vectors=job_request.generate_vectors,
+            tags=job_request.tags
+        )
+        
+        # Prepare response with job details
+        job_parameters = {
+            "start_timestamp": job_request.start_timestamp.isoformat() if job_request.start_timestamp else None,
+            "end_timestamp": job_request.end_timestamp.isoformat() if job_request.end_timestamp else None,
+            "document_patterns": job_request.document_patterns,
+            "batch_size": job_request.batch_size,
+            "max_batches": job_request.max_batches,
+            "generate_vectors": job_request.generate_vectors,
+        }
+        
+        # Build tags for response
+        response_tags = job_request.tags or []
+        response_tags.extend([
+            "rag-ingestion",
+            "manual-trigger",
+            f"generate-vectors:{job_request.generate_vectors}",
+            f"triggered-by:{current_superuser.email}"
+        ])
+        
+        response = schemas.RAGIngestionJobResponse(
+            success=True,
+            prefect_flow_run_id=str(flow_run.id),
+            job_parameters=job_parameters,
+            estimated_documents=None,  # Could be enhanced to provide estimation
+            triggered_at=datetime.now(),
+            tags=response_tags
+        )
+        
+        rag_logger.info(
+            f"RAG ingestion job successfully triggered: "
+            f"flow_run_id={flow_run.id}, "
+            f"user={current_superuser.id}, "
+            f"parameters={job_parameters}"
+        )
+        
+        return response
+        
+    except Exception as e:
+        rag_logger.error(
+            f"Failed to trigger RAG ingestion job: user={current_superuser.id}, "
+            f"error={e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger RAG ingestion job: {str(e)}"
         )
 
 # --- Admin Endpoints --- #

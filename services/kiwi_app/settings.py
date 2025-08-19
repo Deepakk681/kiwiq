@@ -258,7 +258,8 @@ class Settings(GlobalSettings):
     USER_STATE_NAMESPACE: str = Field(default="user_state", env="USER_STATE_NAMESPACE")
     USER_STATE_DOCNAME: str = Field(default="user_state_{entity_username}", env="USER_STATE_DOCNAME")
 
-    
+    WORKFLOW_TIMEOUT_SECONDS: int = Field(default=4000, env="WORKFLOW_TIMEOUT_SECONDS")
+
 
 settings = Settings()
 # print(settings.MONGO_WORKFLOW_STREAM_SEGMENTS)

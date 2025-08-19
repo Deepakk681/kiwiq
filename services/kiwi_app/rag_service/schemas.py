@@ -278,4 +278,25 @@ class RAGError(BaseModel):
 
 class RAGValidationError(RAGError):
     """Schema for validation errors."""
-    field_errors: Dict[str, List[str]] = Field(..., description="Field-specific validation errors") 
+    field_errors: Dict[str, List[str]] = Field(..., description="Field-specific validation errors")
+
+# --- RAG Ingestion Job Schemas --- #
+
+class RAGIngestionJobRequest(BaseModel):
+    """Schema for triggering RAG data ingestion job."""
+    start_timestamp: Optional[datetime] = Field(None, description="Start timestamp for document filtering (None = last successful job timestamp)")
+    end_timestamp: Optional[datetime] = Field(None, description="End timestamp for document filtering (None = current time)")
+    document_patterns: Optional[List[str]] = Field(None, description="List of document name patterns to include (None = use defaults)")
+    batch_size: Optional[int] = Field(None, ge=1, le=1000, description="Number of documents to process per batch (None = use default)")
+    max_batches: Optional[int] = Field(None, ge=1, le=100, description="Maximum number of batches to process (None = use default)")
+    generate_vectors: bool = Field(True, description="Whether to generate vector embeddings for documents")
+    tags: Optional[List[str]] = Field(None, description="Optional tags to add to the flow run")
+
+class RAGIngestionJobResponse(BaseModel):
+    """Schema for RAG ingestion job trigger response."""
+    success: bool = Field(..., description="Whether the job was successfully triggered")
+    prefect_flow_run_id: str = Field(..., description="Prefect flow run ID for tracking")
+    job_parameters: Dict[str, Any] = Field(..., description="Parameters used for the ingestion job")
+    estimated_documents: Optional[int] = Field(None, description="Estimated number of documents to process")
+    triggered_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when job was triggered")
+    tags: List[str] = Field(default_factory=list, description="Tags applied to the flow run") 

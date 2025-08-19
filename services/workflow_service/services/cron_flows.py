@@ -795,7 +795,7 @@ async def send_draft_progress_reminder_emails(
 async def rag_data_ingestion_flow(
     start_timestamp: Optional[datetime] = None,
     end_timestamp: Optional[datetime] = None,
-    document_patterns: Optional[List[Tuple[str, str]]] = None,
+    document_patterns: Optional[List[Union[List[str], Tuple[str, str]]]] = None,  # List[str]  Tuple[str, str]
     batch_size: int = RAG_INGESTION_BATCH_SIZE,
     max_batches: int = RAG_INGESTION_MAX_BATCHES_PER_RUN,
     generate_vectors: bool = True
