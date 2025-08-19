@@ -35,8 +35,9 @@ from kiwi_app.rag_service.exceptions import (
 # Get logger for RAG operations
 rag_logger = get_kiwi_logger(name="kiwi_app.rag_service.routers")
 
-# Import trigger function from worker
-from workflow_service.services.worker import trigger_rag_data_ingestion_job
+# # Import trigger function from worker
+# from workflow_service.services.worker import trigger_rag_data_ingestion_job
+from workflow_service.services.cron_flows import trigger_rag_ingestion_deployment
 
 # Create router instances
 rag_router = APIRouter(prefix="/rag", tags=["rag"])
@@ -547,7 +548,7 @@ async def trigger_rag_ingestion_job(
         rag_logger.info(f"Job parameters: {job_request.model_dump()}")
         
         # Call the trigger function from worker.py
-        flow_run = await trigger_rag_data_ingestion_job(
+        flow_run = await trigger_rag_ingestion_deployment(
             start_timestamp=job_request.start_timestamp,
             end_timestamp=job_request.end_timestamp,
             document_patterns=job_request.document_patterns,

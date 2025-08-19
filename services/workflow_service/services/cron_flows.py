@@ -803,7 +803,7 @@ async def rag_data_ingestion_flow(
     """
     Prefect flow to incrementally ingest updated customer documents into Weaviate.
     
-    This flow is designed to run as a scheduled cron job to automatically process
+    This flow is designed to run as a scheduled cron job (half-hourly) to automatically process
     documents that have been updated since the last successful ingestion. It uses
     batch processing with pagination to handle large document volumes efficiently.
     
@@ -1364,10 +1364,11 @@ async def finalize_ingestion_data_job(
 async def trigger_rag_ingestion_deployment(
     start_timestamp: Optional[datetime] = None,
     end_timestamp: Optional[datetime] = None,
-    document_patterns: Optional[List[Tuple[str, str]]] = None,
-    batch_size: int = RAG_INGESTION_BATCH_SIZE,
-    max_batches: int = RAG_INGESTION_MAX_BATCHES_PER_RUN,
-    generate_vectors: bool = True
+    document_patterns: Optional[List[Union[List[str], Tuple[str, str]]]] = None,
+    batch_size: Optional[int] = None,
+    max_batches: Optional[int] = None,
+    generate_vectors: bool = True,
+    tags: Optional[List[str]] = None
 ) -> FlowRun:
     """
     Helper function to manually trigger the RAG data ingestion deployment.
@@ -1382,6 +1383,7 @@ async def trigger_rag_ingestion_deployment(
         batch_size: Number of documents to process per batch
         max_batches: Maximum number of batches to process
         generate_vectors: Whether to generate embeddings during ingestion
+        tags: Optional list of tags to add to the flow run
         
     Returns:
         FlowRun: The Prefect flow run object for the triggered deployment
@@ -1408,34 +1410,43 @@ async def trigger_rag_ingestion_deployment(
         )
         ```
     """
+    logger = get_prefect_or_regular_python_logger(name="trigger_rag_data_ingestion_job")
     # Set default end timestamp to now if not provided
-    if end_timestamp is None:
-        end_timestamp = datetime.now(tz=timezone.utc)
+    # if end_timestamp is None:
+    #     end_timestamp = datetime.now(tz=timezone.utc)
     
-    # Use default patterns if not provided
-    if document_patterns is None:
-        document_patterns = DEFAULT_INGESTION_DOCUMENT_PATTERNS
+    # # Use default patterns if not provided
+    # if document_patterns is None:
+    #     document_patterns = DEFAULT_INGESTION_DOCUMENT_PATTERNS
     
     # Create parameters for the deployment
     parameters = {
         "start_timestamp": start_timestamp,
         "end_timestamp": end_timestamp,
         "document_patterns": document_patterns,
-        "batch_size": batch_size,
-        "max_batches": max_batches,
+        "batch_size": batch_size or RAG_INGESTION_BATCH_SIZE,
+        "max_batches": max_batches or RAG_INGESTION_MAX_BATCHES_PER_RUN,
         "generate_vectors": generate_vectors
     }
+
+    # Add default tags if not provided
+    if tags is None:
+        tags = []
+    tags.extend([
+        "rag-ingestion",
+        "manual-trigger",
+    ])
     
     # Trigger the deployment
     flow_run = await run_deployment(
-        name="rag-data-ingestion/daily",  # References the deployment name
+        name="rag-data-ingestion/half-hourly",  # References the deployment name
         parameters=parameters,
-        timeout=0  # Don't wait for completion
+        timeout=0,  # Don't wait for completion
+        tags=tags,
     )
     
-    from global_config.logger import get_logger
-    get_logger(__name__).info(
-        f"Triggered RAG ingestion deployment 'rag-data-ingestion/daily' "
+    logger.info(
+        f"Triggered RAG ingestion deployment 'rag-data-ingestion/half-hourly' "
         f"(Prefect Flow Run ID: {flow_run.id}) for time range: "
         f"{start_timestamp or 'last_job_end'} to {end_timestamp}"
     )

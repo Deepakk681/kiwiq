@@ -945,76 +945,6 @@ async def trigger_web_scraper_job(
     return flow_run
 
 
-async def trigger_rag_data_ingestion_job(
-    start_timestamp: Optional[datetime] = None,
-    end_timestamp: Optional[datetime] = None,
-    document_patterns: Optional[List[str]] = None,
-    batch_size: Optional[int] = None,
-    max_batches: Optional[int] = None,
-    generate_vectors: bool = True,
-    tags: Optional[List[str]] = None
-) -> FlowRun:
-    """
-    Trigger the RAG data ingestion deployment programmatically.
-    
-    This helper method allows manual triggering of RAG data ingestion jobs,
-    processing documents from MongoDB into Weaviate vector database.
-    
-    Args:
-        start_timestamp: Start timestamp for document filtering (None = last successful job timestamp)
-        end_timestamp: End timestamp for document filtering (None = current time)
-        document_patterns: List of document name patterns to include (None = use defaults)
-        batch_size: Number of documents to process per batch (None = use default)
-        max_batches: Maximum number of batches to process (None = use default)
-        generate_vectors: Whether to generate vector embeddings for documents
-        tags: Optional tags to add to the flow run
-        
-    Returns:
-        FlowRun: The submitted flow run object
-        
-    Raises:
-        Exception: If the deployment trigger fails
-    """
-    logger = get_prefect_or_regular_python_logger(name="trigger_rag_data_ingestion_job")
-    
-    logger.info(f"Triggering RAG data ingestion deployment")
-    logger.info(f"Parameters: start={start_timestamp}, end={end_timestamp}, "
-                f"patterns={document_patterns}, batch_size={batch_size}, "
-                f"max_batches={max_batches}, generate_vectors={generate_vectors}")
-    
-    # Prepare parameters for the deployment
-    parameters = {
-        "start_timestamp": start_timestamp.isoformat() if start_timestamp else None,
-        "end_timestamp": end_timestamp.isoformat() if end_timestamp else None,
-        "document_patterns": document_patterns,
-        "batch_size": batch_size or RAG_INGESTION_BATCH_SIZE,
-        "max_batches": max_batches or RAG_INGESTION_MAX_BATCHES_PER_RUN,
-        "generate_vectors": generate_vectors
-    }
-    
-    # Add default tags if not provided
-    if tags is None:
-        tags = []
-    tags.extend([
-        "rag-ingestion",
-        "manual-trigger",
-        f"generate-vectors:{generate_vectors}"
-    ])
-    
-    # Run the deployment
-    flow_run = await run_deployment(
-        name="rag-data-ingestion/daily",  # Use the existing deployment name
-        parameters=parameters,
-        tags=tags,
-        timeout=0  # Don't wait for completion
-    )
-    
-    logger.info(f"RAG data ingestion deployment triggered: {flow_run.id}")
-    logger.info(f"Parameters used: {parameters}")
-    
-    return flow_run
-
-
 # --- Helper Functions ---
 
 async def search_workflow_by_name(
@@ -1498,7 +1428,7 @@ if __name__ == "__main__":
     1. workflow-execution/prod - On-demand workflow execution
     2. expire-organization-credits/hourly - Hourly credit expiration cron job
     3. search-scheduled-briefs-and-send-reminders/daily - Daily search for scheduled briefs and send reminder emails
-    4. rag-data-ingestion/daily - Daily RAG data ingestion into Weaviate
+    4. rag-data-ingestion/half-hourly - Half-hourly RAG data ingestion into Weaviate
     5. weekly-content-calendar-generation/weekly - Weekly content calendar generation for all entities
     6. web-crawler-scraper/on-demand - On-demand web scraping with MongoDB storage
     """
@@ -1548,12 +1478,12 @@ if __name__ == "__main__":
                 "trigger_workflows": False  # Can be set to True when workflow triggering is implemented
             }
         ),
-        # RAG data ingestion deployment (daily cron job)
+        # RAG data ingestion deployment (half-hourly cron job)
         rag_data_ingestion_flow.to_deployment(
-            name="daily",
+            name="half-hourly",
             tags=["rag-service", "data-ingestion", "weaviate", "cron"],
-            cron="0 7 * * *",  # Run daily at 7 AM UTC / 12 AM PST / 3 AM EST (off-peak hours)
-            description=f"Daily incremental ingestion of updated documents into Weaviate for RAG ({global_settings.APP_ENV})",
+            cron="0/30 * * * *",  # Run every 30 minutes
+            description=f"Half-hourly incremental ingestion of updated documents into Weaviate for RAG ({global_settings.APP_ENV})",
             version="rag-service/ingestion",
             parameters={
                 # Use default parameters for automatic incremental ingestion
