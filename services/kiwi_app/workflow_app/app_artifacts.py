@@ -578,65 +578,11 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       },
       "template_specific": false
     },
-    "linkedin_automatic_concept_selection_workflow": {
-      "name": "linkedin_automatic_concept_selection_workflow",
-      "version": null,
-      "inputs": {
-        "initial_brief_docname": null,
-        "past_context_posts_limit": 20,
-        "user_instruction": null,
-        "entity_username": null
-      },
-      "user_documents_config_variables": {
-      },
-      "template_specific": false
-    },
     "linkedin_linkedin_content_analysis_workflow": {
       "name": "linkedin_linkedin_content_analysis_workflow",
       "version": null,
       "inputs": {
         "entity_username": null
-      },
-      "user_documents_config_variables": {
-      },
-      "template_specific": false
-    },
-    "linkedin_sources_extraction_workflow": {
-      "name": "linkedin_sources_extraction_workflow",
-      "version": null,
-      "inputs": {
-        "documents_to_process": [
-            {
-                "filename_config": {
-                    "input_namespace_field_pattern": "uploaded_files_{item}", 
-                    "input_namespace_field": "entity_username",
-                    "static_docname": null
-                },
-                "output_field_name": "loaded_documents"
-            }
-        ],
-        "entity_username": null
-      },
-      "user_documents_config_variables": {
-      },
-      "template_specific": false
-    },
-    "linkedin_knowledge_base_analysis_workflow": {
-      "name": "linkedin_knowledge_base_analysis_workflow",
-      "version": null,
-      "inputs": {
-        "documents_to_process": [
-            {
-                "filename_config": {
-                    "input_namespace_field_pattern": "uploaded_files_{item}", 
-                    "input_namespace_field": "entity_username",
-                    "static_docname": null
-                },
-                "output_field_name": "loaded_documents"
-            }
-        ],
-        "entity_username": null,
-        "description": null
       },
       "user_documents_config_variables": {
       },
@@ -704,7 +650,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "version": null,
       "inputs": {
         "company_name": null,
-        "user_input": null
+        "user_input": null,
+        "brief_uuid": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -748,7 +695,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "entity_username": null,
         "user_input": null,
-        "initial_status": "draft"
+        "initial_status": "draft",
+        "brief_uuid": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -859,6 +807,49 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "linkedin_profile_url": null,
         "company_url": null,
         "blog_start_urls": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_content_calendar_entry": {
+      "name": "blog_content_calendar_entry",
+      "version": null,
+      "inputs": {
+        "weeks_to_generate": 1,
+        "company_name": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_content_calendar_entry": {
+      "name": "linkedin_content_calendar_entry",
+      "version": null,
+      "inputs": {
+        "weeks_to_generate": 1,
+        "past_context_posts_limit": 10,
+        "entity_username": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_brief_from_calendar_topic": {
+      "name": "linkedin_brief_from_calendar_topic",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "selected_topic": null,
+        "brief_uuid": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_brief_from_calendar_topic": {
+      "name": "blog_brief_from_calendar_topic",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "selected_topic": null,
+        "brief_uuid": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
