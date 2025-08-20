@@ -1972,6 +1972,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     # logger.warning(f"Error parsing structured output: {e}")
                 structured_output = structured_output or (original_response["parsed"] if isinstance(original_response, dict) and ((not original_response.get("parsing_error", None)) and "parsed" in original_response) else None)
                 structured_output = structured_output.model_dump() if isinstance(structured_output, BaseModel) else structured_output
+                if not structured_output:
+                    raise ValueError("No structured output found in LLM response!")
                 
         
         # Filter Response object, mainly for Anthropic to filter out unneccessary tool calls
@@ -2053,6 +2055,12 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         tool_call_count = len(tool_calls) if tool_calls else 0
         metadata.tool_call_count = tool_call_count
+
+        if self.config.output_schema.is_output_str() and not tool_calls:
+            if not raw_text:
+                raise ValueError("No raw text found in LLM response!")
+
+
 
         return LLMNodeOutputSchema(
             current_messages=current_messages,
