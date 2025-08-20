@@ -781,7 +781,7 @@ class UsageEventQuery(BillingBaseSchema):
     
     # Pagination
     skip: int = Field(0, ge=0, description="Number of records to skip")
-    limit: int = Field(100, ge=1, le=1000, description="Maximum number of records to return")
+    limit: int = Field(100, ge=1, le=2000, description="Maximum number of records to return")
 
 
 class PaginatedPromotionCodes(BillingBaseSchema):
