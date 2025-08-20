@@ -127,8 +127,8 @@ class EEATAnalysisSchema(BaseModel):
     trust_elements: List[str] = Field(description="Trust-building elements found")
 
 class ContentQualityScoringSchema(BaseModel):
-    information_density: str = Field(description="Information density assessment (sparse/moderate/dense)")
-    writing_quality: str = Field(description="Overall writing quality assessment")
+    information_density: int = Field(description="Information density score out of 100 (0-100)", ge=0, le=100)
+    writing_quality: int = Field(description="Overall writing quality score out of 100 (0-100)", ge=0, le=100)
 
 class QuestionAnswerExtractionSchema(BaseModel):
     featured_snippet_potential: List[str] = Field(description="Content sections with featured snippet potential")
@@ -138,9 +138,9 @@ class ContentStructureElementsSchema(BaseModel):
     supporting_evidence_types: List[str] = Field(description="Types of supporting evidence (stats/quotes/examples/research)")
 
 class LogicalFlowReadabilitySchema(BaseModel):
-    paragraph_transitions: str = Field(description="Quality of paragraph transitions (poor/good/excellent)")
-    heading_hierarchy: str = Field(description="Heading hierarchy organization (poor/good/excellent)")
-    content_scanability: str = Field(description="How easily content can be scanned (low/medium/high)")
+    paragraph_transitions: int = Field(description="Quality of paragraph transitions score out of 100 (0-100)", ge=0, le=100)
+    heading_hierarchy: int = Field(description="Heading hierarchy organization score out of 100 (0-100)", ge=0, le=100)
+    content_scanability: int = Field(description="How easily content can be scanned score out of 100 (0-100)", ge=0, le=100)
 
 class ContentThemesSchema(BaseModel):
     primary_narratives: List[str] = Field(description="The main list of narratives or stories being told")

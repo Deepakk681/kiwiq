@@ -61,10 +61,18 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_calendar_select
     BRIEF_GENERATION_OUTPUT_SCHEMA,
     BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA,
 )
+from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_brief import (
+    GOOGLE_RESEARCH_SYSTEM_PROMPT,
+    REDDIT_RESEARCH_SYSTEM_PROMPT,
+    GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
+    REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
+    GOOGLE_RESEARCH_OUTPUT_SCHEMA,
+    REDDIT_RESEARCH_OUTPUT_SCHEMA,
+)
 
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
-LLM_MODEL = "claude-3-7-sonnet-20250219"
+LLM_MODEL = "claude-sonnet-4-20250514"
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 
@@ -73,9 +81,15 @@ MAX_ITERATIONS = 10  # Maximum iterations for HITL feedback loops
 
 # Feedback LLM Configuration
 FEEDBACK_LLM_PROVIDER = "anthropic"
-FEEDBACK_ANALYSIS_MODEL = "claude-3-7-sonnet-20250219"
+FEEDBACK_ANALYSIS_MODEL = "claude-sonnet-4-20250514"
 FEEDBACK_TEMPERATURE = 0.5
 FEEDBACK_MAX_TOKENS = 3000
+
+# Perplexity Configuration for Web Research
+PERPLEXITY_PROVIDER = "perplexity"
+PERPLEXITY_MODEL = "sonar-pro"
+PERPLEXITY_TEMPERATURE = 0.5
+PERPLEXITY_MAX_TOKENS = 3000
 
 # Workflow JSON structure
 workflow_graph_schema = {
@@ -130,6 +144,112 @@ workflow_graph_schema = {
             }
         },
         
+        # 2.5 Google Research - Prompt Constructor
+        "construct_google_research_prompt": {
+            "node_id": "construct_google_research_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "google_research_user_prompt": {
+                        "id": "google_research_user_prompt",
+                        "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "content_playbook_doc": None,
+                            "user_input": None
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "playbook_doc",
+                            "user_input": "user_input"
+                        }
+                    },
+                    "google_research_system_prompt": {
+                        "id": "google_research_system_prompt",
+                        "template": GOOGLE_RESEARCH_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 2.6 Google Research - LLM Node (Perplexity)
+        "google_research_llm": {
+            "node_id": "google_research_llm",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {
+                        "provider": PERPLEXITY_PROVIDER,
+                        "model": PERPLEXITY_MODEL
+                    },
+                    "temperature": PERPLEXITY_TEMPERATURE,
+                    "max_tokens": PERPLEXITY_MAX_TOKENS
+                },
+                "output_schema": {
+                    "schema_definition": GOOGLE_RESEARCH_OUTPUT_SCHEMA,
+                    "convert_loaded_schema_to_pydantic": False
+                }
+            }
+        },
+        
+        # 2.7 Reddit Research - Prompt Constructor
+        "construct_reddit_research_prompt": {
+            "node_id": "construct_reddit_research_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "reddit_research_user_prompt": {
+                        "id": "reddit_research_user_prompt",
+                        "template": REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "content_playbook_doc": None,
+                            "google_research_output": None,
+                            "user_input": None
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "playbook_doc",
+                            "google_research_output": "google_research_output",
+                            "user_input": "user_input"
+                        }
+                    },
+                    "reddit_research_system_prompt": {
+                        "id": "reddit_research_system_prompt",
+                        "template": REDDIT_RESEARCH_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 2.8 Reddit Research - LLM Node (Perplexity)
+        "reddit_research_llm": {
+            "node_id": "reddit_research_llm",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {
+                        "provider": PERPLEXITY_PROVIDER,
+                        "model": PERPLEXITY_MODEL
+                    },
+                    "temperature": PERPLEXITY_TEMPERATURE,
+                    "max_tokens": PERPLEXITY_MAX_TOKENS
+                },
+                "web_search_options": {
+                    "search_domain_filter": [
+                        "reddit.com",
+                        "quora.com"
+                    ]
+                },
+                "output_schema": {
+                    "schema_definition": REDDIT_RESEARCH_OUTPUT_SCHEMA,
+                    "convert_loaded_schema_to_pydantic": False
+                }
+            }
+        },
+        
         # 3. Brief Generation - Prompt Constructor
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
@@ -142,12 +262,16 @@ workflow_graph_schema = {
                         "variables": {
                             "selected_topic": None,
                             "company_doc": None,
-                            "playbook_doc": None
+                            "playbook_doc": None,
+                            "google_research_output": None,
+                            "reddit_research_output": None
                         },
                         "construct_options": {
                             "selected_topic": "selected_topic",
                             "company_doc": "company_doc",
-                            "playbook_doc": "playbook_doc"
+                            "playbook_doc": "playbook_doc",
+                            "google_research_output": "google_research_output",
+                            "reddit_research_output": "reddit_research_output"
                         }
                     },
                     "brief_generation_system_prompt": {
@@ -502,9 +626,86 @@ workflow_graph_schema = {
             ]
         },
         
-        # Load Company and Playbook -> Brief Generation Prompt (trigger)
+        # Load Company and Playbook -> Google Research Prompt (trigger)
         {
             "src_node_id": "load_company_and_playbook",
+            "dst_node_id": "construct_google_research_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "playbook_doc", "dst_field": "playbook_doc"}
+            ]
+        },
+        
+        # State -> Google Research Prompt
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_google_research_prompt",
+            "mappings": [
+                {"src_field": "selected_topic", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Google Research Prompt -> LLM
+        {
+            "src_node_id": "construct_google_research_prompt",
+            "dst_node_id": "google_research_llm",
+            "mappings": [
+                {"src_field": "google_research_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "google_research_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # Google Research LLM -> State
+        {
+            "src_node_id": "google_research_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "structured_output", "dst_field": "google_research_output"}
+            ]
+        },
+        
+        # Google Research LLM -> Reddit Research Prompt (trigger)
+        {
+            "src_node_id": "google_research_llm",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "mappings": [
+                {"src_field": "structured_output", "dst_field": "google_research_output"}
+            ]
+        },
+        
+        # State -> Reddit Research Prompt
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "playbook_doc", "dst_field": "content_playbook_doc"},
+                {"src_field": "selected_topic", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Reddit Research Prompt -> LLM
+        {
+            "src_node_id": "construct_reddit_research_prompt",
+            "dst_node_id": "reddit_research_llm",
+            "mappings": [
+                {"src_field": "reddit_research_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "reddit_research_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # Reddit Research LLM -> State
+        {
+            "src_node_id": "reddit_research_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "structured_output", "dst_field": "reddit_research_output"}
+            ]
+        },
+        
+        # Reddit Research LLM -> Brief Generation Prompt (trigger)
+        {
+            "src_node_id": "reddit_research_llm",
             "dst_node_id": "construct_brief_generation_prompt",
             "mappings": []
         },
@@ -516,7 +717,9 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "selected_topic", "dst_field": "selected_topic"},
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "playbook_doc", "dst_field": "playbook_doc"}
+                {"src_field": "playbook_doc", "dst_field": "playbook_doc"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"}
             ]
         },
         
@@ -777,10 +980,7 @@ workflow_graph_schema = {
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "selected_topic", "dst_field": "source_topic"},
-                {"src_field": "current_content_brief", "dst_field": "final_content_brief"}
-            ]
+            "mappings": [            ]
         }
     ],
     
@@ -798,7 +998,9 @@ workflow_graph_schema = {
                 "user_action": "replace",
                 "selected_topic": "replace",
                 "company_doc": "replace",
-                "playbook_doc": "replace"
+                "playbook_doc": "replace",
+                "google_research_output": "replace",
+                "reddit_research_output": "replace"
             }
         }
     }

@@ -334,8 +334,6 @@ Create a detailed LinkedIn content brief that:
 8. Includes relevant hashtags and call-to-action
 
 The brief should be optimized for LinkedIn's algorithm and audience engagement patterns while staying true to the user's original vision.
-
-{revision_feedback}
 """
 
 # =============================================================================
@@ -385,6 +383,36 @@ PREVIOUS REVISION INSTRUCTIONS:
 {previous_revision_instructions}
 
 Please provide updated revision instructions that incorporate both previous feedback and this new feedback.
+"""
+
+# =============================================================================
+# BRIEF REVISION PROMPTS
+# =============================================================================
+
+BRIEF_REVISION_SYSTEM_PROMPT = """
+You are a senior LinkedIn content strategist revising an existing LinkedIn content brief.
+
+Your task is to update the current brief based on the structured feedback analysis provided.
+
+Principles:
+- Preserve the existing brief's strengths and voice; only change what is needed.
+- Apply the revision_instructions (with priorities) and add any missing_elements.
+- If instructions conflict, follow the overall_direction from the analysis.
+- Keep the output strictly to the brief content (no explanations) and adhere to the expected JSON schema.
+- Ensure the brief remains optimized for LinkedIn engagement and business objectives.
+"""
+
+BRIEF_REVISION_USER_PROMPT_TEMPLATE = """
+You are revising an existing LinkedIn content brief using the structured feedback analysis below.
+
+CURRENT CONTENT BRIEF JSON:
+{current_content_brief}
+
+FEEDBACK ANALYSIS JSON:
+{brief_feedback_analysis}
+
+Update the brief to incorporate the revision_instructions and missing_elements while preserving unaffected parts.
+Return ONLY the updated brief in valid JSON matching the expected schema.
 """
 
 # =============================================================================

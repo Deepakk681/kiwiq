@@ -17,9 +17,9 @@ from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
 from kiwi_client.workflows.active.document_models.customer_docs import (
     # User DNA
-    USER_DNA_DOCNAME,
-    USER_DNA_NAMESPACE_TEMPLATE,
-    USER_DNA_IS_VERSIONED,
+    LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
+    LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE,
+    LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED,
 )
 
 from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_alternate_text_suggestion_workflow import (
@@ -35,7 +35,7 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_alternate_t
 # --- Workflow Configuration Constants ---
 # LLM Configuration
 LLM_PROVIDER = "openai"
-GENERATION_MODEL = "gpt-4.1"
+GENERATION_MODEL = "gpt-5"
 LLM_TEMPERATURE = 1
 LLM_MAX_TOKENS = 4000
 MAX_ITERATIONS = 5
@@ -109,9 +109,9 @@ workflow_graph_schema = {
                 "load_paths": [
                     {
                         "filename_config": {
-                            "input_namespace_field_pattern": USER_DNA_NAMESPACE_TEMPLATE, 
+                            "input_namespace_field_pattern": LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE, 
                             "input_namespace_field": "entity_username",
-                            "static_docname": USER_DNA_DOCNAME,
+                            "static_docname": LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
                         },
                         "output_field_name": "user_dna"
                     }
@@ -344,15 +344,6 @@ workflow_graph_schema = {
             "node_id": "output_node",
             "node_name": "output_node",
             "node_config": {
-                "dynamic_input_schema": {
-                    "fields": {
-                        "generated_output": {
-                            "type": "dict",
-                            "required": True,
-                            "description": "The generated alternative text suggestions"
-                        }
-                    }
-                }
             }
         }
     },
@@ -485,7 +476,6 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state", 
             "dst_node_id": "output_node", 
             "mappings": [
-                { "src_field": "current_alternatives", "dst_field": "generated_output" }
             ]
         },
 
@@ -649,8 +639,8 @@ async def main_test_alternate_text_suggestion_workflow():
     # Define setup documents
     setup_docs: List[SetupDocInfo] = [
         {
-            'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=entity_username), 
-            'docname': USER_DNA_DOCNAME,
+            'namespace': LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE.format(item=entity_username), 
+            'docname': LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
             'initial_data': {
                 "background": "Experienced content strategist with 10+ years in digital marketing",
                 "expertise": ["Content Strategy", "Digital Marketing", "Social Media"],
@@ -670,7 +660,7 @@ async def main_test_alternate_text_suggestion_workflow():
                     "tertiary": "Industry enthusiasts"
                 }
             }, 
-            'is_versioned': USER_DNA_IS_VERSIONED, 
+            'is_versioned': LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED, 
             'is_shared': False,
             'initial_version': "default",
             'is_system_entity': False
@@ -679,7 +669,7 @@ async def main_test_alternate_text_suggestion_workflow():
 
     # Define cleanup docs
     cleanup_docs: List[CleanupDocInfo] = [
-        {'namespace': USER_DNA_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': USER_DNA_DOCNAME, 'is_versioned': USER_DNA_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
+        {'namespace': LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE.format(item=entity_username), 'docname': LINKEDIN_CONTENT_PLAYBOOK_DOCNAME, 'is_versioned': LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED, 'is_shared': False, 'is_system_entity': False},
     ]
 
     # Output validation function

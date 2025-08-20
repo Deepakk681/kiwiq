@@ -97,6 +97,9 @@ class ModelMetadata(BaseModel):
     verbosity_supported: bool = False
     verbosity_levels: Optional[List[str]] = None
 
+    # Code Execution Configs
+    code_execution_tool_cost: float = 0.03
+
 
 # class ModelMetadata(ModelMetadata):
 #     """Extends base model metadata with web search capabilities."""

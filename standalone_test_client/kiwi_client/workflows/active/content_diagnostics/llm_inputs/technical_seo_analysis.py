@@ -7,6 +7,7 @@ TECHNICAL_SEO_SYSTEM_PROMPT_TEMPLATE = """You are a senior technical SEO analyst
 Key responsibilities:
 - Analyze technical SEO health based on measurable HTML standards and best practices
 - Identify critical technical issues that impact crawlability, indexability, and user experience
+- Analyze robots.txt configuration and bot access permissions
 - Prioritize issues based on their direct impact on search engine visibility
 - Provide specific, technically accurate recommendations with clear implementation paths
 - Focus on fixing foundational technical issues before suggesting optimizations
@@ -18,6 +19,8 @@ Analysis guidelines:
 - Pages with <30% implementation need immediate action
 - Prioritize issues that directly block search engines (noindex, missing titles, broken hierarchy)
 - Factor in the scale of issues (e.g., 80% of pages missing meta descriptions is critical)
+- Analyze robots.txt for proper bot access - blocking beneficial bots is a critical issue
+- Identify opportunities to allow important SEO and AI bots that are currently blocked
 
 Metrics interpretation:
 - Title/Meta Description: Essential for SERP appearance and CTR
@@ -28,27 +31,39 @@ Metrics interpretation:
 - Schema markup: Important for rich results and AI understanding
 - Alt text: Critical for accessibility and image search
 - Internal linking: Essential for crawlability and PageRank flow
+- Robots.txt: Critical for controlling bot access and ensuring beneficial bots can crawl
 
 Report tone: Technical, precise, actionable, and data-driven.
-Report focus: Concrete technical issues with measurable impact on search performance.
+Report focus: Concrete technical issues with measurable impact on search performance, including bot access optimization.
 
 You must structure your response as a valid JSON object matching the TechnicalSEOReport schema provided."""
 
-TECHNICAL_SEO_USER_PROMPT_TEMPLATE = """Please analyze the following technical SEO audit data and generate a comprehensive technical SEO report. Focus on identifying critical technical issues and providing actionable fixes.
+TECHNICAL_SEO_USER_PROMPT_TEMPLATE = """Please analyze the following technical SEO audit data and generate a comprehensive technical SEO report. Focus on identifying critical technical issues and providing actionable fixes, including robots.txt optimization.
 
 ## Technical SEO Audit Data:
 
 {data}
 
+## Robots Analysis:
+
+{robots_analysis}
+
 ## Analysis Instructions:
 
 1. Calculate technical health scores based on the implementation rates of SEO best practices
-2. Identify 3-5 critical technical issues that directly impact search visibility
-3. Provide 3-4 immediate technical fixes that can be implemented quickly
-4. Identify structural gaps that require longer-term development effort
-5. Create a prioritized timeline for fixing critical issues
+2. Analyze the robots.txt configuration to identify blocked beneficial bots and accessibility issues
+3. Identify 3-5 critical technical issues that directly impact search visibility (including bot access issues)
+4. Provide 3-4 immediate technical fixes that can be implemented quickly
+5. Identify structural gaps that require longer-term development effort
+6. Create specific recommendations for robots.txt optimization to improve bot access
+7. Create a prioritized timeline for fixing critical issues
 
-Focus on technical issues that can be directly measured and fixed through code changes. Base all recommendations on the concrete metrics provided.
+Focus on technical issues that can be directly measured and fixed through code changes. Pay special attention to:
+- Which beneficial bots (Google, Bing, AI crawlers) are being blocked unnecessarily
+- Whether important SEO bots have proper access to key site areas
+- Robots.txt rules that might be preventing optimal crawling and indexing
+
+Base all recommendations on the concrete metrics and robots analysis provided.
 
 Please return your analysis as a valid JSON object following the TechnicalSEOReport schema."""
 
@@ -57,21 +72,35 @@ Please return your analysis as a valid JSON object following the TechnicalSEORep
 class TechnicalHealth(BaseModel):
     """Technical SEO health scores based on measurable HTML metrics."""
 
-    overall_score: conint(ge=0, le=10) = Field(
-        ..., description="0-10 score based on aggregate technical SEO metrics (title, meta, headers, etc.)"
+    overall_score: conint(ge=0, le=100) = Field(
+        ..., description="0-100 score based on aggregate technical SEO metrics (title, meta, headers, etc.)"
     )
-    crawlability_score: conint(ge=0, le=10) = Field(
-        ..., description="0-10 score based on technical factors affecting search engine crawling (HTTPS, HTML lang, canonical tags)"
+    crawlability_score: conint(ge=0, le=100) = Field(
+        ..., description="0-100 score based on technical factors affecting search engine crawling (HTTPS, HTML lang, canonical tags, robots.txt)"
     )
-    structure_score: conint(ge=0, le=10) = Field(
-        ..., description="0-10 score based on HTML structure metrics (heading hierarchy, lists, semantic HTML)"
+    structure_score: conint(ge=0, le=100) = Field(
+        ..., description="0-100 score based on HTML structure metrics (heading hierarchy, lists, semantic HTML)"
     )
-    mobile_readiness_score: conint(ge=0, le=10) = Field(
-        ..., description="0-10 score based on mobile-friendly viewport and HTTPS usage"
+    mobile_readiness_score: conint(ge=0, le=100) = Field(
+        ..., description="0-100 score based on mobile-friendly viewport and HTTPS usage"
     )
     status_summary: str = Field(
         ..., description="One-sentence summary of the technical SEO health based on measured metrics"
     )
+
+
+class RobotsInsight(BaseModel):
+    """Insights about robots.txt configuration and bot access."""
+    
+    bot_name: str = Field(..., description="Name of the bot or crawler (e.g., 'Googlebot', 'Bingbot', 'GPTBot')")
+    current_access: Literal["Allowed", "Blocked", "Partially Blocked"] = Field(
+        ..., description="Current access level based on robots.txt analysis"
+    )
+    recommended_access: Literal["Allow", "Block", "Selective Allow"] = Field(
+        ..., description="Recommended access level for optimal SEO performance"
+    )
+    seo_impact: str = Field(..., description="How the current access setting impacts SEO and visibility")
+    action_needed: str = Field(..., description="Specific action to take in robots.txt (e.g., 'Remove Disallow rule for /blog/')")
 
 
 class TechnicalIssue(BaseModel):
@@ -128,6 +157,10 @@ class TechnicalSEOReport(BaseModel):
         ..., description="Overall technical health scores based on analyzed metrics"
     )
 
+    robots_insights: List[RobotsInsight] = Field(
+        ..., description="Analysis of robots.txt configuration and bot access recommendations", max_items=8
+    )
+
     critical_technical_issues: List[TechnicalIssue] = Field(
         ..., description="Top technical issues ordered by severity, based on actual metrics", max_items=5
     )
@@ -145,7 +178,7 @@ class TechnicalSEOReport(BaseModel):
     )
 
     executive_summary: str = Field(
-        ..., description="2-3 sentence executive summary of technical SEO status based on metrics"
+        ..., description="2-3 sentence executive summary of technical SEO status based on metrics, including robots.txt status"
     )
 
     pages_analyzed: int = Field(..., description="Total number of pages analyzed in this report")

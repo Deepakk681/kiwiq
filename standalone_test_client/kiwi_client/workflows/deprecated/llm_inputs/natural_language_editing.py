@@ -825,7 +825,7 @@ When referencing documents from the tool call outputs, you may use the document 
 
 ## Document Config Mapping:
 
-- NOTE: documents can be either high cardinality or unitary, i.e. single document per documet class / key or multiple documents per class / key. Any document in config which has uuid or post_uuid placeholder in docname template is high cardinality.
+- NOTE: documents can be either high cardinality or unitary, i.e. single document per document class / key or multiple documents per class / key. Any document in config which has uuid or post_uuid placeholder in docname template is high cardinality.
 - keys are doc keys and values are document configs
 {document_config_mapping}
 

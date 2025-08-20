@@ -9,7 +9,7 @@ calculates the estimated credit cost before execution.
 
 import asyncio
 import traceback
-from typing import Any, Dict, List, Optional, Union, Type, ClassVar, Tuple, Set
+from typing import Any, Dict, List, Optional, Union, Type, ClassVar, Tuple, Set, TYPE_CHECKING
 
 from global_config.logger import get_prefect_or_regular_python_logger
 from pydantic import Field, model_validator, BaseModel, ValidationError
@@ -41,6 +41,9 @@ from workflow_service.config.constants import (
     EXTERNAL_CONTEXT_MANAGER_KEY,
 )
 from kiwi_app.settings import settings as kiwi_settings
+
+if TYPE_CHECKING:
+    from workflow_service.services.external_context_manager import ExternalContextManager
 
 
 # --- Helper Function (adapted from customer_data.py) ---
@@ -364,7 +367,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
         config = config.get("configurable")
 
         app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
-        ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
+        ext_context: "ExternalContextManager" = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
 
         # Billing tracking
         total_estimated_credits = 0.0
@@ -572,6 +575,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
                         user_id=user.id,
                         operation_id=run_job.run_id,
                         credit_type=CreditType.DOLLAR_CREDITS,
+                        event_type="linkedin_scraping__allocation",
                         estimated_credits=total_estimated_credits,
                         metadata={
                             "operation_type": "linkedin_scraping",
@@ -699,6 +703,7 @@ class LinkedInScrapingNode(BaseDynamicNode):
                         credit_type=CreditType.DOLLAR_CREDITS,
                         allocated_credits=allocated_credits,
                         actual_credits=actual_credits,
+                        event_type="linkedin_scraping__adjustment",
                         metadata={
                             "operation_type": "linkedin_scraping",
                             "successful_jobs": sum(s["successful"] for s in execution_summary.values()),

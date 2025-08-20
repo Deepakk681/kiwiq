@@ -68,7 +68,7 @@ BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA = BriefFeedbackAnalysisSchema.model_json_s
 
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
-LLM_MODEL = "claude-3-7-sonnet-20250219"
+LLM_MODEL = "claude-sonnet-4-20250514"
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 
@@ -77,7 +77,7 @@ MAX_ITERATIONS = 10  # Maximum iterations for HITL feedback loops
 
 # Feedback LLM Configuration
 FEEDBACK_LLM_PROVIDER = "anthropic"
-FEEDBACK_ANALYSIS_MODEL = "claude-3-7-sonnet-20250219"
+FEEDBACK_ANALYSIS_MODEL = "claude-sonnet-4-20250514"
 FEEDBACK_TEMPERATURE = 0.5
 FEEDBACK_MAX_TOKENS = 3000
 
@@ -782,8 +782,6 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "selected_topic", "dst_field": "source_topic"},
-                {"src_field": "current_content_brief", "dst_field": "final_content_brief"}
             ]
         }
     ],

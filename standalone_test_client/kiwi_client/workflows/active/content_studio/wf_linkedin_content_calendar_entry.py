@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 
 # LLM Configuration
 LLM_PROVIDER = "openai"
-GENERATION_MODEL = "gpt-4.1" # Or gpt-4-turbo etc.
+GENERATION_MODEL = "gpt-5" # Or gpt-4-turbo etc.
 LLM_TEMPERATURE = 1
 LLM_MAX_TOKENS = 5000 # Adjust as needed for topic generation
 
@@ -100,22 +100,6 @@ workflow_graph_schema = {
         "node_name": "load_customer_data",
         "node_config": {
             "load_paths": [
-                {
-                    "filename_config": {
-                        "input_namespace_field_pattern": LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE, 
-                        "input_namespace_field": "entity_username",
-                        "static_docname": LINKEDIN_USER_DNA_DOCNAME,
-                    },
-                    "output_field_name": "user_dna"
-                },
-                {
-                    "filename_config": {
-                         "input_namespace_field_pattern": LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE, 
-                          "input_namespace_field": "entity_username",
-                          "static_docname": LINKEDIN_USER_PROFILE_DOCNAME,
-                    },
-                    "output_field_name": "user_preferences"
-                },
                 {
                     "filename_config": {
                         "input_namespace_field_pattern": LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE, 
@@ -198,7 +182,7 @@ workflow_graph_schema = {
           # Operation 2: Compute Total Topics Needed - weeks_to_generate * posts_per_week
           {
             "output_field_name": "total_topics_needed",
-            "select_paths": ["user_preferences.posting_schedule.posts_per_week"], # Inputs from state
+            "select_paths": ["playbook.posts_per_week"], # Inputs from state
             "merge_strategy": {
                 "map_phase": {"unspecified_keys_strategy": "ignore"}, # Only care about the selected value
                 "reduce_phase": {
@@ -231,19 +215,14 @@ workflow_graph_schema = {
             "id": "topic_user_prompt",
             "template": BRIEF_USER_PROMPT_TEMPLATE,
             "variables": {
-              "user_preferences": None, # Mapped from user_preferences
-              "strategy_doc": None,  # Mapped from strategy_doc and user_dna
+              "strategy_doc": None,  # Mapped from strategy_doc
               "merged_posts": None,     # Mapped from merged_posts
-              "user_dna": None,
-              "user_timezone": None, # Mapped from user_preferences.timezone
+              "user_timezone": None, # Mapped from playbook.timezone
               "current_datetime": "$current_date",
             },
             "construct_options": {
                "strategy_doc": "strategy_doc", # Map the number passed by the mapper
-               "user_preferences": "user_preferences", # Map directly from user_preferences
                "merged_posts": "merged_data.final_merged_posts_for_prompt", # Map directly from merged_posts
-               "user_dna": "user_dna",
-               "user_timezone": "user_preferences.timezone" # Map timezone from user preferences
             }
           },
           "topic_system_prompt": {
@@ -410,8 +389,6 @@ workflow_graph_schema = {
     # --- State Updates from Loaders ---
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         # Store the lists under their respective keys in state
-        { "src_field": "user_dna", "dst_field": "user_dna"},
-        { "src_field": "user_preferences", "dst_field": "user_preferences"},
         { "src_field": "strategy_doc", "dst_field": "strategy_doc"},
         { "src_field": "scraped_posts", "dst_field": "scraped_posts"}
       ]
@@ -434,7 +411,6 @@ workflow_graph_schema = {
         { "src_field": "draft_posts", "dst_field": "draft_posts" },
         { "src_field": "scraped_posts", "dst_field": "scraped_posts" },
         { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
-        { "src_field": "user_preferences", "dst_field": "user_preferences"},
         { "src_field": "weeks_to_generate", "dst_field": "weeks_to_generate" },
       ]
     },
@@ -455,8 +431,6 @@ workflow_graph_schema = {
     # --- State -> Construct Prompt (Public Edges for Context) ---
     { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_prompt", "mappings": [
         { "src_field": "strategy_doc", "dst_field": "strategy_doc" },
-        { "src_field": "user_dna", "dst_field": "user_dna"},
-        { "src_field": "user_preferences", "dst_field": "user_preferences"},
       ]
     },
 
@@ -519,13 +493,11 @@ workflow_graph_schema = {
 
     { "src_node_id": "store_all_topics", "dst_node_id": "output_node", 
      "mappings": [
-        { "src_field": "paths_processed", "dst_field": "topic_paths_processed"}
       ]
      },
 
     # --- State -> Output ---
     { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-        { "src_field": "all_generated_topics", "dst_field": "final_briefs_list"}
       ]
     },
   ],
@@ -996,7 +968,7 @@ async def main_test_content_calendar_workflow():
         # Mock Draft Posts (2 examples)
         {
             'namespace': LINKEDIN_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-1'),
+            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{item}', 'draft-1'),
             'initial_data': {
                 "title": "Leading vs Lagging Indicators in RevOps",
                 "content": "🎯 Stop measuring what happened. Start measuring what's happening. Most RevOps teams are drowning in lagging indicators: ✅ Revenue closed ✅ Deal velocity ✅ Win rates But missing the leading indicators that actually drive those outcomes: 🚀 Pipeline quality scores 🚀 Engagement velocity 🚀 Process adherence rates The difference? Lagging indicators tell you if you hit your target. Leading indicators tell you if you're aiming correctly. What leading indicators are you tracking in your RevOps? #RevOps #Metrics #DataDriven",
@@ -1009,7 +981,7 @@ async def main_test_content_calendar_workflow():
         },
         {
             'namespace': LINKEDIN_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-2'),
+            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{item}', 'draft-2'),
             'initial_data': {
                 "title": "Tech Stack Consolidation Reality Check",
                 "content": "💡 Your tech stack isn't a collection. It's an ecosystem. Just helped a client reduce their sales tools from 12 to 4. The result? 🎉 40% faster onboarding 🎉 60% fewer integration issues 🎉 £2,400/month in savings The secret wasn't finding the 'perfect' tool. It was finding tools that actually talk to each other. Before consolidating, ask: ✅ Does this tool integrate natively? ✅ Can it replace 2+ existing tools? ✅ Will it scale with our growth? Your tech stack should amplify your team, not complicate their lives. What's one tool you could eliminate today? #TechStack #RevOps #Efficiency",
@@ -1055,13 +1027,13 @@ async def main_test_content_calendar_workflow():
         # Draft Posts
         {
             'namespace': LINKEDIN_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-1'), 
+            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{item}', 'draft-1'), 
             'is_versioned': LINKEDIN_DRAFT_IS_VERSIONED, 
             'is_shared': False
         },
         {
             'namespace': LINKEDIN_DRAFT_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{_uuid_}', 'draft-2'), 
+            'docname': LINKEDIN_DRAFT_DOCNAME.replace('{item}', 'draft-2'), 
             'is_versioned': LINKEDIN_DRAFT_IS_VERSIONED, 
             'is_shared': False
         },

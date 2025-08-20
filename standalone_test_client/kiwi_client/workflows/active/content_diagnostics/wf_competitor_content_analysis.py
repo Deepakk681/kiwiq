@@ -182,7 +182,7 @@ workflow_graph_schema = {
             "node_id": "save_competitor_analysis",
             "node_name": "store_customer_data",
             "node_config": {
-                "global_is_shared": True,
+                "global_is_shared": False,
                 "global_is_system_entity": False,
                 "store_configs": [
                     {
@@ -323,7 +323,7 @@ workflow_graph_schema = {
             "src_node_id": "save_competitor_analysis",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "document_serial_number", "dst_field": "analysis_document_id"}
+                {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
             ]
         }
     ],

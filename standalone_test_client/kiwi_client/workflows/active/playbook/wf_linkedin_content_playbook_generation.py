@@ -43,12 +43,11 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE,
     LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED,
     LINKEDIN_CONTENT_PLAYBOOK_IS_SHARED,
-    LINKEDIN_CONTENT_PLAYBOOK_IS_SYSTEM_ENTITY,
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE,
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
-    LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
+    LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY    
 )
 
 # Import LLM inputs
@@ -74,15 +73,17 @@ from kiwi_client.workflows.active.playbook.llm_inputs.linkedin_content_playbook_
     DOCUMENT_FETCHER_OUTPUT_SCHEMA,
     INITIAL_DOCUMENT_FETCHER_OUTPUT_SCHEMA,
     PLAYBOOK_GENERATOR_OUTPUT_SCHEMA,
-    PLAYBOOK_GENERATION_OUTPUT_SCHEMA,
-    
-    # Namespace template
-    LINKEDIN_PLAYBOOK_SYSTEM_DOCUMENT_NAMESPACE_TEMPLATE,
 )
 
 # Configuration constants
 LLM_PROVIDER = "anthropic"  # anthropic    openai
 LLM_MODEL = "claude-sonnet-4-20250514"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+
+LLM_PROVIDER_FOR_TOOLS = "openai"  # anthropic    openai
+LLM_MODEL_FOR_TOOLS = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+MAX_TOKENS_FOR_TOOLS = 10000
+
+
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 MAX_TOOL_CALLS = 25  # Maximum total tool calls allowed
@@ -303,12 +304,13 @@ workflow_graph_schema = {
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": LLM_PROVIDER_FOR_TOOLS,
+                        "model": LLM_MODEL_FOR_TOOLS
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS,
-                    "reasoning_tokens_budget": 2048,
+                    "max_tokens": MAX_TOKENS_FOR_TOOLS,
+                    # "reasoning_tokens_budget": 2048,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {
                     "enable_tool_calling": True,
@@ -549,12 +551,13 @@ workflow_graph_schema = {
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": LLM_PROVIDER_FOR_TOOLS,
+                        "model": LLM_MODEL_FOR_TOOLS
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS,
-                    "reasoning_tokens_budget": 2048,
+                    "max_tokens": MAX_TOKENS_FOR_TOOLS,
+                    # "reasoning_tokens_budget": 2048,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {
                     "enable_tool_calling": True,
@@ -819,8 +822,7 @@ workflow_graph_schema = {
                             "is_versioned": LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED,
                             "operation": "upsert_versioned",
                             "version": "default"
-                        },
-                        "generate_uuid": True,
+                        }
                     }
                 ],
             }
@@ -1369,20 +1371,7 @@ workflow_graph_schema = {
         {
             "src_node_id": "store_playbook",
             "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "document_serial_number", "dst_field": "playbook_document_id"}
-            ]
-        },
-        
-        # State -> Output
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "playbook_generator_output", "dst_field": "final_playbook"},
-                {"src_field": "selected_plays", "dst_field": "original_play_recommendations"},
-                {"src_field": "approved_plays", "dst_field": "approved_plays"}
-            ]
+            "mappings": [            ]
         }
     ],
     
@@ -1481,144 +1470,144 @@ async def main_test_playbook_workflow():
     print(f"--- Starting {test_name} ---")
     
     # Test parameters
-    test_company_name = "test_linkedin_company"
+    test_company_name = "momentum"
     
     # Create test company document data
-    company_data = {
-        "company_name": "TechVenture Solutions",
-        "industry": "B2B SaaS",
-        "target_audience": "C-suite executives and decision makers in mid-market companies",
-        "business_goals": [
-            "Build founder personal brand",
-            "Generate enterprise leads through thought leadership",
-            "Establish industry authority in digital transformation"
-        ],
-        "current_content_challenges": [
-            "Low LinkedIn engagement rates",
-            "Difficulty converting connections to leads",
-            "Inconsistent posting schedule"
-        ],
-        "competitive_landscape": "Competing with established enterprise players and emerging startups",
-        "unique_value_proposition": "Only platform combining AI automation with human expertise for mid-market digital transformation",
-        "founder_profile": {
-            "background": "Former CTO at Fortune 500, 15 years in enterprise tech",
-            "expertise": "Digital transformation, AI implementation, scaling operations",
-            "personality": "Technical but approachable, data-driven, thought leader"
-        }
-    }
+    # company_data = {
+    #     "company_name": "TechVenture Solutions",
+    #     "industry": "B2B SaaS",
+    #     "target_audience": "C-suite executives and decision makers in mid-market companies",
+    #     "business_goals": [
+    #         "Build founder personal brand",
+    #         "Generate enterprise leads through thought leadership",
+    #         "Establish industry authority in digital transformation"
+    #     ],
+    #     "current_content_challenges": [
+    #         "Low LinkedIn engagement rates",
+    #         "Difficulty converting connections to leads",
+    #         "Inconsistent posting schedule"
+    #     ],
+    #     "competitive_landscape": "Competing with established enterprise players and emerging startups",
+    #     "unique_value_proposition": "Only platform combining AI automation with human expertise for mid-market digital transformation",
+    #     "founder_profile": {
+    #         "background": "Former CTO at Fortune 500, 15 years in enterprise tech",
+    #         "expertise": "Digital transformation, AI implementation, scaling operations",
+    #         "personality": "Technical but approachable, data-driven, thought leader"
+    #     }
+    # }
     
-    # Create comprehensive diagnostic report data for LinkedIn
-    diagnostic_report_data = {
-        "executive_summary": {
-            "current_position": "TechVenture Solutions founder has minimal LinkedIn presence with sporadic posting and low engagement, missing significant thought leadership opportunities.",
-            "biggest_opportunity": "Building authentic founder-led content strategy leveraging technical expertise and enterprise experience to drive qualified leads.",
-            "critical_risk": "Competitors are rapidly building LinkedIn authority while TechVenture remains invisible in key conversations.",
-            "overall_diagnostic_score": 4.2
-        },
-        "immediate_opportunities": {
-            "top_content_opportunities": [
-                {
-                    "title": "Founder Journey Content",
-                    "content_type": "Personal Stories + Lessons",
-                    "impact_score": 9.5,
-                    "implementation_effort": "Low",
-                    "timeline": "2-3 weeks"
-                },
-                {
-                    "title": "Technical Deep Dives",
-                    "content_type": "Educational Posts",
-                    "impact_score": 8.8,
-                    "implementation_effort": "Medium",
-                    "timeline": "4-6 weeks"
-                },
-                {
-                    "title": "Customer Success Spotlights",
-                    "content_type": "Case Studies",
-                    "impact_score": 9.0,
-                    "implementation_effort": "Medium",
-                    "timeline": "3-4 weeks"
-                }
-            ],
-            "linkedin_quick_wins": [
-                {
-                    "action": "Optimize founder profile with strategic keywords",
-                    "estimated_impact": "2x profile views in 30 days",
-                    "timeline": "1 week"
-                },
-                {
-                    "action": "Launch weekly thought leadership series",
-                    "estimated_impact": "5x engagement rate",
-                    "timeline": "2 weeks"
-                }
-            ],
-            "executive_visibility_actions": [
-                {
-                    "platform": "LinkedIn",
-                    "action": "Daily engagement with target audience posts",
-                    "frequency": "30 minutes daily",
-                    "timeline": "Immediate"
-                },
-                {
-                    "platform": "LinkedIn Newsletter",
-                    "action": "Launch bi-weekly industry insights newsletter",
-                    "frequency": "Bi-weekly",
-                    "timeline": "3 weeks"
-                }
-            ]
-        },
-        "content_audit_summary": {
-            "total_posts_last_90_days": 8,
-            "avg_engagement_rate": 1.8,
-            "follower_growth_rate": 0.5,
-            "top_performing_topics": ["AI Implementation", "Team Building"],
-            "content_gaps": ["Thought Leadership", "Industry Trends", "Personal Insights"]
-        },
-        "competitive_analysis": {
-            "main_competitors_linkedin": ["TechCorp CEO - 50K followers", "InnovateSoft Founder - 35K followers"],
-            "competitive_advantages": ["Technical depth", "Enterprise experience", "Authentic voice"],
-            "content_opportunities": ["Technical tutorials", "Contrarian viewpoints", "Behind-the-scenes content"]
-        }
-    }
+    # # Create comprehensive diagnostic report data for LinkedIn
+    # diagnostic_report_data = {
+    #     "executive_summary": {
+    #         "current_position": "TechVenture Solutions founder has minimal LinkedIn presence with sporadic posting and low engagement, missing significant thought leadership opportunities.",
+    #         "biggest_opportunity": "Building authentic founder-led content strategy leveraging technical expertise and enterprise experience to drive qualified leads.",
+    #         "critical_risk": "Competitors are rapidly building LinkedIn authority while TechVenture remains invisible in key conversations.",
+    #         "overall_diagnostic_score": 4.2
+    #     },
+    #     "immediate_opportunities": {
+    #         "top_content_opportunities": [
+    #             {
+    #                 "title": "Founder Journey Content",
+    #                 "content_type": "Personal Stories + Lessons",
+    #                 "impact_score": 9.5,
+    #                 "implementation_effort": "Low",
+    #                 "timeline": "2-3 weeks"
+    #             },
+    #             {
+    #                 "title": "Technical Deep Dives",
+    #                 "content_type": "Educational Posts",
+    #                 "impact_score": 8.8,
+    #                 "implementation_effort": "Medium",
+    #                 "timeline": "4-6 weeks"
+    #             },
+    #             {
+    #                 "title": "Customer Success Spotlights",
+    #                 "content_type": "Case Studies",
+    #                 "impact_score": 9.0,
+    #                 "implementation_effort": "Medium",
+    #                 "timeline": "3-4 weeks"
+    #             }
+    #         ],
+    #         "linkedin_quick_wins": [
+    #             {
+    #                 "action": "Optimize founder profile with strategic keywords",
+    #                 "estimated_impact": "2x profile views in 30 days",
+    #                 "timeline": "1 week"
+    #             },
+    #             {
+    #                 "action": "Launch weekly thought leadership series",
+    #                 "estimated_impact": "5x engagement rate",
+    #                 "timeline": "2 weeks"
+    #             }
+    #         ],
+    #         "executive_visibility_actions": [
+    #             {
+    #                 "platform": "LinkedIn",
+    #                 "action": "Daily engagement with target audience posts",
+    #                 "frequency": "30 minutes daily",
+    #                 "timeline": "Immediate"
+    #             },
+    #             {
+    #                 "platform": "LinkedIn Newsletter",
+    #                 "action": "Launch bi-weekly industry insights newsletter",
+    #                 "frequency": "Bi-weekly",
+    #                 "timeline": "3 weeks"
+    #             }
+    #         ]
+    #     },
+    #     "content_audit_summary": {
+    #         "total_posts_last_90_days": 8,
+    #         "avg_engagement_rate": 1.8,
+    #         "follower_growth_rate": 0.5,
+    #         "top_performing_topics": ["AI Implementation", "Team Building"],
+    #         "content_gaps": ["Thought Leadership", "Industry Trends", "Personal Insights"]
+    #     },
+    #     "competitive_analysis": {
+    #         "main_competitors_linkedin": ["TechCorp CEO - 50K followers", "InnovateSoft Founder - 35K followers"],
+    #         "competitive_advantages": ["Technical depth", "Enterprise experience", "Authentic voice"],
+    #         "content_opportunities": ["Technical tutorials", "Contrarian viewpoints", "Behind-the-scenes content"]
+    #     }
+    # }
     
-    # Setup test documents
-    setup_docs: List[SetupDocInfo] = [
-        {
-            'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_company_name),
-            'docname': LINKEDIN_USER_PROFILE_DOCNAME,
-            'initial_data': company_data,
-            'is_shared': LINKEDIN_USER_PROFILE_IS_SHARED,
-            'is_versioned': LINKEDIN_USER_PROFILE_IS_VERSIONED,
-            'initial_version': None,
-            'is_system_entity': LINKEDIN_USER_PROFILE_IS_SYSTEM_ENTITY
-        },
-        {
-            'namespace': f"linkedin_content_diagnostic_report_{test_company_name}",
-            'docname': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
-            'initial_data': diagnostic_report_data,
-            'is_shared': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
-            'is_versioned': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
-            'initial_version': None,
-            'is_system_entity': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
-        }
-    ]
+    # # Setup test documents
+    # setup_docs: List[SetupDocInfo] = [
+    #     {
+    #         'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_company_name),
+    #         'docname': LINKEDIN_USER_PROFILE_DOCNAME,
+    #         'initial_data': company_data,
+    #         'is_shared': LINKEDIN_USER_PROFILE_IS_SHARED,
+    #         'is_versioned': LINKEDIN_USER_PROFILE_IS_VERSIONED,
+    #         'initial_version': "default",
+    #         'is_system_entity': LINKEDIN_USER_PROFILE_IS_SYSTEM_ENTITY
+    #     },
+    #     {
+    #         'namespace': f"linkedin_content_diagnostic_report_{test_company_name}",
+    #         'docname': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
+    #         'initial_data': diagnostic_report_data,
+    #         'is_shared': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
+    #         'is_versioned': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
+    #         'initial_version': "default",
+    #         'is_system_entity': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
+    #     }
+    # ]
     
-    # Cleanup configuration
-    cleanup_docs: List[CleanupDocInfo] = [
-        {
-            'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_company_name),
-            'docname': LINKEDIN_USER_PROFILE_DOCNAME,
-            'is_shared': LINKEDIN_USER_PROFILE_IS_SHARED,
-            'is_versioned': LINKEDIN_USER_PROFILE_IS_VERSIONED,
-            'is_system_entity': LINKEDIN_USER_PROFILE_IS_SYSTEM_ENTITY
-        },
-        {
-            'namespace': f"linkedin_content_diagnostic_report_{test_company_name}",
-            'docname': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
-            'is_shared': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
-            'is_versioned': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
-            'is_system_entity': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
-        }
-    ]
+    # # Cleanup configuration
+    # cleanup_docs: List[CleanupDocInfo] = [
+    #     {
+    #         'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_company_name),
+    #         'docname': LINKEDIN_USER_PROFILE_DOCNAME,
+    #         'is_shared': LINKEDIN_USER_PROFILE_IS_SHARED,
+    #         'is_versioned': LINKEDIN_USER_PROFILE_IS_VERSIONED,
+    #         'is_system_entity': LINKEDIN_USER_PROFILE_IS_SYSTEM_ENTITY
+    #     },
+    #     {
+    #         'namespace': f"linkedin_content_diagnostic_report_{test_company_name}",
+    #         'docname': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
+    #         'is_shared': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
+    #         'is_versioned': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
+    #         'is_system_entity': LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
+    #     }
+    # ]
     
     # Test inputs - just entity username
     test_inputs = {
@@ -1647,8 +1636,8 @@ async def main_test_playbook_workflow():
         initial_inputs=test_inputs,
         expected_final_status=WorkflowRunStatus.COMPLETED,
         hitl_inputs=predefined_hitl_inputs,
-        setup_docs=setup_docs,
-        cleanup_docs=cleanup_docs,
+        # setup_docs=setup_docs,
+        # cleanup_docs=cleanup_docs,
         cleanup_docs_created_by_setup=False,
         validate_output_func=validate_playbook_output,
         stream_intermediate_results=True,

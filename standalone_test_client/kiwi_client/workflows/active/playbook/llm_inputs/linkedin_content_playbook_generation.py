@@ -52,7 +52,7 @@ class PlaySelectionOutput(BaseModel):
         description="List of recommended content plays"
     )
     overall_strategy_notes: str = Field(
-        description="Overall strategy notes and recommendations"
+        description="Overall strategy notes and recommendations (provide 2–3 concise line points; keep it brief)"
     )
 
 PLAY_SELECTION_OUTPUT_SCHEMA = PlaySelectionOutput.model_json_schema()
@@ -75,7 +75,6 @@ class PlaybookGenerationOutput(BaseModel):
     overall_recommendations: str = Field(description="Overall recommendations for implementation")
     next_steps: List[str] = Field(description="Next steps for getting started")
 
-PLAYBOOK_GENERATION_OUTPUT_SCHEMA = PlaybookGenerationOutput.model_json_schema()
 
 class DocumentFetcherControl(BaseModel):
     """Control schema for document fetcher LLM"""
@@ -106,6 +105,7 @@ DOCUMENT_FETCHER_OUTPUT_SCHEMA = DocumentFetcherOutput.model_json_schema()
 
 class PlaybookGeneratorOutput(BaseModel):
     """Output schema for playbook generator - either control or playbook"""
+    posts_per_week: int = Field(description="Number of posts per week")
     generated_playbook: List[PlaybookGenerationOutput] = Field(description="Generated playbook if ready")
 
 PLAYBOOK_GENERATOR_OUTPUT_SCHEMA = PlaybookGeneratorOutput.model_json_schema()

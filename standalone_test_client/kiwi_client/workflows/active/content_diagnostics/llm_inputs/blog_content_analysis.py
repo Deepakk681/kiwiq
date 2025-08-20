@@ -23,17 +23,17 @@ class PostClassificationSchema(BaseModel):
     secondary_topics: List[str] = Field(description="Secondary topics covered", max_items=5)
     
     # Content Quality Scores (moved from group)
-    readability_score: float = Field(description="Readability score (0-10)")
-    clarity_score: float = Field(description="Content clarity score (0-10)")
-    logical_flow_score: float = Field(description="Logical flow score (0-10)")
-    depth_score: float = Field(description="Content depth score (0-10)")
-    originality_score: float = Field(description="Content originality score (0-10)")
+    readability_score: float = Field(description="Readability score (0-100)")
+    clarity_score: float = Field(description="Content clarity score (0-100)")
+    logical_flow_score: float = Field(description="Logical flow score (0-100)")
+    depth_score: float = Field(description="Content depth score (0-100)")
+    originality_score: float = Field(description="Content originality score (0-100)")
     
     # E-E-A-T Individual Scores (moved from group)
-    expertise_score: float = Field(description="Expertise signals score (0-10)")
-    experience_score: float = Field(description="Experience demonstration score (0-10)")
-    authoritativeness_score: float = Field(description="Authority indicators score (0-10)")
-    trustworthiness_score: float = Field(description="Trust signals score (0-10)")
+    expertise_score: float = Field(description="Expertise signals score (0-100)")
+    experience_score: float = Field(description="Experience demonstration score (0-100)")
+    authoritativeness_score: float = Field(description="Authority indicators score (0-100)")
+    trustworthiness_score: float = Field(description="Trust signals score (0-100)")
     
     # Content Structure Detection (boolean flags)
     has_table_of_contents: bool = Field(description="Has table of contents")
@@ -100,9 +100,9 @@ POST_CLASSIFICATION_SYSTEM_PROMPT_TEMPLATE = """You are an expert content analys
 - primary_topic: One concise phrase capturing the main topic.
 - secondary_topics: Up to 5 concise related topics.
 
-- readability_score, clarity_score, logical_flow_score, depth_score, originality_score: Float scores on a 0-10 scale.
+- readability_score, clarity_score, logical_flow_score, depth_score, originality_score: Float scores on a 0-100 scale.
 
-- expertise_score, experience_score, authoritativeness_score, trustworthiness_score: Float scores on a 0-10 scale.
+- expertise_score, experience_score, authoritativeness_score, trustworthiness_score: Float scores on a 0-100 scale.
 
 - has_table_of_contents, has_faq_section, has_author_bio, has_citations, has_code_examples, has_data_visualizations: Boolean flags based on presence in the post.
 
@@ -120,7 +120,7 @@ Instructions:
 1. Analyze each post using title, content, and context.
 2. Use exact field names and data types from the schema.
 3. Populate every field; do not add any extra fields.
-4. Keep strings concise but specific; scores must be 0-10 floats.
+4. Keep strings concise but specific; scores must be 0-100 floats.
 5. Output only JSON that conforms to the schema (no prose)."""
 
 POST_CLASSIFICATION_USER_PROMPT_TEMPLATE = """Please analyze and classify the following batch of blog posts:
@@ -132,8 +132,8 @@ For each post, produce a JSON object with these fields (exact names and types):
 - sales_funnel_stage
 - primary_topic
 - secondary_topics (≤ 5)
-- readability_score, clarity_score, logical_flow_score, depth_score, originality_score (0-10 floats)
-- expertise_score, experience_score, authoritativeness_score, trustworthiness_score (0-10 floats)
+- readability_score, clarity_score, logical_flow_score, depth_score, originality_score (0-100 floats)
+- expertise_score, experience_score, authoritativeness_score, trustworthiness_score (0-100 floats)
 - has_table_of_contents, has_faq_section (booleans)
 
 Ensure the final output strictly matches the provided schema and includes one object per post in the batch."""
@@ -206,7 +206,7 @@ class ContentQualityMetrics(BaseModel):
     average_depth: float = Field(description="Average content depth score")
     average_originality: float = Field(description="Average originality score")
     overall_eeat_score: float = Field(description="Combined E-E-A-T score average")
-    content_structure_adoption: float = Field(description="% of posts with good structure (TOC/FAQ)")
+    content_structure_adoption: float = Field(description="% of posts with good structure Table of Content/Frequently Asked Questions")
 
 class TopicAuthorityInsight(BaseModel):
     topic_name: str = Field(description="Topic name")

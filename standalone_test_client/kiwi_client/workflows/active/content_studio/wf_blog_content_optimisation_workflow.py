@@ -78,7 +78,7 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_content_optimis
 
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
-LLM_MODEL = "claude-3-7-sonnet-20250219"
+LLM_MODEL = "claude-sonnet-4-20250514"
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 
@@ -1008,8 +1008,6 @@ workflow_graph_schema = {
             "src_node_id": "save_blog_post",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "paths_processed", "dst_field": "final_blog_post_paths"},
-                {"src_field": "passthrough_data", "dst_field": "final_blog_post_data"}
             ]
         },
         
@@ -1067,7 +1065,6 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "final_optimized_content", "dst_field": "final_optimized_content"}
             ]
         }
     ],

@@ -55,6 +55,12 @@ from kiwi_client.workflows.active.content_diagnostics.llm_inputs.deep_research_c
     GENERATION_SCHEMA_FOR_COMBINED_DEEP_RESEARCH,
     SYSTEM_PROMPT_TEMPLATE_FOR_COMBINED_DEEP_RESEARCH,
     USER_PROMPT_TEMPLATE_FOR_COMBINED_DEEP_RESEARCH,
+    # Blog-specific structured extraction prompts
+    SYSTEM_PROMPT_TEMPLATE_FOR_BLOG_STRATEGY_EXTRACTION,
+    USER_PROMPT_TEMPLATE_FOR_BLOG_STRATEGY_EXTRACTION,
+    # LinkedIn-specific structured extraction prompts
+    SYSTEM_PROMPT_TEMPLATE_FOR_LINKEDIN_EXTRACTION,
+    USER_PROMPT_TEMPLATE_FOR_LINKEDIN_EXTRACTION,
 )
 
 # --- Workflow Configuration Constants ---
@@ -62,12 +68,12 @@ from kiwi_client.workflows.active.content_diagnostics.llm_inputs.deep_research_c
 # LLM Configuration for Deep Research Model
 LLM_PROVIDER = "openai"
 LLM_MODEL = "o4-mini-deep-research"  # Deep research model
-LLM_TEMPERATURE = 0.7
+LLM_TEMPERATURE = 0.8
 LLM_MAX_TOKENS = 100000
-
-STRUCTURED_OUTPUT_PROVIDER = "anthropic"
-STRUCTURED_OUTPUT_MODEL = "claude-sonnet-4-20250514"
-STRUCTURED_OUTPUT_MAX_TOKENS = 4000
+MAX_TOOL_CALLS = 65
+STRUCTURED_OUTPUT_PROVIDER = "openai"
+STRUCTURED_OUTPUT_MODEL = "gpt-5"
+STRUCTURED_OUTPUT_MAX_TOKENS = 10000
 
 workflow_graph_schema = {
     "nodes": {
@@ -83,6 +89,23 @@ workflow_graph_schema = {
                     "run_blog_analysis": { "type": "bool", "required": True, "description": "Whether to run content strategy research" },
                     "run_linkedin_exec": { "type": "bool", "required": True, "description": "Whether to run LinkedIn research" }
                 }
+            }
+        },
+
+        "document_router": {
+            "node_id": "document_router",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": [
+                    "load_company_data",
+                    "load_linkedin_data"
+                ],
+                "allow_multiple": True,
+                "default_choice": None,
+                "choices_with_conditions": [
+                    {"choice_id": "load_company_data", "input_path": "run_blog_analysis", "target_value": True},
+                    {"choice_id": "load_linkedin_data", "input_path": "run_linkedin_exec", "target_value": True}
+                ]
             }
         },
         
@@ -262,7 +285,8 @@ workflow_graph_schema = {
                         "id": "system_prompt",
                         "template": SYSTEM_PROMPT_TEMPLATE_FOR_COMBINED_DEEP_RESEARCH,
                         "variables": {
-                            "schema": json.dumps(GENERATION_SCHEMA_FOR_COMBINED_DEEP_RESEARCH, indent=2)
+                            "schema": json.dumps(GENERATION_SCHEMA_FOR_COMBINED_DEEP_RESEARCH, indent=2),
+                            "current_datetime": "$current_date",
                         },
                         "construct_options": {}
                     }
@@ -270,34 +294,70 @@ workflow_graph_schema = {
             }
         },
         
-        "construct_combined_structured_prompt": {
-            "node_id": "construct_combined_structured_prompt",
+        "construct_blog_structured_prompt": {
+            "node_id": "construct_blog_structured_prompt",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
                 "prompt_templates": {
                     "user_prompt": {
                         "id": "user_prompt",
-                        "template": "You will be given a combined deep research report text. Extract and structure the information strictly according to the provided JSON schema. Only output valid JSON. Source text:\n{combined_text}",
+                        "template": USER_PROMPT_TEMPLATE_FOR_BLOG_STRATEGY_EXTRACTION,
                         "variables": {
+                            "company_info": None,
                             "combined_text": None
                         },
                         "construct_options": {
+                            "company_info": "company_data",
                             "combined_text": "combined_text"
                         }
                     },
                     "system_prompt": {
                         "id": "system_prompt",
-                        "template": "You are a precise information extraction model. Produce strictly valid JSON that conforms exactly to this schema definition",
-                        "variables": {},
-                        "construct_options": {}
+                        "template": SYSTEM_PROMPT_TEMPLATE_FOR_BLOG_STRATEGY_EXTRACTION,
+                        "construct_options": {},
+                        "variables": {
+                            "current_datetime": "$current_date",
+                            "schema": json.dumps(GENERATION_SCHEMA_FOR_DEEP_RESEARCH_BLOG_CONTENT_STRATEGY, indent=2)
+                        }
+                    }
+                }
+            }
+        },
+
+        "construct_linkedin_structured_prompt": {
+            "node_id": "construct_linkedin_structured_prompt",
+            "node_name": "prompt_constructor",
+            "enable_node_fan_in": True,
+            "node_config": {
+                "prompt_templates": {
+                    "user_prompt": {
+                        "id": "user_prompt",
+                        "template": USER_PROMPT_TEMPLATE_FOR_LINKEDIN_EXTRACTION,
+                        "variables": {
+                            "linkedin_user_profile": None,
+                            "combined_text": None
+                        },
+                        "construct_options": {
+                            "linkedin_user_profile": "linkedin_user_profile",
+                            "combined_text": "combined_text"
+                        }
+                    },
+                    "system_prompt": {
+                        "id": "system_prompt",
+                        "template": SYSTEM_PROMPT_TEMPLATE_FOR_LINKEDIN_EXTRACTION,
+                        "construct_options": {},
+                        "variables": {
+                            "current_datetime": "$current_date",
+                            "schema": json.dumps(SCHEMA_TEMPLATE_FOR_LINKEDIN_RESEARCH, indent=2)
+                        }
                     }
                 }
             }
         },
  
-        "structure_combined_output": {
-            "node_id": "structure_combined_output",
+        "structured_blog_report": {
+            "node_id": "structured_blog_report",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -305,11 +365,34 @@ workflow_graph_schema = {
                         "provider": STRUCTURED_OUTPUT_PROVIDER,
                         "model": STRUCTURED_OUTPUT_MODEL
                     },
-                    "temperature": 0.2,
-                    "max_tokens": STRUCTURED_OUTPUT_MAX_TOKENS
+                    "temperature": 0.6,
+                    "max_tokens": STRUCTURED_OUTPUT_MAX_TOKENS,
+                    "verbosity": "medium",
+                    "reasoning_effort_class": "high"
                 },
                 "output_schema": {
-                    "schema_definition": GENERATION_SCHEMA_FOR_COMBINED_DEEP_RESEARCH
+                    "schema_definition": GENERATION_SCHEMA_FOR_DEEP_RESEARCH_BLOG_CONTENT_STRATEGY,
+                    "convert_loaded_schema_to_pydantic": False
+                }
+            }
+        },
+        "structured_linkedin_report": {
+            "node_id": "structured_linkedin_report",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {
+                        "provider": STRUCTURED_OUTPUT_PROVIDER,
+                        "model": STRUCTURED_OUTPUT_MODEL
+                    },
+                    "temperature": 0.6,
+                    "max_tokens": STRUCTURED_OUTPUT_MAX_TOKENS,
+                    "verbosity": "medium",
+                    "reasoning_effort_class": "high"
+                },
+                "output_schema": {
+                    "schema_definition": SCHEMA_TEMPLATE_FOR_LINKEDIN_RESEARCH,
+                    "convert_loaded_schema_to_pydantic": False
                 }
             }
         },
@@ -325,6 +408,7 @@ workflow_graph_schema = {
                         "model": LLM_MODEL
                     },
                     "temperature": LLM_TEMPERATURE,
+                    "max_tool_calls": MAX_TOOL_CALLS,
                     "max_tokens": LLM_MAX_TOKENS,
                 },
                 "output_schema": {
@@ -353,6 +437,7 @@ workflow_graph_schema = {
                     },
                     "temperature": LLM_TEMPERATURE,
                     "max_tokens": LLM_MAX_TOKENS,
+                    "max_tool_calls": MAX_TOOL_CALLS,
                 },
                 "output_schema": {
                 },
@@ -380,6 +465,7 @@ workflow_graph_schema = {
                     },
                     "temperature": LLM_TEMPERATURE,
                     "max_tokens": LLM_MAX_TOKENS,
+                    "max_tool_calls": MAX_TOOL_CALLS,
                 },
                 "output_schema": {},
                 "tool_calling_config": {
@@ -390,37 +476,6 @@ workflow_graph_schema = {
                     {
                         "tool_name": "web_search_preview",
                         "is_provider_inbuilt_tool": True,
-                    },
-                    {
-                        "tool_name": "code_interpreter",
-                        "is_provider_inbuilt_tool": True,
-                    }
-                ]
-            }
-        },
-
-        # --- 8. Transform nodes to extract reports from combined output ---
-        "extract_content_strategy_report": {
-            "node_id": "extract_content_strategy_report",
-            "node_name": "transform_data",
-            "node_config": {
-                "mappings": [
-                    {
-                        "source_path": "content_strategy_research",
-                        "destination_path": "content_strategy_report"
-                    }
-                ]
-            }
-        },
-        
-        "extract_linkedin_report": {
-            "node_id": "extract_linkedin_report",
-            "node_name": "transform_data",
-            "node_config": {
-                "mappings": [
-                    {
-                        "source_path": "linkedin_research",
-                        "destination_path": "linkedin_report"
                     }
                 ]
             }
@@ -475,16 +530,7 @@ workflow_graph_schema = {
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
-            "node_config": {
-                "dynamic_input_schema": {
-                    "fields": {
-                        "deep_research_results": {"type": "any", "required": False},
-                        "blog_storage_paths": {"type": "any", "required": False},
-                        "linkedin_storage_paths": {"type": "any", "required": False},
-                        "research_type": {"type": "str", "required": False}
-                    }
-                }
-            }
+            "node_config": {}
         },
     },
 
@@ -496,20 +542,26 @@ workflow_graph_schema = {
             {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"},
             {"src_field": "run_linkedin_exec", "dst_field": "run_linkedin_exec"},
         ]},
+
+        {"src_node_id": "input_node", "dst_node_id": "document_router", "mappings": [
+            {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"},
+            {"src_field": "run_linkedin_exec", "dst_field": "run_linkedin_exec"}
+        ]},
+
+        {"src_node_id": "document_router", "dst_node_id": "load_company_data", "mappings": []}, 
+        {"src_node_id": "document_router", "dst_node_id": "load_linkedin_data", "mappings": []},
         
         # Route Data Loading -> Load Company Data (if run_blog_analysis is true)
-        {"src_node_id": "input_node", "dst_node_id": "load_company_data", "mappings": [
+        {"src_node_id": "$graph_state", "dst_node_id": "load_company_data", "mappings": [
             {"src_field": "company_name", "dst_field": "company_name"}
+        ]},
+
+        {"src_node_id": "$graph_state", "dst_node_id": "load_linkedin_data", "mappings": [
+            {"src_field": "entity_username", "dst_field": "entity_username"}
         ]},
         
         {"src_node_id": "load_company_data", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "company_data", "dst_field": "company_data"}
-        ]},
-        # Route Data Loading -> Load LinkedIn Data (if run_linkedin_exec is true)
-        {"src_node_id": "load_company_data", "dst_node_id": "load_linkedin_data"},
-
-        {"src_node_id": "$graph_state", "dst_node_id": "load_linkedin_data", "mappings": [
-            {"src_field": "entity_username", "dst_field": "entity_username"}
         ]},
 
         {"src_node_id": "load_linkedin_data", "dst_node_id": "$graph_state", "mappings": [
@@ -517,7 +569,7 @@ workflow_graph_schema = {
             {"src_field": "linkedin_scraped_profile", "dst_field": "linkedin_scraped_profile"}
         ]},
         
-        {"src_node_id": "load_linkedin_data", "dst_node_id": "if_combined"},
+        {"src_node_id": "input_node", "dst_node_id": "if_combined"},
         # State -> Router
         {"src_node_id": "$graph_state", "dst_node_id": "if_combined", "mappings": [
             {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"},
@@ -571,30 +623,34 @@ workflow_graph_schema = {
             {"src_field": "user_prompt", "dst_field": "user_prompt"},
             {"src_field": "system_prompt", "dst_field": "system_prompt"}
         ]},
-        {"src_node_id": "deep_researcher_combined", "dst_node_id": "construct_combined_structured_prompt", "mappings": [
+        {"src_node_id": "deep_researcher_combined", "dst_node_id": "construct_blog_structured_prompt", "mappings": [
             {"src_field": "text_content", "dst_field": "combined_text"}
         ]},
-        {"src_node_id": "construct_combined_structured_prompt", "dst_node_id": "structure_combined_output", "mappings": [
+        {"src_node_id": "deep_researcher_combined", "dst_node_id": "construct_linkedin_structured_prompt", "mappings": [
+            {"src_field": "text_content", "dst_field": "combined_text"}
+        ]},
+        
+        # Blog structured extraction
+        {"src_node_id": "$graph_state", "dst_node_id": "construct_blog_structured_prompt", "mappings": [
+            {"src_field": "company_data", "dst_field": "company_data"}
+        ]},
+        {"src_node_id": "construct_blog_structured_prompt", "dst_node_id": "structured_blog_report", "mappings": [
+            {"src_field": "user_prompt", "dst_field": "user_prompt"},
+            {"src_field": "system_prompt", "dst_field": "system_prompt"}
+        ]},
+
+        # LinkedIn structured extraction
+        {"src_node_id": "$graph_state", "dst_node_id": "construct_linkedin_structured_prompt", "mappings": [
+            {"src_field": "linkedin_user_profile", "dst_field": "linkedin_user_profile"}
+        ]},
+        {"src_node_id": "construct_linkedin_structured_prompt", "dst_node_id": "structured_linkedin_report", "mappings": [
             {"src_field": "user_prompt", "dst_field": "user_prompt"},
             {"src_field": "system_prompt", "dst_field": "system_prompt"}
         ]},
         
         # Combined -> State (store full output)
-        {"src_node_id": "structure_combined_output", "dst_node_id": "$graph_state", "mappings": [
-            {"src_field": "structured_output", "dst_field": "combined_output"}
-        ]},
-        
-        # State -> Extract reports (pass combined output to transform nodes)
-        {"src_node_id": "structure_combined_output", "dst_node_id": "extract_content_strategy_report", "mappings": [
-            {"src_field": "structured_output", "dst_field": "content_strategy_research"}
-        ]},
-        {"src_node_id": "structure_combined_output", "dst_node_id": "extract_linkedin_report", "mappings": [
-            {"src_field": "structured_output", "dst_field": "linkedin_research"}
-        ]},
-        
-        # Extract -> Store
-        {"src_node_id": "extract_content_strategy_report", "dst_node_id": "store_blog_research", "mappings": [
-            {"src_field": "transformed_data", "dst_field": "content_strategy_report"}
+        {"src_node_id": "structured_blog_report", "dst_node_id": "store_blog_research", "mappings": [
+            {"src_field": "structured_output", "dst_field": "content_strategy_report"}
         ]},
 
         # State -> Store nodes (for namespace fields)
@@ -602,13 +658,14 @@ workflow_graph_schema = {
             {"src_field": "company_name", "dst_field": "company_name"}
         ]},
 
-        {"src_node_id": "extract_linkedin_report", "dst_node_id": "store_linkedin_research", "mappings": [
-            {"src_field": "transformed_data", "dst_field": "linkedin_report"}
+        {"src_node_id": "structured_linkedin_report", "dst_node_id": "store_linkedin_research", "mappings": [
+            {"src_field": "structured_output", "dst_field": "linkedin_report"}
         ]},
 
         {"src_node_id": "$graph_state", "dst_node_id": "store_linkedin_research", "mappings": [
             {"src_field": "entity_username", "dst_field": "entity_username"}
         ]},
+
         # Store -> Output
         {"src_node_id": "store_blog_research", "dst_node_id": "output_node", "mappings": [
             {"src_field": "paths_processed", "dst_field": "blog_storage_paths"}
@@ -652,102 +709,124 @@ async def main_test_deep_research_workflow():
 
     # Test inputs with routing options
     test_inputs = {
-        "company_name": "kiwiq",
-        "entity_username": "jmkmba",  # Example LinkedIn username
+        "company_name": "otter",
+        "entity_username": "samliang",  # Example LinkedIn username
         "run_blog_analysis": True,  # Can be True/False
         "run_linkedin_exec": True,  # Can be True/False - set both to True for combined research
     }
     # Company document data that will be loaded
     COMPANY_DOCUMENT_DATA = {
-        "name": "KiwiQ",
-        "website_url": "https://writer.com",
-        "value_proposition": "Enterprise-grade AI writing platform that combines content creation with intelligent workflow automation",
-        "icp": {
-            "icp_name": "Marketing Director",
-            "target_industry": "Technology / B2B SaaS",
-            "company_size": "Mid to large enterprise",
-            "buyer_persona": "Senior marketing professional responsible for content strategy and lead generation",
-            "pain_points": [
-                "Manual content creation is time-consuming",
-                "Difficulty maintaining consistent brand voice",
-                "Limited content ROI measurement",
-                "Scaling content production efficiently"
-            ],
-            "goals": [
-                "Increase enterprise customer acquisition and retention",
-                "Establish thought leadership in AI writing space",
-                "Improve content ROI for customers",
-                "Streamline content creation workflows"
-            ]
-        },
-        "competitors": [
-            {
-                "name": "Grammarly Business",
-                "website_url": "https://www.grammarly.com/business"
-            },
-            {
-                "name": "Jasper AI",
-                "website_url": "https://www.jasper.ai"
-            },
-            {
-                "name": "Copy.ai",
-                "website_url": "https://www.copy.ai"
-            }
-        ]
-    }
+"name": "otter.ai",
+"website_url": "https://otter.ai",
+"value_proposition": "AI meeting assistant that transcribes, summarizes, and automates follow-ups to boost team productivity across meetings, calls, and interviews",
+"icp": {
+"icp_name": "Marketing Director",
+"target_industry": "Technology / B2B SaaS",
+"company_size": "Mid to large enterprise",
+"buyer_persona": "Senior marketing professional responsible for content strategy, team collaboration, and pipeline-driving meetings",
+"pain_points": [
+"Manual note-taking during meetings reduces focus and misses key details",
+"Inconsistent documentation and poor knowledge transfer across teams",
+"Difficulty turning meetings into actionable tasks and content assets",
+"Limited visibility into meeting insights and follow-ups across stakeholders"
+],
+"goals": [
+"Increase meeting productivity and reduce time spent on note-taking",
+"Standardize meeting documentation and accelerate cross-functional alignment",
+"Automatically generate action items and summaries to speed execution",
+"Repurpose customer and internal meeting insights into content and enablement"
+]
+},
+"competitors": [
+{
+"name": "Fireflies.ai",
+"website_url": "https://fireflies.ai"
+},
+{
+"name": "Fathom",
+"website_url": "https://fathom.video"
+},
+{
+"name": "Microsoft Copilot (Teams Premium)",
+"website_url": "https://www.microsoft.com/microsoft-teams/premium"
+}
+]
+}
     
     # LinkedIn profile data that will be loaded (if LinkedIn research is enabled)
     LINKEDIN_PROFILE_DATA = {
-        "username": "jmkmba",
-        "full_name": "Jayaram M",
-        "headline": "AI Sales & GTM Leader | Revenue Orchestration | RevOps Strategy",
-        "summary": "Go-to-market and revenue operations leader focused on AI-driven workflows, data quality, and pipeline execution.",
-        "experience": [
-            {"title": "Head of GTM", "company": "Momentum", "duration": "2+ years"},
-            {"title": "Revenue Operations Leader", "company": "Prior Companies", "duration": "5+ years"}
-        ],
-        "skills": ["Revenue Operations", "Sales Strategy", "AI in GTM", "Salesforce"],
-    }
+"username": "samliang",
+"full_name": "Sam Liang",
+"headline": "Co-founder & CEO at Otter.ai | Stanford PhD | Ex-Google Maps Location Platform Lead",
+"summary": "Founder-CEO focused on AI meeting assistants that transcribe, summarize, and activate knowledge from conversations. Previously led Google’s Maps Location Platform; founded Alohar Mobile (acquired). Stanford PhD in Electrical Engineering.",
+"experience": [
+{ "title": "CEO & Co-founder", "company": "Otter.ai", "duration": "2016 – Present" },
+{ "title": "CEO & Co-founder", "company": "Alohar Mobile", "duration": "2010 – 2013 (acquired)" },
+{ "title": "Lead, Maps Location Platform & API", "company": "Google", "duration": "2006 – 2010" }
+],
+"skills": ["Artificial Intelligence", "Speech Recognition", "NLP", "Distributed Systems", "Product-Led Growth", "Location Services"]
+}
     
     LINKEDIN_SCRAPED_DATA = {
-        "profile_url": "https://www.linkedin.com/in/jmkmba/",
-        "full_name": "Jayaram M",
-        "headline": "AI Sales & GTM Leader | Revenue Orchestration | RevOps Strategy",
-        "location": "San Francisco Bay Area",
-        "about": "Go-to-market and revenue operations leader focused on AI-driven workflows, data quality, and pipeline execution.",
-        "current_position": {
-            "title": "Head of GTM",
-            "company": "Momentum",
-            "duration": "2 yrs 3 mos"
-        },
-        "past_positions": [
-            {
-                "title": "Revenue Operations Leader",
-                "company": "Prior Companies",
-                "duration": "5 yrs 1 mo"
-            }
-        ],
-        "education": [
-            {
-                "school": "Stanford University",
-                "degree": "MBA",
-                "years": "2015 – 2017"
-            }
-        ],
-        "skills": [
-            "Revenue Operations",
-            "Sales Strategy",
-            "AI in GTM",
-            "Salesforce"
-        ],
-        "follower_count": 15000,
-        "connection_count": 500,
-    }
+"profile_url": "https://www.linkedin.com/in/samliang",
+"full_name": "Sam Liang",
+"headline": "Co-founder & CEO at Otter.ai | Stanford PhD | Ex-Google Maps Location Platform Lead",
+"location": "Mountain View, California",
+"about": "Founder-CEO building AI meeting assistants that transcribe, summarize, and activate knowledge from conversations. Previously led Google’s Map Location Platform; founder/CEO of Alohar Mobile (acquired). Stanford PhD in EE focused on large-scale distributed systems.",
+"current_position": {
+"title": "CEO & Co-founder",
+"company": "Otter.ai",
+"duration": "Feb 2016 – Present"
+},
+"past_positions": [
+{
+"title": "CEO & Co-founder",
+"company": "Alohar Mobile",
+"duration": "2010 – 2013 (acquired by AutoNavi/Alibaba)"
+},
+{
+"title": "Lead, Google Map Location Platform & API",
+"company": "Google",
+"duration": "2006 – 2010"
+},
+{
+"title": "Member",
+"company": "Forbes Technology Council",
+"duration": "Jun 2020 – Jun 2021"
+}
+],
+"education": [
+{
+"school": "Stanford University",
+"degree": "Ph.D., Electrical Engineering",
+"years": ""
+}
+],
+"skills": [
+"Artificial Intelligence",
+"Speech Recognition",
+"NLP",
+"Distributed Systems",
+"Product-Led Growth",
+"Location Services"
+],
+"notable_highlights": [
+"Founded Otter.ai, scaling to tens of millions of users and billions of captured meeting minutes",
+"Pioneered Google Maps ‘blue dot’ location services work",
+"Built proprietary speech recognition and summarization stack at Otter.ai",
+"Recognized in Top 50 CEOs to Watch"
+],
+"social_proof": [
+"Regular media/features on AI meeting assistants and AI avatars for meetings",
+"Interview appearances discussing Otter.ai’s AI agents and enterprise adoption"
+],
+"follower_count": 15000
+}
     # Setup documents - create company and LinkedIn profile documents
     setup_docs: List[SetupDocInfo] = [
         SetupDocInfo(
             docname=BLOG_COMPANY_DOCNAME,
-            namespace=BLOG_COMPANY_NAMESPACE_TEMPLATE.format(item="kiwiq"),
+            namespace=BLOG_COMPANY_NAMESPACE_TEMPLATE.format(item="otter"),
             initial_data=COMPANY_DOCUMENT_DATA,
             is_versioned=False,
             is_shared=False,
@@ -760,7 +839,7 @@ async def main_test_deep_research_workflow():
         setup_docs.extend([
             SetupDocInfo(
                 docname=LINKEDIN_USER_PROFILE_DOCNAME,
-                namespace=LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item="jmkmba"),
+                namespace=LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item="samliang"),
                 initial_data=LINKEDIN_PROFILE_DATA,
                 is_versioned=False,
                 is_shared=False,
@@ -768,7 +847,7 @@ async def main_test_deep_research_workflow():
             ),
             SetupDocInfo(
                 docname=LINKEDIN_SCRAPED_PROFILE_DOCNAME,
-                namespace=LINKEDIN_SCRAPED_PROFILE_NAMESPACE_TEMPLATE.format(item="jmkmba"),
+                namespace=LINKEDIN_SCRAPED_PROFILE_NAMESPACE_TEMPLATE.format(item="samliang"),
                 initial_data=LINKEDIN_SCRAPED_DATA,
                 is_versioned=False,
                 is_shared=False,

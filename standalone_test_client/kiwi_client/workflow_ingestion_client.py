@@ -555,10 +555,47 @@ async def main():
         #     "module_path": "kiwi_client.workflows.wf_content_creation_workflow",
         # },
 
+        # {
+        #     "workflow_key": "company_ai_visibility_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_workflow",
+        # },
+
+
+        {
+            "workflow_key": "linkedin_linkedin_content_analysis_workflow",
+            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_linkedin_content_analysis",
+        },
+        
+
+        {
+            "workflow_key": "deep_research_workflow",
+            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_deep_research_workflow",
+        },
+
+        {
+            "workflow_key": "blog_content_analysis_workflow",
+            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_blog_content_analysis",
+        },
+
+
+        {
+            "workflow_key": "company_ai_visibility_workflow",
+            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_workflow",
+        },
+
+
         {
             "workflow_key": "blog_competitor_content_analysis_workflow",
             "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_competitor_content_analysis",
         },
+
+
+        {
+            "workflow_key": "orchestrator_workflow",
+            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_orchestrator_workflow",
+        },
+
+
         # {
         #     "workflow_key": "linkedin_user_input_to_brief_workflow",
         #     "module_path": "kiwi_client.workflows.wf_user_input_to_brief",

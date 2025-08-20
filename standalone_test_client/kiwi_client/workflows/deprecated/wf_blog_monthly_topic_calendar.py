@@ -39,7 +39,7 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_TOPIC_IDEAS_CARD_NAMESPACE_TEMPLATE,
 )
 
-from kiwi_client.workflows.active.content_studio.llm_inputs.blog_monthly_calendar_topic_ideas import (
+from kiwi_client.workflows.deprecated.llm_inputs.blog_monthly_calendar_topic_ideas import (
     BLOG_MONTHLY_USER_PROMPT_TEMPLATE,
     BLOG_MONTHLY_SYSTEM_PROMPT_TEMPLATE,
     BLOG_MONTHLY_ADDITIONAL_USER_PROMPT_TEMPLATE,

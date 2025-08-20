@@ -22,7 +22,9 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_AI_VISIBILITY_TEST_DOCNAME,
     BLOG_AI_VISIBILITY_TEST_NAMESPACE_TEMPLATE,
     BLOG_COMPANY_AI_VISIBILITY_TEST_DOCNAME,
-    BLOG_COMPANY_AI_VISIBILITY_TEST_NAMESPACE_TEMPLATE
+    BLOG_COMPANY_AI_VISIBILITY_TEST_NAMESPACE_TEMPLATE,
+    BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME,
+    BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE
 )
 
 from kiwi_client.workflows.active.content_diagnostics.llm_inputs.company_ai_visibility import (
@@ -51,8 +53,8 @@ LLM_MAX_TOKENS_FOR_INITITAL_ANALYSIS = 2000
 # LLM defaults
 LLM_PROVIDER = "anthropic"
 LLM_MODEL = "claude-sonnet-4-20250514"
-LLM_TEMPERATURE = 0.2
-LLM_MAX_TOKENS = 3000
+LLM_TEMPERATURE = 0.5
+LLM_MAX_TOKENS = 5000
 
 workflow_graph_schema = {
     "nodes": {
@@ -204,6 +206,53 @@ workflow_graph_schema = {
                 "entity_name_path": "entity_name"
             }
         },
+
+        # Store raw scraper results to uploaded_files namespace
+        "store_blog_raw_scraper_results": {
+            "node_id": "store_blog_raw_scraper_results",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "store_configs": [
+                    {
+                        "input_field_path": "query_results",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "static_docname": BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME
+                            }
+                        },
+                        "generate_uuid": True
+                    }
+                ],
+                "global_is_shared": False,
+                "global_is_system_entity": False,
+                "global_versioning": {"is_versioned": False, "operation": "upsert"}
+            }
+        },
+        "store_company_comp_raw_scraper_results": {
+            "node_id": "store_company_comp_raw_scraper_results",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "store_configs": [
+                    {
+                        "input_field_path": "query_results",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "static_docname": BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME
+                            }
+                        },
+                        "generate_uuid": True
+                    }
+                ],
+                "global_is_shared": False,
+                "global_is_system_entity": False,
+                "global_versioning": {"is_versioned": False, "operation": "upsert"}
+            }
+        },
+        
         # --- 6. Report Generation ---
         # 6.1 Blog Coverage Report
         "construct_blog_coverage_report_prompt": {
@@ -305,15 +354,8 @@ workflow_graph_schema = {
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
+            "enable_node_fan_in": True,
             "node_config": {},
-            "dynamic_input_schema": {
-                "fields": {
-                    "blog_ai_job_id": {"type": "str", "required": False},
-                    "company_comp_ai_job_id": {"type": "str", "required": False},
-                    "stored_blog_report_paths": {"type": "any", "required": False},
-                    "stored_company_report_paths": {"type": "any", "required": False},
-                }
-            },
         },
     },
     "edges": [
@@ -389,6 +431,20 @@ workflow_graph_schema = {
             {"src_field": "company_name", "dst_field": "entity_name"}
         ]},
 
+        # Store raw scraper results to uploaded_files namespace
+        {"src_node_id": "blog_coverage_ai_query", "dst_node_id": "store_blog_raw_scraper_results", "mappings": [
+            {"src_field": "query_results", "dst_field": "query_results"}
+        ]},
+        {"src_node_id": "$graph_state", "dst_node_id": "store_blog_raw_scraper_results", "mappings": [
+            {"src_field": "company_name", "dst_field": "company_name"}
+        ]},
+        {"src_node_id": "company_comp_ai_query", "dst_node_id": "store_company_comp_raw_scraper_results", "mappings": [
+            {"src_field": "query_results", "dst_field": "query_results"}
+        ]},
+        {"src_node_id": "$graph_state", "dst_node_id": "store_company_comp_raw_scraper_results", "mappings": [
+            {"src_field": "company_name", "dst_field": "company_name"}
+        ]},
+
         # Construct report prompts
         {"src_node_id": "blog_coverage_ai_query", "dst_node_id": "construct_blog_coverage_report_prompt", "mappings": [
             {"src_field": "query_results", "dst_field": "loaded_query_results"}
@@ -439,16 +495,15 @@ workflow_graph_schema = {
         ]},
 
         # Output mapping from state
-        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "blog_ai_job_id", "dst_field": "blog_ai_job_id"},
-            {"src_field": "company_comp_ai_job_id", "dst_field": "company_comp_ai_job_id"},
-            {"src_field": "stored_blog_report_paths", "dst_field": "stored_blog_report_paths"},
-            {"src_field": "stored_company_report_paths", "dst_field": "stored_company_report_paths"},
-        ]},
+        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": []},
 
         # Direct output connections from storage nodes
-        {"src_node_id": "store_blog_coverage_report", "dst_node_id": "output_node"},
-        {"src_node_id": "store_company_comp_report", "dst_node_id": "output_node"},
+        {"src_node_id": "store_blog_coverage_report", "dst_node_id": "output_node", "mappings": [
+            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+        ]},
+        {"src_node_id": "store_company_comp_report", "dst_node_id": "output_node", "mappings": [
+            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+        ]},
     ],
     # --- Define Start and End ---
     "input_node_id": "input_node",

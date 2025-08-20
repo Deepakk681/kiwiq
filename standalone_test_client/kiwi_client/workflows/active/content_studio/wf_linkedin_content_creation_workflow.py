@@ -7,15 +7,11 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     LINKEDIN_DRAFT_DOCNAME,
     LINKEDIN_DRAFT_NAMESPACE_TEMPLATE,
     LINKEDIN_DRAFT_IS_VERSIONED,
+
     # LinkedIn Content Brief (replaces Content Brief)
-    LINKEDIN_BRIEF_DOCNAME,
     LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
     LINKEDIN_BRIEF_IS_VERSIONED,
-    # Knowledge Base Analysis - removed for now as requested
-    # LinkedIn User DNA
-    LINKEDIN_USER_DNA_DOCNAME,
-    LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE,
-    LINKEDIN_USER_DNA_IS_VERSIONED,
+
     # LinkedIn Content Strategy
     LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
     LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE,
@@ -32,12 +28,12 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_content_cre
 )
 
 llm_provider = "anthropic"
-generation_model_name = "claude-3-7-sonnet-20250219"
+generation_model_name = "claude-sonnet-4-20250514"
 temperature = 0.5
-max_tokens = 2000
+max_tokens = 4000
 max_iterations = 10
 feedback_llm_provider = "anthropic"
-feedback_analysis_model = "claude-3-7-sonnet-20250219"
+feedback_analysis_model = "claude-sonnet-4-20250514"
 
 
 # Full GraphSchema Structure
@@ -54,13 +50,10 @@ workflow_graph_schema = {
               "post_uuid": { "type": "str", "required": True, "description": "UUID of the post being drafted for saving." },
               "brief_docname": { "type": "str", "required": True, "description": "Docname of the brief being used for drafting." },
               "entity_username": { "type": "str", "required": True, "description": "Username of the entity for which the post is being drafted." },
+              "initial_status": { "type": "str", "required": False, "default": "draft", "description": "Initial status used when saving drafts." }
           }
         }
     },
-    # Defines workflow start inputs: post_uuid, brief_docname, entity_username
-    # outgoing edges:
-    #  - stores post_uuid to $graph_state
-    #  - stores brief_docname to $graph_state
 
     # --- 2. Load Customer Context Documents and Scraped Posts (Single Node) ---
     "load_all_context_docs": {
@@ -83,14 +76,6 @@ workflow_graph_schema = {
                         "static_docname": LINKEDIN_USER_PROFILE_DOCNAME,
                     },
                     "output_field_name": "linkedin_user_profile"
-                },
-                {
-                    "filename_config": {
-                        "input_namespace_field_pattern": LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE,
-                        "input_namespace_field": "entity_username",
-                        "static_docname": LINKEDIN_USER_DNA_DOCNAME,
-                    },
-                    "output_field_name": "linkedin_user_dna"
                 },
                 {
                     "filename_config": {
@@ -120,14 +105,12 @@ workflow_graph_schema = {
             "variables": {
               "brief": None, # Required from input_node via edge mapping
               "linkedin_user_profile": None,
-              "linkedin_user_dna": None,
               "linkedin_content_playbook": None,
               # Default if not found via construct_options
             },
             "construct_options": { # P1 Sourcing: Map variables to paths within node's input fields
                "linkedin_user_profile": "linkedin_user_profile", # Look inside the mapped 'linkedin_user_profile' input field
                "brief": "content_brief", # Look inside the mapped 'content_brief' input field (corrected from 'brief_docname')
-               "linkedin_user_dna": "linkedin_user_dna", # Look inside the mapped 'linkedin_user_dna' input field
                "linkedin_content_playbook": "linkedin_content_playbook", # Look inside the mapped 'linkedin_content_playbook' input field
             }
           },
@@ -174,7 +157,7 @@ workflow_graph_schema = {
         "global_versioning": {
           "is_versioned": True,
           "operation": "initialize", # Must not exist yet
-          "version": "draft_v1" # Name the initial version
+          "version": None # Name the initial version
         },
         "store_configs": [
             
@@ -192,8 +175,86 @@ workflow_graph_schema = {
                 "versioning": {
                     "is_versioned": LINKEDIN_DRAFT_IS_VERSIONED,
                     "operation": "upsert_versioned",
-                }
+                },
+                "extra_fields": [
+                    {
+                        "src_path": "initial_status",
+                        "dst_path": "status"
+                    }
+                ]
             }
+        ]
+      }
+    },
+
+    # --- 5b. Save Draft (manual save similar to save_brief) ---
+    "save_draft": {
+      "node_id": "save_draft",
+      "node_name": "store_customer_data",
+      "node_config": {
+        "global_versioning": {
+          "is_versioned": LINKEDIN_DRAFT_IS_VERSIONED,
+          "operation": "upsert_versioned"
+        },
+        "global_is_shared": False,
+        "store_configs": [
+          {
+            "input_field_path": "current_post_draft",
+            "target_path": {
+              "filename_config": {
+                "input_namespace_field_pattern": LINKEDIN_DRAFT_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "input_docname_field_pattern": LINKEDIN_DRAFT_DOCNAME,
+                "input_docname_field": "post_uuid"
+              }
+            },
+            "extra_fields": [
+              {
+                "src_path": "initial_status",
+                "dst_path": "status"
+              }
+            ],
+            "versioning": {
+              "is_versioned": LINKEDIN_DRAFT_IS_VERSIONED,
+              "operation": "upsert_versioned"
+            }
+          }
+        ]
+      }
+    },
+
+    # --- 5c. Save Final Draft (similar to save_final_brief) ---
+    "save_final_draft": {
+      "node_id": "save_final_draft",
+      "node_name": "store_customer_data",
+      "node_config": {
+        "global_versioning": {
+          "is_versioned": LINKEDIN_DRAFT_IS_VERSIONED,
+          "operation": "upsert_versioned"
+        },
+        "global_is_shared": False,
+        "store_configs": [
+          {
+            "input_field_path": "current_post_draft",
+            "target_path": {
+              "filename_config": {
+                "input_namespace_field_pattern": LINKEDIN_DRAFT_NAMESPACE_TEMPLATE,
+                "input_namespace_field": "entity_username",
+                "input_docname_field_pattern": LINKEDIN_DRAFT_DOCNAME,
+                "input_docname_field": "post_uuid"
+              }
+            },
+            "versioning": {
+              "is_versioned": LINKEDIN_DRAFT_IS_VERSIONED,
+              "operation": "upsert_versioned"
+            },
+            "extra_fields": [
+              {
+                "src_path": "user_brief_action",
+                "dst_path": "status"
+              }
+            ]
+          }
         ]
       }
     },
@@ -205,8 +266,9 @@ workflow_graph_schema = {
       "node_config": {},
       "dynamic_output_schema": {
           "fields": {
-              "approval_status": { "type": "enum", "enum_values": ["save_content", "provide_feedback"], "required": True, "description": "User decision on the draft." },
-              "feedback_text": { "type": "str", "required": False, "description": "Optional feedback text from the user." }
+              "user_brief_action": { "type": "enum", "enum_values": ["complete", "provide_feedback", "cancel_workflow", "draft"], "required": True, "description": "User's decision on draft approval." },
+              "revision_feedback": { "type": "str", "required": False, "description": "Feedback for revision (required if provide_feedback)." },
+              "updated_content_brief": { "type": "dict", "required": True, "description": "Updated post draft with any manual edits." }
           }
       },
     },
@@ -216,18 +278,28 @@ workflow_graph_schema = {
       "node_id": "route_on_approval",
       "node_name": "router_node",
       "node_config": {
-        "choices": ["check_iteration_limit", "output_node"], # Node IDs to route to
+        "choices": ["check_iteration_limit", "output_node", "save_draft", "save_final_draft"], # Node IDs to route to
         "allow_multiple": False,
         "choices_with_conditions": [
           {
             "choice_id": "check_iteration_limit", # Route to feedback loop (needs iteration check first)
-            "input_path": "approval_status_from_hitl", # Path WITHIN the node's input data
+            "input_path": "user_brief_action_from_hitl", # Path WITHIN the node's input data
             "target_value": "provide_feedback"
           },
           {
-            "choice_id": "output_node", # Route to final storage
-            "input_path": "approval_status_from_hitl", # Path WITHIN the node's input data
-            "target_value": "save_content"
+            "choice_id": "save_final_draft", # Final save
+            "input_path": "user_brief_action_from_hitl",
+            "target_value": "complete"
+          },
+          {
+            "choice_id": "save_draft", # Save as draft/intermediate
+            "input_path": "user_brief_action_from_hitl",
+            "target_value": "draft"
+          },
+          {
+            "choice_id": "output_node", # Cancel
+            "input_path": "user_brief_action_from_hitl",
+            "target_value": "cancel_workflow"
           }
         ]
       }
@@ -309,13 +381,11 @@ workflow_graph_schema = {
                 "variables": {
                     "current_feedback_text": None,
                     "current_post_draft": None,
-                    "user_dna_doc": None,
                     "user_profile": None,
                 },
                 "construct_options": {
                     "current_feedback_text": "current_feedback_text",
                     "current_post_draft": "current_post_draft",
-                    "user_dna_doc": "linkedin_user_dna",
                     "user_profile": "linkedin_user_profile",
                 }
             },
@@ -417,6 +487,7 @@ workflow_graph_schema = {
         { "src_field": "post_uuid", "dst_field": "post_uuid", "description": "Store the draft name for later use (e.g., saving)."},
         { "src_field": "brief_docname", "dst_field": "brief_docname", "description": "Store the initial brief globally."},
         { "src_field": "entity_username", "dst_field": "entity_username", "description": "Pass the LinkedIn username for scraping."},
+        { "src_field": "initial_status", "dst_field": "initial_status", "description": "Initial status for saving drafts."}
       ]
     },
     # Input -> Load All Context Docs: Explicit mappings
@@ -433,7 +504,6 @@ workflow_graph_schema = {
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "linkedin_user_profile", "dst_field": "linkedin_user_profile", "description": "Store the loaded LinkedIn user profile document globally."},
         { "src_field": "content_brief", "dst_field": "content_brief", "description": "Store the loaded content brief globally."},
-        { "src_field": "linkedin_user_dna", "dst_field": "linkedin_user_dna", "description": "Store the loaded LinkedIn user DNA document globally."},
         { "src_field": "linkedin_content_playbook", "dst_field": "linkedin_content_playbook", "description": "Store the loaded LinkedIn content playbook document globally."}
       ]
     },
@@ -441,7 +511,6 @@ workflow_graph_schema = {
     { "src_node_id": "load_all_context_docs", "dst_node_id": "construct_initial_prompt", "mappings": [
         { "src_field": "linkedin_user_profile", "dst_field": "linkedin_user_profile", "description": "Pass LinkedIn user profile for extracting style preference."},
         { "src_field": "content_brief", "dst_field": "content_brief", "description": "Pass the content brief for prompt construction."},
-        { "src_field": "linkedin_user_dna", "dst_field": "linkedin_user_dna", "description": "Pass the LinkedIn user DNA document for prompt construction."},
         { "src_field": "linkedin_content_playbook", "dst_field": "linkedin_content_playbook", "description": "Pass the LinkedIn content playbook document for prompt construction."}
     ]},
 
@@ -467,8 +536,8 @@ workflow_graph_schema = {
     # State -> Store Draft: Provide draft name for saving
     { "src_node_id": "$graph_state", "dst_node_id": "store_draft", "mappings": [
         { "src_field": "post_uuid", "dst_field": "post_uuid", "description": "Pass the draft name needed by the node's target_path config."},
-        { "src_field": "content_brief", "dst_field": "content_brief"},
-        { "src_field": "entity_username", "dst_field": "entity_username"}
+        { "src_field": "entity_username", "dst_field": "entity_username"},
+        { "src_field": "initial_status", "dst_field": "initial_status"}
       ]
     },
     { "src_node_id": "store_draft", "dst_node_id": "$graph_state", "mappings": [
@@ -500,18 +569,52 @@ workflow_graph_schema = {
     # --- Approval and Routing ---
     # Capture Approval -> Route on Approval: Send approval status for routing decision
     { "src_node_id": "capture_approval", "dst_node_id": "route_on_approval", "mappings": [
-        { "src_field": "approval_status", "dst_field": "approval_status_from_hitl", "description": "Pass the user's decision ('approved' or 'provide_feedback')."}
+        { "src_field": "user_brief_action", "dst_field": "user_brief_action_from_hitl", "description": "Pass the user's decision ('complete' or 'provide_feedback' or others)."}
       ]
     },
     # Capture Approval -> State: Store user feedback and updated draft
     { "src_node_id": "capture_approval", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "feedback_text", "dst_field": "current_feedback_text", "description": "Store the user's feedback text globally."}
+        { "src_field": "revision_feedback", "dst_field": "current_revision_feedback", "description": "Store the user's feedback text globally."},
+        { "src_field": "updated_content_brief", "dst_field": "current_post_draft", "description": "Store the user's updated post draft globally."},
+        { "src_field": "user_brief_action", "dst_field": "user_brief_action", "description": "Store the user's approval action."}
       ]
     },
     # Route on Approval -> Check Iteration Limit: Control flow if 'provide_feedback'
     { "src_node_id": "route_on_approval", "dst_node_id": "check_iteration_limit", "description": "Trigger iteration check if feedback provided (Control Flow: 'provide_feedback')." },
     # Route on Approval -> Finalize Post: Control flow if 'approved'
     { "src_node_id": "route_on_approval", "dst_node_id": "output_node", "description": "Trigger finalization if post approved (Control Flow: 'approved')." },
+    # Route on Approval -> Save Final Draft: Control flow if 'save_content'
+    { "src_node_id": "route_on_approval", "dst_node_id": "save_final_draft", "description": "Save final draft if approved (Control Flow: 'save_content')." },
+    # Route on Approval -> Save Draft: Control flow if 'draft'
+    { "src_node_id": "route_on_approval", "dst_node_id": "save_draft", "description": "Save interim draft (Control Flow: 'draft')." },
+
+    # State -> Save Draft: Provide required fields
+    { "src_node_id": "$graph_state", "dst_node_id": "save_draft", "mappings": [
+        { "src_field": "current_post_draft", "dst_field": "current_post_draft"},
+        { "src_field": "post_uuid", "dst_field": "post_uuid"},
+        { "src_field": "entity_username", "dst_field": "entity_username"},
+        { "src_field": "initial_status", "dst_field": "initial_status"}
+      ]
+    },
+    # Save Draft -> Back to HITL for further review
+    { "src_node_id": "save_draft", "dst_node_id": "capture_approval" },
+
+    # State -> Save Final Draft: Provide required fields
+    { "src_node_id": "$graph_state", "dst_node_id": "save_final_draft", "mappings": [
+        { "src_field": "current_post_draft", "dst_field": "current_post_draft"},
+        { "src_field": "post_uuid", "dst_field": "post_uuid"},
+        { "src_field": "entity_username", "dst_field": "entity_username"},
+        { "src_field": "user_brief_action", "dst_field": "user_brief_action"}
+      ]
+    },
+    # Save Final Draft -> State: store paths
+    { "src_node_id": "save_final_draft", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "paths_processed", "dst_field": "paths_processed"},
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data"}
+      ]
+    },
+    # Save Final Draft -> Output: finalize after save
+    { "src_node_id": "save_final_draft", "dst_node_id": "output_node", "description": "Finalize workflow after saving final draft." },
 
     # --- Feedback Loop ---
     # State -> Check Iteration Limit: Provide metadata needed for the check
@@ -551,12 +654,10 @@ workflow_graph_schema = {
     # --- Edges for initial feedback prompt constructor ---
     # State -> Initial Prompt Constructor: Provide necessary context
     { "src_node_id": "$graph_state", "dst_node_id": "construct_user_feedback_initial_prompt", "mappings": [
-        { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
+        { "src_field": "current_revision_feedback", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
         { "src_field": "current_post_draft", "dst_field": "current_post_draft", 
           "description": "Pass latest draft for context."},
-        { "src_field": "linkedin_user_dna", "dst_field": "linkedin_user_dna", 
-          "description": "Pass LinkedIn user DNA for style context."},
         { "src_field": "linkedin_user_profile", "dst_field": "linkedin_user_profile", 
           "description": "Pass LinkedIn user profile for knowledge base context."}
       ]
@@ -571,7 +672,7 @@ workflow_graph_schema = {
     # --- Edges for additional feedback prompt constructor ---
     # State -> Additional Prompt Constructor: Provide necessary context
     { "src_node_id": "$graph_state", "dst_node_id": "construct_user_feedback_additional_prompt", "mappings": [
-        { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
+        { "src_field": "current_revision_feedback", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
         { "src_field": "current_post_draft", "dst_field": "current_post_draft",
           "description": "Pass the current post draft for context."}
@@ -599,7 +700,7 @@ workflow_graph_schema = {
     },
      # State -> Additional Prompt Constructor: Provide necessary context
     { "src_node_id": "$graph_state", "dst_node_id": "construct_rewrite_prompt", "mappings": [
-        { "src_field": "current_feedback_text", "dst_field": "current_feedback_text", 
+        { "src_field": "current_revision_feedback", "dst_field": "current_feedback_text", 
           "description": "Pass feedback for prompt construction."},
         { "src_field": "current_post_draft", "dst_field": "current_post_draft",
           "description": "Pass the current post draft for context."},
@@ -620,32 +721,11 @@ workflow_graph_schema = {
         { "src_field": "rewrite_prompt", "dst_field": "user_prompt", "description": "Pass the rewrite prompt back to the main LLM node to generate a revised post."}
       ]
     }, # This completes the feedback loop, flowing back to Generate Content
-
-    # --- Finalization Path ---
-    # State -> Finalize Post: Provide the final draft content and name for saving
-    { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-        { "src_field": "current_post_draft", "dst_field": "final_post_content", "description": "Pass the final approved post content for saving."},
-        { "src_field": "paths_processed", "dst_field": "final_post_paths", "description": "Pass the path(s) or ID(s) of the finalized stored document(s)."}, # Assuming Store node outputs 'paths_processed'
-        { "src_field": "passthrough_data", "dst_field": "passthrough_data", "description": "Pass the passthrough data of the draft."}
-      ]
-    },
   ],
 
   # --- Define Start and End ---
   "input_node_id": "input_node",
   "output_node_id": "output_node",
-
-#   # --- Optional Metadata ---
-#   "metadata": {
-#     # State reducers define how to merge data written to the same key in $graph_state.
-#      "state_reducers": {
-#        "messages_history": { "reducer_type": "add_messages", "description": "Append new messages to maintain conversation history."},
-#        "generation_metadata": { "reducer_type": "replace", "description": "Replace with the latest LLM metadata (e.g., iteration count)."},
-#        "current_post_draft": { "reducer_type": "replace", "description": "Replace with the latest generated/approved draft."},
-#        "current_feedback_text": { "reducer_type": "replace", "description": "Replace with the latest feedback received."},
-        #        # Other state keys like post_uuid, brief_docname, linkedin_user_profile are typically written once, so default 'replace' is fine.
-#      }
-#   }
 
   "metadata": {
       "$graph_state": {
@@ -747,10 +827,6 @@ async def main_test_content_workflow_with_client():
     # Define content brief namespace based on the template
     content_brief_namespace = LINKEDIN_BRIEF_NAMESPACE_TEMPLATE.format(item=test_entity_username)
     
-    # Define LinkedIn User DNA namespace based on the template
-    linkedin_user_dna_namespace = LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username)
-    linkedin_user_dna_docname = LINKEDIN_USER_DNA_DOCNAME
-    
     # Define LinkedIn Content Playbook namespace based on the template
     linkedin_content_playbook_namespace = LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE.format(item=test_entity_username)
     linkedin_content_playbook_docname = LINKEDIN_CONTENT_PLAYBOOK_DOCNAME
@@ -764,7 +840,8 @@ async def main_test_content_workflow_with_client():
     POST_CREATION_WORKFLOW_INPUTS = {
         "post_uuid": test_post_uuid,
         "brief_docname": brief_docname,
-        "entity_username": test_entity_username
+        "entity_username": test_entity_username,
+        "initial_status": "draft"
     }
 
     # Define the setup documents to be created before workflow execution
@@ -842,66 +919,6 @@ async def main_test_content_workflow_with_client():
             'initial_version': "default",
             'is_system_entity': False
         },
-                 # LinkedIn User DNA Document - Deep user insights and communication patterns
-         {
-             'namespace': linkedin_user_dna_namespace,
-             'docname': linkedin_user_dna_docname,
-             'initial_data': {
-                 "uuid": linkedin_user_dna_docname,
-                 "user_id": "example-user",
-                 "communication_dna": {
-                     "signature_phrases": [
-                         "Here's what I've learned...",
-                         "After 10+ years in...",
-                         "The truth is...",
-                         "Here's the reality...",
-                         "Most companies miss this..."
-                     ],
-                     "opening_patterns": [
-                         "Statistical hook with specific percentage",
-                         "Contrarian statement challenging common belief",
-                         "Personal anecdote from professional experience"
-                     ],
-                     "storytelling_style": {
-                         "uses_personal_anecdotes": True,
-                         "includes_data_points": True,
-                         "framework_oriented": True,
-                         "actionable_insights": True
-                     },
-                     "engagement_techniques": [
-                         "Numbered frameworks (1️⃣, 2️⃣, 3️⃣)",
-                         "Bullet points with emojis",
-                         "Questions at the end",
-                         "Call-to-action in parentheses"
-                     ]
-                 },
-                 "content_preferences": {
-                     "preferred_post_length": "400-700 words",
-                     "uses_emojis": "Sparingly, mainly for structure",
-                     "paragraph_style": "Short, punchy paragraphs",
-                     "evidence_style": "Mix of studies, reports, and personal experience"
-                 },
-                 "expertise_voice": {
-                     "authority_sources": ["Personal experience", "Industry reports", "Client results"],
-                     "credibility_markers": ["Years of experience", "Specific outcomes", "Contrarian insights"],
-                     "teaching_style": "Framework-based with practical application"
-                 },
-                 "audience_connection": {
-                     "speaks_to_pain_points": ["Content ROI challenges", "Technical-business alignment", "Strategy vs tactics"],
-                     "offers_solutions": "Practical frameworks and methodologies",
-                     "builds_community": "Through questions and shared experiences"
-                 },
-                 "linguistic_patterns": {
-                     "sentence_starters": ["Here's", "The truth", "Most", "After", "What I've learned"],
-                     "transition_phrases": ["But here's the thing", "The reality is", "What works consistently"],
-                     "closing_patterns": ["Share your experience", "Let's connect", "What's your biggest challenge"]
-                 }
-             },
-             'is_shared': False,
-             'is_versioned': LINKEDIN_USER_DNA_IS_VERSIONED,
-             'initial_version': "default",
-             'is_system_entity': False
-         },
                  # LinkedIn Content Playbook Document - Content strategy guidelines and templates
          {
              'namespace': linkedin_content_playbook_namespace,
@@ -1020,14 +1037,6 @@ async def main_test_content_workflow_with_client():
             'is_versioned': LINKEDIN_BRIEF_IS_VERSIONED,
             'is_system_entity': False
         },
-        # Clean up LinkedIn User DNA document
-        {
-            'namespace': linkedin_user_dna_namespace,
-            'docname': linkedin_user_dna_docname,
-            'is_shared': False,
-            'is_versioned': LINKEDIN_USER_DNA_IS_VERSIONED,
-            'is_system_entity': False
-        },
         # Clean up LinkedIn Content Playbook document
         {
             'namespace': linkedin_content_playbook_namespace,
@@ -1055,26 +1064,26 @@ async def main_test_content_workflow_with_client():
     predefined_hitl_inputs: List[Dict[str, Any]] = [
         # Input for the first HITL stop (request revisions)
         {
-            "approval_status": "provide_feedback",
-            "feedback_text": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?",
-            "updated_post_draft": {
+            "user_brief_action": "provide_feedback",
+            "revision_feedback": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?",
+            "updated_content_brief": {
                 "post_text": "73% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
                 "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
             }
         },
         {
-            "approval_status": "provide_feedback", 
-            "feedback_text": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?",
-            "updated_post_draft": {
+            "user_brief_action": "provide_feedback", 
+            "revision_feedback": "The statistics are helpful, but I'd like to see more concrete examples of successful B2B SaaS content strategies. Also, can you make the opening hook more attention-grabbing and include a specific mention of ROI?",
+            "updated_content_brief": {
                 "post_text": "73% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
                 "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
             }
         },
         # Input for the final HITL stop (approve)
         {
-            "approval_status": "save_content",
-            "feedback_text": "",
-            "updated_post_draft": {
+            "user_brief_action": "complete",
+            "revision_feedback": "",
+            "updated_content_brief": {
                 "post_text": "73% of B2B buyers don't read most of the content they download. Here's why...\n\nAfter 10+ years in B2B SaaS marketing, I've seen this pattern repeatedly: companies invest heavily in content creation but treat it as a checkbox rather than a conversion tool.\n\nThe truth? Quality trumps quantity every time. And alignment with the customer journey is non-negotiable.\n\nHere's what I've learned works consistently:\n\n1️⃣ ALIGN WITH THE JOURNEY: Most B2B content fails because it doesn't match where prospects are in their decision process. Technical whitepapers don't work for awareness stage, and basic \"what is\" content frustrates those ready to buy.\n\n2️⃣ BRIDGE THE TECHNICAL DIVIDE: Your technical content must speak to non-technical decision makers. I've seen brilliant solutions rejected because the content only made sense to engineers, not the C-suite holding the budget.\n\n3️⃣ QUANTIFY RESULTS: The recent McKinsey report confirms what I've observed - case studies with specific, measurable outcomes convert 3x better than generic testimonials.\n\nThe framework I use with clients is what I call the 3T approach:\n• Target: Identify exactly which buying stage you're addressing\n• Tailor: Adapt complexity and focus to match that stage\n• Track: Measure engagement by stage, not just overall views\n\nCompanies with documented content strategies aligned to this approach have consistently shown 3x higher conversion rates according to HubSpot's latest SaaS content study.\n\nGaurav, you might want to personalize the ending a bit more with a stronger call-to-action or reference to your expertise—something that makes your voice unmistakable.\n\nWhat's your biggest challenge with B2B content development? I'd love to hear your experiences in the comments.\n\n(And if you're struggling with making technical content accessible to decision-makers, let's connect - that's my sweet spot.)",
                 "hashtags": ["#B2BMarketing", "#ContentStrategy", "#SaaS", "#MarketingROI"]
             }

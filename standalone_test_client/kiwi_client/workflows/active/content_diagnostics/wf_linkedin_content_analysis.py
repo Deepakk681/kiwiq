@@ -47,11 +47,12 @@ from typing import List, Optional, Dict, Any, Literal
 # --- Workflow Constants ---
 # LLM Configuration (Placeholders - Adjust as needed)
 LLM_PROVIDER = "openai"
-EXTRACTION_MODEL = "gpt-4.1" # Model for theme extraction, classification, analysis
-LLM_TEMPERATURE = 0.2
-LLM_MAX_TOKENS_CLASSIFY = 2000 # Adjust based on batch size and theme complexity
-LLM_MAX_TOKENS_THEMES = 4000 # Adjust based on total post text length
-LLM_MAX_TOKENS_ANALYSIS = 4000 # Adjust based on theme group size
+EXTRACTION_MODEL_FOR_CLASSIFY = "gpt-5-mini"
+EXTRACTION_MODEL = "gpt-5" # Model for theme extraction, classification, analysis
+LLM_TEMPERATURE = 0.5
+LLM_MAX_TOKENS_CLASSIFY = 8000 # Adjust based on batch size and theme complexity
+LLM_MAX_TOKENS_THEMES = 10000 # Adjust based on total post text length
+LLM_MAX_TOKENS_ANALYSIS = 5000 # Adjust based on theme group size
 
 POST_BATCH_SIZE = 10
 
@@ -209,7 +210,7 @@ workflow_graph_schema = {
         # Output goes to graph state for aggregation
         "node_config": {
             "llm_config": {
-                "model_spec": {"provider": LLM_PROVIDER, "model": EXTRACTION_MODEL},
+                "model_spec": {"provider": LLM_PROVIDER, "model": EXTRACTION_MODEL_FOR_CLASSIFY},
                 "temperature": LLM_TEMPERATURE,
                 "max_tokens": LLM_MAX_TOKENS_CLASSIFY
             },
@@ -434,13 +435,8 @@ workflow_graph_schema = {
     "output_node": {
       "node_id": "output_node",
       "node_name": "output_node",
+      "enable_node_fan_in": True,
       "node_config": {},
-      # "dynamic_input_schema": {
-      #     "fields": {
-      #         "analysis_storage_path": { "type": "list", "required": False, "description": "Path where the final analysis report was stored." },
-      #         "processed_entity_username": { "type": "str", "required": False, "description": "The name of the entity processed." }
-      #     }
-      #   }
     }
   },
 
@@ -610,16 +606,8 @@ workflow_graph_schema = {
 
     # --- Step 11: Output ---
     { "src_node_id": "store_analysis", "dst_node_id": "output_node", "mappings": [
-        { "src_field": "paths_processed", "dst_field": "analysis_storage_path" }
-      ]
-    },
-    { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-        { "src_field": "entity_username", "dst_field": "processed_entity_username" },
-        # NOTE: BUG: this field changes types from dict to list due to aggregation!
-        #     So disabling this and piping output via another route!
-        # { "src_field": "all_theme_reports", "dst_field": "all_reports_list"},
-      ]
-    },
+        { "src_field": "passthrough_data", "dst_field": "passthrough_data" }
+    ]}
   ],
 
   # --- Define Start and End ---

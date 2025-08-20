@@ -1110,19 +1110,24 @@ async def list_runs(
             list_user_id = query_params.triggered_by_user_id
 
         # Prepare filters for service layer, converting schema to dict/kwargs if needed
-        service_filters = schemas.WorkflowRunListQuery(
-            workflow_id=query_params.workflow_id,
-            workflow_name=query_params.workflow_name,
-            status=query_params.status,
-            triggered_by_user_id=list_user_id,
-            owner_org_id=list_org_id # Pass the determined org_id to the service
-            # Pagination handled separately
-        )
+        query_params.owner_org_id = list_org_id
+        query_params.triggered_by_user_id = list_user_id
+        # service_filters = schemas.WorkflowRunListQuery(
+        #     workflow_id=query_params.workflow_id,
+        #     workflow_name=query_params.workflow_name,
+        #     status=query_params.status,
+        #     triggered_by_user_id=list_user_id,
+        #     owner_org_id=list_org_id, # Pass the determined org_id to the service
+        #     parent_run_id=query_params.parent_run_id,  # Include parent_run_id filter
+        #     tag=query_params.tag,  # Include tag filter
+        #     applied_workflow_config_overrides=query_params.applied_workflow_config_overrides  # Include overrides filter
+        #     # Pagination handled separately
+        # )
 
         runs = await workflow_service.list_runs(
             db=db,
             owner_org_id=list_org_id, # Pass final org id for main query scope
-            filters=service_filters, # Pass filters object
+            filters=query_params, # Pass filters object
             skip=query_params.skip,
             limit=query_params.limit
         )

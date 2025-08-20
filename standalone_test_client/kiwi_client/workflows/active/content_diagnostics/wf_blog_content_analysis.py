@@ -87,9 +87,12 @@ ANALYSIS_MODEL = "gpt-5"
 LLM_TEMPERATURE = 0.5
 LLM_MAX_TOKENS_CLASSIFY = 20000
 LLM_MAX_TOKENS_ANALYSIS = 20000
+LLM_MAX_TOKENS_TECHNICAL_SEO = 3000
 # New model for portfolio analysis with code execution
 PORTFOLIO_ANALYSIS_MODEL = "gpt-5-mini"
-LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS = 20000
+PORTFOLIO_FINAL_ANALYSIS_MODEL = "gpt-5"
+LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS = 5000
+LLM_MAX_TOKENS_PORTFOLIO_FINAL_ANALYSIS = 4000
 
 POST_BATCH_SIZE = 10
 POST_BATCH_SIZE_ANALYSIS = 20
@@ -399,20 +402,6 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 10b.5. Promote Stage Group After Sort (avoid dot paths in edges) ---
-        # "promote_stage_group_after_sort": {
-        #     "node_id": "promote_stage_group_after_sort",
-        #     "node_name": "transform_data",
-        #     "private_input_mode": True,
-        #     "output_private_output_to_central_state": True,
-        #     "private_output_mode": True,
-        #     "node_config": {
-        #         "mappings": [
-        #             {"source_path": "merged_data.stage_group", "destination_path": "stage_group"}
-        #         ]
-        #     }
-        # },
-
         # --- 10b. Preprocess Stage Group: Limit to top 20 posts ---
         "preprocess_stage_group_limit_posts": {
             "node_id": "preprocess_stage_group_limit_posts",
@@ -437,21 +426,6 @@ workflow_graph_schema = {
                 ]
             }
         },
-
-        # --- 10b.9. Promote Stage Group After Limit (avoid dot paths in edges) ---
-        # "promote_stage_group_after_limit": {
-        #     "node_id": "promote_stage_group_after_limit",
-        #     "node_name": "transform_data",
-        #     "private_input_mode": True,
-        #     "output_private_output_to_central_state": True,
-        #     "private_output_mode": True,
-        #     "node_config": {
-        #         "mappings": [
-        #             {"source_path": "merged_data.stage_group", "destination_path": "stage_group"}
-        #         ]
-        #     }
-        # },
-
         # --- 10. Route Funnel Stage Groups for Analysis ---
         
         
@@ -496,7 +470,7 @@ workflow_graph_schema = {
                     "model_spec": {"provider": LLM_PROVIDER, "model": ANALYSIS_MODEL},
                     "temperature": LLM_TEMPERATURE,
                     "max_tokens": LLM_MAX_TOKENS_ANALYSIS,
-                    "reasoning_effort_class": "low"
+                    "reasoning_effort_class": "high"
                 },
                 "output_schema": {
                     "schema_definition": FUNNEL_STAGE_ANALYSIS_SCHEMA,
@@ -574,8 +548,8 @@ workflow_graph_schema = {
                 "llm_config": {
                     "model_spec": {"provider": LLM_PROVIDER, "model": PORTFOLIO_ANALYSIS_MODEL},
                     "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS_ANALYSIS,
-                    # "reasoning_tokens_budget": 2048,
+                    "max_tokens": LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS,
+                    # "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {"enable_tool_calling": True, "parallel_tool_calls": True},
                 "tools": [
@@ -648,10 +622,10 @@ workflow_graph_schema = {
             # "output_private_output_to_central_state": True,
             "node_config": {
                 "llm_config": {
-                    "model_spec": {"provider": LLM_PROVIDER, "model": PORTFOLIO_ANALYSIS_MODEL},
+                    "model_spec": {"provider": LLM_PROVIDER, "model": PORTFOLIO_FINAL_ANALYSIS_MODEL},
                     "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS,
-                    # "reasoning_tokens_budget": 2048,
+                    "max_tokens": LLM_MAX_TOKENS_PORTFOLIO_FINAL_ANALYSIS,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {"enable_tool_calling": True, "parallel_tool_calls": True},
                 "tools": [
@@ -709,19 +683,18 @@ workflow_graph_schema = {
         "construct_technical_analysis_prompt": {
             "node_id": "construct_technical_analysis_prompt",
             "node_name": "prompt_constructor",
-            # "private_input_mode": True,
-            # "output_private_output_to_central_state": True,
-            # "private_output_mode": True,
             "node_config": {
                 "prompt_templates": {
                     "technical_user_prompt": {
                         "id": "technical_user_prompt",
                         "template": TECHNICAL_SEO_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "data": None
+                            "data": None,
+                            "robots_analysis": None
                             },
                         "construct_options": {
-                            "data": "technical_audit_data"
+                            "data": "technical_audit_data",
+                            "robots_analysis": "robots_analysis"
                         }
                     },
                     "technical_system_prompt": {
@@ -743,7 +716,7 @@ workflow_graph_schema = {
                 "llm_config": {
                     "model_spec": {"provider": LLM_PROVIDER, "model": CLASSIFICATION_MODEL},
                     "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS_CLASSIFY
+                    "max_tokens": LLM_MAX_TOKENS_TECHNICAL_SEO
                 },
                 "output_schema": {
                     "schema_definition": TECHNICAL_SEO_REPORT_SCHEMA,
@@ -757,7 +730,7 @@ workflow_graph_schema = {
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": False, "operation": "upsert"},
-                "global_is_shared": True,
+                "global_is_shared": False,
                 "store_configs": [
                     {
                         "input_field_path": "structured_output",
@@ -803,7 +776,8 @@ workflow_graph_schema = {
         # Store posts in state for later joins
         {"src_node_id": "web_crawler", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "scraped_data", "dst_field": "raw_posts_data"},
-            {"src_field": "technical_seo_summary", "dst_field": "technical_seo_summary"}
+            {"src_field": "technical_seo_summary", "dst_field": "technical_seo_summary"},
+            {"src_field": "robots_analysis", "dst_field": "robots_analysis"}
         ]},
         
         # Batch and classify posts
@@ -912,9 +886,7 @@ workflow_graph_schema = {
         {"src_node_id": "preprocess_stage_group_limit_posts", "dst_node_id": "construct_analysis_prompt", "mappings": [
             {"src_field": "merged_data", "dst_field": "funnel_stage_group"}
         ]},
-        # {"src_node_id": "promote_stage_group_after_limit", "dst_node_id": "construct_analysis_prompt", "mappings": [
-        #     {"src_field": "transformed_data", "dst_field": "funnel_stage_group"}
-        # ]},
+
         {"src_node_id": "construct_analysis_prompt", "dst_node_id": "analyze_funnel_stage_group", "mappings": [
             {"src_field": "analyze_user_prompt", "dst_field": "user_prompt"},
             {"src_field": "analyze_system_prompt", "dst_field": "system_prompt"}
@@ -943,7 +915,8 @@ workflow_graph_schema = {
         {"src_node_id": "store_analysis", "dst_node_id": "construct_technical_analysis_prompt"},
 
         {"src_node_id": "$graph_state", "dst_node_id": "construct_technical_analysis_prompt", "mappings": [
-            {"src_field": "technical_seo_summary", "dst_field": "technical_audit_data"}
+            {"src_field": "technical_seo_summary", "dst_field": "technical_audit_data"},
+            {"src_field": "robots_analysis", "dst_field": "robots_analysis"}
         ]},
 
         {"src_node_id": "construct_technical_analysis_prompt", "dst_node_id": "run_technical_analysis", "mappings": [
@@ -959,20 +932,11 @@ workflow_graph_schema = {
         ]},
         
         # Output
-        {"src_node_id": "store_analysis", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "paths_processed", "dst_field": "analysis_storage_path"}
-        ]},
-        {"src_node_id": "store_classified_posts", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "paths_processed", "dst_field": "classified_posts_storage_path"}
-        ]},
-        {"src_node_id": "store_technical_analysis", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "paths_processed", "dst_field": "technical_analysis_storage_path"}
-        ]},
+        {"src_node_id": "store_analysis", "dst_node_id": "output_node", "mappings": []},
+        {"src_node_id": "store_classified_posts", "dst_node_id": "output_node", "mappings": []},
+        {"src_node_id": "store_technical_analysis", "dst_node_id": "output_node", "mappings": []},
         {"src_node_id": "store_portfolio_analysis", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "paths_processed", "dst_field": "portfolio_analysis_storage_path"}
-        ]},
-        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "company_name", "dst_field": "processed_company_name"}
+            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
         ]}
     ],
 
@@ -1031,19 +995,10 @@ async def validate_output(outputs: Optional[Dict[str, Any]]) -> bool:
     assert outputs is not None, "Validation Failed: Workflow returned no outputs."
     logger.info("Validating blog content analysis workflow outputs...")
     
-    assert 'analysis_storage_path' in outputs, "Validation Failed: 'analysis_storage_path' key missing."
-    assert 'classified_posts_storage_path' in outputs, "Validation Failed: 'classified_posts_storage_path' key missing."
-    assert 'processed_company_name' in outputs, "Validation Failed: 'processed_company_name' key missing."
-    assert outputs['processed_company_name'] == TEST_INPUTS['company_name'], "Validation Failed: Entity name mismatch."
-    assert isinstance(outputs.get('analysis_storage_path'), list), "Validation Failed: analysis_storage_path should be a list."
-    assert isinstance(outputs.get('classified_posts_storage_path'), list), "Validation Failed: classified_posts_storage_path should be a list."
-    if len(outputs.get('analysis_storage_path', [])) == 0:
-        logger.warning("Validation Note: analysis_storage_path is empty. Proceeding in test mode.")
-    if len(outputs.get('classified_posts_storage_path', [])) == 0:
-        logger.warning("Validation Note: classified_posts_storage_path is empty. Proceeding in test mode.")
+    assert 'company_name' in outputs, "Validation Failed: 'company_name' key missing."
+    assert outputs['company_name'] == TEST_INPUTS['company_name'], "Validation Failed: Entity name mismatch."
     
-    logger.info(f"   Analysis storage path: {outputs.get('analysis_storage_path')}")
-    logger.info(f"   Classified posts storage path: {outputs.get('classified_posts_storage_path')}")
+    logger.info(f"   Company name: {outputs.get('company_name')}")
     logger.info("✓ Output structure and content validation passed.")
     return True
 

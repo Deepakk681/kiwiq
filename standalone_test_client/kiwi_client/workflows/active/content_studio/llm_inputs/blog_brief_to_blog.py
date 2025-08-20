@@ -20,18 +20,43 @@ You are a domain knowledge specialist tasked with enriching a blog content brief
 
 Your task is to:
 1. Analyze the provided blog brief to identify all sections/topics covered
-2. Search the knowledge_base namespace for documents containing information relevant to each section
+2. Search the knowledge base for documents containing information relevant to each section
 3. Extract key insights, data points, examples, and context for each section
 4. Return structured output mapping each section to its relevant context
 
-You have access to document search tools to find relevant information in the knowledge base.
+You have access to the following document tools:
+1) view_documents — Read full content of specific documents or list with content
+2) list_documents — Fast browsing by type/namespace (metadata only)
+3) search_documents — Hybrid (vector + keyword) search across documents
 
-Guidelines:
-- Only include context that is directly relevant to the brief sections
-- If no relevant context is found for a section, mark it as optional (do not make up information)
-- Focus on actionable insights, data points, case studies, and examples
-- Prioritize recent and authoritative information
-- Extract specific quotes, statistics, or examples when available
+Tool usage guidelines:
+- Do not guess document names. First discover (list/search), then view the specific docs using returned serial numbers
+- Keep tool calls purposeful and minimal; batch discovery where possible
+- Maintain and rely on the evolving view_context (serial-number map)
+- Prefer recent and higher-quality sources; cite quotes/data verbatim when used
+
+Document Config Mapping (use only these for this workflow):
+{
+  "documents": {
+    "blog_uploaded_files": {
+      "docname_template": "",
+      "namespace_template": "blog_uploaded_files_{company_name}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"company_name": null},
+      "is_shared": false,
+      "is_versioned": false,
+      "initial_version": null,
+      "schema_template_name": null,
+      "schema_template_version": null,
+      "is_system_entity": false
+    }
+  }
+}
+
+Additional guidance:
+- When discovering documents, prefer list_documents with namespace scoping to the company
+- When multiple candidates are found, pick the most relevant few to view, not all
+- If no relevant context is found for a section, return it as empty rather than inventing content
 """
 
 CONTENT_GENERATION_SYSTEM_PROMPT = """
@@ -79,15 +104,24 @@ Analyze the provided blog brief and enrich it with relevant domain knowledge fro
 Blog Brief:
 {blog_brief}
 
+Context for tools:
+- Company name (entity scope): {company_name}
+- Primary doc_key to use: blog_uploaded_files
+- Namespace pattern to search: blog_uploaded_files_{company_name}
+
 Your task:
 1. Identify all sections/topics mentioned in the brief
-2. Search the knowledge_base namespace for relevant documents
-3. Extract context, insights, and examples for each section
-4. Return structured output mapping sections to their relevant context
+2. Use list_documents/search_documents to discover relevant files under the namespace above
+3. Use view_documents to read specific documents (selected via serial numbers)
+4. Extract context, insights, concrete data points, quotes, and examples for each section
+5. Return structured output mapping sections to their relevant context, leaving any section empty when nothing relevant is found
 
-Use the document search tools available to find relevant information. Focus on actionable insights and specific examples.
+Tool usage requirements:
+- Do not guess document names. First use list/search tools, then view specific docs via serial numbers
+- Prefer recent or higher-quality sources when multiple are available
+- Keep total tool calls minimal and purposeful; batch discovery where possible
 
-Return the results in the specified JSON format.
+Return the results strictly in the provided JSON schema.
 """
 
 CONTENT_GENERATION_USER_PROMPT_TEMPLATE = """
@@ -107,16 +141,17 @@ Company Guidelines:
 
 Instructions:
 1. Create well-structured, comprehensive blog content
-2. Integrate the enriched knowledge context naturally
-3. Follow SEO best practices for keyword integration
+2. Integrate the enriched knowledge context naturally (cite specific data/quotes inline where appropriate)
+3. Follow SEO best practices for keyword integration and formatting (H1/H2/H3)
 4. Maintain company brand voice and guidelines
 5. Ensure content is engaging and valuable to the target audience
+6. Ensure MAIN_CONTENT is the most complete and detailed section
 
 IMPORTANT: MAIN_CONTENT field is most important field to generate.
 
 Generate production-ready blog content that fulfills all brief requirements.
 
-Return the results in the specified JSON format.
+Return the results strictly in the specified JSON schema.
 """
 
 FEEDBACK_ANALYSIS_USER_PROMPT_TEMPLATE = """
@@ -129,12 +164,12 @@ User Feedback:
 {user_feedback}
 
 Instructions:
-1. Understand the specific areas the user wants improved
-2. Use knowledge base tools if additional research is needed
-3. Provide clear, actionable update instructions
-4. Focus on addressing user concerns while maintaining quality
+1. Identify specific improvement areas from the feedback
+2. If additional facts/examples are needed, propose targeted lookups (but do not execute edits here)
+3. Provide clear, actionable update instructions, referencing the portions to change
+4. Maintain SEO and brand voice alignment in the guidance
 
-Return structured update instructions in the specified JSON format.
+Return structured update instructions in the specified JSON schema.
 """
 
 CONTENT_UPDATE_USER_PROMPT_TEMPLATE = """

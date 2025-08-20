@@ -127,8 +127,8 @@ User Feedback:
 ---
 
 Company Context:
-- Target Audience: {icp_details}
-- Value Proposition: {value_proposition}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 ---
 
@@ -222,8 +222,8 @@ User Feedback:
 ---
 
 Company Context:
-- Target Audience: {icp_details}
-- Value Proposition: {value_proposition}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 ---
 
@@ -275,8 +275,8 @@ GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE = """
 Based on the company context and user input provided, perform web research and return results in the exact JSON format specified.
 
 Company Context:
-- Target Audience: {icp_details}
-- Goals: {goals}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 User Input: {user_input}
 
@@ -294,7 +294,8 @@ REDDIT_RESEARCH_USER_PROMPT_TEMPLATE = """
 Based on the following inputs, perform Reddit research and return results in the exact JSON format specified.
 
 Company Context:
-- Target Audience: {icp_details}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 Google Research Results: {google_research_output}
 User Input: {user_input}
@@ -316,8 +317,8 @@ TOPIC_GENERATION_USER_PROMPT_TEMPLATE = """
 Based on the research insights and company context, generate 5 strategic blog topic ideas.
 
 Company Context:
-- Target Audience: {icp_details}
-- Goals: {goals}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 Research Insights:
 Google Research: {google_research_output}
@@ -340,8 +341,8 @@ BRIEF_GENERATION_USER_PROMPT_TEMPLATE = """
 Create a comprehensive content brief for the selected blog post topic.
 
 Company Context:
-- Target Audience: {icp_details}
-- Goals: {goals}
+- Company Context: {company_doc}
+- Content Playbook Guidance: {content_playbook_doc}
 
 Selected Topic: {selected_topic}
 

@@ -43,24 +43,30 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_CONTENT_STRATEGY_DOCNAME,
     BLOG_CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
     BLOG_CONTENT_STRATEGY_IS_VERSIONED,
-    # Blog Diagnostic Report (optional)
-    BLOG_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
-    BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE,
-    BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
-    # Blog Schedule Config
-    BLOG_USER_SCHEDULE_CONFIG_DOCNAME,
-    BLOG_USER_SCHEDULE_CONFIG_NAMESPACE_TEMPLATE,
-    BLOG_USER_SCHEDULE_CONFIG_IS_VERSIONED,
+
     # Blog Topic Ideas Storage
     BLOG_TOPIC_IDEAS_CARD_DOCNAME,
     BLOG_TOPIC_IDEAS_CARD_NAMESPACE_TEMPLATE,
     BLOG_TOPIC_IDEAS_CARD_IS_VERSIONED,
+    BLOG_POST_DOCNAME,
+    BLOG_POST_NAMESPACE_TEMPLATE,
+    BLOG_POST_IS_VERSIONED,
+    BLOG_POST_IS_SHARED,
 )
 from kiwi_client.workflows.active.content_studio.llm_inputs.blog_content_calendar_entry import (
     BRIEF_USER_PROMPT_TEMPLATE, 
     BRIEF_SYSTEM_PROMPT_TEMPLATE, 
     BRIEF_LLM_OUTPUT_SCHEMA, 
-    BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE
+    BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE,
+    TOPIC_SUMMARY_SYSTEM_PROMPT,
+    TOPIC_SUMMARY_USER_PROMPT_TEMPLATE,
+    TOPIC_SUMMARY_OUTPUT_SCHEMA,
+    RESEARCH_SYSTEM_PROMPT,
+    RESEARCH_USER_PROMPT_TEMPLATE,
+    RESEARCH_OUTPUT_SCHEMA,
+    THEME_SUGGESTION_SYSTEM_PROMPT,
+    THEME_SUGGESTION_USER_PROMPT_TEMPLATE,
+    THEME_SUGGESTION_OUTPUT_SCHEMA,
 )
 
 # Configure logging
@@ -71,13 +77,24 @@ logger = logging.getLogger(__name__)
 
 # LLM Configuration
 LLM_PROVIDER = "openai"
-GENERATION_MODEL = "gpt-4.1"
+GENERATION_MODEL = "gpt-5"
 LLM_TEMPERATURE = 1
 LLM_MAX_TOKENS = 5000
 
 # Workflow Defaults
 DEFAULT_WEEKS_TO_GENERATE = 2
 DEFAULT_POSTS_PER_WEEK = 2  # Default if not specified in schedule config
+MAX_TOPIC_SUMMARY_ITERATIONS = 1  # Maximum iterations for topic summary to prevent infinite loops
+
+# Perplexity Configuration for Research
+PERPLEXITY_PROVIDER = "perplexity"
+PERPLEXITY_MODEL = "sonar-pro"
+PERPLEXITY_TEMPERATURE = 0.3
+PERPLEXITY_MAX_TOKENS = 3000
+
+# Tool Executor Configuration
+TOOL_EXECUTOR_TIMEOUT = 30.0
+TOOL_EXECUTOR_MAX_CONCURRENT = 3
 
 # --- Workflow Graph Schema Definition ---
 
@@ -104,8 +121,8 @@ workflow_graph_schema = {
           }
         }
     },
- 
-    # --- 2. Load Customer Context Documents ---
+
+        # --- 5. Load Customer Context Documents ---
     "load_all_context_docs": {
         "node_id": "load_all_context_docs",
         "node_name": "load_customer_data",
@@ -126,46 +143,196 @@ workflow_graph_schema = {
                         "static_docname": BLOG_CONTENT_STRATEGY_DOCNAME,
                     },
                     "output_field_name": "playbook"
-                },
-                {
-                    "filename_config": {
-                        "input_namespace_field_pattern": BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE, 
-                        "input_namespace_field": "company_name",
-                        "static_docname": BLOG_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
-                    },
-                    "output_field_name": "diagnostic_report"
-                },
-                {
-                    "filename_config": {
-                        "input_namespace_field_pattern": BLOG_USER_SCHEDULE_CONFIG_NAMESPACE_TEMPLATE, 
-                        "input_namespace_field": "company_name",
-                        "static_docname": BLOG_USER_SCHEDULE_CONFIG_DOCNAME,
-                    },
-                    "output_field_name": "schedule_config"
-                },
+                }
             ],
             "global_is_shared": False,
             "global_is_system_entity": False,
             "global_schema_options": {"load_schema": False}
         },
     },
+ 
+    # --- 2. Construct Topic Summary Prompt ---
+    "construct_topic_summary_prompt": {
+        "node_id": "construct_topic_summary_prompt",
+        "node_name": "prompt_constructor",
+        "node_config": {
+            "prompt_templates": {
+                "topic_summary_user_prompt": {
+                    "id": "topic_summary_user_prompt",
+                    "template": TOPIC_SUMMARY_USER_PROMPT_TEMPLATE,
+                    "variables": {
+                        "company_doc": None,
+                        "company_name": None,
+                        "current_datetime": "$current_date"
+                    },
+                    "construct_options": {
+                        "company_name": "company_name",
+                        "company_doc": "company_doc"
+                    }
+                },
+                "topic_summary_system_prompt": {
+                    "id": "topic_summary_system_prompt",
+                    "template": TOPIC_SUMMARY_SYSTEM_PROMPT,
+                    "variables": {
+                        "company_name": None
+                    },
+                    "construct_options": {
+                        "company_name": "company_name"
+                    }
+                }
+            }
+        }
+    },
+    
+    # --- 3. Topic Summary LLM with Tools ---
+    "topic_summary_llm": {
+        "node_id": "topic_summary_llm",
+        "node_name": "llm",
+        "node_config": {
+            "llm_config": {
+                "model_spec": {"provider": LLM_PROVIDER, "model": GENERATION_MODEL},
+                "temperature": LLM_TEMPERATURE,
+                "max_tokens": LLM_MAX_TOKENS
+            },
+            "tool_calling_config": {
+                "enable_tool_calling": True,
+                "parallel_tool_calls": True
+            },
+            "tools": [
+                {
+                    "tool_name": "list_documents",
+                    "is_provider_inbuilt_tool": False,
+                    "provider_inbuilt_user_config": {}
+                },
+                {
+                    "tool_name": "search_documents",
+                    "is_provider_inbuilt_tool": False,
+                    "provider_inbuilt_user_config": {}
+                },
+                {
+                    "tool_name": "view_documents",
+                    "is_provider_inbuilt_tool": False,
+                    "provider_inbuilt_user_config": {}
+                }
+            ],
+            "output_schema": {
+                "schema_definition": TOPIC_SUMMARY_OUTPUT_SCHEMA,
+                "convert_loaded_schema_to_pydantic": False
+            }
+        }
+    },
+    
+    # --- 4. Check Topic Summary Conditions ---
+    "check_topic_summary_conditions": {
+        "node_id": "check_topic_summary_conditions",
+        "node_name": "if_else_condition",
+        "node_config": {
+            "tagged_conditions": [
+                {
+                    "tag": "iteration_limit_reached",
+                    "condition_groups": [{
+                        "conditions": [{
+                            "field": "topic_summary_iteration_count.iteration_count",
+                            "operator": "greater_than_or_equals",
+                            "value": MAX_TOPIC_SUMMARY_ITERATIONS
+                        }]
+                    }]
+                },
+                {
+                    "tag": "has_tool_calls",
+                    "condition_groups": [{
+                        "conditions": [{
+                            "field": "tool_calls",
+                            "operator": "is_not_empty"
+                        }]
+                    }]
+                },
+                {
+                    "tag": "proceed_to_next_step",
+                    "condition_groups": [{
+                        "conditions": [{
+                            "field": "structured_output",
+                            "operator": "is_not_empty"
+                        }]
+                    }]
+                }
+            ],
+            "branch_logic_operator": "or"
+        }
+    },
 
-    # --- 3. Prepare Generation Context (Simplified - No Post Merging) ---
+    # --- 5. Route Topic Summary Actions ---
+    "route_topic_summary_actions": {
+        "node_id": "route_topic_summary_actions",
+        "node_name": "router_node",
+        "node_config": {
+            "choices": ["execute_topic_summary_tools", "prepare_generation_context"],
+            "allow_multiple": False,
+            "choices_with_conditions": [
+                {
+                    "choice_id": "execute_topic_summary_tools",
+                    "input_path": "tag_results.has_tool_calls",
+                    "target_value": True
+                },
+                {
+                    "choice_id": "prepare_generation_context",
+                    "input_path": "tag_results.iteration_limit_reached",
+                    "target_value": True
+                },
+                {
+                    "choice_id": "prepare_generation_context",
+                    "input_path": "tag_results.proceed_to_next_step",
+                    "target_value": True
+                }
+            ],
+            "default_choice": "prepare_generation_context"
+        }
+    },
+
+    # --- 6. Tool Executor for Topic Summary ---
+    "execute_topic_summary_tools": {
+        "node_id": "execute_topic_summary_tools",
+        "node_name": "tool_executor",
+        "node_config": {
+            "default_timeout": TOOL_EXECUTOR_TIMEOUT,
+            "max_concurrent_executions": TOOL_EXECUTOR_MAX_CONCURRENT,
+            "continue_on_error": True,
+            "include_error_details": True,
+            "map_executor_input_fields_to_tool_input": True
+        }
+    },
+    
+
+
+    # --- 7. Prepare Generation Context (Extract posts_per_week from playbook) ---
     "prepare_generation_context": {
       "node_id": "prepare_generation_context",
       "node_name": "merge_aggregate",
       "enable_node_fan_in": True,
       "node_config": {
         "operations": [
-          # Operation: Compute Total Topics Needed - weeks_to_generate * posts_per_week
+          # Operation 1: Extract posts_per_week from playbook
           {
-            "output_field_name": "total_topics_needed",
-            "select_paths": ["schedule_config.posts_per_week"],
+            "output_field_name": "posts_per_week",
+            "select_paths": ["playbook.posts_per_week"],
             "merge_strategy": {
                 "map_phase": {"unspecified_keys_strategy": "ignore"},
                 "reduce_phase": {
                     "default_reducer": "replace_right",
-                    "error_strategy": "skip_operation"  # Use default if schedule not found
+                    "error_strategy": "skip_operation"
+                }
+            },
+            "merge_each_object_in_selected_list": False
+          },
+          # Operation 2: Compute Total Topics Needed - weeks_to_generate * posts_per_week
+          {
+            "output_field_name": "total_topics_needed",
+            "select_paths": ["playbook.posts_per_week"],
+            "merge_strategy": {
+                "map_phase": {"unspecified_keys_strategy": "ignore"},
+                "reduce_phase": {
+                    "default_reducer": "replace_right",
+                    "error_strategy": "skip_operation"
                 },
                 "post_merge_transformations": {
                      "total_topics_needed": {
@@ -181,7 +348,104 @@ workflow_graph_schema = {
       },
     },
 
-    # --- 4. Construct Topic Prompt ---
+    # --- 8. Construct Theme Suggestion Prompt ---
+    "construct_theme_prompt": {
+      "node_id": "construct_theme_prompt",
+      "node_name": "prompt_constructor",
+      "node_config": {
+        "prompt_templates": {
+          "theme_suggestion_user_prompt": {
+            "id": "theme_suggestion_user_prompt",
+            "template": THEME_SUGGESTION_USER_PROMPT_TEMPLATE,
+            "variables": {
+              "company_doc": None,
+              "playbook": None,
+              "topic_summary": None,
+            },
+            "construct_options": {
+              "company_doc": "company_doc",
+              "playbook": "playbook",
+              "topic_summary": "topic_summary",
+            }
+          },
+          "theme_suggestion_system_prompt": {
+            "id": "theme_suggestion_system_prompt",
+            "template": THEME_SUGGESTION_SYSTEM_PROMPT,
+            "variables": {}
+          }
+        }
+      }
+    },
+
+    # --- 9. Theme Suggestion LLM ---
+    "theme_suggestion_llm": {
+      "node_id": "theme_suggestion_llm",
+      "node_name": "llm",
+      "node_config": {
+        "llm_config": {
+          "model_spec": {"provider": LLM_PROVIDER, "model": GENERATION_MODEL},
+          "temperature": LLM_TEMPERATURE,
+          "max_tokens": LLM_MAX_TOKENS
+        },
+        "output_schema": {
+          "schema_definition": THEME_SUGGESTION_OUTPUT_SCHEMA,
+          "convert_loaded_schema_to_pydantic": False
+        }
+      }
+    },
+
+    # --- 10. Construct Research Prompt ---
+    "construct_research_prompt": {
+      "node_id": "construct_research_prompt",
+      "node_name": "prompt_constructor",
+      "node_config": {
+        "prompt_templates": {
+          "research_user_prompt": {
+            "id": "research_user_prompt",
+            "template": RESEARCH_USER_PROMPT_TEMPLATE,
+            "variables": {
+              "company_doc": None,
+              "playbook": None,
+              "topic_summary": None,
+              "selected_theme": None
+            },
+            "construct_options": {
+              "company_doc": "company_doc",
+              "playbook": "playbook",
+              "topic_summary": "topic_summary",
+              "selected_theme": "theme_suggestion"
+            }
+          },
+          "research_system_prompt": {
+            "id": "research_system_prompt",
+            "template": RESEARCH_SYSTEM_PROMPT,
+            "variables": {},
+          }
+        }
+      }
+    },
+    
+    # --- 11. Research LLM (Perplexity - Reddit only) ---
+    "research_llm": {
+      "node_id": "research_llm",
+      "node_name": "llm",
+      "node_config": {
+          "llm_config": {
+              "model_spec": {"provider": PERPLEXITY_PROVIDER, "model": PERPLEXITY_MODEL},
+              "temperature": PERPLEXITY_TEMPERATURE,
+              "max_tokens": PERPLEXITY_MAX_TOKENS
+          },
+          "web_search_options": {
+              "search_domain_filter": ["reddit.com", "quora.com"]
+          },
+          "output_schema": {
+             "schema_definition": RESEARCH_OUTPUT_SCHEMA,
+             "convert_loaded_schema_to_pydantic": False
+          }
+      }
+    },
+    
+    # --- 12. Construct Topic Prompt ---
     "construct_topic_prompt": {
       "node_id": "construct_topic_prompt",
       "node_name": "prompt_constructor",
@@ -193,15 +457,17 @@ workflow_graph_schema = {
             "variables": {
               "company_doc": None,
               "playbook": None,
-              "diagnostic_report": None,
-              "schedule_config": None,
               "current_datetime": "$current_date",
+              "topic_summary": None,
+              "research_insights": None,
+              "selected_theme": None
             },
             "construct_options": {
                "company_doc": "company_doc",
                "playbook": "playbook",
-               "diagnostic_report": "diagnostic_report",
-               "schedule_config": "schedule_config",
+               "topic_summary": "topic_summary",
+               "research_insights": "research_insights",
+               "selected_theme": "theme_suggestion"
             }
           },
           "topic_system_prompt": {
@@ -217,7 +483,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 5. Generate Topics (LLM) ---
+    # --- 13. Generate Topics (LLM) ---
     "generate_topics": {
       "node_id": "generate_topics",
       "node_name": "llm",
@@ -234,7 +500,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 6. Check Topic Count ---
+    # --- 14. Check Topic Count ---
     "check_topic_count": {
       "node_id": "check_topic_count",
       "node_name": "if_else_condition",
@@ -257,7 +523,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 7. Router Based on Topic Count Check ---
+    # --- 15. Router Based on Topic Count Check ---
     "route_on_topic_count": {
       "node_id": "route_on_topic_count",
       "node_name": "router_node",
@@ -279,7 +545,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 8. Construct Additional Topic Prompt ---
+    # --- 16. Construct Additional Topic Prompt ---
     "construct_additional_topic_prompt": {
       "node_id": "construct_additional_topic_prompt",
       "node_name": "prompt_constructor",
@@ -293,7 +559,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 9. Store All Generated Topics ---
+    # --- 17. Store All Generated Topics ---
     "store_all_topics": {
       "node_id": "store_all_topics",
       "node_name": "store_customer_data",
@@ -317,13 +583,10 @@ workflow_graph_schema = {
                   "generate_uuid": True,
               }
           ],
-      },
-      "dynamic_input_schema": {
-          "fields": {}
       }
     },
 
-    # --- 10. Output Node ---
+    # --- 18. Output Node ---
     "output_node": {
       "node_id": "output_node",
       "node_name": "output_node",
@@ -341,50 +604,172 @@ workflow_graph_schema = {
       ]
     },
 
-    # --- Input to Context Loader ---
+    # --- Input to Load Context Documents ---
     { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "mappings": [
-        { "src_field": "company_name", "dst_field": "company_name" },
-      ], "description": "Trigger context docs loading."
+        { "src_field": "company_name", "dst_field": "company_name" }
+      ]
     },
 
     # --- State Updates from Loaders ---
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "company_doc", "dst_field": "company_doc"},
-        { "src_field": "playbook", "dst_field": "playbook"},
-        { "src_field": "diagnostic_report", "dst_field": "diagnostic_report"},
-        { "src_field": "schedule_config", "dst_field": "schedule_config"}
+        { "src_field": "playbook", "dst_field": "playbook"}
       ]
     },
 
-    # --- Trigger Context Preparation ---
-    { "src_node_id": "load_all_context_docs", "dst_node_id": "prepare_generation_context"},
+    # --- Load Context Docs triggers Topic Summary Prompt ---
+    { "src_node_id": "load_all_context_docs", "dst_node_id": "construct_topic_summary_prompt", "mappings": [
+        { "src_field": "company_doc", "dst_field": "company_doc" }
+      ]
+    },
 
+    # --- State to Topic Summary Prompt (provide company context) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_summary_prompt", "mappings": [
+        { "src_field": "company_doc", "dst_field": "company_doc" },
+        { "src_field": "company_name", "dst_field": "company_name" }
+      ]
+    },
+
+    # --- Topic Summary Prompt to LLM ---
+    { "src_node_id": "construct_topic_summary_prompt", "dst_node_id": "topic_summary_llm", "mappings": [
+        { "src_field": "topic_summary_user_prompt", "dst_field": "user_prompt" },
+        { "src_field": "topic_summary_system_prompt", "dst_field": "system_prompt" }
+      ]
+    },
+
+    # --- State to Topic Summary LLM (messages history) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "topic_summary_llm", "mappings": [
+        { "src_field": "topic_summary_messages_history", "dst_field": "messages_history" }
+      ]
+    },
+
+    # --- Topic Summary LLM to Check Conditions ---
+    { "src_node_id": "topic_summary_llm", "dst_node_id": "check_topic_summary_conditions", "mappings": [
+        { "src_field": "tool_calls", "dst_field": "tool_calls" },
+        { "src_field": "structured_output", "dst_field": "structured_output" }
+      ]
+    },
+
+    # --- State to Check Conditions (iteration count) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "check_topic_summary_conditions", "mappings": [
+        { "src_field": "topic_summary_iteration_count", "dst_field": "topic_summary_iteration_count" }
+      ]
+    },
+
+    # --- Check Conditions to Router ---
+    { "src_node_id": "check_topic_summary_conditions", "dst_node_id": "route_topic_summary_actions", "mappings": [
+        { "src_field": "tag_results", "dst_field": "tag_results" }
+      ]
+    },
+
+    # --- Router to Tool Executor ---
+    { "src_node_id": "route_topic_summary_actions", "dst_node_id": "execute_topic_summary_tools" },
+
+    # --- State to Tool Executor (context) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "execute_topic_summary_tools", "mappings": [
+        { "src_field": "company_name", "dst_field": "company_name" },
+        { "src_field": "view_context", "dst_field": "view_context" },
+        { "src_field": "topic_summary_tool_calls", "dst_field": "tool_calls" }
+      ]
+    },
+
+    # --- Tool Executor back to Topic Summary LLM ---
+    { "src_node_id": "execute_topic_summary_tools", "dst_node_id": "topic_summary_llm", "mappings": [
+        { "src_field": "tool_outputs", "dst_field": "tool_outputs" }
+      ]
+    },
+
+    # --- Tool Executor to State (update view context) ---
+    { "src_node_id": "execute_topic_summary_tools", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "state_changes", "dst_field": "view_context" }
+      ]
+    },
+
+    # --- Router to Context Preparation ---
+    { "src_node_id": "route_topic_summary_actions", "dst_node_id": "prepare_generation_context" },
+
+    # --- Topic Summary to State ---
+    { "src_node_id": "topic_summary_llm", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "structured_output", "dst_field": "topic_summary" },
+        { "src_field": "current_messages", "dst_field": "topic_summary_messages_history" },
+        { "src_field": "metadata", "dst_field": "topic_summary_iteration_count" },
+        { "src_field": "tool_calls", "dst_field": "topic_summary_tool_calls" }
+      ]
+    },
+    
     # --- Mapping State to Context Prep Node ---
     { "src_node_id": "$graph_state", "dst_node_id": "prepare_generation_context", "mappings": [
-        { "src_field": "schedule_config", "dst_field": "schedule_config"},
-        { "src_field": "weeks_to_generate", "dst_field": "weeks_to_generate" },
+        { "src_field": "playbook", "dst_field": "playbook"},
+        { "src_field": "weeks_to_generate", "dst_field": "weeks_to_generate" }
       ]
     },
 
-    # --- Context Prep to Prompt Construction ---
-    { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_topic_prompt",
-      "mappings": [
-        { "src_field": "merged_data", "dst_field": "merged_data" },
-      ]
-    },
-
+    # --- Context Prep to State ---
     { "src_node_id": "prepare_generation_context", "dst_node_id": "$graph_state",
       "mappings": [
-        { "src_field": "merged_data", "dst_field": "merged_data" },
+        { "src_field": "merged_data", "dst_field": "merged_data" }
       ]
     },
 
-    # --- State to Construct Prompt ---
+    # --- Trigger Theme Suggestion ---
+    { "src_node_id": "prepare_generation_context", "dst_node_id": "construct_theme_prompt" },
+
+    # --- State to Construct Theme Prompt ---
+    { "src_node_id": "$graph_state", "dst_node_id": "construct_theme_prompt", "mappings": [
+        { "src_field": "company_doc", "dst_field": "company_doc" },
+        { "src_field": "playbook", "dst_field": "playbook"},
+        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+      ]
+    },
+
+    # --- Theme Prompt to LLM ---
+    { "src_node_id": "construct_theme_prompt", "dst_node_id": "theme_suggestion_llm", "mappings": [
+        { "src_field": "theme_suggestion_user_prompt", "dst_field": "user_prompt" },
+        { "src_field": "theme_suggestion_system_prompt", "dst_field": "system_prompt" }
+      ]
+    },
+
+    # --- Theme LLM to State ---
+    { "src_node_id": "theme_suggestion_llm", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "structured_output", "dst_field": "theme_suggestion" }
+      ]
+    },
+
+    # --- Trigger Research Prompt ---
+    { "src_node_id": "theme_suggestion_llm", "dst_node_id": "construct_research_prompt" },
+
+    # --- State to Construct Research Prompt ---
+    { "src_node_id": "$graph_state", "dst_node_id": "construct_research_prompt", "mappings": [
+        { "src_field": "company_doc", "dst_field": "company_doc" },
+        { "src_field": "playbook", "dst_field": "playbook" },
+        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+        { "src_field": "theme_suggestion", "dst_field": "theme_suggestion" }
+      ]
+    },
+
+    # --- Research Prompt to LLM ---
+    { "src_node_id": "construct_research_prompt", "dst_node_id": "research_llm", "mappings": [
+        { "src_field": "research_user_prompt", "dst_field": "user_prompt" },
+        { "src_field": "research_system_prompt", "dst_field": "system_prompt" }
+      ]
+    },
+
+    # --- Research LLM to State ---
+    { "src_node_id": "research_llm", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "structured_output", "dst_field": "research_insights" }
+      ]
+    },
+
+    # --- Research triggers Topic Generation ---
+    { "src_node_id": "research_llm", "dst_node_id": "construct_topic_prompt" },
+
+    # --- State to Construct Topic Prompt ---
     { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_prompt", "mappings": [
         { "src_field": "company_doc", "dst_field": "company_doc" },
         { "src_field": "playbook", "dst_field": "playbook"},
-        { "src_field": "diagnostic_report", "dst_field": "diagnostic_report"},
-        { "src_field": "schedule_config", "dst_field": "schedule_config"},
+        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+        { "src_field": "research_insights", "dst_field": "research_insights" },
+        { "src_field": "theme_suggestion", "dst_field": "selected_theme" }
       ]
     },
 
@@ -429,6 +814,12 @@ workflow_graph_schema = {
     # --- Router to Additional Prompt ---
     { "src_node_id": "route_on_topic_count", "dst_node_id": "construct_additional_topic_prompt" },
 
+    # --- Additional Prompt to Theme Suggestion (loop for next suggestion) ---
+    { "src_node_id": "construct_additional_topic_prompt", "dst_node_id": "construct_theme_prompt", "mappings": [
+        { "src_field": "additional_topic_prompt", "dst_field": "additional_instructions" }
+      ]
+    },
+
     # --- Router to Store ---
     { "src_node_id": "route_on_topic_count", "dst_node_id": "store_all_topics" },
 
@@ -439,22 +830,9 @@ workflow_graph_schema = {
       ]
     },
 
-    # --- Additional Prompt to Generate Topics (loop) ---
-    { "src_node_id": "construct_additional_topic_prompt", "dst_node_id": "generate_topics", "mappings": [
-        { "src_field": "additional_topic_prompt", "dst_field": "user_prompt" },
-      ]
-    },
-
     # --- Store to Output ---
-    { "src_node_id": "store_all_topics", "dst_node_id": "output_node", 
-     "mappings": [
-        { "src_field": "paths_processed", "dst_field": "topic_paths_processed"}
-      ]
-     },
-
-    # --- State to Output ---
-    { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-        { "src_field": "all_generated_topics", "dst_field": "final_topics_list"}
+    { "src_node_id": "store_all_topics", "dst_node_id": "output_node", "mappings": [
+        { "src_field": "paths_processed", "dst_field": "final_topics_list"}
       ]
     },
   ],
@@ -468,8 +846,16 @@ workflow_graph_schema = {
       "$graph_state": {
         "reducer": {
           "all_generated_topics": "collect_values",
-          "generate_topics_messages_history": "add_messages"
-        }
+          "generate_topics_messages_history": "add_messages",
+          "topic_summary_messages_history": "add_messages",
+          "view_context": "merge_dicts",
+          "topic_summary": "replace",
+          "research_insights": "replace",
+          "content_pillars": "replace",
+          "theme_suggestion": "replace",
+          "topic_summary_iteration_count": "replace",
+          "topic_summary_tool_calls": "replace"
+          }
       }
   }
 }
@@ -486,7 +872,7 @@ async def main_test_blog_content_calendar_workflow():
     print(f"--- Starting {test_name} --- ")
 
     # Example Inputs 
-    test_company_name = "acme-corp"
+    test_company_name = "momentum"
     
     # Define test inputs with realistic values
     test_inputs = {
@@ -599,50 +985,26 @@ async def main_test_blog_content_calendar_workflow():
                     "How-to tutorials",
                     "Case studies with metrics",
                     "Thought leadership pieces"
-                ]
+                ],
+                "posts_per_week": 2
             }, 
             'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED, 
             'is_shared': False,
             'initial_version': 'default'
         },
-        # Schedule Configuration
+        # Seed Blog Post Draft Document (ensures tools can find a recent post)
         {
-            'namespace': BLOG_USER_SCHEDULE_CONFIG_NAMESPACE_TEMPLATE.format(item=test_company_name), 
-            'docname': BLOG_USER_SCHEDULE_CONFIG_DOCNAME,
+            'namespace': BLOG_POST_NAMESPACE_TEMPLATE.format(item=test_company_name),
+            'docname': BLOG_POST_DOCNAME.format(item=test_company_name),
             'initial_data': {
-                "posts_per_week": 2,
-                "posting_days": ["Tuesday", "Thursday"],
-                "preferred_time": "10:00 AM EST",
-                "content_mix": {
-                    "thought_leadership": 40,
-                    "product_focused": 20,
-                    "customer_stories": 20,
-                    "industry_insights": 20
-                }
-            }, 
-            'is_versioned': BLOG_USER_SCHEDULE_CONFIG_IS_VERSIONED, 
-            'is_shared': False,
+                "title": "AI in ERP: 5 Ways to Accelerate Implementation",
+                "summary": "Practical strategies to cut ERP rollout time using AI-powered automation.",
+                "content": "In this post we explore how AI reduces implementation timelines, improves data migration, and automates testing...",
+                
+            },
+            'is_versioned': BLOG_POST_IS_VERSIONED,
+            'is_shared': BLOG_POST_IS_SHARED,
             'initial_version': 'default'
-        },
-        # Optional: Diagnostic Report (can be empty or minimal)
-        {
-            'namespace': BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE.format(item=test_company_name), 
-            'docname': BLOG_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
-            'initial_data': {
-                "report_date": "2024-01-15",
-                "key_findings": [
-                    "Need more bottom-funnel content",
-                    "Lacking content for healthcare vertical",
-                    "Strong performance on automation topics"
-                ],
-                "recommendations": [
-                    "Increase case study production",
-                    "Create healthcare-specific content series",
-                    "Continue automation thought leadership"
-                ]
-            }, 
-            'is_versioned': BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED, 
-            'is_shared': False,
         },
     ]
 
@@ -661,16 +1023,10 @@ async def main_test_blog_content_calendar_workflow():
             'is_shared': False
         },
         {
-            'namespace': BLOG_USER_SCHEDULE_CONFIG_NAMESPACE_TEMPLATE.format(item=test_company_name), 
-            'docname': BLOG_USER_SCHEDULE_CONFIG_DOCNAME, 
-            'is_versioned': BLOG_USER_SCHEDULE_CONFIG_IS_VERSIONED, 
-            'is_shared': False
-        },
-        {
-            'namespace': BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE.format(item=test_company_name), 
-            'docname': BLOG_CONTENT_DIAGNOSTIC_REPORT_DOCNAME, 
-            'is_versioned': BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED, 
-            'is_shared': False
+            'namespace': BLOG_POST_NAMESPACE_TEMPLATE.format(item=test_company_name), 
+            'docname': BLOG_POST_DOCNAME.format(item=test_company_name), 
+            'is_versioned': BLOG_POST_IS_VERSIONED, 
+            'is_shared': BLOG_POST_IS_SHARED
         },
     ]
 
@@ -697,7 +1053,12 @@ async def main_test_blog_content_calendar_workflow():
             assert False, f"Validation Failed: 'final_topics_list' must be a list or dict, got {type(final_topics)}"
         
         # Calculate expected number of topic suggestions
-        posts_per_week = 2  # From our test data
+        # Extract posts_per_week from the playbook data in setup_docs
+        posts_per_week = 2  # Default fallback
+        for doc in setup_docs:
+            if doc['docname'] == BLOG_CONTENT_STRATEGY_DOCNAME:
+                posts_per_week = doc['initial_data'].get('posts_per_week', DEFAULT_POSTS_PER_WEEK)
+                break
         expected_count = test_inputs.get("weeks_to_generate", DEFAULT_WEEKS_TO_GENERATE) * posts_per_week
         
         # Validate topic suggestions count

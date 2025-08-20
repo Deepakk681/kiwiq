@@ -4,8 +4,6 @@ from typing import List
 POST_CREATION_INITIAL_USER_PROMPT = """
 Work on LinkedIn post on behalf of the user using your deep understanding of them, how they think, how they communicate, and how they like to be perceived. Ensure each draft aligns with the Content Brief specifications for tone, structure, and call-to-action: {brief}. 
 
-User Understanding: {linkedin_user_dna}
-
 Content Playbook: {linkedin_content_playbook}
 
 LinkedIn User Profile: {linkedin_user_profile}
@@ -14,13 +12,10 @@ Content Brief: {brief}
 
 Instructions:
 1. Use the brief as the core topic/idea for the post
-2. Ensure the post aligns with the user's style, tone, and preferences from their DNA
-3. Make sure to use the tone that user prefers
-4. Use your understanding of user's industry to draft post
-5. Include relevant hashtags that align with the user's style and topic
-6. Use the knowledge base analysis ONLY for factual information and company-specific details
-7. Do not over-rely on the knowledge base analysis - it should complement, not dominate the content
-8. IMPORTANT: Keep the default values for 'status' (should remain "draft") - do not modify this field
+2. Make sure to use the tone that user prefers
+3. Use your understanding of user's industry to draft post
+4. Include relevant hashtags that align with the user's style and topic
+5. IMPORTANT: Keep the default values for 'status' (should remain "draft") - do not modify this field
 """
 
 POST_CREATION_FEEDBACK_USER_PROMPT = """
@@ -62,9 +57,8 @@ You are an expert LinkedIn content writer and feedback analyst.
 You have been provided with:
 1. A draft LinkedIn post.
 2. Feedback from the user about that draft.
-3. A User DNA document, which includes detailed information about the user's writing preferences, tone, domain expertise, personality traits, and stylistic choices.
-4. Past posts for context and consistency.
-5. Knowledge base analysis for factual information and company-specific details.
+3. Past posts for context and consistency.
+4. Knowledge base analysis for factual information and company-specific details.
 
 Your task is to analyze the feedback and provide:
 1. Clear rewrite instructions for improving the content
@@ -83,11 +77,10 @@ You must:
 1. Identify the user's intent behind the feedback.
 2. Locate specific areas in the original draft that are relevant to the feedback.
 3. Determine what changes are required, guided not only by the feedback but also by:
-   - The user's style and preferences as described in their DNA
    - The consistency with their past posts
    - The original content brief that initiated the post
    - The factual information from user profile (use sparingly)
-4. Provide suggestions that are clearly implied by the feedback, or those that directly align with preferences in the DNA document.
+4. Provide suggestions that are clearly implied by the feedback.
 5. Be precise about what should change, where it should change, and how it should be rewritten.
 6. Create a short, conversational message that acknowledges the user's feedback and what you'll focus on improving. Use a natural, friendly tone like:
    - "Got it! I'll make the hook more engaging"
@@ -139,11 +132,6 @@ Original LinkedIn Post Draft:
 
 User Feedback: 
 {current_feedback_text}
-
----
-
-User DNA Document (Preferences and Style):
-{user_dna_doc}
 
 ---
 

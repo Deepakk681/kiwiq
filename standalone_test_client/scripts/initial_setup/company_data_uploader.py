@@ -17,8 +17,8 @@ Supported features:
 """
 
 # === CONFIG (edit these) ===
-NAMESPACE = "linkedin_executive_profile_namespace_santiycr"
-DOCNAME = "linkedin_executive_profile_doc"
+NAMESPACE = "blog_company_profile_Otter"
+DOCNAME = "blog_company_doc"
 VERSION = None
 IS_SHARED = False
 IS_SYSTEM_ENTITY = False
@@ -27,34 +27,67 @@ SCHEMA_TEMPLATE_VERSION = None  # e.g., "1.0.0"
 
 # For non-system entities, optionally act on behalf of a specific user in your org
 # Provide a valid UUID string or set to None
-USER_ID = "de15b8c4-a892-479e-89ad-bc422af20b86"
+USER_ID = "400d6df9-6758-4f44-9ec6-83ebf551848c"
 
 # === DATA (edit this payload) ===
+# EXECUTIVE_PROFILE_DATA = {
+#     "name": "Sam Liang",
+#     "title": "CEO & Founder",
+#     "company": "Otter.ai",
+#     "industry_experience": "15 years in project management and SaaS",
+#     "expertise_areas": [
+#         "AI-powered project management",
+#         "Team productivity optimization",
+#         "Remote work culture",
+#         "SaaS product development",
+#     ],
+#     "thought_leadership_focus": [
+#         "The future of work and AI integration",
+#         "Building efficient remote teams",
+#         "Project management best practices",
+#         "Technology adoption in growing companies",
+#     ],
+#     "linkedin_goals": [
+#         "Build thought leadership in project management space",
+#         "Share insights on AI adoption",
+#         "Connect with other industry leaders",
+#         "Promote Momentum's vision",
+#     ],
+# }
+
 EXECUTIVE_PROFILE_DATA = {
-    "name": "Santiago Suarez",
-    "title": "CEO & Founder",
-    "company": "Momentum",
-    "industry_experience": "15 years in project management and SaaS",
-    "expertise_areas": [
-        "AI-powered project management",
-        "Team productivity optimization",
-        "Remote work culture",
-        "SaaS product development",
+  "company_name": "Otter",
+  "website_url": "https://otter.ai",
+  "positioning_headline": "Otter.ai is an AI-powered transcription platform that transcribes audio and video content into text, making it easier to share and collaborate on meetings, interviews, and presentations.",
+  "icp": {
+    "icp_name": "Enterprise Marketing and Operations Teams",
+    "target_industry": "Technology, Financial Services, Healthcare, and Professional Services",
+    "company_size": "Mid-market to Enterprise (500+ employees)",
+    "buyer_persona": "CMO, Head of Content, VP of Marketing, Operations Lead",
+    "pain_points": [
+      "Inconsistent brand voice across departments",
+      "Low content velocity",
+      "Difficulty scaling content creation while maintaining quality",
+      "Inefficiencies in cross-functional communication and documentation"
     ],
-    "thought_leadership_focus": [
-        "The future of work and AI integration",
-        "Building efficient remote teams",
-        "Project management best practices",
-        "Technology adoption in growing companies",
-    ],
-    "linkedin_goals": [
-        "Build thought leadership in project management space",
-        "Share insights on AI adoption",
-        "Connect with other industry leaders",
-        "Promote Momentum's vision",
-    ],
+    "goals": [
+      "Standardize brand voice across all content",
+      "Improve writing quality at scale",
+      "Enable all team members to write clearly and efficiently",
+      "Speed up content production processes"
+    ]
+  },
+  "competitors": [
+    {
+      "website_url": "https://fathom.video",
+      "name": "Fathom"
+    },
+    {
+      "website_url": "https://grain.com",
+      "name": "Grain"
+    }
+  ]
 }
-# EXECUTIVE_PROFILE_DATA =
 
 async def upload_company_data():
     uploader = SimpleDataUploader()

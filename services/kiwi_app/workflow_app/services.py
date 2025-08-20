@@ -570,7 +570,7 @@ class WorkflowService:
         """
         Lists workflow runs for an organization, applying filters and pagination.
         """
-        filter_dict = filters.model_dump(exclude_unset=True) if filters else {}
+        filter_dict = filters.model_dump(exclude_unset=True, exclude={"skip", "limit"}) if filters else {}
 
         # Always filter by the active owner_org_id unless superuser overrides
         # (Superuser check should ideally happen in dependency/permission checker)
@@ -821,13 +821,27 @@ class WorkflowService:
 
             # Fetch direct child runs and add their IDs (do not recurse)
             try:
-                child_runs = await self.workflow_run_dao.get_children_by_parent_run_id(
-                    db,
-                    parent_run_id=run.id,
-                    owner_org_id=run.owner_org_id,
-                    order_by="created_at",
-                    order_dir="desc",
-                )
+                stack = [run]
+                child_runs = []
+                processed_runs = set()
+                while stack:
+                    current_run = stack.pop()
+                    if current_run.id in processed_runs:
+                        continue
+                    processed_runs.add(current_run.id)
+                    current_child_runs = []
+                    try:
+                        current_child_runs = await self.workflow_run_dao.get_children_by_parent_run_id(
+                            db,
+                            parent_run_id=current_run.id,
+                            owner_org_id=current_run.owner_org_id,
+                            order_by="created_at",
+                            order_dir="desc",
+                        )
+                    except Exception as e:
+                        continue
+                    child_runs.extend(current_child_runs)
+                    stack.extend(current_child_runs)
             except Exception:
                 child_runs = []
 

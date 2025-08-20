@@ -600,6 +600,20 @@ class WorkflowRunDAO(BaseDAO[models.WorkflowRun, schemas.WorkflowRunCreate, sche
             conditions.append(self.model.thread_id == filters["thread_id"])
         if filters.get("tag"):
             conditions.append(self.model.tag == filters["tag"])
+        if "parent_run_id" in filters:  # Check key existence, not truthiness
+            parent_run_id = filters["parent_run_id"]
+            if parent_run_id is not None:
+                # Convert string UUID to UUID object if needed
+                if isinstance(parent_run_id, str):
+                    try:
+                        import uuid
+                        parent_run_id = uuid.UUID(parent_run_id)
+                    except ValueError:
+                        pass  # Keep as string if not a valid UUID
+                conditions.append(self.model.parent_run_id == parent_run_id)
+            else:
+                # If explicitly searching for runs with no parent (root runs)
+                conditions.append(self.model.parent_run_id.is_(None))
         if filters.get("applied_workflow_config_overrides"):
             applied_overrides = filters["applied_workflow_config_overrides"]
             if isinstance(applied_overrides, str):

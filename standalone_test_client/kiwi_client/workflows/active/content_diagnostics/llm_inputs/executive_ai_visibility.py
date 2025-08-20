@@ -1,338 +1,233 @@
-import json
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+# ============================================
+# QUERY GENERATION SYSTEM - Enhanced & Generic
+# ============================================
 
-# --- 3. Competitive Analysis ("Perplexity Analysis") ---
-COMPETITIVE_ANALYSIS_SYSTEM_PROMPT = (
-    "You are a business intelligence analyst tasked with creating comprehensive competitive "
-    "landscape analysis. Your role is to extract and synthesize information about companies "
-    "and their competitive environment from provided company documentation.\n\n"
-    "Analyze the provided company documentation and generate a structured competitive analysis "
-    "that covers the target company and its main competitors. Focus on factual, objective analysis "
-    "that can be used for strategic planning and market positioning.\n\n"
-    "For each entity (company and competitors), provide clear, concise information about their "
-    "market position, core offerings, and unique value propositions."
-)
-
-COMPETITIVE_ANALYSIS_USER_PROMPT_TEMPLATE = (
-    "Based on the provided company documentation, create a comprehensive competitive analysis following this structure:\n\n"
-    "1. Company Analysis:\n"
-    "   - Overview: Brief description of the company, its mission, and market position\n"
-    "   - Key Offerings: Primary products/services and their main features\n"
-    "   - Value Proposition: Unique benefits and competitive advantages\n\n"
-    "2. Competitor Analysis (Top 3):\n"
-    "   - Overview\n"
-    "   - Key Offerings\n"
-    "   - Value Proposition\n\n"
-    "Company Document Data (verbatim JSON):\n{blog_company_data}"
-)
-
-# Simplified JSON schema (as Pydantic BaseModels) for competitive analysis output
-class EntityAnalysis(BaseModel):
-    """Structured analysis for a single entity (company or competitor)."""
-    overview: str = Field(description="Brief description and market position")
-    key_offerings: str = Field(description="Primary products/services and main features")
-    value_proposition: str = Field(description="Unique benefits and competitive advantages")
-
-
-class CompetitiveAnalysis(BaseModel):
-    """Competitive analysis for the company and top 3 competitors."""
-    company: EntityAnalysis
-    competitor_1: EntityAnalysis
-    competitor_2: EntityAnalysis
-    competitor_3: EntityAnalysis
-
-
-COMPETITIVE_ANALYSIS_SCHEMA = CompetitiveAnalysis.model_json_schema()
-
-
-# --- 4. Query Generation ---
-# 4.1 Blog Posts Coverage
-BLOG_COVERAGE_SYSTEM_PROMPT = (
-    "You are a content strategy analyst specializing in industry blog visibility analysis. "
-    "Your task is to generate search queries that potential customers and industry stakeholders "
-    "would use when seeking information about topics covered by industry blogs.\n\n"
-    "Generate queries that represent genuine user search intent for industry-related information, "
-    "best practices, solutions, and insights. These queries should be the type that would naturally "
-    "return blog posts, articles, and thought leadership content from companies in the space.\n\n"
-    "Focus on informational and educational queries that demonstrate thought leadership opportunities "
-    "and content gaps in the industry."
-)
-
-BLOG_COVERAGE_USER_PROMPT_TEMPLATE = (
-    "Based on the company documentation and competitive analysis provided, generate EXACTLY 15 search queries in total — not 14, not 16. "
-    "Do not exceed or fall short; if your draft has more or fewer, adjust to output exactly 15.\n\n"
-    "The queries should cover:\n"
-    "- Industry trends and insights\n"
-    "- Best practices and how-to content\n"
-    "- Problem-solving and solution-oriented content\n"
-    "- Comparison and evaluation content\n"
-    "- Educational and informational content\n\n"
-    "Organize the queries into logical segments as appropriate. Regardless of segmentation, the TOTAL number of queries must be EXACTLY 15 — not even one more.\n\n"
-    "Company Document Data (verbatim JSON):\n{blog_company_data}\n\n"
-    "Competitive Analysis (verbatim JSON):\n{competitive_analysis}"
-)
-
-# For scraper compatibility, represent each segment as a list[str]
-class BlogCoverageQueries(BaseModel):
-    """Query templates grouped by searcher intent for blog coverage analysis."""
-    industry_trends: List[str] = Field(description="Queries about industry trends and insights")
-    best_practices: List[str] = Field(description="Queries about best practices and how-to content")
-    solution_oriented: List[str] = Field(description="Queries about solutions to problems")
-    educational_content: List[str] = Field(description="Queries about educational/informational topics")
-
-
-BLOG_COVERAGE_QUERIES_SCHEMA = BlogCoverageQueries.model_json_schema()
-
-# 4.2 Company and Competitor Analysis
-COMPANY_COMP_SYSTEM_PROMPT = (
-    "You are a competitive intelligence analyst tasked with generating search queries that buyers and researchers use when "
-    "evaluating companies and their competitive landscape.\n\n"
-    "Use the provided query templates as reference patterns and generate specific queries tailored to the company and competitors from the documentation. "
-    "Focus on queries that represent genuine buyer research behavior - the questions they ask when comparing solutions, evaluating vendors, "
-    "and making purchase decisions."
-)
-
-COMPANY_COMP_USER_PROMPT_TEMPLATE = (
-    "Using the competitive analysis and company documentation provided, generate EXACTLY 15 specific search queries — not 14, not 16 — organized into logical segments based on these reference templates:\n\n"
-    "Reference Query Templates:\n"
-    "- Company Overview: \"What is (entity_name)?\", \"Tell me about (entity_name)\"\n"
-    "- Products/Services: \"What products does (entity_name) offer?\", \"(entity_name) features and capabilities\"\n"
-    "- Competitive Analysis: \"(entity_name) vs competitors\", \"What are alternatives to (entity_name)?\"\n"
-    "- Customer Reviews: \"(entity_name) customer reviews\", \"What do users say about (entity_name)?\"\n"
-    "- Technical Integration: \"(entity_name) integrations\", \"How to implement (entity_name)\"\n\n"
-    "Organize into 5 segments with EXACTLY 3 queries each (total 15). The TOTAL number of queries must be EXACTLY 15 — not even one more.\n\n"
-    
-    
-    "Company Document Data (verbatim JSON):\n{blog_company_data}\n\n"
-    "Competitive Analysis (verbatim JSON):\n{competitive_analysis}"
-)
-
-class CompanyCompetitorQueries(BaseModel):
-    """Query templates grouped by buyer research categories."""
-    company_overview: List[str] = Field(description="Overview-oriented queries about the entity")
-    products_services: List[str] = Field(description="Queries about products/services and capabilities")
-    competitive_analysis: List[str] = Field(description="Queries comparing with competitors / alternatives")
-    customer_reviews: List[str] = Field(description="Queries about customer reviews and feedback")
-    technical_integration: List[str] = Field(description="Queries about integrations and implementation")
-
-
-COMPANY_COMP_QUERIES_SCHEMA = CompanyCompetitorQueries.model_json_schema()
-
-# 4.3 Executive Visibility
 EXEC_VISIBILITY_SYSTEM_PROMPT = (
-    "You are a professional research analyst specializing in executive visibility and thought leadership analysis. "
-    "Your task is to generate search queries that buyers, partners, and industry stakeholders use when researching executives and business leaders.\n\n"
-    "Generate queries that represent how people search for information about executives when evaluating potential partnerships, investment opportunities, "
-    "speaking engagements, or business relationships. Focus on queries that would surface professional reputation, expertise, and industry presence."
+    "You are a senior research intelligence analyst specializing in digital presence and reputation analysis. "
+    "Your task is to generate authentic search queries that various stakeholders (buyers, partners, investors, "
+    "employees, media, analysts) would actually use when researching executives on AI-powered platforms. "
+    "Output must be valid JSON conforming exactly to the provided schema. "
+    "Core principles: "
+    "(1) AUTHENTIC - Queries should mirror real search behavior patterns observed in professional research; "
+    "(2) COMPREHENSIVE - Cover the full spectrum of professional inquiry without redundancy; "
+    "(3) INTENT-DRIVEN - Each query should have a clear information-seeking purpose; "
+    "(4) CONTEXTUAL - Leverage provided profile data to create personalized, relevant queries; "
+    "(5) PROFESSIONAL - Focus exclusively on business-relevant aspects; "
+    "(6) NATURAL - Use conversational language as people actually type in AI assistants; "
+    "(7) VARIED - Mix direct name searches, role-based queries, and topical investigations."
 )
 
 EXEC_VISIBILITY_USER_PROMPT_TEMPLATE = (
-    "Based on the executive profile information and scraped LinkedIn data provided, generate EXACTLY 10 search queries in total — not 9, not 11 — organized into logical segments that represent how buyers and stakeholders research executives.\n\n"
-    "The queries should cover:\n"
-    "- Professional background and expertise\n"
-    "- Industry thought leadership and presence\n"
-    "- Company association and role\n"
-    "- Speaking and content contributions\n"
-    "- Professional reputation and achievements\n\n"
-    "Organize into logical segments as appropriate. Regardless of segmentation, the TOTAL number of queries must be EXACTLY 10 — not even one more.\n\n"
-    "LinkedIn User Profile (verbatim JSON):\n{linkedin_user_profile}\n\n"
-    "LinkedIn Scraped Profile (verbatim JSON):\n{linkedin_scraped_profile}"
+    "Based on the executive profile data below, generate EXACTLY 10 search queries that stakeholders would use "
+    "to research this person on AI platforms (ChatGPT, Perplexity, Gemini, Claude). "
+    "Distribute queries across these categories:\n\n"
+    "- expertise_credibility (2-3): Domain expertise, technical knowledge, industry credibility\n"
+    "- leadership_impact (1-2): Leadership philosophy, team building, organizational impact\n"
+    "- market_position (1-2): Competitive positioning, market insights, industry standing\n"
+    "- innovation_vision (1-2): Future vision, innovation track record, strategic thinking\n"
+    "- network_influence (1-2): Industry connections, speaking engagements, media presence\n\n"
+    "Query requirements:\n"
+    "- Natural language, 4-15 words each\n"
+    "- Mix of: direct name searches (30%), role/company queries (30%), topical expertise (40%)\n"
+    "- Include conversational phrases like 'what does X think about', 'how did X achieve', 'X's approach to'\n"
+    "- Vary query styles: questions, comparisons, opinion-seeking, fact-finding\n"
+    "- No duplicates or trivial variations\n\n"
+    "Return ONLY valid JSON matching the schema.\n\n"
+    "Profile Data:\n{linkedin_user_profile}\n\n"
+    "Additional Context:\n{linkedin_scraped_profile}"
 )
 
-class ExecutiveVisibilityQueries(BaseModel):
-    """Query templates for researching executives and leaders."""
-    professional_background: List[str] = Field(description="Queries about professional background and expertise")
-    thought_leadership: List[str] = Field(description="Queries about industry thought leadership and presence")
-    company_association: List[str] = Field(description="Queries about role and company association")
-    reputation_achievements: List[str] = Field(description="Queries about reputation, achievements, and recognition")
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
 
+class ExecutiveVisibilityQueries(BaseModel):
+    """Comprehensive query set for executive AI visibility analysis."""
+    
+    expertise_credibility: List[str] = Field(
+        description="Queries about domain expertise, technical knowledge, and professional credibility",
+        min_items=2, max_items=3
+    )
+    leadership_impact: List[str] = Field(
+        description="Queries about leadership style, team impact, and organizational transformation",
+        min_items=1, max_items=2
+    )
+    market_position: List[str] = Field(
+        description="Queries about competitive positioning, market insights, and industry standing",
+        min_items=1, max_items=2
+    )
+    innovation_vision: List[str] = Field(
+        description="Queries about future vision, innovation track record, and strategic thinking",
+        min_items=1, max_items=2
+    )
+    network_influence: List[str] = Field(
+        description="Queries about industry connections, thought leadership, and sphere of influence",
+        min_items=1, max_items=2
+    )
 
 EXEC_VISIBILITY_QUERIES_SCHEMA = ExecutiveVisibilityQueries.model_json_schema()
 
-
-# --- 6. Report Generation ---
-BLOG_COVERAGE_REPORT_SYSTEM_PROMPT = (
-    "You are a content intelligence analyst specializing in blog visibility and thought leadership analysis across answer engines. "
-    "Analyze query results to identify content visibility patterns, assess competitor performance, identify gaps and opportunities, and provide quantitative metrics."
-)
-BLOG_COVERAGE_REPORT_USER_PROMPT_TEMPLATE = (
-    "Analyze the collected search results from blog coverage queries and generate a comprehensive Blog Coverage Report.\n\n"
-    "Inputs Provided (verbatim JSON):\n{loaded_query_results}\n\n"
-    "Include quantitative metrics and prioritized recommendations."
-)
-
-# Use explicit models made of simple fields for the report
-class AnalysisSummary(BaseModel):
-    summary_text: str = Field(description="Concise overview of findings")
-    key_findings: List[str] = Field(description="Bulleted key insights")
-    overall_visibility_score: Optional[float] = Field(default=None, description="Overall visibility score (0-100)")
-
-
-class QueryLevelAnalysisItem(BaseModel):
-    query: str = Field(description="The query analyzed")
-    top_sources: List[str] = Field(description="Top sources returned for the query")
-    client_presence: str = Field(description="How the client appears for this query")
-    competitor_mentions: List[str] = Field(description="Competitors mentioned in top results")
-
-
-class CompetitorPresenceItem(BaseModel):
-    competitor_name: str = Field(description="Name of the competitor")
-    presence_score: Optional[float] = Field(default=None, description="Score of competitor presence (0-100)")
-    notable_queries: List[str] = Field(description="Queries where competitor appears prominently")
-
-
-class ContentOpportunityItem(BaseModel):
-    opportunity: str = Field(description="Content opportunity identified")
-    rationale: str = Field(description="Why this opportunity matters")
-    priority: Optional[str] = Field(default=None, description="Priority level, e.g., High/Medium/Low")
-
-
-class VisibilityGapItem(BaseModel):
-    gap: str = Field(description="Identified gap in visibility or coverage")
-    impact: Optional[str] = Field(default=None, description="Business or visibility impact")
-    suggested_action: Optional[str] = Field(default=None, description="Action to address the gap")
-
-
-class QuantitativeMetrics(BaseModel):
-    num_queries: int = Field(description="Total number of queries analyzed")
-    client_appearances: int = Field(description="Count of times client appears in results")
-    competitor_appearances: int = Field(description="Count of times competitors appear in results")
-    avg_rank: Optional[float] = Field(default=None, description="Average rank/position of client when present")
-
-
-class BlogCoverageReport(BaseModel):
-    analysis_summary: AnalysisSummary
-    query_level_analysis: Optional[List[QueryLevelAnalysisItem]] = None
-    competitor_presence: Optional[List[CompetitorPresenceItem]] = None
-    content_opportunities: Optional[List[ContentOpportunityItem]] = None
-    visibility_gaps: Optional[List[VisibilityGapItem]] = None
-    quantitative_metrics: Optional[QuantitativeMetrics] = None
-    recommendations: List[str]
-
-
-BLOG_COVERAGE_REPORT_SCHEMA = BlogCoverageReport.model_json_schema()
-
-COMPANY_COMP_REPORT_SYSTEM_PROMPT = (
-    "You are a competitive intelligence analyst specializing in digital presence and market positioning analysis across answer engines. "
-    "Analyze buyer intent patterns, competitive positioning, gaps, and provide strategic recommendations."
-)
-COMPANY_COMP_REPORT_USER_PROMPT_TEMPLATE = (
-    "Analyze the collected search results from company and competitor queries to generate a comprehensive Company & Competitor Analysis Report.\n\n"
-    "Inputs Provided (verbatim JSON):\n{loaded_query_results}\n\n"
-    "Focus on buyer perspective and quantitative backing for insights."
-)
-
-class CompanyAnalysisSummary(BaseModel):
-    summary_text: str = Field(description="Concise overview of findings")
-    key_findings: List[str] = Field(description="Bulleted key insights")
-
-
-class ClientPositioningAnalysis(BaseModel):
-    positioning_summary: str = Field(description="Summary of client's market positioning")
-    strengths: List[str] = Field(description="Client strengths")
-    weaknesses: List[str] = Field(description="Client weaknesses")
-
-
-class CompetitorAnalysisItem(BaseModel):
-    name: str = Field(description="Competitor name")
-    positioning: str = Field(description="How the competitor is positioned")
-    strengths: List[str] = Field(description="Competitor strengths")
-    weaknesses: List[str] = Field(description="Competitor weaknesses")
-
-
-class BuyerIntentItem(BaseModel):
-    pattern: str = Field(description="Observed buyer intent pattern")
-    representative_queries: List[str] = Field(description="Queries representing the pattern")
-    implications: str = Field(description="Implications for the buyer journey")
-
-
-class CompetitiveGapItem(BaseModel):
-    gap: str = Field(description="Competitive gap identified")
-    risk: Optional[str] = Field(default=None, description="Risk associated with the gap")
-    opportunity: Optional[str] = Field(default=None, description="Opportunity associated with the gap")
-
-
-class MarketPerceptionInsights(BaseModel):
-    perception_summary: str = Field(description="Summary of market perception")
-    sentiment: Optional[str] = Field(default=None, description="Overall sentiment descriptor")
-    common_themes: List[str] = Field(description="Common themes observed")
-
-
-class PositioningOpportunityItem(BaseModel):
-    opportunity: str = Field(description="Positioning opportunity")
-    expected_impact: Optional[str] = Field(default=None, description="Expected impact of seizing the opportunity")
-    suggested_actions: List[str] = Field(description="Actions to seize the opportunity")
-
-
-class QueryPerformanceMetrics(BaseModel):
-    num_queries: int = Field(description="Total number of queries analyzed")
-    client_appearances: int = Field(description="Count of times client appears in results")
-    avg_rank: Optional[float] = Field(default=None, description="Average rank/position of client when present")
-    share_of_voice_pct: Optional[float] = Field(default=None, description="Estimated share of voice percentage")
-
-
-class CompanyCompetitorReport(BaseModel):
-    analysis_summary: CompanyAnalysisSummary
-    client_positioning_analysis: Optional[ClientPositioningAnalysis] = None
-    competitor_analysis: Optional[List[CompetitorAnalysisItem]] = None
-    buyer_intent_analysis: Optional[List[BuyerIntentItem]] = None
-    competitive_gaps: Optional[List[CompetitiveGapItem]] = None
-    market_perception_insights: Optional[MarketPerceptionInsights] = None
-    positioning_opportunities: Optional[List[PositioningOpportunityItem]] = None
-    query_performance_metrics: Optional[QueryPerformanceMetrics] = None
-    recommendations: List[str]
-
-
-COMPANY_COMP_REPORT_SCHEMA = CompanyCompetitorReport.model_json_schema()
+# ============================================
+# REPORT GENERATION SYSTEM - Enhanced
+# ============================================
 
 EXEC_VISIBILITY_REPORT_SYSTEM_PROMPT = (
-    "You are an executive visibility analyst specializing in personal brand and thought leadership assessment across AI-powered answer engines. "
-    "Assess visibility, positioning versus leaders, and provide actionable recommendations."
+    "You are a strategic intelligence analyst specializing in executive digital presence and AI-powered reputation analysis. "
+    "Your task is to synthesize search results from multiple AI platforms into actionable intelligence reports. "
+    "Core analytical framework: "
+    "(1) EVIDENCE-BASED - Every claim must be traceable to specific search results with source attribution; "
+    "(2) COMPARATIVE - Analyze relative performance across AI platforms to identify platform-specific strengths/gaps; "
+    "(3) CONTEXTUAL - Position findings within industry benchmarks and competitive landscape; "
+    "(4) ACTIONABLE - Provide specific, prioritized recommendations with implementation rationale; "
+    "(5) QUANTITATIVE - Use metrics consistently: coverage_pct, depth_score, sentiment_index, freshness_score; "
+    "(6) STRATEGIC - Connect visibility gaps to business impact and opportunity cost. "
+    "CRITICAL: ALL supporting_evidence fields must contain complete SourceEvidence objects with: "
+    "platform (exact AI platform name), query_used (the specific search query), relevant_excerpt (direct quote from results), "
+    "source_url (if available), and confidence_level (high/medium/low). Never leave supporting_evidence fields empty. "
+    "Output must be valid JSON conforming to the schema."
 )
+
 EXEC_VISIBILITY_REPORT_USER_PROMPT_TEMPLATE = (
-    "Analyze the collected search results from executive visibility queries to generate an Executive Visibility Report.\n\n"
-    "Inputs Provided (verbatim JSON):\n{loaded_query_results}\n\n"
-    "Focus on professional reputation, opportunities, and quantitative metrics."
+    "Analyze the AI platform search results to generate a comprehensive Executive AI Visibility Intelligence Report.\n\n"
+    "Search Results Data:\n{loaded_query_results}\n\n"
+    "Analysis Requirements:\n"
+    "1. PLATFORM ANALYSIS:\n"
+    "   - Group results by provider (perplexity, google, openai, anthropic)\n"
+    "   - Calculate metrics per platform:\n"
+    "     • coverage_score: (queries with substantive answers / total queries) * 100\n"
+    "     • depth_score: Average answer comprehensiveness (1-100 scale)\n"
+    "     • accuracy_score: Factual correctness based on known information (1-100)\n"
+    "     • sentiment_index: Tone of coverage (-100 negative to +100 positive)\n"
+    "     • source_quality: Quality and authority of cited sources (1-100)\n"
+    "   - Extract verbatim quotes and source URLs as evidence\n\n"
+    "2. COMPETITIVE INTELLIGENCE:\n"
+    "   - Identify all mentioned competitors/peers\n"
+    "   - Analyze comparative positioning language\n"
+    "   - Note share-of-voice in industry discussions\n\n"
+    "3. INSIGHT SYNTHESIS:\n"
+    "   - Cross-platform consistency analysis\n"
+    "   - Information freshness assessment\n"
+    "   - Narrative coherence evaluation\n"
+    "   - Gap identification with business impact\n\n"
+    "4. STRATEGIC RECOMMENDATIONS:\n"
+    "   - Prioritize by potential impact (use impact_score 1-100)\n"
+    "   - Include implementation complexity (low/medium/high)\n"
+    "   - Provide specific content/action examples\n"
+    "   - MANDATORY: Each recommendation must include complete supporting_evidence with:\n"
+    "     • platform: exact platform name (perplexity/google/openai/anthropic)\n"
+    "     • query_used: the specific search query that revealed this insight\n"
+    "     • relevant_excerpt: direct quote from the search result (minimum 20 words)\n"
+    "     • source_url: URL if provided in the search result\n"
+    "     • confidence_level: assessment of information reliability (high/medium/low)\n\n"
+    "5. EVIDENCE REQUIREMENTS FOR ALL FIELDS:\n"
+    "   - competitive_landscape.evidence: Must contain specific quotes about competitors\n"
+    "   - representative_evidence: Must include actual search result excerpts\n"
+    "   - supporting_evidence: Required for every strategic recommendation\n"
+    "   - All evidence objects must be complete - no empty or partial SourceEvidence entries\n\n"
+    "Return ONLY valid JSON matching the schema. Every evidence field must contain complete, detailed SourceEvidence objects."
 )
 
-class MarketPositioning(BaseModel):
-    positioning_summary: str = Field(description="Summary of executive's positioning versus peers")
-    strengths: List[str] = Field(description="Strengths of the executive's presence")
-    areas_to_improve: List[str] = Field(description="Areas needing improvement")
-    relative_rank: Optional[int] = Field(default=None, description="Relative rank vs named peers if available")
+# Enhanced Schema Classes
 
+class SourceEvidence(BaseModel):
+    """Evidence attribution for claims and findings."""
+    platform: str = Field(description="AI platform source (perplexity/google/openai/anthropic)")
+    query_used: str = Field(description="The specific query that generated this information")
+    relevant_excerpt: str = Field(description="Verbatim quote or summary from the result")
+    source_url: Optional[str] = Field(description="URL if provided in the search result", default=None)
+    confidence_level: str = Field(description="Confidence in this information: high/medium/low")
 
-class CompetitorThreatItem(BaseModel):
-    name: str = Field(description="Name of competing executive/leader")
-    threat_summary: str = Field(description="Summary of competitive threat")
+class PlatformMetrics(BaseModel):
+    """Detailed metrics for each AI platform's performance."""
+    coverage_score: float = Field(description="% of queries with substantive answers (0-100)")
+    depth_score: float = Field(description="Average answer comprehensiveness (0-100)")
+    accuracy_score: float = Field(description="Factual accuracy based on known info (0-100)")
+    sentiment_index: float = Field(description="Tone of coverage (-100 to +100)")
+    source_quality: float = Field(description="Quality/authority of cited sources (0-100)")
+    response_consistency: float = Field(description="Consistency across similar queries (0-100)")
+    information_recency: str = Field(description="How current the information is: current/recent/dated/unknown")
 
+class PlatformAnalysis(BaseModel):
+    """Comprehensive analysis for each AI platform."""
+    platform: str = Field(description="Platform identifier")
+    metrics: PlatformMetrics
+    visibility_assessment: str = Field(description="Overall visibility assessment for this platform")
+    key_narratives: List[str] = Field(description="Main themes/stories about the executive")
+    unique_insights: List[str] = Field(description="Insights unique to this platform")
+    coverage_gaps: List[str] = Field(description="What this platform doesn't know/cover")
+    representative_evidence: List[SourceEvidence] = Field(description="Key evidence examples")
+    improvement_actions: List[str] = Field(description="Platform-specific optimization actions")
 
-class CriticalGapItem(BaseModel):
-    gap: str = Field(description="Critical gap in executive visibility")
-    urgency: Optional[str] = Field(default=None, description="Urgency level")
+class CompetitorInfo(BaseModel):
+    """Information about a competitor mentioned in the analysis."""
+    name: str = Field(description="Competitor name or company")
+    context: str = Field(description="Context in which this competitor was mentioned")
 
+class CompetitiveLandscape(BaseModel):
+    """Competitive positioning intelligence."""
+    direct_competitors: List[CompetitorInfo] = Field(
+        description="List of competitors with their mention context"
+    )
+    positioning_statement: str = Field(description="How the executive is positioned vs. peers")
+    differentiation_factors: List[str] = Field(description="Unique differentiators identified")
+    competitive_gaps: List[str] = Field(description="Areas where competitors have stronger presence")
+    market_share_voice: float = Field(description="Estimated share of voice in category (0-100)")
+    evidence: List[SourceEvidence] = Field(description="Supporting evidence for competitive analysis")
 
-class MarketOpportunityItem(BaseModel):
-    opportunity: str = Field(description="Market opportunity for executive visibility")
-    channel: Optional[str] = Field(default=None, description="Primary channel for opportunity (e.g., LinkedIn, Podcasts)")
-    suggested_action: Optional[str] = Field(default=None, description="Action to capture opportunity")
+class StrategicRecommendation(BaseModel):
+    """Actionable recommendation with full context."""
+    action: str = Field(description="Specific action to take")
+    rationale: str = Field(description="Why this action will improve AI visibility")
+    impact_score: int = Field(description="Expected impact on visibility (1-100)")
+    effort_level: str = Field(description="Implementation complexity: low/medium/high")
+    timeline: str = Field(description="Suggested timeline: immediate/short-term/long-term")
+    success_metrics: List[str] = Field(description="How to measure success")
+    supporting_evidence: List[SourceEvidence] = Field(description="Evidence supporting this recommendation")
 
+class InformationQuality(BaseModel):
+    """Assessment of information quality across platforms."""
+    accuracy_assessment: str = Field(description="Overall accuracy of information found")
+    consistency_score: float = Field(description="Cross-platform consistency (0-100)")
+    information_gaps: List[str] = Field(description="Key information not found on any platform")
+    misinformation_risks: List[str] = Field(description="Potential misinformation or outdated info")
+    verification_status: List[str] = Field(description="Status of key claims as text descriptions")
 
-class RecentMovementItem(BaseModel):
-    date: Optional[str] = Field(default=None, description="Date of the movement, if known")
-    description: str = Field(description="Description of the movement or update")
+class PlatformRanking(BaseModel):
+    """Platform ranking with justification."""
+    platform: str = Field(description="Platform name")
+    rank: int = Field(description="Ranking position (1 = best)")
+    justification: str = Field(description="Reason for this ranking")
 
+class ExecutiveAIVisibilityReport(BaseModel):
+    """Comprehensive AI Visibility Intelligence Report."""
+    
+    # Executive Summary
+    executive_summary: str = Field(description="High-level visibility assessment across all AI platforms")
+    overall_visibility_score: float = Field(description="Aggregate visibility score (0-100)")
+    
+    # Platform-Specific Analysis
+    platform_analyses: List[PlatformAnalysis] = Field(description="Detailed analysis per platform")
+    best_performing_platform: str = Field(description="Platform with strongest executive presence")
+    platform_rankings: List[PlatformRanking] = Field(description="Platforms ranked with justification")
+    
+    # Competitive Intelligence
+    competitive_landscape: CompetitiveLandscape = Field(description="Competitive positioning analysis")
+    
+    # Information Quality
+    information_quality: InformationQuality = Field(description="Quality assessment of available information")
+    
+    # Strategic Recommendations
+    strategic_recommendations: List[StrategicRecommendation] = Field(
+        description="Prioritized recommendations with evidence"
+    )
+    
+    # Quick Wins
+    immediate_actions: List[str] = Field(description="Actions that can be implemented within 48 hours")
+    
+    # Risk Assessment
+    reputation_risks: List[str] = Field(description="Identified risks to executive reputation")
+    
+    # Monitoring Cadence
+    next_analysis_date: str = Field(description="Recommended date for next analysis")
+    monitoring_triggers: List[str] = Field(description="Events that should trigger immediate re-analysis")
 
-class ExecutiveVisibilityReport(BaseModel):
-    market_positioning: MarketPositioning
-    competitor_threats: Optional[List[CompetitorThreatItem]] = None
-    critical_gaps: Optional[List[CriticalGapItem]] = None
-    market_opportunities: Optional[List[MarketOpportunityItem]] = None
-    recent_movements: Optional[List[RecentMovementItem]] = None
-    competitive_outlook: Optional[str] = None
-    immediate_priorities: List[str]
-    next_analysis_date: Optional[str] = None
-
-
-EXEC_VISIBILITY_REPORT_SCHEMA = ExecutiveVisibilityReport.model_json_schema() 
+EXEC_VISIBILITY_REPORT_SCHEMA = ExecutiveAIVisibilityReport.model_json_schema()

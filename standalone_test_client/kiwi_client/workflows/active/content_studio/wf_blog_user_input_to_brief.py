@@ -44,11 +44,14 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_COMPANY_IS_VERSIONED,
     BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
     BLOG_CONTENT_BRIEF_DOCNAME,
-    BLOG_CONTENT_BRIEF_IS_VERSIONED
+    BLOG_CONTENT_BRIEF_IS_VERSIONED,
+    BLOG_CONTENT_STRATEGY_DOCNAME,
+    BLOG_CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+    BLOG_CONTENT_STRATEGY_IS_VERSIONED
 )
 
 # Import LLM inputs
-from kiwi_client.workflows.active.content_studio.llm_inputs.user_input_to_brief import (
+from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_brief import (
     # System prompts
     GOOGLE_RESEARCH_SYSTEM_PROMPT,
     REDDIT_RESEARCH_SYSTEM_PROMPT,
@@ -84,7 +87,7 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.user_input_to_brief 
 
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
-LLM_MODEL = "claude-3-7-sonnet-20250219"
+LLM_MODEL = "claude-sonnet-4-20250514"
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 
@@ -101,7 +104,7 @@ MAX_ITERATIONS = 10  # Maximum iterations for HITL feedback loops
 
 # Feedback LLM Configuration
 FEEDBACK_LLM_PROVIDER = "anthropic"
-FEEDBACK_ANALYSIS_MODEL = "claude-3-7-sonnet-20250219"
+FEEDBACK_ANALYSIS_MODEL = "claude-sonnet-4-20250514"
 FEEDBACK_TEMPERATURE = 0.5
 FEEDBACK_MAX_TOKENS = 3000 
 
@@ -124,6 +127,12 @@ workflow_graph_schema = {
                         "type": "str",
                         "required": True,
                         "description": "User's content ideas, brainstorm, or transcript"
+                    },
+                    "initial_status": {
+                        "type": "str",
+                        "required": True,
+                        "default": "draft",
+                        "description": "Initial status of the workflow"
                     }
                 }
             }
@@ -145,6 +154,14 @@ workflow_graph_schema = {
                             "static_docname": BLOG_COMPANY_DOCNAME,
                         },
                         "output_field_name": "company_doc"
+                    },
+                    {
+                        "filename_config": {
+                            "input_namespace_field_pattern": BLOG_CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+                            "input_namespace_field": "company_name",
+                            "static_docname": BLOG_CONTENT_STRATEGY_DOCNAME,
+                        },
+                        "output_field_name": "content_playbook_doc"
                     }
                 ]
             }
@@ -160,13 +177,13 @@ workflow_graph_schema = {
                         "id": "google_research_user_prompt",
                         "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "icp_details": None,
-                            "goals": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "user_input": None
                         },
                         "construct_options": {
-                            "icp_details": "company_doc.icps",
-                            "goals": "company_doc.goals",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "user_input": "user_input"
                         }
                     },
@@ -209,12 +226,14 @@ workflow_graph_schema = {
                         "id": "reddit_research_user_prompt",
                         "template": REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "icp_details": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "user_input": None
                         },
                         "construct_options": {
-                            "icp_details": "company_doc.icps",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "user_input": "user_input"
                         }
@@ -264,17 +283,15 @@ workflow_graph_schema = {
                         "id": "topic_generation_user_prompt",
                         "template": TOPIC_GENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "icp_details": None,
-                            "goals": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
                             "user_input": None
                         },
                         "construct_options": {
-                            "icp_details": "company_doc.icps",
-                            "goals": "company_doc.goals",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
                             "user_input": "user_input"
@@ -376,8 +393,8 @@ workflow_graph_schema = {
                         "variables": {
                             "suggested_blog_topics": None,
                             "regeneration_feedback": None,
-                            "icp_details": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
                             "user_input": None
@@ -385,8 +402,8 @@ workflow_graph_schema = {
                         "construct_options": {
                             "suggested_blog_topics": "current_topic_suggestions",
                             "regeneration_feedback": "current_regeneration_feedback",
-                            "icp_details": "company_doc.icps",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
                             "user_input": "user_input"
@@ -432,20 +449,16 @@ workflow_graph_schema = {
                         "id": "topic_regeneration_user_prompt",
                         "template": TOPIC_GENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "company_name": None,
-                            "icp_details": None,
-                            "goals": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
                             "user_input": None,
                             "regeneration_instructions": None
                         },
                         "construct_options": {
-                            "company_name": "company_doc.name",
-                            "icp_details": "company_doc.icps",
-                            "goals": "company_doc.goals",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
                             "user_input": "user_input",
@@ -516,20 +529,16 @@ workflow_graph_schema = {
                         "id": "brief_generation_user_prompt",
                         "template": BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "company_name": None,
-                            "icp_details": None,
-                            "goals": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "selected_topic": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
                             "user_input": None
                         },
                         "construct_options": {
-                            "company_name": "company_doc.name",
-                            "icp_details": "company_doc.icps",
-                            "goals": "company_doc.goals",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "selected_topic": "selected_topics",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
@@ -561,7 +570,7 @@ workflow_graph_schema = {
                 "output_schema": {
                     "schema_definition": BRIEF_GENERATION_OUTPUT_SCHEMA,
                     "convert_loaded_schema_to_pydantic": False
-                }
+                }   
             }
         },
         
@@ -716,8 +725,8 @@ workflow_graph_schema = {
                         "variables": {
                             "content_brief": None,
                             "revision_feedback": None,
-                            "icp_details": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "selected_topic": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
@@ -726,8 +735,8 @@ workflow_graph_schema = {
                         "construct_options": {
                             "content_brief": "current_content_brief",
                             "revision_feedback": "current_revision_feedback",
-                            "icp_details": "company_doc.icps",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "selected_topic": "selected_topics",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
@@ -772,10 +781,8 @@ workflow_graph_schema = {
                         "id": "brief_revision_user_prompt",
                         "template": BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "company_name": None,
-                            "icp_details": None,
-                            "goals": None,
-                            "value_proposition": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
                             "selected_topic": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
@@ -783,10 +790,8 @@ workflow_graph_schema = {
                             "revision_instructions": None
                         },
                         "construct_options": {
-                            "company_name": "company_doc.name",
-                            "icp_details": "company_doc.icps",
-                            "goals": "company_doc.goals",
-                            "value_proposition": "company_doc.value_proposition",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
                             "selected_topic": "selected_topics",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
@@ -891,7 +896,8 @@ workflow_graph_schema = {
             "src_node_id": "load_company_doc",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "company_doc", "dst_field": "company_doc"}
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"}
             ]
         },
         
@@ -900,7 +906,8 @@ workflow_graph_schema = {
             "src_node_id": "load_company_doc",
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
-                {"src_field": "company_doc", "dst_field": "company_doc"}
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"}
             ]
         },
         
@@ -947,6 +954,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_reddit_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "user_input", "dst_field": "user_input"}
             ]
         },
@@ -983,6 +991,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_topic_generation_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
@@ -1069,6 +1078,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_topic_feedback_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "current_topic_suggestions", "dst_field": "current_topic_suggestions"},
                 {"src_field": "current_regeneration_feedback", "dst_field": "current_regeneration_feedback"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
@@ -1121,6 +1131,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_topic_regeneration_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
@@ -1199,6 +1210,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_brief_generation_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
@@ -1335,6 +1347,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_brief_feedback_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "current_content_brief", "dst_field": "current_content_brief"},
                 {"src_field": "current_revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "selected_topics", "dst_field": "selected_topics"},
@@ -1388,6 +1401,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_brief_revision_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "selected_topics", "dst_field": "selected_topics"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
@@ -1457,13 +1471,7 @@ workflow_graph_schema = {
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "google_research_output", "dst_field": "google_research_results"},
-                {"src_field": "reddit_research_output", "dst_field": "reddit_research_results"},
-                {"src_field": "current_topic_suggestions", "dst_field": "final_topic_suggestions"},
-                {"src_field": "selected_topics", "dst_field": "selected_topic"},
-                {"src_field": "current_content_brief", "dst_field": "final_content_brief"}
-            ]
+            "mappings": []
         }
     ],
     
@@ -1750,6 +1758,18 @@ async def main_test_content_brief_workflow():
             'is_versioned': BLOG_COMPANY_IS_VERSIONED,
             'initial_version': "default",
             'is_system_entity': False
+        },
+        {
+            'namespace': f"blog_content_strategy_{test_company_name}",
+            'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
+            'initial_data': {
+                "name": test_company_name,
+                "content_strategy": "This is a placeholder for the content strategy document. It will be populated with actual strategy details."
+            },
+            'is_shared': False,
+            'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
+            'initial_version': "default",
+            'is_system_entity': False
         }
     ]
     
@@ -1760,6 +1780,13 @@ async def main_test_content_brief_workflow():
             'docname': BLOG_COMPANY_DOCNAME,
             'is_shared': False,
             'is_versioned': BLOG_COMPANY_IS_VERSIONED,
+            'is_system_entity': False
+        },
+        {
+            'namespace': f"blog_content_strategy_{test_company_name}",
+            'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
+            'is_shared': False,
+            'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
             'is_system_entity': False
         }
     ]

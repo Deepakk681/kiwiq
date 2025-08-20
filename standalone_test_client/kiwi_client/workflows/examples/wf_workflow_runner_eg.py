@@ -30,37 +30,37 @@ from kiwi_client.test_config import CLIENT_LOG_LEVEL
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
 # Import document models for content strategy workflow
-from kiwi_client.workflows.deprecated.document_models.older_customer_docs import (
-    # Content Strategy
-    CONTENT_STRATEGY_DOCNAME,
-    CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
-    CONTENT_STRATEGY_IS_VERSIONED,
-    # User Preferences
-    USER_PREFERENCES_DOCNAME,
-    USER_PREFERENCES_NAMESPACE_TEMPLATE,
-    USER_PREFERENCES_IS_VERSIONED,
-    # Source Analysis
-    USER_SOURCE_ANALYSIS_DOCNAME,
-    USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
-    USER_SOURCE_ANALYSIS_IS_VERSIONED,
-    # Core Beliefs and Perspectives
-    CORE_BELIEFS_PERSPECTIVES_DOCNAME,
-    CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
-    CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
-    # Content Pillars
-    CONTENT_PILLARS_DOCNAME,
-    CONTENT_PILLARS_NAMESPACE_TEMPLATE,
-    CONTENT_PILLARS_IS_VERSIONED,
-    # System Strategy Documents
-    METHODOLOGY_IMPLEMENTATION_DOCNAME,
-    METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-    METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-    METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY,
-    BUILDING_BLOCKS_DOCNAME,
-    BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-    BUILDING_BLOCKS_IS_SHARED,
-    BUILDING_BLOCKS_IS_SYSTEM_ENTITY,
-)
+# from kiwi_client.workflows.deprecated.document_models.customer_docs import (
+#     # Content Strategy
+#     CONTENT_STRATEGY_DOCNAME,
+#     CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+#     CONTENT_STRATEGY_IS_VERSIONED,
+#     # User Preferences
+#     USER_PREFERENCES_DOCNAME,
+#     USER_PREFERENCES_NAMESPACE_TEMPLATE,
+#     USER_PREFERENCES_IS_VERSIONED,
+#     # Source Analysis
+#     USER_SOURCE_ANALYSIS_DOCNAME,
+#     USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+#     USER_SOURCE_ANALYSIS_IS_VERSIONED,
+#     # Core Beliefs and Perspectives
+#     CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+#     CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+#     CORE_BELIEFS_PERSPECTIVES_IS_VERSIONED,
+#     # Content Pillars
+#     CONTENT_PILLARS_DOCNAME,
+#     CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+#     CONTENT_PILLARS_IS_VERSIONED,
+#     # System Strategy Documents
+#     METHODOLOGY_IMPLEMENTATION_DOCNAME,
+#     METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+#     METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+#     METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY,
+#     BUILDING_BLOCKS_DOCNAME,
+#     BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+#     BUILDING_BLOCKS_IS_SHARED,
+#     BUILDING_BLOCKS_IS_SYSTEM_ENTITY,
+# )
 
 # Setup logger
 import logging
@@ -84,11 +84,11 @@ workflow_graph_schema = {
                         "required": True,
                         "description": "Username of the entity for content strategy generation"
                     },
-                    "customer_context_doc_configs": {
-                        "type": "list",
-                        "required": True,
-                        "description": "List of document configs for loading context"
-                    },
+                    # "customer_context_doc_configs": {
+                    #     "type": "list",
+                    #     "required": True,
+                    #     "description": "List of document configs for loading context"
+                    # },
                     
                     # Optional workflow runner control fields
                     "execution_mode": {
@@ -152,7 +152,7 @@ workflow_graph_schema = {
             "dst_node_id": "strategy_workflow_runner",
             "mappings": [
                 {"src_field": "entity_username", "dst_field": "entity_username"},
-                {"src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
+                # {"src_field": "customer_context_doc_configs", "dst_field": "customer_context_doc_configs"},
                 # Pass optional control field for thread ID if needed
                 # {"src_field": "thread_id", "dst_field": "_thread_id"}
             ]
@@ -298,63 +298,63 @@ async def main_test_workflow_runner(
     print(f"Execution Mode: {execution_mode}")
     
     # Prepare document configs for the content strategy workflow
-    INPUT_DOCS_TO_BE_LOADED = [
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": USER_PREFERENCES_DOCNAME,
-            },
-            "output_field_name": "user_preferences",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
-            },
-            "output_field_name": "user_source_analysis",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
-            },
-            "output_field_name": "core_beliefs_perspectives",
-        },
-        {
-            "filename_config": {
-                "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
-                "input_namespace_field": "entity_username",
-                "static_docname": CONTENT_PILLARS_DOCNAME,
-            },
-            "output_field_name": "content_pillars",
-        },
-        {
-            "filename_config": {
-                "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
-                "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
-            },
-            "output_field_name": "methodology_implementation",
-            "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
-            "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
-        },
-        {
-            "filename_config": {
-                "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
-                "static_docname": BUILDING_BLOCKS_DOCNAME,
-            },
-            "output_field_name": "building_blocks",
-            "is_shared": BUILDING_BLOCKS_IS_SHARED,
-            "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
-        }
-    ]
+    # INPUT_DOCS_TO_BE_LOADED = [
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": USER_PREFERENCES_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": USER_PREFERENCES_DOCNAME,
+    #         },
+    #         "output_field_name": "user_preferences",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": USER_SOURCE_ANALYSIS_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": USER_SOURCE_ANALYSIS_DOCNAME,
+    #         },
+    #         "output_field_name": "user_source_analysis",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": CORE_BELIEFS_PERSPECTIVES_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": CORE_BELIEFS_PERSPECTIVES_DOCNAME,
+    #         },
+    #         "output_field_name": "core_beliefs_perspectives",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "input_namespace_field_pattern": CONTENT_PILLARS_NAMESPACE_TEMPLATE,
+    #             "input_namespace_field": "entity_username",
+    #             "static_docname": CONTENT_PILLARS_DOCNAME,
+    #         },
+    #         "output_field_name": "content_pillars",
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "static_namespace": METHODOLOGY_IMPLEMENTATION_NAMESPACE_TEMPLATE,
+    #             "static_docname": METHODOLOGY_IMPLEMENTATION_DOCNAME,
+    #         },
+    #         "output_field_name": "methodology_implementation",
+    #         "is_shared": METHODOLOGY_IMPLEMENTATION_IS_SHARED,
+    #         "is_system_entity": METHODOLOGY_IMPLEMENTATION_IS_SYSTEM_ENTITY
+    #     },
+    #     {
+    #         "filename_config": {
+    #             "static_namespace": BUILDING_BLOCKS_NAMESPACE_TEMPLATE,
+    #             "static_docname": BUILDING_BLOCKS_DOCNAME,
+    #         },
+    #         "output_field_name": "building_blocks",
+    #         "is_shared": BUILDING_BLOCKS_IS_SHARED,
+    #         "is_system_entity": BUILDING_BLOCKS_IS_SYSTEM_ENTITY
+    #     }
+    # ]
     
     # Prepare workflow inputs
     WORKFLOW_RUNNER_INPUTS = {
         "entity_username": entity_username,
-        "customer_context_doc_configs": INPUT_DOCS_TO_BE_LOADED,
+        # "customer_context_doc_configs": INPUT_DOCS_TO_BE_LOADED,
         "execution_mode": execution_mode,
         "timeout_seconds": 600
     }

@@ -46,7 +46,8 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE,
     BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_VERSIONED,
     BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_SHARED,
-    BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY
+    BLOG_CONTENT_DIAGNOSTIC_REPORT_IS_SYSTEM_ENTITY,
+    BLOG_CONTENT_STRATEGY_IS_SHARED
 )
 
 # Import LLM inputs
@@ -71,9 +72,8 @@ from kiwi_client.workflows.active.playbook.llm_inputs.blog_content_playbook_gene
     PLAY_SELECTION_OUTPUT_SCHEMA,
     DOCUMENT_FETCHER_OUTPUT_SCHEMA,
     INITIAL_DOCUMENT_FETCHER_OUTPUT_SCHEMA,
-    PLAYBOOK_GENERATOR_OUTPUT_SCHEMA,
-    PLAYBOOK_GENERATION_OUTPUT_SCHEMA,
-)
+    PLAYBOOK_GENERATOR_OUTPUT_SCHEMA
+    )
 
 # Configuration constants
 LLM_PROVIDER = "anthropic"  # anthropic    openai
@@ -82,6 +82,11 @@ TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 MAX_TOOL_CALLS = 25  # Maximum total tool calls allowed
 MAX_FEEDBACK_ITERATIONS = 30  # Maximum LLM loop iterations # Maximum feedback loops to prevent infinite iterations
+
+
+MAX_TOKENS_FOR_TOOLS = 10000
+LLM_PROVIDER_FOR_TOOLS = "openai"  # anthropic    openai
+LLM_MODEL_FOR_TOOLS = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
 
 # Workflow JSON structure
 workflow_graph_schema = {
@@ -298,12 +303,13 @@ workflow_graph_schema = {
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": LLM_PROVIDER_FOR_TOOLS,
+                        "model": LLM_MODEL_FOR_TOOLS
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS,
-                    "reasoning_tokens_budget": 2048,
+                    "max_tokens": MAX_TOKENS_FOR_TOOLS,
+                    # "reasoning_tokens_budget": 2048,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {
                     "enable_tool_calling": True,
@@ -544,12 +550,13 @@ workflow_graph_schema = {
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": LLM_PROVIDER_FOR_TOOLS,
+                        "model": LLM_MODEL_FOR_TOOLS
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS,
-                    "reasoning_tokens_budget": 2048,
+                    "max_tokens": MAX_TOKENS_FOR_TOOLS,
+                    # "reasoning_tokens_budget": 2048,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {
                     "enable_tool_calling": True,
@@ -799,7 +806,7 @@ workflow_graph_schema = {
                     "is_versioned": BLOG_CONTENT_STRATEGY_IS_VERSIONED,
                     "operation": "upsert_versioned"
                 },
-                "global_is_shared": True,
+                "global_is_shared": BLOG_CONTENT_STRATEGY_IS_SHARED,
                 "store_configs": [
                     {
                         "input_field_path": "final_playbook",
@@ -814,8 +821,7 @@ workflow_graph_schema = {
                             "is_versioned": BLOG_CONTENT_STRATEGY_IS_VERSIONED,
                             "operation": "upsert_versioned",
                             "version": "default"
-                        },
-                        "generate_uuid": True,
+                        }
                     }
                 ],
             }
@@ -1024,7 +1030,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "document_fetcher_tool_executor",
             "mappings": [
-                {"src_field": "company_name", "dst_field": "entity_username"},
+                {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "document_fetcher_tool_calls", "dst_field": "tool_calls"}
             ]
         },
@@ -1221,7 +1227,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "feedback_tool_executor",
             "mappings": [
-                {"src_field": "company_name", "dst_field": "entity_username"},
+                {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "feedback_tool_calls", "dst_field": "tool_calls"}
             ]
         },
@@ -1364,20 +1370,7 @@ workflow_graph_schema = {
         {
             "src_node_id": "store_playbook",
             "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "document_serial_number", "dst_field": "playbook_document_id"}
-            ]
-        },
-        
-        # State -> Output
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "playbook_generator_output", "dst_field": "final_playbook"},
-                {"src_field": "selected_plays", "dst_field": "original_play_recommendations"},
-                {"src_field": "approved_plays", "dst_field": "approved_plays"}
-            ]
+            "mappings": [            ]
         }
     ],
     

@@ -49,7 +49,6 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     # Blog SEO Best Practices
     BLOG_SEO_BEST_PRACTICES_DOCNAME,
     BLOG_SEO_BEST_PRACTICES_NAMESPACE_TEMPLATE,
-    BLOG_SEO_BEST_PRACTICES_IS_VERSIONED,
     BLOG_SEO_BEST_PRACTICES_IS_SHARED,
     BLOG_SEO_BEST_PRACTICES_IS_SYSTEM_ENTITY,
 )
@@ -68,12 +67,19 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_brief_to_blog i
 )
 
 # Configuration constants
-LLM_PROVIDER = "openai"  # anthropic    openai
-LLM_MODEL = "gpt-4.1"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+# LLM_PROVIDER = "openai"  # anthropic    openai
+# LLM_MODEL = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 MAX_TOOL_CALLS = 15  # Maximum total tool calls allowed
 MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations
+
+# Providers per task
+TOOLCALL_LLM_PROVIDER = "openai"
+TOOLCALL_LLM_MODEL = "gpt-5"
+DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_LLM_MODEL = "gpt-5"
+
 
 # Workflow JSON structure
 workflow_graph_schema = {
@@ -91,7 +97,7 @@ workflow_graph_schema = {
                         "description": "Name of the company to analyze"
                     },
                     "brief_docname": { "type": "str", "required": True, "description": "Docname of the brief being used for drafting." },
-                    "post_uuid": { "type": "str", "required": True, "description": "UUID of the post being generated." },
+                    "post_uuid": { "type": "str", "required": True, "description": "UUID of the post being generated." }
                 }
             }
         },
@@ -152,9 +158,11 @@ workflow_graph_schema = {
                         "template": KNOWLEDGE_ENRICHMENT_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "blog_brief": None,
+                            "company_name": None
                         },
                         "construct_options": {
                             "blog_brief": "blog_brief",
+                            "company_name": "company_name"
                         }
                     },
                     "knowledge_enrichment_system_prompt": {
@@ -173,11 +181,12 @@ workflow_graph_schema = {
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": TOOLCALL_LLM_PROVIDER,
+                        "model": TOOLCALL_LLM_MODEL
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS
+                    "max_tokens": MAX_TOKENS,
+                    "reasoning_effort_class": "high"
                 },
                 "tool_calling_config": {
                     "enable_tool_calling": True,
@@ -207,7 +216,78 @@ workflow_graph_schema = {
             }
         },
         
-        # 5. Construct Content Generation Prompt
+        # 5a. Check Conditions for Knowledge Enrichment Tool Use
+        "check_conditions": {
+            "node_id": "check_conditions",
+            "node_name": "if_else_condition",
+            "node_config": {
+                "tagged_conditions": [
+                    {
+                        "tag": "iteration_limit_check",
+                        "condition_groups": [{
+                            "conditions": [{
+                                "field": "generation_metadata.iteration_count",
+                                "operator": "greater_than_or_equals",
+                                "value": MAX_LLM_ITERATIONS
+                            }]
+                        }]
+                    },
+                    {
+                        "tag": "tool_calls_empty",
+                        "condition_groups": [{
+                            "conditions": [{
+                                "field": "tool_calls",
+                                "operator": "is_empty"
+                            }]
+                        }]
+                    }
+                ],
+                "branch_logic_operator": "or"
+            }
+        },
+        
+        # 5b. Route Based on Conditions (no HITL)
+        "route_from_conditions": {
+            "node_id": "route_from_conditions",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["tool_executor", "construct_content_generation_prompt"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "tool_executor",
+                        "input_path": "tag_results.tool_calls_empty",
+                        "target_value": False
+                    },
+                    {
+                        "choice_id": "construct_content_generation_prompt",
+                        "input_path": "tag_results.iteration_limit_check",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "construct_content_generation_prompt",
+                        "input_path": "tag_results.tool_calls_empty",
+                        "target_value": True
+                    }
+                ],
+                "default_choice": "construct_content_generation_prompt"
+            }
+        },
+        
+        # 5c. Tool Executor (executes document tools)
+        "tool_executor": {
+            "node_id": "tool_executor",
+            "node_name": "tool_executor",
+            "node_config": {
+                "default_timeout": 30.0,
+                "max_concurrent_executions": 3,
+                "continue_on_error": True,
+                "include_error_details": True,
+                "map_executor_input_fields_to_tool_input": True
+            }
+        },
+
+        # 6. Construct Content Generation Prompt
         "construct_content_generation_prompt": {
             "node_id": "construct_content_generation_prompt",
             "node_name": "prompt_constructor",
@@ -238,15 +318,15 @@ workflow_graph_schema = {
             }
         },
         
-        # 6. Content Generation LLM
+        # 7. Content Generation LLM
         "content_generation_llm": {
             "node_id": "content_generation_llm",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": DEFAULT_LLM_PROVIDER,
+                        "model": DEFAULT_LLM_MODEL
                     },
                     "temperature": TEMPERATURE,
                     "max_tokens": MAX_TOKENS
@@ -258,7 +338,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 7. HITL Approval Node
+        # 8. HITL Approval Node
         "content_approval": {
             "node_id": "content_approval",
             "node_name": "hitl_node__default",
@@ -267,42 +347,58 @@ workflow_graph_schema = {
                 "fields": {
                     "user_action": {
                         "type": "enum",
-                        "enum_values": ["save_content", "provide_feedback"],
+                        "enum_values": ["complete", "revise_content", "cancel_workflow", "draft"],
                         "required": True,
                         "description": "User's decision on the generated content"
                     },
-                    "user_feedback": {
+                    "revision_feedback": {
                         "type": "str",
                         "required": False,
-                        "description": "User feedback for content improvement (required if action is provide_feedback)"
+                        "description": "Feedback for content improvement (required if action is revise_content)"
+                    },
+                    "updated_blog_content": {
+                        "type": "dict",
+                        "required": True,
+                        "description": "Updated blog content"
                     }
                 }
             }
         },
         
-        # 8. Route from HITL
-        "route_from_hitl": {
-            "node_id": "route_from_hitl",
+        # 9. Route from HITL (content approval)
+        "route_content_approval": {
+            "node_id": "route_content_approval",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["save_blog_post", "check_iteration_limit"],
+                "choices": ["save_blog_post", "check_iteration_limit", "output_node", "save_as_draft"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
                         "choice_id": "save_blog_post",
                         "input_path": "user_action",
-                        "target_value": "save_content"
+                        "target_value": "complete"
                     },
                     {
                         "choice_id": "check_iteration_limit",
                         "input_path": "user_action",
-                        "target_value": "provide_feedback"
+                        "target_value": "revise_content"
+                    },
+                    {
+                        "choice_id": "output_node",
+                        "input_path": "user_action",
+                        "target_value": "cancel_workflow"
+                    },
+                    {
+                        "choice_id": "save_as_draft",
+                        "input_path": "user_action",
+                        "target_value": "draft"
                     }
-                ]
+                ],
+                "default_choice": "output_node"
             }
         },
         
-        # 9. Check Iteration Limit
+        # 10. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
             "node_name": "if_else_condition",
@@ -325,7 +421,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 10. Route Based on Iteration Limit Check
+        # 11. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
             "node_name": "router_node",
@@ -347,7 +443,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 11. Construct Feedback Analysis Prompt
+        # 12. Construct Feedback Analysis Prompt
         "construct_feedback_analysis_prompt": {
             "node_id": "construct_feedback_analysis_prompt",
             "node_name": "prompt_constructor",
@@ -374,15 +470,15 @@ workflow_graph_schema = {
             }
         },
         
-        # 10. Feedback Analysis LLM with Tools
+        # 13. Feedback Analysis LLM with Tools
         "feedback_analysis_llm": {
             "node_id": "feedback_analysis_llm",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": LLM_PROVIDER,
-                        "model": LLM_MODEL
+                        "provider": DEFAULT_LLM_PROVIDER,
+                        "model": DEFAULT_LLM_MODEL
                     },
                     "temperature": TEMPERATURE,
                     "max_tokens": MAX_TOKENS
@@ -394,7 +490,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 11. Construct Feedback-based Content Update Prompt
+        # 14. Construct Feedback-based Content Update Prompt
         "construct_content_update_prompt": {
             "node_id": "construct_content_update_prompt",
             "node_name": "prompt_constructor",
@@ -421,7 +517,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 12. Save Blog Post Document
+        # 15. Save Blog Post Document
         "save_blog_post": {
             "node_id": "save_blog_post",
             "node_name": "store_customer_data",
@@ -442,6 +538,12 @@ workflow_graph_schema = {
                                 "input_docname_field": "post_uuid",
                             }
                         },
+                        "extra_fields": [
+                            {
+                                "src_path": "user_action",
+                                "dst_path": "status"
+                            }
+                        ],
                         "versioning": {
                             "is_versioned": BLOG_POST_IS_VERSIONED,
                             "operation": "upsert_versioned",
@@ -451,7 +553,42 @@ workflow_graph_schema = {
             }
         },
         
-        # 13. Output Node
+        # 15a. Save Blog Post as Draft (Store Customer Data)
+        "save_as_draft": {
+            "node_id": "save_as_draft",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": {
+                    "is_versioned": True,
+                    "operation": "upsert_versioned"
+                },
+                "store_configs": [
+                    {
+                        "input_field_path": "blog_content",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_POST_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "input_docname_field_pattern": BLOG_POST_DOCNAME,
+                                "input_docname_field": "post_uuid"
+                            }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "user_action",
+                                "dst_path": "status"
+                            }
+                        ],
+                        "versioning": {
+                            "is_versioned": BLOG_POST_IS_VERSIONED,
+                            "operation": "upsert_versioned"
+                        }
+                    }
+                ]
+            }
+        },
+        
+        # 16. Output Node
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
@@ -503,7 +640,8 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_knowledge_enrichment_prompt",
             "mappings": [
-                {"src_field": "blog_brief", "dst_field": "blog_brief"}
+                {"src_field": "blog_brief", "dst_field": "blog_brief"},
+                {"src_field": "company_name", "dst_field": "company_name"}
             ]
         },
         
@@ -522,7 +660,10 @@ workflow_graph_schema = {
             "src_node_id": "knowledge_enrichment_llm",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "structured_output", "dst_field": "knowledge_context"}
+                {"src_field": "structured_output", "dst_field": "knowledge_context"},
+                {"src_field": "current_messages", "dst_field": "messages_history"},
+                {"src_field": "metadata", "dst_field": "generation_metadata"},
+                {"src_field": "tool_calls", "dst_field": "latest_tool_calls"}
             ]
         },
         
@@ -544,6 +685,87 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "structured_output", "dst_field": "knowledge_context"}
             ]
+        },
+        
+        # Knowledge Enrichment LLM -> Check Conditions (for tool execution loop)
+        {
+            "src_node_id": "knowledge_enrichment_llm",
+            "dst_node_id": "check_conditions",
+            "mappings": [
+                {"src_field": "tool_calls", "dst_field": "tool_calls"},
+                {"src_field": "metadata", "dst_field": "generation_metadata"}
+            ]
+        },
+        
+        # State -> Check Conditions (pass latest tool calls and metadata)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "check_conditions",
+            "mappings": [
+                {"src_field": "latest_tool_calls", "dst_field": "tool_calls"},
+                {"src_field": "generation_metadata", "dst_field": "generation_metadata"}
+            ]
+        },
+        
+        # Check Conditions -> Router
+        {
+            "src_node_id": "check_conditions",
+            "dst_node_id": "route_from_conditions",
+            "mappings": [
+                {"src_field": "tag_results", "dst_field": "tag_results"},
+                {"src_field": "condition_result", "dst_field": "condition_result"}
+            ]
+        },
+        
+        # Router -> Tool Executor (control flow)
+        {
+            "src_node_id": "route_from_conditions",
+            "dst_node_id": "tool_executor"
+        },
+        
+        # State -> Tool Executor (provide context)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "tool_executor",
+            "mappings": [
+                {"src_field": "latest_tool_calls", "dst_field": "tool_calls"},
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "view_context", "dst_field": "view_context"}
+            ]
+        },
+        
+        # Tool Executor -> State (update view context and tool outputs)
+        {
+            "src_node_id": "tool_executor",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "tool_outputs", "dst_field": "latest_tool_outputs"},
+                {"src_field": "state_changes", "dst_field": "view_context"}
+            ]
+        },
+        
+        # Tool Executor -> Knowledge Enrichment LLM (continue the loop with tool outputs and messages)
+        {
+            "src_node_id": "tool_executor",
+            "dst_node_id": "knowledge_enrichment_llm",
+            "mappings": [
+                {"src_field": "tool_outputs", "dst_field": "tool_outputs"}
+            ]
+        },
+        
+        # State -> Knowledge Enrichment LLM (messages history for next iteration)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "knowledge_enrichment_llm",
+            "mappings": [
+                {"src_field": "messages_history", "dst_field": "messages_history"}
+            ]
+        },
+        
+        # Router -> Construct Content Generation Prompt (control flow when no tools or limit reached)
+        {
+            "src_node_id": "route_from_conditions",
+            "dst_node_id": "construct_content_generation_prompt"
         },
         
         # Content Generation Prompt -> Content Generation LLM
@@ -576,27 +798,29 @@ workflow_graph_schema = {
             ]
         },
         
-        # HITL -> Router
+        # HITL -> Router (content approval)
         {
             "src_node_id": "content_approval",
-            "dst_node_id": "route_from_hitl",
+            "dst_node_id": "route_content_approval",
             "mappings": [
                 {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
-        # HITL -> State (store user feedback)
+        # HITL -> State (store user edits and action)
         {
             "src_node_id": "content_approval",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "user_feedback", "dst_field": "user_feedback"}
+                {"src_field": "revision_feedback", "dst_field": "current_revision_feedback"},
+                {"src_field": "updated_blog_content", "dst_field": "blog_content"},
+                {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
         # Router -> Save Blog Post (control flow)
         {
-            "src_node_id": "route_from_hitl",
+            "src_node_id": "route_content_approval",
             "dst_node_id": "save_blog_post"
         },
         
@@ -608,42 +832,66 @@ workflow_graph_schema = {
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "blog_content", "dst_field": "blog_content"},
                 {"src_field": "post_uuid", "dst_field": "post_uuid"},
-                {"src_field": "brief_docname", "dst_field": "brief_docname"}
+                {"src_field": "brief_docname", "dst_field": "brief_docname"},
+                {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
         # Router -> Check Iteration Limit (control flow)
         {
-            "src_node_id": "route_from_hitl",
+            "src_node_id": "route_content_approval",
             "dst_node_id": "check_iteration_limit"
         },
         
-        # Check Iteration Limit edges
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "check_iteration_limit",
-            "mappings": [
-                {"src_field": "generation_metadata", "dst_field": "generation_metadata", "description": "Pass LLM metadata containing iteration count."}
-            ]
-        },
+        # Check Iteration Limit -> Route on Limit Check (pass results for routing)
         {
             "src_node_id": "check_iteration_limit",
             "dst_node_id": "route_on_limit_check",
             "mappings": [
-                {"src_field": "branch", "dst_field": "iteration_branch_result", "description": "Pass the branch taken ('true_branch' if limit not reached, 'false_branch' if reached)."},
-                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results", "description": "Pass detailed results per condition tag."},
-                {"src_field": "condition_result", "dst_field": "if_else_overall_condition_result", "description": "Pass the overall boolean result of the check."}
+                {"src_field": "branch", "dst_field": "iteration_branch_result"},
+                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results"},
+                {"src_field": "condition_result", "dst_field": "if_else_overall_condition_result"}
             ]
         },
+        
+        # Router -> Save as Draft (control flow)
         {
-            "src_node_id": "route_on_limit_check",
-            "dst_node_id": "construct_feedback_analysis_prompt",
-            "description": "Trigger feedback interpretation if iterations remain"
+            "src_node_id": "route_content_approval",
+            "dst_node_id": "save_as_draft"
         },
+        
+        # Router -> Output Node (workflow cancelled)
         {
-            "src_node_id": "route_on_limit_check",
-            "dst_node_id": "output_node",
-            "description": "Trigger finalization if iteration limit reached"
+            "src_node_id": "route_content_approval",
+            "dst_node_id": "output_node"
+        },
+        
+        # State -> Save as Draft
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "save_as_draft",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "blog_content", "dst_field": "blog_content"},
+                {"src_field": "post_uuid", "dst_field": "post_uuid"},
+                {"src_field": "brief_docname", "dst_field": "brief_docname"},
+                {"src_field": "user_action", "dst_field": "user_action"}
+            ]
+        },
+        
+        # Save as Draft -> HITL (loop back)
+        {
+            "src_node_id": "save_as_draft",
+            "dst_node_id": "content_approval"
+        },
+        
+        # State -> HITL (provide current blog content back to HITL)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "content_approval",
+            "mappings": [
+                {"src_field": "blog_content", "dst_field": "blog_content"}
+            ]
         },
         
         # State -> Feedback Analysis Prompt
@@ -652,7 +900,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_feedback_analysis_prompt",
             "mappings": [
                 {"src_field": "blog_content", "dst_field": "blog_content"},
-                {"src_field": "user_feedback", "dst_field": "user_feedback"}
+                {"src_field": "current_revision_feedback", "dst_field": "user_feedback"}
             ]
         },
         
@@ -707,10 +955,7 @@ workflow_graph_schema = {
         {
             "src_node_id": "save_blog_post",
             "dst_node_id": "output_node",
-            "mappings": [
-                {"src_field": "paths_processed", "dst_field": "final_blog_post_paths"},
-                {"src_field": "passthrough_data", "dst_field": "final_blog_post_data"}
-            ]
+            "mappings": []
         }
     ],
     
@@ -720,8 +965,13 @@ workflow_graph_schema = {
     "metadata": {
         "$graph_state": {
             "reducer": {
+                "messages_history": "add_messages",
                 "content_generation_messages": "add_messages",
-                "generation_metadata": "replace"
+                "generation_metadata": "replace",
+                "latest_tool_calls": "replace",
+                "latest_tool_outputs": "replace",
+                "view_context": "merge_dicts",
+                "user_action": "replace"
             }
         }
     }
@@ -792,7 +1042,7 @@ async def main_test_brief_to_blog():
     print(f"\n--- Starting {test_name} ---")
     
     # Test parameters
-    test_company_name = "Momentum"
+    test_company_name = "momentum"
     test_brief_uuid = "test_brief_001"
     test_brief_docname = f"blog_content_brief_{test_brief_uuid}"
     
@@ -1074,25 +1324,25 @@ async def main_test_brief_to_blog():
         ]
     }
     
-    # Create test SEO best practices data
-    test_seo_data = {
-        "title_best_practices": [
-            "Include primary keyword in title",
-            "Keep titles between 50-60 characters",
-            "Make titles compelling and clickable"
-        ],
-        "content_optimization": [
-            "Use header tags (H1, H2, H3) for structure",
-            "Include keywords naturally throughout content",
-            "Optimize for featured snippets with clear answers",
-            "Use internal and external links strategically"
-        ],
-        "meta_description_guidelines": [
-            "Keep between 150-160 characters",
-            "Include primary keyword",
-            "Write compelling copy that encourages clicks"
-        ]
-    }
+    # # Create test SEO best practices data
+    # test_seo_data = {
+    #     "title_best_practices": [
+    #         "Include primary keyword in title",
+    #         "Keep titles between 50-60 characters",
+    #         "Make titles compelling and clickable"
+    #     ],
+    #     "content_optimization": [
+    #         "Use header tags (H1, H2, H3) for structure",
+    #         "Include keywords naturally throughout content",
+    #         "Optimize for featured snippets with clear answers",
+    #         "Use internal and external links strategically"
+    #     ],
+    #     "meta_description_guidelines": [
+    #         "Keep between 150-160 characters",
+    #         "Include primary keyword",
+    #         "Write compelling copy that encourages clicks"
+    #     ]
+    # }
     
     # Setup test documents
     setup_docs: List[SetupDocInfo] = [
@@ -1107,28 +1357,28 @@ async def main_test_brief_to_blog():
             'is_system_entity': False
         },
         # Company guidelines document
-        {
-            'namespace': f"blog_company_profile_{test_company_name}",
-            'docname': BLOG_COMPANY_DOCNAME,
-            'initial_data': test_company_data,
-            'is_shared': False,
-            'is_versioned': False,
-            'initial_version': None,
-            'is_system_entity': False
-        },
+        # {
+        #     'namespace': f"blog_company_profile_{test_company_name}",
+        #     'docname': BLOG_COMPANY_DOCNAME,
+        #     'initial_data': test_company_data,
+        #     'is_shared': False,
+        #     'is_versioned': False,
+        #     'initial_version': "None",
+        #     'is_system_entity': False
+        # },
         # SEO best practices document (System Document)
-        {
-            'namespace': BLOG_SEO_BEST_PRACTICES_NAMESPACE_TEMPLATE,
-            'docname': BLOG_SEO_BEST_PRACTICES_DOCNAME,
-            'initial_data': test_seo_data,
-            'is_shared': BLOG_SEO_BEST_PRACTICES_IS_SHARED,
-            'is_versioned': BLOG_SEO_BEST_PRACTICES_IS_VERSIONED,
-            'initial_version': None,
-            'is_system_entity': BLOG_SEO_BEST_PRACTICES_IS_SYSTEM_ENTITY
-        },
+        # {
+        #     'namespace': BLOG_SEO_BEST_PRACTICES_NAMESPACE_TEMPLATE,
+        #     'docname': BLOG_SEO_BEST_PRACTICES_DOCNAME,
+        #     'initial_data': test_seo_data,
+        #     'is_shared': BLOG_SEO_BEST_PRACTICES_IS_SHARED,
+        #     'is_versioned': BLOG_SEO_BEST_PRACTICES_IS_VERSIONED,
+        #     'initial_version': None,
+        #     'is_system_entity': BLOG_SEO_BEST_PRACTICES_IS_SYSTEM_ENTITY
+        # },
         # Knowledge base documents for enrichment
         {
-            'namespace': f"knowledge_base_{test_company_name}",
+            'namespace': f"linkedin_uploaded_files_{test_company_name}",
             'docname': "ai_marketing_trends_2024",
             'initial_data': {
                 "title": "AI Marketing Trends 2024",
@@ -1138,7 +1388,7 @@ async def main_test_brief_to_blog():
             },
             'is_shared': False,
             'is_versioned': False,
-            'initial_version': None,
+            'initial_version': "None",
             'is_system_entity': False
         }
     ]
@@ -1152,20 +1402,20 @@ async def main_test_brief_to_blog():
             'is_versioned': True,
             'is_system_entity': False
         },
-        {
-            'namespace': f"blog_company_profile_{test_company_name}",
-            'docname': BLOG_COMPANY_DOCNAME,
-            'is_shared': False,
-            'is_versioned': False,
-            'is_system_entity': False
-        },
-        {
-            'namespace': BLOG_SEO_BEST_PRACTICES_NAMESPACE_TEMPLATE,
-            'docname': BLOG_SEO_BEST_PRACTICES_DOCNAME,
-            'is_shared': BLOG_SEO_BEST_PRACTICES_IS_SHARED,
-            'is_versioned': BLOG_SEO_BEST_PRACTICES_IS_VERSIONED,
-            'is_system_entity': BLOG_SEO_BEST_PRACTICES_IS_SYSTEM_ENTITY
-        },
+        # {
+        #     'namespace': f"blog_company_profile_{test_company_name}",
+        #     'docname': BLOG_COMPANY_DOCNAME,
+        #     'is_shared': False,
+        #     'is_versioned': False,
+        #     'is_system_entity': False
+        # },
+        # {
+        #     'namespace': BLOG_SEO_BEST_PRACTICES_NAMESPACE_TEMPLATE,
+        #     'docname': BLOG_SEO_BEST_PRACTICES_DOCNAME,
+        #     'is_shared': BLOG_SEO_BEST_PRACTICES_IS_SHARED,
+        #     'is_versioned': BLOG_SEO_BEST_PRACTICES_IS_VERSIONED,
+        #     'is_system_entity': BLOG_SEO_BEST_PRACTICES_IS_SYSTEM_ENTITY
+        # },
         {
             'namespace': f"knowledge_base_{test_company_name}",
             'docname': "ai_marketing_trends_2024",

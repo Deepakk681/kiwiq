@@ -686,7 +686,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         # Get app context and external context manager - following customer_data.py pattern
         runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
-        ext_context= runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : ExternalContextManager 
+        from workflow_service.services.external_context_manager import ExternalContextManager
+        ext_context: ExternalContextManager = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # 
         customer_data_service: CustomerDataService = ext_context.customer_data_service
         
         # Extract user and org info from app context
@@ -863,6 +864,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                         credit_type=CreditType.DOLLAR_CREDITS,
                         estimated_credits=estimated_cost,
                         operation_id=run_job.run_id,
+                        event_type="crawler_scraper__allocation",
                         metadata={
                             "node_type": "crawler_scraper",
                             "estimated_urls": estimated_urls,
@@ -939,6 +941,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                             operation_id=run_job.run_id,
                             actual_credits=actual_cost,
                             allocated_credits=allocated_credits,
+                            event_type="crawler_scraper__adjustment",
                             metadata={
                                 "node_type": "crawler_scraper",
                                 "actual_urls": actual_urls_count,

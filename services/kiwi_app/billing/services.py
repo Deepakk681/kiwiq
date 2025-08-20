@@ -286,7 +286,7 @@ class BillingService:
                 # Update consumption request for event logging
                 consumption_request.credit_type = consumption_result.credit_type
                 consumption_request.credits_consumed = consumption_result.consumed_in_dollar_credits
-                consumption_request.event_type = f"dollar_credit_fallback_for__{consumption_request.event_type}"
+                consumption_request.event_type = f"{consumption_request.event_type}__dollar_credit_fallback_for"
                 if consumption_request.metadata is not None:
                     consumption_request.metadata["dollar_credit_fallback"] = True
                     consumption_request.metadata["consumed_in_dollar_credits"] = consumption_result.consumed_in_dollar_credits
@@ -349,6 +349,7 @@ class BillingService:
         credit_type: CreditType,
         estimated_credits: float,
         operation_id: str,
+        event_type: str = "credit_allocation",
         metadata: Optional[Dict[str, Any]] = None
     ) -> schemas.CreditAllocationResult:
         """
@@ -365,6 +366,7 @@ class BillingService:
             credit_type: Type of credits to allocate
             estimated_credits: Estimated credits needed
             operation_id: Unique operation identifier
+            event_type: Type of event to create
             metadata: Optional operation metadata
             
         Returns:
@@ -393,7 +395,7 @@ class BillingService:
             allocation_event = schemas.CreditConsumptionRequest(
                 credit_type=credit_type,
                 credits_consumed=estimated_credits,
-                event_type="credit_allocation",
+                event_type=event_type,
                 metadata={
                     "operation_id": operation_id,
                     "is_allocation": True,
@@ -443,6 +445,7 @@ class BillingService:
         operation_id: str,
         actual_credits: float,
         allocated_credits: float,
+        event_type: str = "credit_adjustment",
         metadata: Optional[Dict[str, Any]] = None
     ) -> schemas.CreditAdjustmentResult:
         """
@@ -459,6 +462,7 @@ class BillingService:
             operation_id: Operation identifier
             actual_credits: Actual credits consumed
             allocated_credits: Previously allocated credits
+            event_type: Type of event to create
             metadata: Optional adjustment metadata
             
         Returns:
@@ -485,7 +489,7 @@ class BillingService:
                 adjustment_event = schemas.CreditConsumptionRequest(
                     credit_type=credit_type,
                     credits_consumed=adjustment_result.credit_difference,  # Use absolute value
-                    event_type="credit_adjustment",
+                    event_type=event_type,
                     metadata={
                         "operation_id": operation_id,
                         "is_adjustment": True,

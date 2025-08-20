@@ -11,7 +11,7 @@ import os
 from enum import Enum
 import re
 import time
-from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Literal, cast, get_origin, get_args, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Literal, cast, get_origin, get_args, Tuple, TYPE_CHECKING
 from functools import partial
 from operator import itemgetter
 from uuid import uuid4
@@ -112,6 +112,8 @@ from workflow_service.registry.nodes.llm.config import LLMModelProvider, PROVIDE
 from workflow_service.registry.schemas.base import create_dynamic_schema_with_fields
 # from workflow_service.services.external_context_manager import ExternalContextManager
 
+if TYPE_CHECKING:
+    from workflow_service.services.external_context_manager import ExternalContextManager
 
 class MessageType(str, Enum):
     """Message types."""
@@ -759,7 +761,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         config = config.get("configurable")
 
         app_context: Optional[Dict[str, Any]] = config.get(APPLICATION_CONTEXT_KEY)
-        ext_context = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
+        
+        ext_context: "ExternalContextManager" = config.get(EXTERNAL_CONTEXT_MANAGER_KEY)  # : Optional[ExternalContextManager]
         registry = ext_context.db_registry  # : Optional[DBRegistry]
 
         if not app_context or not ext_context:
@@ -802,7 +805,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         is_all_inbuild_tools = True
         if is_tool_use:
             assert model_metadata.tool_use, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support tool use!"
-            is_all_inbuild_tools, tool_use_chat_model, tools, tool_kwargs = self._bind_tools(chat_model, model_metadata, registry)
+            has_code_execution_tool, is_all_inbuild_tools, tool_use_chat_model, tools, tool_kwargs = self._bind_tools(chat_model, model_metadata, registry)
             if not is_structured_output:
                 chat_model = tool_use_chat_model
             # import ipdb; ipdb.set_trace()
@@ -848,7 +851,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             start_time = time.time()
             response, allocated_credits = await self._execute_model(
                 chat_model, messages_for_model, model_metadata, ext_context=ext_context, app_context=app_context,  # **tool_kwargs
-                )
+                has_code_execution_tool=has_code_execution_tool,
+            )
             # NOTE: 
             # if (not self.config.output_schema.is_output_str()): 
             #     # response is dict with keys {"raw": Any, "parsed": Any, "parsing_error": Optional[str]}
@@ -1475,6 +1479,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         assert model_metadata.tool_use, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support tool use!"
         tools = []
         is_all_inbuild_tools = True
+        has_code_execution_tool = False
         for tool_config in self.config.tools:
             tool_for_binding: Any
             if tool_config.is_provider_inbuilt_tool:
@@ -1485,6 +1490,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     )
                 
                 tool = model_metadata.inbuilt_tools[tool_config.tool_name]
+                if tool_config.tool_name.startswith("code_"):
+                    has_code_execution_tool = True
                 tool_class: Type[BaseProviderInternalTool] = tool["tool_class"]
                 
                 # Instantiate the tool with user_config if provided
@@ -1613,9 +1620,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             assert model_metadata.parallel_tool_calling_configurable, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support parallel tool calling!"
             kwargs["parallel_tool_calls"] = self.config.tool_calling_config.parallel_tool_calls
 
-        return is_all_inbuild_tools, model.bind_tools(tools=tools, **kwargs), tools, kwargs
+        return has_code_execution_tool, is_all_inbuild_tools, model.bind_tools(tools=tools, **kwargs), tools, kwargs
 
-    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context, app_context, **kwargs) -> Any:
+    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context: "ExternalContextManager", app_context, has_code_execution_tool: bool, **kwargs) -> Any:
         """Execute model with provider-specific streaming handling."""
         # if self.config.stream:
         #     return self._handle_streaming(model, messages)
@@ -1672,21 +1679,29 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 model_name=self.config.llm_config.model_spec.model,
                 max_output_tokens=self.config.llm_config.max_tokens
             )
+
+            extra_tool_costs = 0.0
+            if has_code_execution_tool:
+                extra_tool_costs = model_metadata.code_execution_tool_cost
             
             # Allocate credits based on estimated cost
             from kiwi_app.billing.models import CreditType
             async with get_async_db_as_manager() as db_session:
+                metadata = {
+                    "model_name": self.config.llm_config.model_spec.model,
+                    "provider": self.config.llm_config.model_spec.provider.value,
+                }
+                if extra_tool_costs > 0:
+                    metadata["extra_tool_costs"] = extra_tool_costs
                 await ext_context.billing_service.allocate_credits_for_operation(
                     db=db_session,
                     org_id=org_id,
                     user_id=user.id,
                     operation_id=run_job.run_id,
                     credit_type=CreditType.DOLLAR_CREDITS,
-                    estimated_credits=estimated_cost,
-                    metadata={
-                        "model_name": self.config.llm_config.model_spec.model,
-                        "provider": self.config.llm_config.model_spec.provider.value,
-                    }
+                    estimated_credits=estimated_cost + extra_tool_costs,
+                    event_type="llm_token_usage__allocation",
+                    metadata=metadata
                 )
             allocated_credits = estimated_cost
             self.info(f"Allocated ${allocated_credits:.6f} credits for LLM call")
@@ -1706,6 +1721,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 message["raw"] = message_chunk_to_message(message["raw"])
             # import ipdb; ipdb.set_trace()
             response = message
+        
         return (response, allocated_credits)
         # return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
         # return await shield(model.ainvoke)(messages, **invoke_kwargs)
@@ -1749,7 +1765,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         output_schema: Union[Type[BaseSchema], Dict[str, Any], None],
         model_metadata: ModelMetadata,
         app_context: Optional[Dict[str, Any]] = None,
-        ext_context = None,
+        ext_context: "ExternalContextManager" = None,
         allocated_credits: float = 0.0,
     ) -> LLMNodeOutputSchema:
         """Parse response, handle structured output validation/parsing, and format the final output.
@@ -1881,8 +1897,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                             credit_type=CreditType.DOLLAR_CREDITS,
                             allocated_credits=allocated_credits,
                             actual_credits=actual_cost,
+                            event_type="llm_token_usage__adjustment",
                             metadata={
-                                "model": self.config.llm_config.model_spec.model,
+                                "model_name": self.config.llm_config.model_spec.model,
                                 "provider": self.config.llm_config.model_spec.provider.value,
                                 "token_usage": metadata.token_usage,
                             }
@@ -2022,7 +2039,11 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                             credit_type=CreditType.WEB_SEARCHES,
                             credits_consumed=estimated_credits,
                             event_type="web_search",
-                            metadata={},
+                            metadata={
+                                "model_name": self.config.llm_config.model_spec.model,
+                                "provider": self.config.llm_config.model_spec.provider.value,
+                                "citation_count": citation_count,
+                            },
                         ),
                     )
                 self.info(f"Consumed estimated web search credits: allocated (type web search) ={estimated_credits:.6f}")

@@ -66,7 +66,10 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_user_input_
     # Brief feedback prompts
     BRIEF_FEEDBACK_SYSTEM_PROMPT,
     BRIEF_FEEDBACK_INITIAL_USER_PROMPT,
-    BRIEF_FEEDBACK_ADDITIONAL_USER_PROMPT,
+    
+    # Revision prompts (new)
+    BRIEF_REVISION_SYSTEM_PROMPT,
+    BRIEF_REVISION_USER_PROMPT_TEMPLATE,
     
     # Output schemas
     TOPIC_GENERATION_OUTPUT_SCHEMA,
@@ -77,14 +80,14 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_user_input_
 
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
-LLM_MODEL = "claude-3-7-sonnet-20250219"
+LLM_MODEL = "claude-sonnet-4-20250514"
 TEMPERATURE = 0.7
 MAX_TOKENS = 4000
 
 # Perplexity Configuration for Reddit Research
 PERPLEXITY_PROVIDER = "perplexity"
 PERPLEXITY_MODEL = "sonar-pro"
-PERPLEXITY_TEMPERATURE = 0.3
+PERPLEXITY_TEMPERATURE = 0.5
 PERPLEXITY_MAX_TOKENS = 3000
 
 # Workflow Limits
@@ -94,7 +97,7 @@ MAX_ITERATIONS = 10  # Maximum iterations for HITL feedback loops
 
 # Feedback LLM Configuration
 FEEDBACK_LLM_PROVIDER = "anthropic"
-FEEDBACK_ANALYSIS_MODEL = "claude-3-7-sonnet-20250219"
+FEEDBACK_ANALYSIS_MODEL = "claude-sonnet-4-20250514"
 FEEDBACK_TEMPERATURE = 0.5
 FEEDBACK_MAX_TOKENS = 3000 
 
@@ -123,6 +126,11 @@ workflow_graph_schema = {
                         "required": True,
                         "default": "draft",
                         "description": "Initial status of the workflow"
+                    },
+                    "brief_uuid": {
+                        "type": "str",
+                        "required": True,
+                        "description": "UUID of the brief being generated"
                     }
                 }
             }
@@ -215,19 +223,19 @@ workflow_graph_schema = {
                 "fields": {
                     "user_action": {
                         "type": "enum",
-                        "enum_values": ["accept_topic", "regenerate_topics", "cancel_workflow"],
+                        "enum_values": ["accept", "provide_feedback", "cancel_workflow"],
                         "required": True,
                         "description": "User's decision on topic and content type selection"
                     },
                     "selected_topic_id": {
                         "type": "str",
                         "required": False,
-                        "description": "Single topic_id selected by user (required if accept_topic)"
+                        "description": "Single topic_id selected by user (required if accept)"
                     },
                     "regeneration_feedback": {
                         "type": "str",
                         "required": False,
-                        "description": "Feedback for topic regeneration (required if regenerate_topics)"
+                        "description": "Feedback for topic regeneration (required if provide_feedback)"
                     }
                 }
             }
@@ -238,18 +246,18 @@ workflow_graph_schema = {
             "node_id": "route_topic_selection",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["filter_selected_topic", "construct_topic_regeneration_prompt", "output_node"],
+                "choices": ["filter_selected_topic", "check_topic_iteration_limit", "output_node"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
                         "choice_id": "filter_selected_topic",
                         "input_path": "user_action",
-                        "target_value": "accept_topic"
+                        "target_value": "accept"
                     },
                     {
-                        "choice_id": "construct_topic_regeneration_prompt",
+                        "choice_id": "check_topic_iteration_limit",
                         "input_path": "user_action",
-                        "target_value": "regenerate_topics"
+                        "target_value": "provide_feedback"
                     },
                     {
                         "choice_id": "output_node",
@@ -261,6 +269,51 @@ workflow_graph_schema = {
             }
         },
         
+        # 6.5. Check Topic Iteration Limit
+        "check_topic_iteration_limit": {
+            "node_id": "check_topic_iteration_limit",
+            "node_name": "if_else_condition",
+            "node_config": {
+                "tagged_conditions": [
+                    {
+                        "tag": "topic_iteration_limit_check",
+                        "condition_groups": [ {
+                            "logical_operator": "and",
+                            "conditions": [ {
+                                "field": "topic_generation_metadata.iteration_count",
+                                "operator": "less_than",
+                                "value": MAX_ITERATIONS
+                            } ]
+                        } ],
+                        "group_logical_operator": "and"
+                    }
+                ],
+                "branch_logic_operator": "and"
+            }
+        },
+
+        # 6.6. Route Based on Topic Iteration Limit Check
+        "route_on_topic_limit_check": {
+            "node_id": "route_on_topic_limit_check",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["construct_topic_regeneration_prompt", "output_node"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "construct_topic_regeneration_prompt",
+                        "input_path": "if_else_condition_tag_results.topic_iteration_limit_check",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "output_node",
+                        "input_path": "iteration_branch_result",
+                        "target_value": "false_branch"
+                    }
+                ]
+            }
+        },
+
         # 7. Topic Regeneration - Enhanced Prompt Constructor
         "construct_topic_regeneration_prompt": {
             "node_id": "construct_topic_regeneration_prompt",
@@ -401,7 +454,6 @@ workflow_graph_schema = {
                             "executive_profile": None,
                             "content_strategy": None,
                             "knowledge_base_research": None,
-                            "revision_feedback": None
                         },
                         "construct_options": {
                             "user_input": "user_input",
@@ -409,7 +461,6 @@ workflow_graph_schema = {
                             "executive_profile": "executive_profile_doc",
                             "content_strategy": "content_strategy_doc",
                             "knowledge_base_research": "knowledge_base_queries",
-                            "revision_feedback": ""
                         }
                     },
                     "brief_generation_system_prompt": {
@@ -457,19 +508,21 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "entity_username",
-                                "static_docname": LINKEDIN_BRIEF_DOCNAME,
+                                "input_docname_field_pattern": LINKEDIN_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
                             }
                         },
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
+                                "src_path": "initial_status",
                                 "dst_path": "status"
                             }
                         ],
                         "versioning": {
                             "is_versioned": LINKEDIN_BRIEF_IS_VERSIONED,
-                            "operation": "upsert_versioned"                        }
+                            "operation": "upsert_versioned"                        
+                    }
                     }
                 ],
             }
@@ -484,14 +537,14 @@ workflow_graph_schema = {
                 "fields": {
                     "user_brief_action": {
                         "type": "enum",
-                        "enum_values": ["complete", "revise_brief", "cancel_workflow", "draft"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow", "draft"],
                         "required": True,
                         "description": "User's decision on brief approval"
                     },
                     "revision_feedback": {
                         "type": "str",
                         "required": False,
-                        "description": "Feedback for brief revision (required if revise_brief)"
+                        "description": "Feedback for brief revision (required if provide_feedback)"
                     },
                     "updated_content_brief": {
                         "type": "dict",
@@ -499,6 +552,39 @@ workflow_graph_schema = {
                         "description": "Updated content brief with any manual edits"
                     }
                 }
+            }
+        },
+
+        # 15. Route Brief Approval
+        "route_brief_approval": {
+            "node_id": "route_brief_approval",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["check_iteration_limit", "output_node", "save_brief", "save_final_brief"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "save_final_brief",
+                        "input_path": "user_brief_action",
+                        "target_value": "complete"
+                    },
+                    {
+                        "choice_id": "check_iteration_limit",
+                        "input_path": "user_brief_action",
+                        "target_value": "provide_feedback"
+                    },
+                    {
+                        "choice_id": "output_node",
+                        "input_path": "user_brief_action",
+                        "target_value": "cancel_workflow"
+                    },
+                    {
+                        "choice_id": "save_brief",
+                        "input_path": "user_brief_action",
+                        "target_value": "draft"
+                    }
+                ],
+                "default_choice": "output_node"
             }
         },
 
@@ -518,8 +604,8 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "entity_username",
-                                "input_docname_field_pattern": "{item}",
-                                "input_docname_field": "brief_document_paths_processed.0.3.docname"
+                                "input_docname_field_pattern": LINKEDIN_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
                             }
                         },
                         "generate_uuid": True,
@@ -528,46 +614,9 @@ workflow_graph_schema = {
                                 "src_path": "initial_status",
                                 "dst_path": "status"
                             }
-                        ],
-                        "versioning": {
-                            "is_versioned": LINKEDIN_BRIEF_IS_VERSIONED,
-                            "operation": "upsert_versioned"
-                        }
+                        ]
                     }
                 ],
-            }
-        },
-
-        # 15. Route Brief Approval
-        "route_brief_approval": {
-            "node_id": "route_brief_approval",
-            "node_name": "router_node",
-            "node_config": {
-                "choices": ["check_iteration_limit", "output_node", "brief_approval_hitl", "save_final_brief"],
-                "allow_multiple": False,
-                "choices_with_conditions": [
-                    {
-                        "choice_id": "save_final_brief",
-                        "input_path": "user_brief_action",
-                        "target_value": "complete"
-                    },
-                    {
-                        "choice_id": "check_iteration_limit",
-                        "input_path": "user_brief_action",
-                        "target_value": "revise_brief"
-                    },
-                    {
-                        "choice_id": "output_node",
-                        "input_path": "user_brief_action",
-                        "target_value": "cancel_workflow"
-                    },
-                    {
-                        "choice_id": "brief_approval_hitl",
-                        "input_path": "user_brief_action",
-                        "target_value": "draft"
-                    }
-                ],
-                "default_choice": "output_node"
             }
         },
         
@@ -679,27 +728,19 @@ workflow_graph_schema = {
                 "prompt_templates": {
                     "brief_revision_user_prompt": {
                         "id": "brief_revision_user_prompt",
-                        "template": BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
+                        "template": BRIEF_REVISION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "user_input": None,
-                            "selected_topic": None,
-                            "executive_profile": None,
-                            "content_strategy": None,
-                            "knowledge_base_research": None,
-                            "revision_instructions": None
+                            "current_content_brief": None,
+                            "brief_feedback_analysis": None
                         },
                         "construct_options": {
-                            "user_input": "user_input",
-                            "selected_topic": "selected_topics",
-                            "executive_profile": "executive_profile_doc",
-                            "content_strategy": "content_strategy_doc",
-                            "knowledge_base_research": "knowledge_base_queries",
-                            "revision_instructions": "brief_feedback_analysis.overall_direction"
+                            "current_content_brief": "current_content_brief",
+                            "brief_feedback_analysis": "brief_feedback_analysis"
                         }
                     },
                     "brief_revision_system_prompt": {
                         "id": "brief_revision_system_prompt",
-                        "template": BRIEF_GENERATION_SYSTEM_PROMPT,
+                        "template": BRIEF_REVISION_SYSTEM_PROMPT,
                         "variables": {},
                     }
                 }
@@ -743,8 +784,8 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "entity_username",
-                                "input_docname_field_pattern": "{item}",
-                                "input_docname_field": "brief_document_paths_processed.0.3.docname"
+                                "input_docname_field_pattern": LINKEDIN_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
                             }
                         },
                         "versioning": {
@@ -754,7 +795,7 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
+                                "src_path": "user_brief_action",
                                 "dst_path": "status"
                             }
                         ]
@@ -793,7 +834,8 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "entity_username", "dst_field": "entity_username"},
                 {"src_field": "user_input", "dst_field": "user_input"},
-                {"src_field": "initial_status", "dst_field": "initial_status"}
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
             ]
         },
         
@@ -860,7 +902,8 @@ workflow_graph_schema = {
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "structured_output", "dst_field": "current_topic_suggestions"},
-                {"src_field": "current_messages", "dst_field": "topic_generation_messages_history"}
+                {"src_field": "current_messages", "dst_field": "topic_generation_messages_history"},
+                {"src_field": "metadata", "dst_field": "topic_generation_metadata", "description": "Store topic generation LLM metadata (e.g., iteration count)."}
             ]
         },
         
@@ -901,13 +944,39 @@ workflow_graph_schema = {
         },
         {
             "src_node_id": "route_topic_selection",
-            "dst_node_id": "construct_topic_regeneration_prompt",
-            "description": "Route to regenerate topics if requested"
+            "dst_node_id": "check_topic_iteration_limit",
+            "description": "Route to check iteration limit if topic regeneration requested"
         },
         {
             "src_node_id": "route_topic_selection",
             "dst_node_id": "output_node",
             "description": "Route to output if workflow cancelled"
+        },
+
+        # Check Topic Iteration Limit edges
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "check_topic_iteration_limit",
+            "mappings": [
+                {"src_field": "topic_generation_metadata", "dst_field": "topic_generation_metadata", "description": "Pass topic LLM metadata containing iteration count."}
+            ]
+        },
+        {
+            "src_node_id": "check_topic_iteration_limit",
+            "dst_node_id": "route_on_topic_limit_check",
+            "mappings": [
+                {"src_field": "branch", "dst_field": "iteration_branch_result", "description": "Pass the branch taken ('true_branch' if limit not reached, 'false_branch' if reached)."},
+                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results", "description": "Pass detailed results per condition tag."}            ]
+        },
+        {
+            "src_node_id": "route_on_topic_limit_check",
+            "dst_node_id": "construct_topic_regeneration_prompt",
+            "description": "Trigger topic regeneration if iterations remain"
+        },
+        {
+            "src_node_id": "route_on_topic_limit_check",
+            "dst_node_id": "output_node",
+            "description": "Exit if topic iteration limit reached"
         },
         
         # State -> Topic Regeneration Prompt Constructor
@@ -956,7 +1025,8 @@ workflow_graph_schema = {
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "structured_output", "dst_field": "current_topic_suggestions"},
-                {"src_field": "current_messages", "dst_field": "topic_generation_messages_history"}
+                {"src_field": "current_messages", "dst_field": "topic_generation_messages_history"},
+                {"src_field": "metadata", "dst_field": "topic_generation_metadata", "description": "Store topic regeneration LLM metadata (e.g., iteration count)."}
             ]
         },
         
@@ -1083,16 +1153,9 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "save_as_draft_after_brief_generation",
             "mappings": [
-                {"src_field": "initial_status", "dst_field": "user_action"},
-                {"src_field": "entity_username", "dst_field": "entity_username"}            ]
-        },
-
-        # Brief Generation LLM -> Brief Approval HITL
-        {
-            "src_node_id": "save_as_draft_after_brief_generation",
-            "dst_node_id": "$graph_state",
-            "mappings": [
-                {"src_field": "paths_processed", "dst_field": "brief_document_paths_processed"}
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "entity_username", "dst_field": "entity_username"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
             ]
         },
         
@@ -1107,26 +1170,6 @@ workflow_graph_schema = {
             "dst_node_id": "brief_approval_hitl",
             "mappings": [
                 {"src_field": "current_content_brief", "dst_field": "content_brief"}
-            ]
-        },
-
-        # Brief Approval HITL -> Save as Draft
-        {
-            "src_node_id": "brief_approval_hitl",
-            "dst_node_id": "save_brief",
-            "mappings": [
-                {"src_field": "updated_content_brief", "dst_field": "current_content_brief"}
-            ]
-        },
-
-        # Brief Approval HITL -> Brief Revision LLM
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "save_brief",
-            "mappings": [
-                {"src_field": "entity_username", "dst_field": "entity_username"},
-                {"src_field": "initial_status", "dst_field": "initial_status"},
-                {"src_field": "brief_document_paths_processed", "dst_field": "brief_document_paths_processed"}
             ]
         },
 
@@ -1163,9 +1206,26 @@ workflow_graph_schema = {
         },
         {
             "src_node_id": "route_brief_approval",
-            "dst_node_id": "brief_approval_hitl",
+            "dst_node_id": "save_brief",
             "description": "Route to brief approval if draft"
         },
+
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "save_brief",
+            "mappings": [
+                {"src_field": "entity_username", "dst_field": "entity_username"},
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"},
+                {"src_field": "current_content_brief", "dst_field": "current_content_brief"}
+            ]
+        },
+
+        {
+            "src_node_id": "save_brief",
+            "dst_node_id": "brief_approval_hitl"
+        },
+
         
         # Check Iteration Limit edges
         {
@@ -1180,9 +1240,7 @@ workflow_graph_schema = {
             "dst_node_id": "route_on_limit_check",
             "mappings": [
                 {"src_field": "branch", "dst_field": "iteration_branch_result", "description": "Pass the branch taken ('true_branch' if limit not reached, 'false_branch' if reached)."},
-                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results", "description": "Pass detailed results per condition tag."},
-                {"src_field": "condition_result", "dst_field": "if_else_overall_condition_result", "description": "Pass the overall boolean result of the check."}
-            ]
+                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results", "description": "Pass detailed results per condition tag."}            ]
         },
         {
             "src_node_id": "route_on_limit_check",
@@ -1252,11 +1310,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_brief_revision_prompt",
             "mappings": [
-                {"src_field": "user_input", "dst_field": "user_input"},
-                {"src_field": "selected_topics", "dst_field": "selected_topics"},
-                {"src_field": "executive_profile_doc", "dst_field": "executive_profile_doc"},
-                {"src_field": "content_strategy_doc", "dst_field": "content_strategy_doc"},
-                {"src_field": "knowledge_base_queries", "dst_field": "knowledge_base_queries"}
+                {"src_field": "current_content_brief", "dst_field": "current_content_brief"}
             ]
         },
         
@@ -1312,8 +1366,8 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "current_content_brief", "dst_field": "final_content_brief"},
                 {"src_field": "entity_username", "dst_field": "entity_username"},
-                {"src_field": "user_brief_action", "dst_field": "user_action"},
-                {"src_field": "brief_document_paths_processed", "dst_field": "brief_document_paths_processed"}
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
             ]
         },
 
@@ -1348,10 +1402,12 @@ workflow_graph_schema = {
                 "selected_topics": "replace",
                 "brief_feedback_analysis": "replace",
                 "user_action": "replace",
+                "user_brief_action": "replace",
                 "generation_metadata": "replace",
                 "topic_generation_messages_history": "add_messages",
                 "brief_generation_messages_history": "add_messages",
-                "brief_feedback_analysis_messages_history": "add_messages"
+                "brief_feedback_analysis_messages_history": "add_messages",
+                "topic_generation_metadata": "replace"
             }
         }
     }
@@ -1566,7 +1622,8 @@ async def main_test_content_brief_workflow():
     # Test inputs
     test_inputs = {
         "entity_username": test_entity_username,
-        "user_input": "I want to write about how AI is transforming project management for remote teams. I'm particularly interested in discussing the balance between automation and human leadership, and how executives can leverage AI tools without losing the personal connection with their teams. I'd also like to touch on the challenges we've seen with AI adoption in the workplace and practical tips for implementation."
+        "user_input": "I want to write about how AI is transforming project management for remote teams. I'm particularly interested in discussing the balance between automation and human leadership, and how executives can leverage AI tools without losing the personal connection with their teams. I'd also like to touch on the challenges we've seen with AI adoption in the workplace and practical tips for implementation.",
+        "brief_uuid": "draft_brief_uuid"
     }
     
     # Setup test documents
@@ -1609,28 +1666,329 @@ async def main_test_content_brief_workflow():
         }
     ]
     
-    # Predefined HITL inputs - testing check_iteration_limit functionality
+    # Predefined HITL inputs
     predefined_hitl_inputs = [
-        # # First HITL: Topic selection - accept first topic
-        # {"user_action": "accept_topic", "selected_topic_id": "topic_01"},
-        # # Second HITL: Brief approval - request revision to test iteration tracking
-        # {"user_brief_action": "revise_brief", "user_feedback": "Please add more specific examples and data points"},
-        # # Third HITL: Brief approval - request another revision
-        # {"user_brief_action": "revise_brief", "user_feedback": "Need more detail on implementation strategies"},
-        # # Fourth HITL: Brief approval - complete the workflow
-        # {"user_brief_action": "complete"}
+        # 1) Topic selection: provide feedback once (triggers one regeneration loop)
+        {
+            "user_action": "provide_feedback",
+            "selected_topic_id": None,
+            "regeneration_feedback": "These are promising. Please propose options that emphasize remote team connection impact and an executive decision framework for what to automate vs. where human leadership is essential."
+        },
+        # 2) Topic selection (after regeneration): accept a specific topic
+        {
+            "user_action": "accept",
+            "selected_topic_id": "topic_01",
+            "regeneration_feedback": None
+        },
+        # 3) Brief approval: provide feedback first (allows one revision loop)
+        {
+            "user_action": "provide_feedback",
+            "revision_feedback": "Tighten the hook and add one concrete remote-team scenario. Keep the 80/20 framing, but make success metrics more specific.",
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "The 80/20 Rule of AI in Project Management",
+                    "content_type": "LinkedIn Post",
+                    "content_format": "Thought leadership with practical framework",
+                    "target_audience": "Operations Managers and Project Managers at 50-500 employee tech companies",
+                    "content_goal": "Educate executives on where to apply AI vs. retain human leadership in PM",
+                    "key_message": "Use AI for high-leverage, repetitive PM tasks and preserve human judgment for people, priorities, and context.",
+                    "content_structure": [
+                        {
+                            "section_title": "Hook & Context",
+                            "key_points": [
+                                "Executives wrestle with what to automate vs. what needs human leadership",
+                                "A simple 80/20 model clarifies where AI delivers outsized leverage"
+                            ],
+                            "estimated_word_count": 60
+                        },
+                        {
+                            "section_title": "80/20 Framework",
+                            "key_points": [
+                                "Automate: status reporting, basic risk flags, capacity snapshots, meeting notes",
+                                "Keep Human: prioritization trade-offs, stakeholder alignment, coaching, escalation calls"
+                            ],
+                            "estimated_word_count": 140
+                        },
+                        {
+                            "section_title": "Examples & Tools",
+                            "key_points": [
+                                "Real examples of AI assisting remote teams without reducing connection",
+                                "Tool patterns that augment—not replace—relationships"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "Implementation Tips",
+                            "key_points": [
+                                "Start with low-risk automations and expand",
+                                "Define decision guardrails and human-in-the-loop checkpoints"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "CTA",
+                            "key_points": [
+                                "Invite readers to share their biggest AI adoption challenge",
+                                "Offer a checklist to assess AI readiness"
+                            ],
+                            "estimated_word_count": 60
+                        }
+                    ],
+                    "seo_keywords": [
+                        "AI in project management",
+                        "human-in-the-loop",
+                        "remote teams",
+                        "automation best practices"
+                    ],
+                    "call_to_action": "Comment your top AI adoption challenge and get the AI readiness checklist.",
+                    "success_metrics": "Engagement rate, saves, qualified inbound conversations, and 2 exec follow-up calls",
+                    "estimated_total_word_count": 500,
+                    "difficulty_level": "Intermediate",
+                    "writing_guidelines": [
+                        "Conversational yet authoritative tone",
+                        "Data-informed with practical examples",
+                        "Emphasize augmentation over replacement"
+                    ],
+                    "knowledge_base_sources": [
+                        "Internal implementation notes",
+                        "Public case studies on AI-assisted PM",
+                        "Vendor documentation for summarization and risk flagging tools"
+                    ]
+                }
+            }
+        },
+        # 4) Brief approval: save as draft (avoid hitting iteration limits)
+        {
+            "user_action": "draft",
+            "revision_feedback": None,
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "The 80/20 Rule of AI in Project Management",
+                    "content_type": "LinkedIn Post",
+                    "content_format": "Thought leadership with practical framework",
+                    "target_audience": "Operations Managers and Project Managers at 50-500 employee tech companies",
+                    "content_goal": "Educate executives on where to apply AI vs. retain human leadership in PM",
+                    "key_message": "Use AI for high-leverage, repetitive PM tasks and preserve human judgment for people, priorities, and context.",
+                    "content_structure": [
+                        {
+                            "section_title": "Hook & Context",
+                            "key_points": [
+                                "Executives wrestle with what to automate vs. what needs human leadership",
+                                "A simple 80/20 model clarifies where AI delivers outsized leverage"
+                            ],
+                            "estimated_word_count": 60
+                        },
+                        {
+                            "section_title": "80/20 Framework",
+                            "key_points": [
+                                "Automate: status reporting, basic risk flags, capacity snapshots, meeting notes",
+                                "Keep Human: prioritization trade-offs, stakeholder alignment, coaching, escalation calls"
+                            ],
+                            "estimated_word_count": 140
+                        },
+                        {
+                            "section_title": "Examples & Tools",
+                            "key_points": [
+                                "Real examples of AI assisting remote teams without reducing connection",
+                                "Tool patterns that augment—not replace—relationships"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "Implementation Tips",
+                            "key_points": [
+                                "Start with low-risk automations and expand",
+                                "Define decision guardrails and human-in-the-loop checkpoints"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "CTA",
+                            "key_points": [
+                                "Invite readers to share their biggest AI adoption challenge",
+                                "Offer a checklist to assess AI readiness"
+                            ],
+                            "estimated_word_count": 60
+                        }
+                    ],
+                    "seo_keywords": [
+                        "AI in project management",
+                        "human-in-the-loop",
+                        "remote teams",
+                        "automation best practices"
+                    ],
+                    "call_to_action": "Comment your top AI adoption challenge and get the AI readiness checklist.",
+                    "success_metrics": "Engagement rate, saves, and qualified inbound conversations",
+                    "estimated_total_word_count": 500,
+                    "difficulty_level": "Intermediate",
+                    "writing_guidelines": [
+                        "Conversational yet authoritative tone",
+                        "Data-informed with practical examples",
+                        "Emphasize augmentation over replacement"
+                    ],
+                    "knowledge_base_sources": [
+                        "Internal implementation notes",
+                        "Public case studies on AI-assisted PM",
+                        "Vendor documentation for summarization and risk flagging tools"
+                    ]
+                }
+            }
+        },
+        # 5) Brief approval: provide feedback again, then proceed to save in next step
+        {
+            "user_action": "provide_feedback",
+            "revision_feedback": "Looks good. Please make the CTA more outcome-oriented and add one metric example (e.g., 20% faster status reporting).",
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "The 80/20 Rule of AI in Project Management",
+                    "content_type": "LinkedIn Post",
+                    "content_format": "Thought leadership with practical framework",
+                    "target_audience": "Operations Managers and Project Managers at 50-500 employee tech companies",
+                    "content_goal": "Educate executives on where to apply AI vs. retain human leadership in PM",
+                    "key_message": "Use AI for high-leverage, repetitive PM tasks and preserve human judgment for people, priorities, and context.",
+                    "content_structure": [
+                        {
+                            "section_title": "Hook & Context",
+                            "key_points": [
+                                "Executives wrestle with what to automate vs. what needs human leadership",
+                                "A simple 80/20 model clarifies where AI delivers outsized leverage"
+                            ],
+                            "estimated_word_count": 60
+                        },
+                        {
+                            "section_title": "80/20 Framework",
+                            "key_points": [
+                                "Automate: status reporting, basic risk flags, capacity snapshots, meeting notes",
+                                "Keep Human: prioritization trade-offs, stakeholder alignment, coaching, escalation calls"
+                            ],
+                            "estimated_word_count": 140
+                        },
+                        {
+                            "section_title": "Examples & Tools",
+                            "key_points": [
+                                "Real examples of AI assisting remote teams without reducing connection",
+                                "Tool patterns that augment—not replace—relationships"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "Implementation Tips",
+                            "key_points": [
+                                "Start with low-risk automations and expand",
+                                "Define decision guardrails and human-in-the-loop checkpoints"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "CTA",
+                            "key_points": [
+                                "Invite readers to share their biggest AI adoption challenge",
+                                "Offer a checklist to assess AI readiness"
+                            ],
+                            "estimated_word_count": 60
+                        }
+                    ],
+                    "seo_keywords": [
+                        "AI in project management",
+                        "human-in-the-loop",
+                        "remote teams",
+                        "automation best practices"
+                    ],
+                    "call_to_action": "Comment your top AI adoption challenge and get the AI readiness checklist.",
+                    "success_metrics": "Engagement rate, saves, qualified inbound conversations, and 2 exec follow-up calls",
+                    "estimated_total_word_count": 500,
+                    "difficulty_level": "Intermediate",
+                    "writing_guidelines": [
+                        "Conversational yet authoritative tone",
+                        "Data-informed with practical examples",
+                        "Emphasize augmentation over replacement"
+                    ],
+                    "knowledge_base_sources": [
+                        "Internal implementation notes",
+                        "Public case studies on AI-assisted PM",
+                        "Vendor documentation for summarization and risk flagging tools"
+                    ]
+                }
+            }
+        },
+        # 6) Brief approval: complete (save final)
+        {
+            "user_action": "complete",
+            "revision_feedback": None,
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "The 80/20 Rule of AI in Project Management",
+                    "content_type": "LinkedIn Post",
+                    "content_format": "Thought leadership with practical framework",
+                    "target_audience": "Operations Managers and Project Managers at 50-500 employee tech companies",
+                    "content_goal": "Educate executives on where to apply AI vs. retain human leadership in PM",
+                    "key_message": "Use AI for high-leverage, repetitive PM tasks and preserve human judgment for people, priorities, and context.",
+                    "content_structure": [
+                        {
+                            "section_title": "Hook & Context",
+                            "key_points": [
+                                "Executives wrestle with what to automate vs. what needs human leadership",
+                                "A simple 80/20 model clarifies where AI delivers outsized leverage"
+                            ],
+                            "estimated_word_count": 60
+                        },
+                        {
+                            "section_title": "80/20 Framework",
+                            "key_points": [
+                                "Automate: status reporting, basic risk flags, capacity snapshots, meeting notes",
+                                "Keep Human: prioritization trade-offs, stakeholder alignment, coaching, escalation calls"
+                            ],
+                            "estimated_word_count": 140
+                        },
+                        {
+                            "section_title": "Examples & Tools",
+                            "key_points": [
+                                "Real examples of AI assisting remote teams without reducing connection",
+                                "Tool patterns that augment—not replace—relationships"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "Implementation Tips",
+                            "key_points": [
+                                "Start with low-risk automations and expand",
+                                "Define decision guardrails and human-in-the-loop checkpoints"
+                            ],
+                            "estimated_word_count": 120
+                        },
+                        {
+                            "section_title": "CTA",
+                            "key_points": [
+                                "Invite readers to share their biggest AI adoption challenge",
+                                "Offer a checklist to assess AI readiness"
+                            ],
+                            "estimated_word_count": 60
+                        }
+                    ],
+                    "seo_keywords": [
+                        "AI in project management",
+                        "human-in-the-loop",
+                        "remote teams",
+                        "automation best practices"
+                    ],
+                    "call_to_action": "Comment your top AI adoption challenge and get the AI readiness checklist.",
+                    "success_metrics": "Engagement rate, saves, and qualified inbound conversations",
+                    "estimated_total_word_count": 500,
+                    "difficulty_level": "Intermediate",
+                    "writing_guidelines": [
+                        "Conversational yet authoritative tone",
+                        "Data-informed with practical examples",
+                        "Emphasize augmentation over replacement"
+                    ],
+                    "knowledge_base_sources": [
+                        "Internal implementation notes",
+                        "Public case studies on AI-assisted PM",
+                        "Vendor documentation for summarization and risk flagging tools"
+                    ]
+                }
+            }
+        }
     ]
-    
-    # VALID HUMAN INPUTS FOR MANUAL TESTING:
-    # Topic Selection HITL:
-    # {"user_action": "regenerate_topics", "regeneration_feedback": "Please generate more technical topics"}
-    # {"user_action": "cancel_workflow"}
-    # 
-    # Brief Approval HITL:
-    # {"user_action": "complete", "updated_content_brief": {content_brief with user edits}}
-    # {"user_action": "revise_brief", "revision_feedback": "Please add more practical examples", "updated_content_brief": {manually edited content_brief}}
-    # {"user_action": "draft", "updated_content_brief": {content_brief}}
-    # {"user_action": "cancel_workflow", "updated_content_brief": {content_brief}}
     
     # Execute the test
     final_run_status_obj, final_run_outputs = await run_workflow_test(

@@ -23,6 +23,8 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     LINKEDIN_SCRAPED_PROFILE_NAMESPACE_TEMPLATE,
     LINKEDIN_USER_AI_VISIBILITY_TEST_DOCNAME,
     LINKEDIN_USER_AI_VISIBILITY_TEST_NAMESPACE_TEMPLATE,
+    LINKEDIN_USER_AI_VISIBILITY_RAW_DATA_DOCNAME,
+    LINKEDIN_UPLOADED_FILES_NAMESPACE_TEMPLATE,
 )
 
 from kiwi_client.workflows.active.content_diagnostics.llm_inputs.executive_ai_visibility import (
@@ -38,8 +40,8 @@ from kiwi_client.workflows.active.content_diagnostics.llm_inputs.executive_ai_vi
 # LLM defaults
 LLM_PROVIDER = "anthropic"
 LLM_MODEL = "claude-sonnet-4-20250514"
-LLM_TEMPERATURE = 0.2
-LLM_MAX_TOKENS = 3000
+LLM_TEMPERATURE = 0.5
+LLM_MAX_TOKENS = 5000
 
 workflow_graph_schema = {
     "nodes": {
@@ -128,6 +130,30 @@ workflow_graph_schema = {
             }
         },
 
+        # Store raw scraper results to uploaded_files namespace
+        "store_exec_raw_scraper_results": {
+            "node_id": "store_exec_raw_scraper_results",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "store_configs": [
+                    {
+                        "input_field_path": "query_results",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": LINKEDIN_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "entity_username",
+                                "static_docname": LINKEDIN_USER_AI_VISIBILITY_RAW_DATA_DOCNAME
+                            }
+                        },
+                        "generate_uuid": True
+                    }
+                ],
+                "global_is_shared": False,
+                "global_is_system_entity": False,
+                "global_versioning": {"is_versioned": False, "operation": "upsert"}
+            }
+        },
+
         # 6.3 Executive Visibility Report
         "construct_exec_report_prompt": {
             "node_id": "construct_exec_report_prompt",
@@ -181,12 +207,7 @@ workflow_graph_schema = {
             "node_id": "output_node",
             "node_name": "output_node",
             "node_config": {},
-            "dynamic_input_schema": {
-                "fields": {
-                    "exec_ai_job_id": {"type": "str", "required": False},
-                    "stored_exec_report_paths": {"type": "any", "required": False},
-                }
-            },
+            "enable_node_fan_in": True,
         },
     },
     "edges": [
@@ -228,6 +249,14 @@ workflow_graph_schema = {
             {"src_field": "entity_username", "dst_field": "entity_name"}
         ]},
 
+        # Store raw scraper results to uploaded_files namespace
+        {"src_node_id": "exec_ai_query", "dst_node_id": "store_exec_raw_scraper_results", "mappings": [
+            {"src_field": "query_results", "dst_field": "query_results"}
+        ]},
+        {"src_node_id": "$graph_state", "dst_node_id": "store_exec_raw_scraper_results", "mappings": [
+            {"src_field": "entity_username", "dst_field": "entity_username"}
+        ]},
+
         # Construct report prompts
         {"src_node_id": "exec_ai_query", "dst_node_id": "construct_exec_report_prompt", "mappings": [
             {"src_field": "query_results", "dst_field": "loaded_query_results"}
@@ -258,12 +287,12 @@ workflow_graph_schema = {
 
         # Output mapping from state
         {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "exec_ai_job_id", "dst_field": "exec_ai_job_id"},
-            {"src_field": "stored_exec_report_paths", "dst_field": "stored_exec_report_paths"},
         ]},
 
         # Direct output connections from storage nodes
-        {"src_node_id": "store_exec_report", "dst_node_id": "output_node"},
+        {"src_node_id": "store_exec_report", "dst_node_id": "output_node", "mappings": [
+            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+        ]},
     ],
     # --- Define Start and End ---
     "input_node_id": "input_node",

@@ -22,7 +22,7 @@ import asyncio
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Union, ClassVar, Type, Tuple, Set
+from typing import List, Dict, Any, Optional, Union, ClassVar, Type, Tuple, Set, TYPE_CHECKING
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -35,6 +35,10 @@ from workflow_service.registry.nodes.core.dynamic_nodes import DynamicSchema, Ba
 from workflow_service.registry.schemas.base import BaseNodeConfig, BaseSchema
 from kiwi_app.workflow_app.constants import LaunchStatus
 from workflow_service.config.constants import APPLICATION_CONTEXT_KEY, EXTERNAL_CONTEXT_MANAGER_KEY
+
+if TYPE_CHECKING:
+    from workflow_service.services.external_context_manager import ExternalContextManager
+    from kiwi_app.billing.services import BillingService
 
 # Billing imports
 from kiwi_app.billing.exceptions import InsufficientCreditsException
@@ -422,7 +426,7 @@ class CacheManager:
 class BillingHandler:
     """Handles billing operations for scraping."""
     
-    def __init__(self, billing_service, logger):
+    def __init__(self, billing_service: "BillingService", logger):
         self.billing_service = billing_service
         self.logger = logger
     
@@ -450,6 +454,7 @@ class BillingHandler:
                     credit_type=CreditType.DOLLAR_CREDITS,
                     estimated_credits=estimated_cost,
                     operation_id=run_id,
+                    event_type="ai_answer_engine_scraper__allocation",
                     metadata={
                         "node_type": "ai_answer_engine_scraper",
                         "query_count": query_count,
@@ -495,6 +500,7 @@ class BillingHandler:
                     operation_id=run_id,
                     actual_credits=actual_cost,
                     allocated_credits=allocated_credits,
+                    event_type="ai_answer_engine_scraper__adjustment",
                     metadata={
                         "node_type": "ai_answer_engine_scraper",
                         "successful_queries": successful_queries,
@@ -1074,7 +1080,7 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
         # Get app context and external context manager
         runtime_config = runtime_config.get("configurable")
         app_context: Optional[Dict[str, Any]] = runtime_config.get(APPLICATION_CONTEXT_KEY)
-        ext_context = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
+        ext_context: "ExternalContextManager" = runtime_config.get(EXTERNAL_CONTEXT_MANAGER_KEY)
         customer_data_service: CustomerDataService = ext_context.customer_data_service
         
         # Extract user and org info from app context
