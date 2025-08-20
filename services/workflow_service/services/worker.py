@@ -825,6 +825,7 @@ async def trigger_workflow_run(
     resume_after_hitl: Optional[bool] = False,
     prefect_run_ids: Optional[str] = None,
     streaming_mode: Optional[bool] = True,
+    parent_run_id: Optional[uuid.UUID] = None,
 ) -> FlowRun:
     """
     Helper function to trigger a workflow run via the Prefect deployment.
@@ -840,6 +841,8 @@ async def trigger_workflow_run(
         resume_after_hitl: Optional flag to resume after HITL
         prefect_run_ids: Optional Prefect flow run ID for resuming runs
         streaming_mode: Optional flag to enable/disable streaming mode
+        parent_run_id: Optional parent run ID for subflows
+
     Returns:
         uuid.UUID: The run ID of the triggered flow
     """
@@ -875,7 +878,8 @@ async def trigger_workflow_run(
     flow_run = await run_deployment(
         name="workflow-execution/prod",  # References the deployment name below
         parameters={"run_job": run_job},   # .model_dump(mode='json')}, # Ensure proper serialization
-        timeout=0  # Don't wait for completion
+        timeout=0,  # Don't wait for completion
+        tags=["subflow", f"parent:{parent_run_id}"] if parent_run_id is not None else None,
     )
     from global_config.logger import get_logger
     get_logger(__name__).info(f"Triggered deployment 'workflow-execution/prod' for Run ID: {run_id} (Prefect Flow Run ID: {flow_run.id})")
