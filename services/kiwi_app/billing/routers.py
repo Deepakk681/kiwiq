@@ -393,7 +393,7 @@ async def get_usage_events(
     sort_by: str = Query("created_at", description="Field to sort by (created_at, credits_consumed, event_type)"),
     sort_order: schemas.SortOrder = Query(schemas.SortOrder.DESC, description="Sort order"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    limit: int = Query(100, ge=1, le=2000, description="Maximum number of records to return"),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(dependencies.RequireBillingReadActiveOrg),
     db: AsyncSession = Depends(get_async_db_dependency),

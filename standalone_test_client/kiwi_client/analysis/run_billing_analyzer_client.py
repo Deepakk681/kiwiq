@@ -235,7 +235,7 @@ class RunBillingAnalyzerClient:
         run_id_str = str(run_id)
         all_events = []
         skip = 0
-        limit = 1000
+        limit = 2000
         
         while True:
             # Query billing events with run_id in metadata
