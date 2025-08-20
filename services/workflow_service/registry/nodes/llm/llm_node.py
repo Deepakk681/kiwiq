@@ -803,6 +803,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         tool_kwargs = {}
         tools = []
         is_all_inbuild_tools = True
+        has_code_execution_tool = False
         if is_tool_use:
             assert model_metadata.tool_use, f"Model {model_metadata.provider.value} -> `{model_metadata.model_name}` does not support tool use!"
             has_code_execution_tool, is_all_inbuild_tools, tool_use_chat_model, tools, tool_kwargs = self._bind_tools(chat_model, model_metadata, registry)
