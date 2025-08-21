@@ -67,6 +67,9 @@ async def get_document(
         on_behalf_of_user_id=on_behalf_of_user_id,
         is_system_entity=is_system_entity,
     )
+
+    if not document_result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document {namespace}/{docname} not found")
     
     customer_data_logger.debug(f"Retrieved document {namespace}/{docname} (versioned: {document_result.metadata.is_versioned})")
     return document_result
