@@ -869,6 +869,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                             "node_type": "crawler_scraper",
                             "estimated_urls": estimated_urls,
                             "price_per_url": scraping_settings.CRAWLER_SCRAPER_PRICE_PER_URL,
+                            "node_id": self.node_id,
+                            "node_name": self.node_name,
                             # "start_urls": input_data.start_urls,
                             # "allowed_domains": input_data.allowed_domains,
                         }
@@ -947,6 +949,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                                 "actual_urls": actual_urls_count,
                                 "estimated_urls": estimated_urls,
                                 "price_per_url": scraping_settings.CRAWLER_SCRAPER_PRICE_PER_URL,
+                                "node_id": self.node_id,
+                                "node_name": self.node_name,
                                 # "namespaces": list(namespaces.keys()),
                             }
                         )

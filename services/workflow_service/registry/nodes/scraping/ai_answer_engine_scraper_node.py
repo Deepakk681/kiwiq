@@ -426,9 +426,10 @@ class CacheManager:
 class BillingHandler:
     """Handles billing operations for scraping."""
     
-    def __init__(self, billing_service: "BillingService", logger):
+    def __init__(self, billing_service: "BillingService", node: "AIAnswerEngineScraperNode"):
         self.billing_service = billing_service
-        self.logger = logger
+        self.node = node
+        self.logger = node
     
     async def allocate_credits(
         self,
@@ -461,6 +462,8 @@ class BillingHandler:
                         "enabled_providers": enabled_providers_count,
                         "total_api_calls": total_api_calls,
                         "price_per_query": scraping_settings.AI_ANSWER_ENGINE_PRICE_PER_QUERY,
+                        "node_id": self.node.node_id,
+                        "node_name": self.node.node_name,
                     }
                 )
             
@@ -507,6 +510,8 @@ class BillingHandler:
                         "failed_queries": failed_queries,
                         "cached_queries": cached_queries,
                         "price_per_query": scraping_settings.AI_ANSWER_ENGINE_PRICE_PER_QUERY,
+                        "node_id": self.node.node_id,
+                        "node_name": self.node.node_name,
                     }
                 )
             

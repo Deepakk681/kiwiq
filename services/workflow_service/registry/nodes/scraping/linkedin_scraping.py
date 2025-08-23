@@ -580,6 +580,8 @@ class LinkedInScrapingNode(BaseDynamicNode):
                         metadata={
                             "operation_type": "linkedin_scraping",
                             "job_count": len(all_tasks),
+                            "node_id": self.node_id,
+                            "node_name": self.node_name,
                         }
                     )
                 allocated_credits = total_estimated_credits
@@ -709,6 +711,8 @@ class LinkedInScrapingNode(BaseDynamicNode):
                             "successful_jobs": sum(s["successful"] for s in execution_summary.values()),
                             "failed_jobs": sum(s["failed"] for s in execution_summary.values()),
                             "refunded_credits": failed_job_credits,
+                            "node_id": self.node_id,
+                            "node_name": self.node_name,
                         }
                     )
                 self.info(f"Adjusted credits: allocated=${allocated_credits:.4f}, actual=${actual_credits:.4f}, refunded=${failed_job_credits:.4f}")

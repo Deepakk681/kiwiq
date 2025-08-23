@@ -1693,6 +1693,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 metadata = {
                     "model_name": self.config.llm_config.model_spec.model,
                     "provider": self.config.llm_config.model_spec.provider.value,
+                    "node_id": self.node_id,
+                    "node_name": self.node_name,
                 }
                 if extra_tool_costs > 0:
                     metadata["extra_tool_costs"] = extra_tool_costs
@@ -1906,6 +1908,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                                 "model_name": self.config.llm_config.model_spec.model,
                                 "provider": self.config.llm_config.model_spec.provider.value,
                                 "token_usage": metadata.token_usage,
+                                "node_id": self.node_id,
+                                "node_name": self.node_name,
                             }
                         )
                     self.info(f"Adjusted credits: allocated=${allocated_credits:.6f}, actual=${actual_cost:.6f}, difference=${actual_cost - allocated_credits:.6f}")
@@ -2053,6 +2057,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     "model_name": self.config.llm_config.model_spec.model,
                     "provider": self.config.llm_config.model_spec.provider.value,
                     "citation_count": citation_count,
+                    "node_id": self.node_id,
+                    "node_name": self.node_name,
                 }
                 if web_search_tool_calls is not None:
                     web_search_billing_metadata["web_search_tool_calls"] = web_search_tool_calls
