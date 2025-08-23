@@ -66,7 +66,8 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
     "private_output_mode": false, // Default: Write to shared state (See Section 9)
     "dynamic_input_schema": null, // Usually inferred, see Section 7
     "dynamic_output_schema": null, // Usually inferred, see Section 7
-    "enable_node_fan_in": false // Default: Node runs once per trigger (See advanced docs)
+    "enable_node_fan_in": false, // Default: Node runs once per trigger (See advanced docs)
+    "defer_node": false  
   },
   "summarize_profile": { /* ... another node definition ... */ }
   // ... more nodes

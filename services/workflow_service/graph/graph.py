@@ -81,6 +81,7 @@ class NodeConfig(BaseModel):
     dynamic_config_schema: Optional[ConstructDynamicSchema] = Field(None, description="Dynamic schema for the node config")
     enable_dynamic_fields_from_edges: Optional[bool] = Field(True, description="Enable adding dynamic fields to input / output schemas from edges --> assuming the node is marked DynamicNode and it has a dynamic input / output schema!")
     enable_node_fan_in: Optional[bool] = Field(False, description="Enable node fan-in for all incoming edges except direct edges from router nodes -> since they are not directly added to the langgraph graph! This ensure the node is not executed multiple times for each incoming edge and is only executed after all nodes with direct incoming edges are executed before it!")
+    defer_node: Optional[bool] = Field(False, description="Defer node execution until all nodes with direct incoming edges are executed before it! This is a better alternative to FAN IN so the node still executes if one of the incoming branch is skipped!")
 
 
 """
@@ -201,7 +202,9 @@ class GraphSchema(BaseModel):
             elif node_config.node_name == OUTPUT_NODE_NAME:
                 if node_config.dynamic_output_schema:
                     errors.append(f"Output node {node_id} must not have dynamic output schema defined! Define input schema instead!")
-                    
+            
+            if node_config.defer_node and node_config.enable_node_fan_in:
+                errors.append(f"Node {node_id} must not have fan-in enabled if defer is enabled! This is a contradiction!")
 
         unique_edges = set()
         for edge in self.edges:

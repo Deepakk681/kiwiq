@@ -258,6 +258,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
             # Add the node to the graph with its function
             state_graph.add_node(node_id, 
                 node_instance.run,
+                defer=graph_entities["graph_schema"].nodes[node_id].defer_node,
                 # create_node_function(node_id, node_instance, entity_runtime_config)
             )
             

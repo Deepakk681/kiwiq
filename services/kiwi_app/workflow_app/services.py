@@ -18,7 +18,7 @@ from fastapi import HTTPException, status
 from pydantic import ValidationError # For schema validation
 from prefect.client.schemas import FlowRun
 
-from jsonschema import validate
+from jsonschema import validate, ValidationError as JSONSchemaValidationError
 from jsonschema.validators import Draft202012Validator
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -277,7 +277,7 @@ class WorkflowService:
                 if hitl_job.response_schema:
                     try:
                         validate(instance=run_submit.inputs, schema=hitl_job.response_schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
-                    except ValidationError as e:
+                    except JSONSchemaValidationError as e:
                         error_path = "/".join(str(part) for part in e.path)
                         error_msg = f"{error_path}: {e.message}" if error_path else e.message
                         raise HTTPException(
@@ -2818,7 +2818,7 @@ class AssetService:
             else:
                 # Fallback to jsonschema if not a Pydantic model
                 validate(instance=app_data, schema=schema_class)
-        except ValidationError as e:
+        except (ValidationError, JSONSchemaValidationError) as e:
             # Pydantic validation error
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
