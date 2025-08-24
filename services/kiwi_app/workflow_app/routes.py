@@ -1353,6 +1353,84 @@ async def get_run_stream(
 
 # TODO: Add endpoints for Pause / Resume Run if needed
 
+@run_router.delete(
+    "/bulk-delete",
+    response_model=schemas.WorkflowRunBulkDeleteResponse,
+    summary="Bulk Delete Workflow Runs by Time Criteria (Superuser Only)",
+    # No permission dependency needed since we check superuser directly
+)
+async def bulk_delete_workflow_runs(
+    delete_request: schemas.WorkflowRunBulkDeleteRequest,
+    active_org_id: uuid.UUID = Depends(get_active_org_id),
+    current_user: User = Depends(get_current_active_superuser),  # Superuser only
+    db: AsyncSession = Depends(get_async_db_dependency),
+    workflow_service: services.WorkflowService = Depends(wf_deps.get_workflow_service_dependency),
+):
+    """
+    Bulk delete workflow runs based on time criteria with optional filtering.
+    
+    **Time Filtering (exactly one required):**
+    - `last_n_seconds`: Delete runs from last N seconds (1-86400)
+    - `last_n_minutes`: Delete runs from last N minutes (1-1440) 
+    - `last_n_hours`: Delete runs from last N hours (1-24)
+    - `last_n_days`: Delete runs from last N days (1-30)
+    
+    **Optional Filtering:**
+    - `workflow_name`: Filter by workflow name before deletion
+    - `status`: Filter by workflow run status before deletion
+    
+    **User Filtering Options:**
+    - `delete_workflow_runs_for_all_users_in_org`: If false, only delete runs for current user or on_behalf_of_user_id
+    - `on_behalf_of_user_id`: Delete runs for specific user (requires admin privileges if provided)
+    
+    **Control Options:**
+    - `dry_run`: If true, only returns what would be deleted without actually deleting
+    
+    **Response includes:**
+    - Count of deleted runs
+    - Details of each deleted run including parent deletion status, workflow inputs, and triggered user
+    - Applied filters for audit purposes
+    
+    **Access:** Superuser only. If `on_behalf_of_user_id` is provided, user must be admin.
+    """
+    # Validate on_behalf_of_user_id requires admin privileges
+    if delete_request.on_behalf_of_user_id is not None:
+        # For future-proofing: if endpoint opens to non-superusers, check admin status
+        if not current_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required to delete runs on behalf of another user"
+            )
+    
+    try:
+        result = await workflow_service.bulk_delete_workflow_runs(
+            db=db,
+            delete_request=delete_request,
+            owner_org_id=active_org_id,
+            user=current_user
+        )
+        
+        action = "would delete" if delete_request.dry_run else "deleted"
+        workflow_logger.info(
+            f"User {current_user.id} {action} {result.deleted_count} workflow runs in org {active_org_id} "
+            f"with time filter: {result.time_filter_applied}"
+        )
+        
+        return result
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions without logging
+        raise
+    except Exception as e:
+        workflow_logger.error(
+            f"Error bulk deleting workflow runs for user {current_user.id} in org {active_org_id}: {str(e)}", 
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="An error occurred while bulk deleting workflow runs"
+        )
+
 
 # === User Notification Endpoints ===
 

@@ -2707,6 +2707,120 @@ class WorkflowService:
             limit=limit
         )
 
+    async def bulk_delete_workflow_runs(
+        self,
+        db: AsyncSession,
+        *,
+        delete_request: schemas.WorkflowRunBulkDeleteRequest,
+        owner_org_id: uuid.UUID,
+        user: User
+    ) -> schemas.WorkflowRunBulkDeleteResponse:
+        """
+        Bulk delete workflow runs based on time criteria with optional filtering.
+        
+        Args:
+            db: Database session
+            delete_request: Bulk delete request parameters
+            owner_org_id: Organization ID to limit deletions to  
+            user: User performing the deletion (for audit logging)
+            
+        Returns:
+            Bulk delete response with details of deleted runs
+        """
+        from datetime import timedelta  # Import timedelta for time calculations
+        
+        # Calculate the since_timestamp based on the provided time parameter
+        now = datetime_now_utc()
+        since_timestamp = None
+        time_filter_description = ""
+        
+        if delete_request.last_n_seconds is not None:
+            since_timestamp = now - timedelta(seconds=delete_request.last_n_seconds)
+            time_filter_description = f"last {delete_request.last_n_seconds} seconds"
+        elif delete_request.last_n_minutes is not None:
+            since_timestamp = now - timedelta(minutes=delete_request.last_n_minutes)
+            time_filter_description = f"last {delete_request.last_n_minutes} minutes"
+        elif delete_request.last_n_hours is not None:
+            since_timestamp = now - timedelta(hours=delete_request.last_n_hours)
+            time_filter_description = f"last {delete_request.last_n_hours} hours"
+        elif delete_request.last_n_days is not None:
+            since_timestamp = now - timedelta(days=delete_request.last_n_days)
+            time_filter_description = f"last {delete_request.last_n_days} days"
+        else:
+            # This should not happen due to schema validation, but adding for safety
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No time parameter provided"
+            )
+        
+        # Determine which user to filter by (if any)
+        filter_by_user_id = None
+        if not delete_request.delete_workflow_runs_for_all_users_in_org:
+            # Use on_behalf_of_user_id if provided, otherwise use current user
+            filter_by_user_id = delete_request.on_behalf_of_user_id or user.id
+        
+        try:
+            # Call the CRUD method to delete runs
+            deleted_runs = await self.workflow_run_dao.bulk_delete_runs_by_time(
+                db,
+                owner_org_id=owner_org_id,
+                since_timestamp=since_timestamp,
+                workflow_name=delete_request.workflow_name,
+                status=delete_request.status,
+                triggered_by_user_id=filter_by_user_id,
+                dry_run=delete_request.dry_run
+            )
+            
+            # Create a set of deleted run IDs for quick lookup
+            deleted_run_ids = {run.id for run in deleted_runs}
+            
+            # Build the response with parent deletion information
+            deleted_runs_info = []
+            for run in deleted_runs:
+                # Check if parent was also deleted (or was null/not found)
+                parent_deleted = True  # Default to True
+                if run.parent_run_id is not None:
+                    # Parent exists, check if it was also deleted
+                    parent_deleted = run.parent_run_id in deleted_run_ids
+                
+                run_info = schemas.WorkflowRunDeleteInfo(
+                    run_id=run.id,
+                    workflow_name=run.workflow_name,
+                    status=run.status,
+                    parent_deleted=parent_deleted,
+                    created_at=run.created_at,
+                    parent_run_id=run.parent_run_id,
+                    triggered_by_user_id=run.triggered_by_user_id,
+                    inputs=run.inputs
+                )
+                deleted_runs_info.append(run_info)
+            
+            # Build additional filters description
+            additional_filters = {}
+            if delete_request.workflow_name:
+                additional_filters["workflow_name"] = delete_request.workflow_name
+            if delete_request.status:
+                additional_filters["status"] = delete_request.status.value
+            if filter_by_user_id:
+                additional_filters["triggered_by_user_id"] = str(filter_by_user_id)
+            if delete_request.on_behalf_of_user_id:
+                additional_filters["on_behalf_of_user_id"] = str(delete_request.on_behalf_of_user_id)
+            additional_filters["delete_workflow_runs_for_all_users_in_org"] = delete_request.delete_workflow_runs_for_all_users_in_org
+            
+            return schemas.WorkflowRunBulkDeleteResponse(
+                deleted_count=len(deleted_runs),
+                dry_run=delete_request.dry_run,
+                time_filter_applied=time_filter_description,
+                additional_filters=additional_filters,
+                deleted_runs=deleted_runs_info
+            )
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to bulk delete workflow runs: {str(e)}"
+            )
+
 
 # --- Asset Services --- #
 

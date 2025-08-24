@@ -1260,6 +1260,76 @@ class UserAppResumeMetadataListQuery(CommonListQuery):
     org_id: Optional[uuid.UUID] = Field(None, description="Filter by organization (superuser only)")
 
 
+# --- Bulk Delete Schemas --- #
+
+class WorkflowRunBulkDeleteRequest(BaseModel):
+    """
+    Schema for bulk deleting workflow runs based on time criteria.
+    Exactly one time parameter must be provided (seconds, minutes, hours, or days).
+    """
+    # Time filtering - exactly one must be provided
+    last_n_seconds: Optional[int] = Field(None, ge=1, le=86400, description="Delete runs from last N seconds (1-86400)")
+    last_n_minutes: Optional[int] = Field(None, ge=1, le=1440, description="Delete runs from last N minutes (1-1440)")  
+    last_n_hours: Optional[int] = Field(None, ge=1, le=24, description="Delete runs from last N hours (1-24)")
+    last_n_days: Optional[int] = Field(None, ge=1, le=30, description="Delete runs from last N days (1-30)")
+    
+    # Optional filtering
+    workflow_name: Optional[str] = Field(None, description="Filter by workflow name before deletion")
+    status: Optional[WorkflowRunStatus] = Field(None, description="Filter by workflow run status before deletion")
+    
+    # User filtering options
+    delete_workflow_runs_for_all_users_in_org: bool = Field(True, description="If false, only delete runs for current user or on_behalf_of_user_id")
+    on_behalf_of_user_id: Optional[uuid.UUID] = Field(None, description="Delete runs for specific user (superuser only, requires admin privileges if provided)")
+    
+    # Control options
+    dry_run: bool = Field(False, description="If true, only returns what would be deleted without actually deleting")
+    
+    @model_validator(mode='after')
+    def validate_time_parameters(self):
+        """Ensure exactly one time parameter is provided."""
+        time_params = [
+            self.last_n_seconds,
+            self.last_n_minutes, 
+            self.last_n_hours,
+            self.last_n_days
+        ]
+        provided_params = [p for p in time_params if p is not None]
+        
+        if len(provided_params) == 0:
+            raise ValueError("Exactly one time parameter must be provided (last_n_seconds, last_n_minutes, last_n_hours, or last_n_days)")
+        elif len(provided_params) > 1:
+            raise ValueError("Only one time parameter can be provided at a time")
+            
+        return self
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkflowRunDeleteInfo(BaseModel):
+    """Information about a deleted workflow run."""
+    run_id: uuid.UUID = Field(..., description="The ID of the deleted workflow run")
+    workflow_name: Optional[str] = Field(None, description="Name of the workflow this run belonged to")
+    status: WorkflowRunStatus = Field(..., description="Status of the deleted workflow run")
+    parent_deleted: bool = Field(..., description="True if parent_run_id was also deleted or was null/not found")
+    created_at: datetime = Field(..., description="When this run was originally created")
+    parent_run_id: Optional[uuid.UUID] = Field(None, description="Parent run ID if it existed")
+    triggered_by_user_id: Optional[uuid.UUID] = Field(None, description="User ID who triggered this run")
+    inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs that were provided to this workflow run")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkflowRunBulkDeleteResponse(BaseModel):
+    """Response schema for bulk workflow run deletion."""
+    deleted_count: int = Field(..., description="Number of workflow runs deleted")
+    dry_run: bool = Field(..., description="Whether this was a dry run (no actual deletion)")
+    time_filter_applied: str = Field(..., description="Description of the time filter that was applied")
+    additional_filters: Dict[str, Any] = Field(default_factory=dict, description="Additional filters that were applied")
+    deleted_runs: List[WorkflowRunDeleteInfo] = Field(default_factory=list, description="Details of deleted runs")
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Legacy aliases for backward compatibility
 DocumentMoveOperation = DocumentOperation
 DocumentCopyOperation = DocumentOperation

@@ -778,6 +778,82 @@ class WorkflowRunDAO(BaseDAO[models.WorkflowRun, schemas.WorkflowRunCreate, sche
         result = await db.exec(stmt)
         return result.scalars().all()
 
+    async def bulk_delete_runs_by_time(
+        self,
+        db: AsyncSession,
+        *,
+        owner_org_id: uuid.UUID,
+        since_timestamp: datetime,
+        workflow_name: Optional[str] = None,
+        status: Optional[WorkflowRunStatus] = None,
+        triggered_by_user_id: Optional[uuid.UUID] = None,
+        dry_run: bool = False,
+        limit: int = 10000  # Safety limit to prevent accidentally deleting too many
+    ) -> List[models.WorkflowRun]:
+        """
+        Bulk delete workflow runs based on time criteria with optional filtering.
+        
+        Args:
+            db: Database session
+            owner_org_id: Organization ID to limit deletions to
+            since_timestamp: Only delete runs created after this timestamp
+            workflow_name: Optional filter by workflow name
+            status: Optional filter by workflow run status
+            triggered_by_user_id: Optional filter by user who triggered the run
+            dry_run: If True, return what would be deleted without actually deleting
+            limit: Maximum number of runs to delete (safety limit)
+            
+        Returns:
+            List of WorkflowRun objects that were (or would be) deleted
+        """
+        # Build the query to find runs to delete
+        conditions = [
+            self.model.owner_org_id == owner_org_id,
+            self.model.created_at >= since_timestamp
+        ]
+        
+        # Add optional filters
+        if workflow_name is not None:
+            conditions.append(self.model.workflow_name == workflow_name)
+            
+        if status is not None:
+            conditions.append(self.model.status == status)
+            
+        if triggered_by_user_id is not None:
+            conditions.append(self.model.triggered_by_user_id == triggered_by_user_id)
+        
+        # Query to find runs to delete
+        stmt = (
+            select(self.model)
+            .where(and_(*conditions))
+            .order_by(self.model.created_at.desc())
+            .limit(limit)
+        )
+        
+        # Execute query to get runs to delete
+        result = await db.exec(stmt)
+        runs_to_delete = list(result.scalars().all())
+        
+        if dry_run:
+            # For dry run, just return the runs without deleting
+            return runs_to_delete
+        
+        # For actual deletion, delete each run
+        deleted_runs = []
+        for run in runs_to_delete:
+            try:
+                await db.delete(run)
+                deleted_runs.append(run)
+            except Exception as e:
+                # Log the error but continue with other deletions
+                crud_logger.error(f"Failed to delete workflow run {run.id}: {e}")
+                continue
+        
+        # Commit the deletions
+        await db.commit()
+        
+        return deleted_runs
+
 # --- Base Template DAO --- #
 
 class BaseTemplateDAO(BaseDAO[TemplateModelType, TemplateCreateSchemaType, TemplateUpdateSchemaType]):
