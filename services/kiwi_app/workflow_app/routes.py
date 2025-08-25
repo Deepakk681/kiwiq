@@ -1195,7 +1195,7 @@ async def get_run_status(
     # run: models.WorkflowRun = Depends(wf_deps.get_workflow_run_for_org),
     # Re-inject active_org_id for service call if needed, though run object has it
     current_user: User = Depends(wf_deps.RequireRunReadActiveOrg),
-    ignore_org_check_for_run_fetch: bool = Query(False, description="Ignore organization check and fetch run regardless of org"),
+    ignore_org_check_for_run_fetch: bool = Query(False, description="Ignore organization check and fetch run regardless of org (superuser only)"),
     # db_manager: AsyncGenerator[AsyncSession, None] = Depends(get_async_db_as_manager),
     run_id: uuid.UUID = Path(..., description="The ID of the workflow run"),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
