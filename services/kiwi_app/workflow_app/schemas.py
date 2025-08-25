@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union, Sequence, Literal
 from pydantic import BaseModel, Field, validator, ConfigDict, field_validator, model_validator
+from pydantic import HttpUrl
 from enum import Enum
 
 from kiwi_app.workflow_app.constants import LaunchStatus, WorkflowRunStatus, NotificationType, HITLJobStatus, SchemaType
@@ -1046,7 +1047,7 @@ class Onboarding(BaseModel):
 
 class LinkedInProfileAppData(BaseModel):
     """Schema for LinkedIn Profile asset app_data."""
-    profile_url: str = Field(..., pattern="^https?://([a-z]{2,3}\\.)?linkedin\\.com/in/[a-zA-Z0-9_-]+/?$", description="Full LinkedIn profile URL")
+    profile_url: HttpUrl = Field(..., description="Full LinkedIn profile URL")
     onboarding: Onboarding = Field(default_factory=Onboarding)
     entity_name: Optional[str] = None
     # last_scraped: Optional[datetime] = Field(None, description="Last time the profile was scraped")
@@ -1056,10 +1057,17 @@ class LinkedInProfileAppData(BaseModel):
     
     model_config = ConfigDict(extra='allow')  # Allow additional fields for flexibility
 
+    @field_validator('profile_url', mode='before')
+    def validate_profile_url(cls, v):
+        """Validate that the profile URL is a valid LinkedIn profile URL."""
+        if (not v.startswith("https://www.linkedin.com/in/")) and (not v.startswith("https://www.linkedin.com/company/")):
+            raise ValueError("Profile URL must start with 'https://www.linkedin.com/in/' or 'https://www.linkedin.com/company/'")
+        return v
+
 
 class BlogUrlAppData(BaseModel):
     """Schema for Blog URL asset app_data."""
-    blog_url: str = Field(..., description="Full URL of the blog or blog post")
+    blog_url: HttpUrl = Field(..., description="Full URL of the blog or blog post")
     onboarding: Onboarding = Field(default_factory=Onboarding)
     company_name: Optional[str] = None
     # blog_type: Optional[str] = Field("unknown", pattern="^(wordpress|medium|substack|ghost|custom|unknown)$", description="Type of blog platform")
