@@ -14,7 +14,15 @@ Common use cases:
 -   Generating system prompts based on workflow state or loaded configurations.
 -   Standardizing prompt structures across different parts of a workflow by loading shared templates.
 
-## 1.1. Image Support
+## 1.1. What's new (v0.2.0)
+
+- Template construction and loading have been merged into a single node.
+- Version selection is optional when dynamically loading templates; if omitted, the latest semantic version is chosen automatically.
+- Support for special variables: "$current_date" and "$current_datetime" are resolved at build time regardless of the source.
+- Robust image support (static and dynamic collection) with validation and de-duplication.
+- Optional per-template image outputs via `separate_images_by_template`.
+
+## 1.2. Image Support
 
 **NEW:** The `PromptConstructorNode` now supports collecting and organizing images alongside prompt construction. This is particularly useful for vision-enabled LLM workflows where you need to send both text prompts and images to models that support multimodal input.
 
@@ -100,7 +108,7 @@ The main configuration happens within the `node_config` field, specifically usin
             },
             // Static variables can supplement/override loaded defaults
             "variables": {
-              "tone": "professional", // P5: Override potential loaded default (P6) for 'tone'
+              "tone": "professional", // P5: Override a default loaded from DB for 'tone'
               "max_length": 500,    // P5: Provide a variable not defined in the loaded template
               "customer_history": null // Must be provided by input (P1-P4)
             },
@@ -118,7 +126,7 @@ The main configuration happens within the `node_config` field, specifically usin
             },
             "variables": {
               "recipient_name": null // Must be provided via input (P1-P4)
-              // Other variables will come from the loaded template (P6) or input (P1-P4)
+              // Other variables will come from the loaded template defaults or input (P1-P4)
             }
           }
           // ... more templates
@@ -156,6 +164,9 @@ The main configuration happens within the `node_config` field, specifically usin
             *   `null`: Variable *must* be provided via input (Priorities 1-4).
             *   Value (e.g., string, number): Default value (Priority 5), potentially overriding a loaded template's default (Priority 6).
         *   **`construct_options`** (Optional[Dict[str, str]]): **Priority 1**. Template-specific mapping from a `{variable_name}` to a dot-notation path within the node's input data (e.g., `"user_name": "user_context.name"`). Overrides all other sources for this variable *in this template only*.
+            - Values must be dot-notation paths (pointers to input data), not literal values.
+            - Do not place special variables here. Provide `$current_date` / `$current_datetime` as defaults in `variables` or as direct inputs.
+            - If you want to source a special token via a path, the path's value in the input may be the token string; the `construct_options` value itself remains a path.
         *   **`user_custom_instructions`** (Optional[str]): Additional instructions or guidance that will be appended to the template content. This is useful for adding context-specific directions for LLM processing without modifying the base template. The instructions are appended with a clear header: `\n\n# Additional User Instructions\n{instructions}`.
         *   **`static_images`** (Optional[List[str]]): List of static image URLs or base64 encoded images to include with this template. These images will always be included in the output when this template is processed.
         *   **`image_collection_paths`** (Optional[List[str]]): List of dot-notation paths in the input data to collect images from. Each path can point to either:
@@ -166,6 +177,20 @@ The main configuration happens within the `node_config` field, specifically usin
 3.  **`separate_images_by_template`** (bool, default: true): Controls how image outputs are structured:
     *   `true` (default): Creates both template-specific image fields (`{template_id}_images`) AND a combined `all_images` field
     *   `false`: Only creates the combined `all_images` field, omitting template-specific fields
+
+### 2.1 Dynamic Template Loading: Name/Version Resolution and Prerequisites
+
+When using `template_load_config.path_config`, resolution follows:
+
+- Resolve name from `input_name_field_path` (if provided and found) else `static_name`. Name is required.
+- Resolve version from `input_version_field_path` (if provided and found) else `static_version`. Version is optional.
+- If version is omitted, the node will select the latest semantic version among matches.
+
+Runtime prerequisites for dynamic loading:
+
+- `runtime_config` must be provided at execution time and contain application and external context under keys `APPLICATION_CONTEXT_KEY` and `EXTERNAL_CONTEXT_MANAGER_KEY`.
+- The application context must include `user` and `workflow_run_job` objects (used to scope org and permissions).
+- If any of these are missing, the node records load errors and skips those templates.
 
 ## 3. Input (Dynamic Schema)
 
@@ -197,16 +222,11 @@ The node resolves the final value for each placeholder (`{variable}`) in each te
     *   If not found via P1, P2, or P3, checks if the node's input data contains a key exactly matching the `variable_name` (e.g., `user_name`).
     *   If the key exists and its value is not `None`, that value is used for the variable in *any* template requiring it (unless already set by P1, P2, or P3). (Requires an incoming edge mapping to this `dst_field`).
 
-5.  **Static Default / Override (in `node_config`)**:
-    *   If not found via P1-P4, checks the `variables` dictionary defined *within the specific `PromptTemplateDefinition`* in the `node_config`.
-    *   If the `variable_name` exists and its value is *not* `null`, that value is used.
+5.  **Defaults (Static or Loaded):**
+    *   If not found via P1-P4, the node uses the defaults prepared for the template. For dynamically loaded templates, loaded defaults are combined with and overridden by any `variables` defined in the node config. For static templates, only the `variables` from the node config are used.
 
-6.  **Loaded Default (from DB Template):**
-    *   If the template was loaded dynamically (`template_load_config`) and not found via P1-P5, checks the `input_variables` dictionary loaded from the database template.
-    *   If a default value exists there, it's used.
-
-7.  **Required Input (Error):**
-    *   If a variable placeholder exists in the final template string, and its value hasn't been determined by steps 1-6, the node will fail during output validation if that output field (`id`) is marked as required in the `dynamic_output_schema`. The error will be reported in `prompt_template_errors`.
+6.  **Required Input (Error):**
+    *   If a variable placeholder exists in the final template string, and its value hasn't been determined by steps 1-5, the node will fail during output validation if that output field (`id`) is marked as required in the `dynamic_output_schema`. The error will be reported in `prompt_template_errors`.
 
 ## 4. Output (Dynamic Schema - `PromptConstructorOutput`)
 
@@ -229,7 +249,22 @@ The `PromptConstructorNode` produces a dynamic output object. Its structure **mu
         *   The **value** will be a list of unique image URLs/base64 strings (duplicates automatically removed, order preserved).
         *   Mark as `required: false` in the schema since templates may not have any images.
         *   This field is always created when any images are collected, regardless of the `separate_images_by_template` setting.
-    *   **Image Validation**: Invalid image URLs and malformed base64 data are automatically filtered out and logged as warnings, but do not cause node execution to fail.
+    *   **Image Validation and Order**:
+        *   Valid inputs include: `http(s)://`, `ftp(s)://`, `data:image/...;base64,...`, or sufficiently long raw base64 that decodes successfully.
+        *   Static images are added first, then dynamically collected images from paths; duplicates are removed while preserving first-seen order.
+        *   When `separate_images_by_template` is `false`, per-template image fields are omitted and only `all_images` is output.
+
+Note on undeclared outputs: The node's underlying output model ignores additional fields. If you omit image fields from the `dynamic_output_schema`, they will be ignored during validation. However, to route them via graph edges, declare them explicitly in the schema and edges.
+
+## 4.1 Special Variables and Template Formatting
+
+- Special tokens are supported when provided as default values (`variables`) or as direct inputs:
+  - `$current_date` → resolved to YYYY-MM-DD in UTC at build time.
+  - `$current_datetime` → resolved to YYYY-MM-DD HH:MM:SS in UTC at build time.
+- Do not place special tokens directly in `construct_options`. `construct_options` is strictly for dot-notation paths into the node's input. To source a special token by path, point the path to an input field whose value is the token string (e.g., `data.special_date == "$current_date"`).
+- Placeholders are processed via Python `str.format`. Escape literal braces in templates using `{{` and `}}`.
+- If a resolved variable value is a dict or list, it is JSON-serialized before insertion into the template.
+- `None` values are allowed and will render as the string `"None"` unless your template omits such placeholders.
 
 ## 5. Example (`GraphSchema`)
 
@@ -421,9 +456,15 @@ Here's an example showing how to use the image collection features with an LLM n
     *   Map to `TEMPLATE_ID.VARIABLE_NAME` (e.g., `final_greeting.user_name`) to set it just for that template (Priority 3).
     *   Map to `VARIABLE_NAME` (e.g., `user_name`) to set it for all templates (Priority 4).
     *   **Important:** These direct mappings are *lower* priority than `construct_options`.
--   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the default value from `variables` (P5), then the default from a loaded template (P6).
+-   **Defaults (Lowest Priority):** If no input is found via the methods above, the node uses the prepared defaults for the template (P5). For dynamically loaded templates, loaded defaults are combined with and can be overridden by `variables` in the node config.
 -   **Connect Inputs:** Use edges to feed the *data structures* needed for `construct_options` lookups (e.g., map the whole `user_profile` object) and any direct inputs (P3/P4). Define the expected inputs in `dynamic_input_schema`.
--   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`.
+-   **Connect Outputs:** Use edges to take the finished prompts (using the template `id` as the `src_field`) and `prompt_template_errors` to the next nodes. Define the expected outputs (including the template `id`s and optionally `prompt_template_errors`) in `dynamic_output_schema`. If you need image outputs, declare `{template_id}_images` and/or `all_images` and wire them via edges.
+
+### Dynamic Loading Tips for Non-Coders
+
+- You can reference the template name/version from upstream node output using dot paths in `path_config`.
+- If you don't specify a version, the node picks the latest available version automatically.
+- Your workflow runtime must include application and external context; if missing, dynamic templates won’t load and errors will be surfaced in `prompt_template_errors` (when that field is declared).
 
 ### Image Support for Non-Coders:
 

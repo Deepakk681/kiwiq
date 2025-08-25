@@ -736,7 +736,10 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
 
                     # Optional filtering by blog classification
                     if self.config.classify_pages_as_blog:
+                        prev_filtered_sample = filtered_sample
                         filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+                        if not filtered_sample:
+                            filtered_sample = prev_filtered_sample
                     
                     # Optional: clean markdown links in output markdown_content
                     # if self.config.clean_markdown:
@@ -969,7 +972,11 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
 
             # Optional filtering by blog classification
             if self.config.classify_pages_as_blog:
+                prev_filtered_sample = filtered_sample
                 filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
+                if not filtered_sample:
+                    filtered_sample = prev_filtered_sample
+
 
             # Optional: clean markdown links in output markdown_content
             # if self.config.clean_markdown:
