@@ -37,9 +37,23 @@ If both are present, the data at `search_params_input_path` overrides the static
 
 ### Search Parameters
 
-The search object supports:
-- `namespace_pattern` (string, required): Namespace wildcard pattern (e.g., "content_briefs", "invoices*").
-- `docname_pattern` (string, required): Docname wildcard pattern (e.g., "*", "2025-*").
+The search object supports multiple ways to specify namespace and docname patterns:
+
+#### Pattern Source Options (choose one for namespace, one for docname):
+
+**Static patterns:**
+- `namespace_pattern` (string): Static namespace wildcard pattern (e.g., "content_briefs", "invoices*").
+- `docname_pattern` (string): Static docname wildcard pattern (e.g., "*", "2025-*").
+
+**Dynamic field retrieval:**
+- `input_namespace_field` (string): Dot-notation path to retrieve namespace_pattern value from input data.
+- `input_docname_field` (string): Dot-notation path to retrieve docname_pattern value from input data.
+
+**Pattern-based generation:**
+- `input_namespace_field_pattern` (string): f-string template to generate namespace_pattern using data from `input_namespace_field`. Uses `{item}` context.
+- `input_docname_field_pattern` (string): f-string template to generate docname_pattern using data from `input_docname_field`. Uses `{item}` context.
+
+**Other search parameters:**
 - `text_search_query` (string, optional): Text search term.
 - `value_filter` (object, optional): Filter on document values (e.g., a date range).
 - `skip` (int, optional, default 0): Pagination offset.
@@ -47,7 +61,10 @@ The search object supports:
 - `sort_by` (enum, optional): `CREATED_AT` or `UPDATED_AT`.
 - `sort_order` (enum, optional): `ASC` or `DESC` (default).
 
-Notes:
+**Important Notes:**
+- You must provide exactly one source for `namespace_pattern` and one for `docname_pattern`.
+- When using pattern templates, the corresponding input field must also be specified.
+- Pattern templates support f-string syntax with `{item}` referring to the data retrieved from the input field.
 - Sorting and pagination are usually not required for deletes; keep defaults unless needed.
 - The node automatically performs system search in a mode intended for mutations (permissions-aware); this is not configurable.
 
@@ -67,10 +84,11 @@ Set these in `node_config`, and optionally override them at runtime via `delete_
 
 ---
 
-## Input
+## Input Examples
 
-If you use dynamic configuration, provide the search parameters in the node input and set `search_params_input_path` accordingly. Example input mapped from an input node:
+If you use dynamic configuration, provide the search parameters in the node input and set `search_params_input_path` accordingly. Here are examples for different pattern configuration methods:
 
+### Static Patterns
 ```json
 {
   "search_params": {
@@ -85,6 +103,51 @@ If you use dynamic configuration, provide the search parameters in the node inpu
   }
 }
 ```
+
+### Dynamic Field Retrieval
+Use when the actual pattern values are stored elsewhere in the input:
+
+```json
+{
+  "search_params": {
+    "input_namespace_field": "deletion_criteria.target_namespace",
+    "input_docname_field": "deletion_criteria.target_docname",
+    "value_filter": {
+      "status": "archived"
+    }
+  },
+  "deletion_criteria": {
+    "target_namespace": "invoices*",
+    "target_docname": "2024-*"
+  }
+}
+```
+
+### Pattern-Based Generation
+Use when you need to build patterns from structured data:
+
+```json
+{
+  "search_params": {
+    "input_namespace_field": "project_info",
+    "input_namespace_field_pattern": "project_{item[project_id]}_*",
+    "input_docname_field": "date_range",
+    "input_docname_field_pattern": "{item[year]}-{item[month]}-*"
+  },
+  "project_info": {
+    "project_id": "abc123",
+    "department": "marketing"
+  },
+  "date_range": {
+    "year": "2025",
+    "month": "08"
+  }
+}
+```
+
+This would generate:
+- `namespace_pattern`: "project_abc123_*" 
+- `docname_pattern`: "2025-08-*"
 
 Optionally, you can pass delete options via input using `delete_options_input_path` (e.g., "delete_options").
 
@@ -155,6 +218,7 @@ The node returns a simple summary object with the following fields:
 
 ### Example runtime inputs
 
+**Static patterns:**
 ```json
 {
   "search_params": {
@@ -172,6 +236,41 @@ The node returns a simple summary object with the following fields:
 }
 ```
 
+**Dynamic field retrieval:**
+```json
+{
+  "search_params": {
+    "input_namespace_field": "target.namespace",
+    "input_docname_field": "target.docname"
+  },
+  "target": {
+    "namespace": "temp_data*",
+    "docname": "test_*"
+  },
+  "delete_options": { 
+    "dry_run": true, 
+    "max_deletes": 50 
+  }
+}
+```
+
+**Pattern generation:**
+```json
+{
+  "search_params": {
+    "input_namespace_field": "cleanup_config",
+    "input_namespace_field_pattern": "{item[department]}_{item[year]}_*",
+    "input_docname_field": "cleanup_config", 
+    "input_docname_field_pattern": "{item[prefix]}*"
+  },
+  "cleanup_config": {
+    "department": "marketing",
+    "year": "2024",
+    "prefix": "archived_"
+  }
+}
+```
+
 ---
 
 ## Tips for Product Teams
@@ -181,6 +280,14 @@ The node returns a simple summary object with the following fields:
 - **Fail-fast is safest**: Default behavior stops at the first failure so you can investigate immediately. Switch to `continue_on_error=true` only when you want a full sweep with a failure report.
 - **Be precise**: Combine namespace/docname patterns and `value_filter` to target exactly what you need.
 - **Permissions**: Deleting system data or acting on behalf of a user requires superuser context.
+
+### Pattern Configuration Tips
+
+- **Static patterns**: Use when you know the exact patterns at workflow design time. Simplest and most predictable.
+- **Dynamic field retrieval**: Use when patterns are determined at runtime but are simple string values stored elsewhere in your input data.
+- **Pattern generation**: Use when you need to construct patterns from structured data (e.g., combining user ID, date components, project identifiers).
+- **Validation**: All pattern sources are validated at node execution time. Invalid configurations will cause the node to fail early.
+- **Debugging**: The node logs the resolved namespace_pattern and docname_pattern values, helping you verify the dynamic resolution worked as expected.
 
 ---
 

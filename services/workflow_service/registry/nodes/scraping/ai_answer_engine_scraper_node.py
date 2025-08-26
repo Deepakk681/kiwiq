@@ -1471,6 +1471,7 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
                             'total_attempts': total_attempts
                         }
                         
+                        # DEBUG
                         # Log provider-specific stats
                         self.info(
                             f"📈 Provider {provider_name.upper()} stats: "
@@ -1482,6 +1483,7 @@ class AIAnswerEngineScraperNode(BaseDynamicNode):  # [AIAnswerEngineScraperInput
                 # Log overall summary stats
                 overall_success_rate = total_successful / total_executed if total_executed > 0 else 0
                 query_elapsed = (datetime.now() - start_time).total_seconds()
+                # DEBUG
                 self.info(
                     f"🎯 Overall query execution summary: "
                     f"Total executed: {total_executed}, "

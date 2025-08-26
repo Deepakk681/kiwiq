@@ -1048,6 +1048,7 @@ class Onboarding(BaseModel):
 class LinkedInProfileAppData(BaseModel):
     """Schema for LinkedIn Profile asset app_data."""
     profile_url: HttpUrl = Field(..., description="Full LinkedIn profile URL")
+    # improve pattern for company too: "^https?://([a-z]{2,3}\\.)?linkedin\\.com/in/[a-zA-Z0-9_-]+/?$",
     onboarding: Onboarding = Field(default_factory=Onboarding)
     entity_name: Optional[str] = None
     # last_scraped: Optional[datetime] = Field(None, description="Last time the profile was scraped")

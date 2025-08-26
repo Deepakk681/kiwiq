@@ -88,19 +88,138 @@ def _get_nested_obj(data: Any, field_path: str) -> Tuple[Any, bool]:
     return current, True
 
 
+def _resolve_search_patterns(
+    search_params: DeleteSearchParams,
+    full_input_data: Dict[str, Any],
+) -> Optional[Tuple[str, str]]:
+    """
+    Resolves the namespace_pattern and docname_pattern for search operations.
+
+    Handles static, dynamic (retrieved from input fields), and pattern-based resolution.
+
+    Args:
+        search_params: The DeleteSearchParams containing pattern resolution config.
+        full_input_data: The complete input dict to resolve patterns from.
+
+    Returns:
+        A tuple (namespace_pattern, docname_pattern) or None if resolution fails.
+    """
+    logger = get_prefect_or_regular_python_logger(f"{__name__}._resolve_search_patterns")
+    resolved_namespace_pattern: Optional[str] = None
+    resolved_docname_pattern: Optional[str] = None
+
+    # --- Resolve Namespace Pattern ---
+    if search_params.namespace_pattern is not None:
+        resolved_namespace_pattern = search_params.namespace_pattern
+    elif search_params.input_namespace_field and not search_params.input_namespace_field_pattern:
+        # Direct retrieval using input_namespace_field
+        ns_val, found = _get_nested_obj(full_input_data, search_params.input_namespace_field)
+        if found and isinstance(ns_val, str):
+            resolved_namespace_pattern = ns_val
+        else:
+            logger.warning(f"Direct namespace field '{search_params.input_namespace_field}' not found in input or not a string.")
+            return None
+    elif search_params.input_namespace_field_pattern:
+        # Pattern evaluation using data from input_namespace_field
+        if not search_params.input_namespace_field:  # Should be caught by validator, but double-check
+            logger.error("Config Error: input_namespace_field_pattern specified without input_namespace_field.")
+            return None
+        # Retrieve the object to use in the pattern context
+        pattern_source_data, found = _get_nested_obj(full_input_data, search_params.input_namespace_field)
+        if not found:
+            logger.warning(f"Data for namespace pattern not found at '{search_params.input_namespace_field}' in input data.")
+            return None
+        try:
+            # Use the retrieved object as 'item' in the pattern context
+            resolved_namespace_pattern = search_params.input_namespace_field_pattern.format(item=pattern_source_data)
+        except KeyError as e:
+            logger.error(f"Error formatting input_namespace_field_pattern '{search_params.input_namespace_field_pattern}': Key {e} not found in data at '{search_params.input_namespace_field}'.")
+            return None
+        except Exception as e:
+            logger.error(f"Error formatting input_namespace_field_pattern '{search_params.input_namespace_field_pattern}': {e}")
+            return None
+    else:
+        # Should be caught by validator
+        logger.error("Invalid DeleteSearchParams state for namespace_pattern.")
+        return None
+
+    # --- Resolve Docname Pattern ---
+    if search_params.docname_pattern is not None:
+        resolved_docname_pattern = search_params.docname_pattern
+    elif search_params.input_docname_field and not search_params.input_docname_field_pattern:
+        # Direct retrieval using input_docname_field
+        dn_val, found = _get_nested_obj(full_input_data, search_params.input_docname_field)
+        if found and isinstance(dn_val, str):
+            resolved_docname_pattern = dn_val
+        else:
+            logger.warning(f"Direct docname field '{search_params.input_docname_field}' not found in input or not a string.")
+            return None
+    elif search_params.input_docname_field_pattern:
+        # Pattern evaluation using data from input_docname_field
+        if not search_params.input_docname_field:  # Should be caught by validator
+            logger.error("Config Error: input_docname_field_pattern specified without input_docname_field.")
+            return None
+        # Retrieve the object to use in the pattern context
+        pattern_source_data, found = _get_nested_obj(full_input_data, search_params.input_docname_field)
+        if not found:
+            logger.warning(f"Data for docname pattern not found at '{search_params.input_docname_field}' in input data.")
+            return None
+        try:
+            # Use the retrieved object as 'item' in the pattern context
+            resolved_docname_pattern = search_params.input_docname_field_pattern.format(item=pattern_source_data)
+        except KeyError as e:
+            logger.error(f"Error formatting input_docname_field_pattern '{search_params.input_docname_field_pattern}': Key {e} not found in data at '{search_params.input_docname_field}'.")
+            return None
+        except Exception as e:
+            logger.error(f"Error formatting input_docname_field_pattern '{search_params.input_docname_field_pattern}': {e}")
+            return None
+    else:
+        # Should be caught by validator
+        logger.error("Invalid DeleteSearchParams state for docname_pattern.")
+        return None
+
+    # Final check
+    if resolved_namespace_pattern is not None and resolved_docname_pattern is not None:
+        return resolved_namespace_pattern, resolved_docname_pattern
+    else:
+        logger.error("Failed to resolve namespace_pattern or docname_pattern.")
+        return None
+
+
 class DeleteSearchParams(BaseNodeConfig):
     """Search parameters for locating documents to delete using system search.
 
     These map directly to `CustomerDataService.system_search_documents` parameters,
     except for `user` and `org_id`, which are sourced from runtime context.
+    
+    Supports static pattern values or dynamic generation from input data fields.
     """
 
-    namespace_pattern: str = Field(
-        ..., description="Namespace pattern with wildcards, e.g., 'invoices*'"
+    # Static Pattern Definition
+    namespace_pattern: Optional[str] = Field(
+        None, description="Static namespace pattern with wildcards, e.g., 'invoices*'"
     )
-    docname_pattern: str = Field(
-        ..., description="Docname pattern with wildcards, e.g., '2025*'"
+    docname_pattern: Optional[str] = Field(
+        None, description="Static docname pattern with wildcards, e.g., '2025*'"
     )
+
+    # Dynamic Retrieval from Input Data (direct value)
+    input_namespace_field: Optional[str] = Field(
+        None, description="Dot-notation path in the input data to retrieve the namespace_pattern value OR the object for pattern evaluation."
+    )
+    input_docname_field: Optional[str] = Field(
+        None, description="Dot-notation path in the input data to retrieve the docname_pattern value OR the object for pattern evaluation."
+    )
+
+    # Pattern-Based Generation (using data from specific input field)
+    input_namespace_field_pattern: Optional[str] = Field(
+        None, description="f-string like template to generate the namespace_pattern using data found at 'input_namespace_field'. Uses {'item': retrieved_data} context."
+    )
+    input_docname_field_pattern: Optional[str] = Field(
+        None, description="f-string like template to generate the docname_pattern using data found at 'input_docname_field'. Uses {'item': retrieved_data} context."
+    )
+
+    # Other search parameters
     text_search_query: Optional[str] = Field(
         None, description="Optional text search query for system search"
     )
@@ -115,6 +234,59 @@ class DeleteSearchParams(BaseNodeConfig):
     sort_order: Optional[SortOrder] = Field(
         SortOrder.DESC, description="Sort order for results (ASC or DESC)"
     )
+
+    @model_validator(mode='after')
+    def validate_pattern_sources(self) -> 'DeleteSearchParams':
+        """Ensures a valid and unique combination of fields is provided for namespace_pattern and docname_pattern."""
+        logger = get_prefect_or_regular_python_logger(f"{__name__}.DeleteSearchParams")
+        
+        # Namespace pattern validation
+        ns_sources = [
+            self.namespace_pattern,
+            self.input_namespace_field and not self.input_namespace_field_pattern, # Field used directly
+            self.input_namespace_field_pattern
+        ]
+        num_ns_sources = sum(1 for source in ns_sources if source) # Count how many are not None/False
+        
+        if num_ns_sources > 1:
+            logger.error("Multiple namespace_pattern sources configured in DeleteSearchParams")
+            raise ValueError("Provide only one source for namespace_pattern: namespace_pattern, input_namespace_field (direct), or input_namespace_field_pattern.")
+        if num_ns_sources == 0:
+            logger.error("No namespace_pattern source configured in DeleteSearchParams")
+            raise ValueError("One source for namespace_pattern must be provided: namespace_pattern, input_namespace_field, or input_namespace_field_pattern.")
+        
+        # If using input_namespace_field_pattern, input_namespace_field must be set
+        if self.input_namespace_field_pattern and not self.input_namespace_field:
+            logger.error("input_namespace_field_pattern used without input_namespace_field")
+            raise ValueError("'input_namespace_field' must be provided when using 'input_namespace_field_pattern'.")
+        
+        # Docname pattern validation
+        dn_sources = [
+            self.docname_pattern,
+            self.input_docname_field and not self.input_docname_field_pattern, # Field used directly
+            self.input_docname_field_pattern
+        ]
+        num_dn_sources = sum(1 for source in dn_sources if source) # Count how many are not None/False
+        
+        if num_dn_sources > 1:
+            logger.error("Multiple docname_pattern sources configured in DeleteSearchParams")
+            raise ValueError("Provide only one source for docname_pattern: docname_pattern, input_docname_field (direct), or input_docname_field_pattern.")
+        if num_dn_sources == 0:
+            logger.error("No docname_pattern source configured in DeleteSearchParams")
+            raise ValueError("One source for docname_pattern must be provided: docname_pattern, input_docname_field, or input_docname_field_pattern.")
+        
+        # If using input_docname_field_pattern, input_docname_field must be set
+        if self.input_docname_field_pattern and not self.input_docname_field:
+            logger.error("input_docname_field_pattern used without input_docname_field")
+            raise ValueError("'input_docname_field' must be provided when using 'input_docname_field_pattern'.")
+        
+        # Basic pattern validation (for f-string templates)
+        if self.input_namespace_field_pattern and ('{' not in self.input_namespace_field_pattern or '}' not in self.input_namespace_field_pattern):
+            logger.warning(f"input_namespace_field_pattern '{self.input_namespace_field_pattern}' doesn't look like a valid f-string pattern.")
+        if self.input_docname_field_pattern and ('{' not in self.input_docname_field_pattern or '}' not in self.input_docname_field_pattern):
+            logger.warning(f"input_docname_field_pattern '{self.input_docname_field_pattern}' doesn't look like a valid f-string pattern.")
+        
+        return self
 
 
 class DeleteCustomerDataConfig(BaseNodeConfig):
@@ -202,10 +374,19 @@ class DeleteCustomerDataNode(BaseDynamicNode):
 
     async def _resolve_effective_search_params(
         self, input_dict: Dict[str, Any]
-    ) -> DeleteSearchParams:
+    ) -> Tuple[DeleteSearchParams, str, str]:
         """Resolve effective search params by overlaying dynamic overrides over static config.
+        
+        Also resolves the final namespace_pattern and docname_pattern values using the
+        pattern resolution logic.
 
         Priority: values from `search_params_input_path` override static `search_params`.
+        
+        Returns:
+            Tuple containing:
+                - DeleteSearchParams: The resolved search parameters
+                - str: Resolved namespace_pattern
+                - str: Resolved docname_pattern
         """
         static_params_dict: Dict[str, Any] = (
             self.config.search_params.model_dump(exclude_none=True)
@@ -244,14 +425,23 @@ class DeleteCustomerDataNode(BaseDynamicNode):
                     f"Data at '{self.config.search_params_input_path}' is missing or not a dict; cannot derive search params."
                 )
 
-        # Validate into DeleteSearchParams
+        # Validate into DeleteSearchParams (this will trigger our new validation logic)
         try:
-            return DeleteSearchParams.model_validate(static_params_dict)
+            effective_search_params = DeleteSearchParams.model_validate(static_params_dict)
         except ValidationError as ve:
             self.error(
                 f"Validation error constructing DeleteSearchParams from merged input/config: {ve}"
             )
             raise
+
+        # Resolve the final namespace_pattern and docname_pattern values
+        resolved_patterns = _resolve_search_patterns(effective_search_params, input_dict)
+        if not resolved_patterns:
+            raise ValueError("Failed to resolve namespace_pattern and docname_pattern from the configuration and input data.")
+        
+        resolved_namespace_pattern, resolved_docname_pattern = resolved_patterns
+        
+        return effective_search_params, resolved_namespace_pattern, resolved_docname_pattern
 
     def _apply_delete_option_overrides(self, input_dict: Dict[str, Any]) -> None:
         """Apply delete option overrides from input if configured.
@@ -325,7 +515,7 @@ class DeleteCustomerDataNode(BaseDynamicNode):
 
         # Resolve search params and delete option overrides
         try:
-            effective_search: DeleteSearchParams = await self._resolve_effective_search_params(
+            effective_search, resolved_namespace_pattern, resolved_docname_pattern = await self._resolve_effective_search_params(
                 input_dict
             )
         except Exception as e:
@@ -351,8 +541,8 @@ class DeleteCustomerDataNode(BaseDynamicNode):
         try:
             search_results: List[CustomerDocumentSearchResult] = (
                 await customer_data_service.system_search_documents(
-                    namespace_pattern=effective_search.namespace_pattern,
-                    docname_pattern=effective_search.docname_pattern,
+                    namespace_pattern=resolved_namespace_pattern,
+                    docname_pattern=resolved_docname_pattern,
                     text_search_query=effective_search.text_search_query,
                     value_filter=effective_search.value_filter,
                     skip=effective_search.skip,
@@ -371,7 +561,7 @@ class DeleteCustomerDataNode(BaseDynamicNode):
 
         if not search_results:
             self.warning(
-                f"DeleteCustomerDataNode: No documents found for namespace='{effective_search.namespace_pattern}', docname='{effective_search.docname_pattern}'."
+                f"DeleteCustomerDataNode: No documents found for namespace='{resolved_namespace_pattern}', docname='{resolved_docname_pattern}'."
             )
             return self.__class__.output_schema_cls(
                 found_count=0, deleted_count=0, dry_run=self.config.dry_run
@@ -411,7 +601,7 @@ class DeleteCustomerDataNode(BaseDynamicNode):
 
         self.info(
             f"DeleteCustomerDataNode: Found {len(unique_by_versionless)} unique documents;"
-            f" proceeding with {len(targets)} delete(s){' (dry run)' if self.config.dry_run else ''}."
+            f" proceeding with {len(targets)} delete(s){' (dry run)' if self.config.dry_run else ''}. For namespace='{resolved_namespace_pattern}', docname='{resolved_docname_pattern}'."
         )
 
         # Perform deletions
@@ -516,13 +706,32 @@ class DeleteCustomerDataNode(BaseDynamicNode):
 
 
 if __name__ == "__main__":
-    # Basic schema validation self-check
+    # Basic schema validation self-check - static patterns
     _ = DeleteCustomerDataConfig(
         search_params=DeleteSearchParams(
             namespace_pattern="test*", docname_pattern="doc*"
         )
     )
+    
+    # Test with dynamic field patterns
+    _ = DeleteCustomerDataConfig(
+        search_params=DeleteSearchParams(
+            input_namespace_field="search_criteria.namespace",
+            input_docname_field="search_criteria.docname",
+        )
+    )
+    
+    # Test with pattern-based generation
+    _ = DeleteCustomerDataConfig(
+        search_params=DeleteSearchParams(
+            input_namespace_field="search_criteria",
+            input_namespace_field_pattern="{item[prefix]}*",
+            input_docname_field="search_criteria",
+            input_docname_field_pattern="{item[suffix]}*",
+        )
+    )
+    
     logger = get_prefect_or_regular_python_logger(__name__)
-    logger.info("DeleteCustomerDataNode config schema validated.")
+    logger.info("DeleteCustomerDataNode config schema validated with all pattern types.")
 
 

@@ -67,6 +67,84 @@ logger = get_prefect_or_regular_python_logger(
 
 ROBOTS_ANALYSIS_DOCNAME = "robots_analysis"
 
+
+async def web_crawler_scraper_flow(
+    job_config: Optional[Dict[str, Any]] = None, logger=None
+) -> Dict[str, Any]:
+    """
+    Asynchronous Prefect flow to execute web scraping jobs via spider server.
+    
+    This flow submits scraping jobs to the spider server and waits for results.
+    Results are stored in MongoDB via the customer data service. It's designed 
+    to be called from workflow nodes to avoid subprocess execution issues.
+    
+    Args:
+        job_config: Complete job configuration for the scraping spider
+        logger: Logger instance to use for logging. If not provided, a new logger is created.
+        
+    Returns:
+        Dict containing job results including status, stats, and namespace info
+    """
+    # from prefect.logging import get_run_logger
+    from workflow_service.services.scraping.spider_client import request_scrape_and_wait
+    
+    # logger = get_run_logger()
+    logger = logger or get_prefect_or_regular_python_logger(name="web-crawler-scraper-flow")
+    
+    logger.info(f"Starting web scraping job: {job_config.get('job_id')}")
+    logger.info(f"Domains: {job_config.get('allowed_domains')}")
+    logger.info(f"Max URLs per domain: {job_config.get('max_processed_urls_per_domain')}")
+
+    try:
+        # Calculate timeout based on job configuration
+        # Base timeout of 10 minutes, plus extra time for larger jobs
+        base_timeout = 600.0  # 10 minutes
+        
+        logger.info(f"Using timeout of {base_timeout}s for scraping job")
+        
+        # Submit scraping job to spider server and wait for results
+        spider_result = await request_scrape_and_wait(
+            job_config=job_config,
+            timeout=base_timeout
+        )
+        
+        # Transform spider client response to expected format
+        if spider_result.get('success', False):
+            # Extract data from successful spider response
+            return spider_result
+        else:
+            # Handle failed spider response
+            error = spider_result.get('error', None)
+            error_msg = spider_result.get('message', 'Unknown error from spider server')
+            full_error_msg = f"Spider server returned error: {error} - {error_msg}"
+            logger.error(full_error_msg)
+            raise Exception(full_error_msg)
+            
+            # return {
+            #     'job_id': job_config.get('job_id', 'unknown'),
+            #     'status': False,
+            #     'completed_at': spider_result.get('timestamp', datetime.now().isoformat()),
+            #     'stats': {
+            #         'error': error_msg,
+            #         'error_type': spider_result.get('error', 'unknown'),
+            #         'duration': spider_result.get('duration', 0)
+            #     },
+            #     'result_namespaces': {}
+            # }
+        
+    except Exception as e:
+        logger.error(f"Scraping job failed: {str(e)}", exc_info=True)
+        
+        # Return error result
+        return {
+            'job_id': job_config.get('job_id', 'unknown'),
+            'status': 'failed',
+            'completed_at': datetime.now().isoformat(),
+            'stats': {'error': str(e)},
+            'result_namespaces': {}
+        }
+
+
 class CrawlerScraperConfig(BaseNodeConfig):
     """
     Configuration for the crawler scraper node.
@@ -894,11 +972,11 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             # Run scraping job via spider server client - async approach
             self.info(f"Running scraping job {job_id} via spider server")
             
-            from workflow_service.services.worker import web_crawler_scraper_flow
+            # from workflow_service.services.worker import web_crawler_scraper_flow
 
             self.info(f"SCRAPER NODE Job config: {json.dumps(job_config, indent=4)}")
             
-            result = await web_crawler_scraper_flow(job_config=job_config)
+            result = await web_crawler_scraper_flow(job_config=job_config, logger=self)
 
             self.info(f"Scraping flow completed with status: {json.dumps(result, indent=4)}")
             

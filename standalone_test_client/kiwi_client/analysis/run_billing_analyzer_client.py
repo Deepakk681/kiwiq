@@ -1012,7 +1012,7 @@ async def main():
             print("="*60)
             
             # Print markdown to console for immediate viewing
-            print(analyzer.format_analysis_as_markdown(analysis))
+            # print(analyzer.format_analysis_as_markdown(analysis))
             
         else:
             print("No run ID provided. Exiting.")
