@@ -7,9 +7,9 @@ Generate a comprehensive LinkedIn Competitive Intelligence report that analyzes 
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For evidence and information_source fields, cite specific data sources like "competitor posts from [specific executive]", "engagement metrics from [platform]", "industry reports from [source]" - DO NOT mention internal report names
+- For citations and information_source fields, cite specific data sources like "competitor posts from [specific executive]", "engagement metrics from [platform]", "industry reports from [source]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting evidence from the input data
+- All recommendations must include rationale with supporting citations from the input data
 
 ### INPUT DATA SOURCES:
 
@@ -85,14 +85,14 @@ Identify specific, replicable content tactics from successful peers:
 1. **Industry Relevance**: Focus on peers and tactics relevant to AI/technology industry
 2. **Executive Appropriateness**: All recommendations must be suitable for C-level positioning
 3. **Actionable Specificity**: Provide concrete, implementable content tactics
-4. **Evidence-Based**: Support all recommendations with peer examples and success data from input sources
+4. **Citations-Based**: Support all recommendations with peer examples and success data from input sources
 5. **Goal Alignment**: Ensure recommendations support the executive's stated content goals
 6. **Audience Focus**: Tailor insights to resonate with target personas and ICPs
 
-### EVIDENCE AND CITATION REQUIREMENTS:
+### CITATIONS AND CITATION REQUIREMENTS:
 
 - For information_source fields: Reference specific sources like "LinkedIn posts from [executive name]", "engagement data from competitor analysis", "industry trend research from [platform/study]"
-- For rationale fields: Include specific evidence from the input data showing why recommendations are valid
+- For rationale fields: Include specific citations from the input data showing why recommendations are valid
 - Do NOT reference internal report names or generic sources
 - If data is insufficient for a complete recommendation, indicate what information is missing rather than making assumptions
 
@@ -114,7 +114,7 @@ Generate a comprehensive LinkedIn Competitive Intelligence report following the 
 - Content suggestions align with executive expertise and industry positioning
 - Insights are immediately actionable without requiring additional research
 - Recommendations support both short-term engagement and long-term thought leadership
-- All evidence fields reference specific, credible sources from the input data
+- All citations fields reference specific, credible sources from the input data
 """
 
 LINKEDIN_COMPETITIVE_INTELLIGENCE_SYSTEM_PROMPT = """
@@ -161,7 +161,7 @@ You are an expert LinkedIn content strategist specializing in analyzing competit
 
 ### Key Analysis Principles:
 
-- **Evidence-Based Recommendations**: Every insight must be backed by specific peer examples and success evidence from input data
+- **Citations-Based Recommendations**: Every insight must be backed by specific peer examples and success citations from input data
 - **Executive-Appropriate Content**: All recommendations must be suitable for C-level executive positioning
 - **Immediate Implementability**: Focus on tactics that can be executed without major resource investment
 - **Authenticity Alignment**: Ensure recommendations align with the executive's genuine expertise and personality
@@ -172,7 +172,7 @@ You are an expert LinkedIn content strategist specializing in analyzing competit
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
 - **Source Attribution**: For information_source fields, reference specific, credible sources like "LinkedIn posts from [executive name]" or "engagement data from competitor analysis" - avoid internal report names
-- **Evidence Documentation**: All rationale fields must include specific evidence from input data supporting recommendations
+- **Citations Documentation**: All rationale fields must include specific citations from input data supporting recommendations
 - **Completeness Standards**: If data is insufficient for a recommendation, indicate what's missing rather than making assumptions
 """
 
@@ -324,7 +324,7 @@ Generate a complete JSON report following the provided schema that:
 
 - Documents actual content performance using specific metrics from the analysis
 - Identifies concrete strengths and weaknesses in current content strategy
-- Provides evidence-based insights about what content resonates with the audience
+- Provides citations-based insights about what content resonates with the audience
 - Highlights specific optimization opportunities based on performance data
 
 **Goal Alignment Assessment:**
@@ -397,7 +397,7 @@ You are an expert LinkedIn content performance analyst specializing in evaluatin
 
 ## Analysis Approach
 
-**Evidence-Based Insights:**
+**Citations-Based Insights:**
 
 - Base ALL insights strictly on data from the provided content analysis reports
 - Never add external assumptions or generic LinkedIn advice
@@ -679,7 +679,7 @@ You are an expert LinkedIn content strategist specializing in executive personal
 ### Critical Guidelines:
 
 1. **No Generic Advice**: Avoid standard LinkedIn tips - focus only on gaps specific to this executive's situation
-2. **Evidence-Based Analysis**: Every gap must be supported by data from the provided reports
+2. **Citations-Based Analysis**: Every gap must be supported by data from the provided reports
 3. **Goal-Driven Prioritization**: Rank gaps by their impact on achieving stated user goals
 4. **Persona Relevance**: Ensure all content recommendations address specific target persona needs
 5. **Executive Feasibility**: Consider the executive's capacity, brand positioning, and professional context
@@ -697,7 +697,7 @@ Generate a LinkedIn Content Strategy Gaps report that:
 - Creates a prioritized action plan for content strategy improvement
 """
 LINKEDIN_STRATEGIC_RECOMMENDATIONS_USER_PROMPT = """
-Generate a comprehensive Strategic LinkedIn Recommendations report that synthesizes all LinkedIn analysis data into compelling, evidence-based recommendations for transforming the executive's LinkedIn presence and achieving their strategic goals.
+Generate a comprehensive Strategic LinkedIn Recommendations report that synthesizes all LinkedIn analysis data into compelling, citations-based recommendations for transforming the executive's LinkedIn presence and achieving their strategic goals.
 
 This report serves as the culmination of all LinkedIn analysis work and must provide clear, actionable strategies that convince the executive to invest in LinkedIn content strategy improvements.
 
@@ -812,7 +812,7 @@ This report serves as the culmination of all LinkedIn analysis work and must pro
 ### Step 2: Content Strategy Recommendations Creation
 
 - Prioritize 4-8 recommendations based on business goal impact and feasibility
-- Support each recommendation with specific evidence from multiple analysis reports
+- Support each recommendation with specific citations from multiple analysis reports
 - Design implementation approaches that align with user capacity and constraints
 - Include competitive context showing why each recommendation is necessary
 - Define clear success metrics that connect to business objectives
@@ -847,7 +847,7 @@ This report serves as the culmination of all LinkedIn analysis work and must pro
 
 ### CRITICAL QUALITY REQUIREMENTS:
 
-1. **Evidence-Based Recommendations**: Every recommendation must be supported by specific findings from the analysis reports
+1. **Citations-Based Recommendations**: Every recommendation must be supported by specific findings from the analysis reports
 2. **Business Goal Alignment**: All strategies must directly support the executive's stated LinkedIn objectives
 3. **Executive Appropriateness**: Recommendations must fit executive positioning, capacity, and professional brand requirements
 4. **Competitive Differentiation**: Strategies must create sustainable competitive advantages over industry peers
@@ -859,7 +859,7 @@ This report serves as the culmination of all LinkedIn analysis work and must pro
 **Recommendation Quality Criteria:**
 
 - Addresses specific gaps identified in analysis reports
-- Supported by concrete evidence from peer analysis and performance data
+- Supported by concrete citations from peer analysis and performance data
 - Includes detailed implementation approach with specific tactics
 - Considers executive constraints and professional positioning needs
 - Provides clear success metrics and expected timeline for results
@@ -883,10 +883,10 @@ This report serves as the culmination of all LinkedIn analysis work and must pro
 
 ### INPUT DATA:
 ```json
-{linkedin_content_doc}
+{linkedin_visibility_assessment}
 ```
 ```json
-{linkedin_visibility_assessment}
+{linkedin_competitive_intelligence}
 ```
 ```json
 {linkedin_competitive_intelligence}
@@ -911,12 +911,12 @@ Generate a complete Strategic LinkedIn Recommendations report following the prov
 - Creates actionable implementation roadmaps with specific tactics and timelines
 - Establishes thought leadership positioning that differentiates from industry peers
 
-**Evidence-Based Credibility:**
+**Citations-Based Credibility:**
 
 - Supports every recommendation with specific data from the analysis reports
 - References competitor examples and peer success patterns where relevant
 - Includes performance metrics and benchmarks to justify strategic choices
-- Provides concrete evidence for urgency and business impact claims
+- Provides concrete citations for urgency and business impact claims
 
 **Implementation Focus:**
 
@@ -932,10 +932,10 @@ Generate a complete Strategic LinkedIn Recommendations report following the prov
 - Addresses competitive threats with strategic responses
 - Leverages executive's unique expertise and background for market advantage
 
-Generate the Strategic LinkedIn Recommendations report now, ensuring it provides compelling, evidence-based strategies that will transform the executive's LinkedIn presence and achieve their strategic objectives.
+Generate the Strategic LinkedIn Recommendations report now, ensuring it provides compelling, citations-based strategies that will transform the executive's LinkedIn presence and achieve their strategic objectives.
 """
 LINKEDIN_STRATEGIC_RECOMMENDATIONS_SYSTEM_PROMPT = """
-You are an elite LinkedIn content strategist specializing in executive thought leadership and professional brand positioning. Your expertise focuses on synthesizing comprehensive LinkedIn analysis data into compelling, evidence-based strategic recommendations that transform executive LinkedIn presence and achieve specific business goals.
+You are an elite LinkedIn content strategist specializing in executive thought leadership and professional brand positioning. Your expertise focuses on synthesizing comprehensive LinkedIn analysis data into compelling, citations-based strategic recommendations that transform executive LinkedIn presence and achieve specific business goals.
 
 ### Core Expertise Areas:
 
@@ -969,7 +969,7 @@ You are an elite LinkedIn content strategist specializing in executive thought l
 
 ### Analysis Philosophy:
 
-**Evidence-Based Strategy Development:**
+**Citations-Based Strategy Development:**
 
 - Every recommendation must be supported by concrete data from the provided analysis reports
 - Focus on insights that have measurable business impact potential
@@ -1041,7 +1041,7 @@ This report contains:
 - **Content Theme Analysis**: Primary narratives, topic clusters, and unique positioning angles competitors use
 - **E-E-A-T Implementation**: How competitors demonstrate expertise, authority, and trustworthiness
 - **Content Quality Benchmarks**: Information density, writing quality, and structural elements competitors employ
-- **Content Structure Patterns**: Storytelling elements, evidence types, and readability approaches that work
+- **Content Structure Patterns**: Storytelling elements, citations types, and readability approaches that work
 
 **How to Use This Report:**
 
@@ -1143,7 +1143,7 @@ Generate a competitive intelligence report that:
 
 Focus on making executives think: "Our competitors are out-strategizing us with content and we need to respond immediately" rather than "Here are some general content improvements we could consider."
 
-**Evidence Standards:**
+**Citations Standards:**
 
 - Reference specific competitor names and their exact strategies
 - Use industry benchmark data to prove gaps exist
@@ -1170,7 +1170,7 @@ You are an expert competitive content strategist specializing in analyzing compe
 - Use specific competitor data to prove strategic gaps exist
 - Identify patterns in competitor success that client is missing
 - Quantify content strategy impact on market positioning
-- Build compelling cases for content strategy changes based on competitive evidence
+- Build compelling cases for content strategy changes based on competitive citations
 
 **Output Requirements:**
 
@@ -1178,7 +1178,7 @@ You are an expert competitive content strategist specializing in analyzing compe
 - Use specific competitor performance data and strategy analysis
 - Focus on "what competitors are doing that we're not"
 - Make content strategy gaps feel urgent and business-critical
-- Provide evidence-based competitive intelligence
+- Provide citations-based competitive intelligence
 """
 BLOG_PERFORMANCE_REPORT_USER_PROMPT = """
 Please analyze the provided blog content analysis reports and generate a comprehensive Current Blog Content State Analysis report in JSON format.
@@ -1194,7 +1194,7 @@ I'm providing you with two detailed analysis reports:
 - Generate the report using ONLY the data from these two input reports
 - Follow the provided JSON schema exactly
 - Present objective findings about current content state
-- Include specific metrics, scores, and evidence from the source data
+- Include specific metrics, scores, and citations from the source data
 - Focus on diagnosing current content performance rather than making recommendations
 - Ensure every field is populated with data-backed information
 
@@ -1223,7 +1223,7 @@ Provide the complete JSON report following the schema structure, ensuring all fi
 Generate the Current Blog Content State Analysis report now.
 """
 BLOG_PERFORMANCE_REPORT_SYSTEM_PROMPT = """
-You are a Content Analysis Expert tasked with creating a comprehensive Current Blog Content State Analysis report. Your role is to analyze existing content portfolio data and present objective, evidence-based findings about the current state of a company's blog content.
+You are a Content Analysis Expert tasked with creating a comprehensive Current Blog Content State Analysis report. Your role is to analyze existing content portfolio data and present objective, citations-based findings about the current state of a company's blog content.
 
 **Your Core Responsibilities:**
 
@@ -1344,7 +1344,7 @@ Generate a comprehensive Content Opportunities & Gap Analysis report using the p
 1. **Data Fidelity**: Only include insights directly extractable from provided data
 2. **Competitive Context**: Frame every gap in terms of competitive advantage/disadvantage
 3. **Business Impact**: Connect gaps to specific business consequences (traffic loss, conversion friction, authority deficit)
-4. **Evidence Chain**: Each insight must trace back to specific data points
+4. **Citations Chain**: Each insight must trace back to specific data points
 5. **Actionable Specificity**: Avoid generic recommendations; focus on specific content types, topics, or structural improvements
 6. **Urgency Justification**: Clearly explain why each gap requires immediate attention
 
@@ -1354,7 +1354,7 @@ Generate a comprehensive Content Opportunities & Gap Analysis report using the p
 - [ ]  Each gap is explained in terms of competitive impact
 - [ ]  Business consequences are clearly articulated
 - [ ]  Recommendations are specific and actionable
-- [ ]  Evidence sources are clearly traceable
+- [ ]  Citations sources are clearly traceable
 - [ ]  No speculation or generic advice included
 
 ### OUTPUT FORMAT:
@@ -1362,7 +1362,7 @@ Generate a comprehensive Content Opportunities & Gap Analysis report using the p
 Provide the complete analysis in the exact JSON schema format provided, ensuring all fields are populated with data-driven insights that build a compelling case for content strategy investment.
 """
 BLOG_GAP_ANALYSIS_VALIDATION_SYSTEM_PROMPT = """
-You are an expert content strategist and competitive analyst specializing in creating actionable, evidence-based content gap analysis reports. Your role is to analyze multiple data sources and synthesize insights into a compelling business case for content strategy improvements.
+You are an expert content strategist and competitive analyst specializing in creating actionable, citations-based content gap analysis reports. Your role is to analyze multiple data sources and synthesize insights into a compelling business case for content strategy improvements.
 
 ### Core Competencies:
 
@@ -1374,7 +1374,7 @@ You are an expert content strategist and competitive analyst specializing in cre
 
 ### Analysis Framework:
 
-1. **Evidence-First Approach**: Every recommendation must be supported by concrete data from the provided reports
+1. **Citations-First Approach**: Every recommendation must be supported by concrete data from the provided reports
 2. **Competitive Context**: Frame all gaps in terms of competitive advantage/disadvantage
 3. **Business Impact Focus**: Prioritize gaps based on their potential business impact
 4. **Actionable Insights**: Provide specific, implementable recommendations
@@ -1393,14 +1393,14 @@ You are an expert content strategist and competitive analyst specializing in cre
 - **Competitive Advantage**: Always frame gaps in terms of competitor advantages we're missing
 - **Business Relevance**: Connect every gap to specific business outcomes (traffic, conversions, authority)
 - **Prioritization**: Focus on gaps with the highest impact-to-effort ratio
-- **Evidence Chain**: Trace each recommendation back to specific data points
+- **Citations Chain**: Trace each recommendation back to specific data points
 
 ### Report Structure Requirements:
 
 Follow the provided JSON schema exactly, ensuring each field is populated with data-driven insights rather than assumptions or generic advice.
 """
 BLOG_STRATEGIC_RECOMMENDATIONS_SYSTEM_PROMPT = """
-You are an expert Content Strategy Analyst specializing in creating actionable, evidence-based content recommendations. Your role is to analyze multiple content analysis reports and synthesize insights into specific, implementable content strategy improvements.
+You are an expert Content Strategy Analyst specializing in creating actionable, citations-based content recommendations. Your role is to analyze multiple content analysis reports and synthesize insights into specific, implementable content strategy improvements.
 
 ### Core Competencies:
 
@@ -1412,7 +1412,7 @@ You are an expert Content Strategy Analyst specializing in creating actionable, 
 
 ### Analysis Framework:
 
-1. **Evidence-Only Approach**: Base ALL recommendations strictly on data from provided reports
+1. **Citations-Only Approach**: Base ALL recommendations strictly on data from provided reports
 2. **Specificity Requirement**: Provide specific, actionable content recommendations, not generic advice
 3. **Source Attribution**: Every recommendation must trace back to specific data points with proper source citation
 4. **Content-Only Focus**: Focus exclusively on content creation, optimization, and strategy
@@ -1426,16 +1426,16 @@ You are an expert Content Strategy Analyst specializing in creating actionable, 
 - **DATA-DRIVEN**: Every recommendation must be backed by specific metrics or findings
 - **ACTIONABLE FOCUS**: Provide clear, implementable content actions
 
-### Evidence and Source Requirements:
+### Citations and Source Requirements:
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
-- **Source Attribution**: For information_source and evidence_source fields, reference specific, credible sources like "competitor blog analysis from [company]", "SEO audit findings from [tool]", "content performance metrics from [platform]" - avoid internal report names
-- **Evidence Documentation**: All rationale fields must include specific evidence from input data supporting recommendations
+- **Source Attribution**: For information_source and citations_source fields, reference specific, credible sources like "competitor blog analysis from [company]", "SEO audit findings from [tool]", "content performance metrics from [platform]" - avoid internal report names
+- **Citations Documentation**: All rationale fields must include specific citations from input data supporting recommendations
 - **Completeness Standards**: If data is insufficient for a recommendation, leave fields empty rather than making assumptions
 
 ### Report Quality Standards:
 
-- Each recommendation must include specific evidence from source reports with proper attribution
+- Each recommendation must include specific citations from source reports with proper attribution
 - Competitor comparisons must be based on actual data from competitive analysis
 - Content gaps must be identified using concrete metrics
 - Solutions must be specific (content types, topics, approaches, volumes)
@@ -1447,9 +1447,9 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For evidence_source and information_source fields, cite specific data sources like "competitor blog posts from [company]", "content performance metrics from [analysis]", "SEO audit findings from [tool/study]" - DO NOT mention internal report names
+- For citations_source and information_source fields, cite specific data sources like "competitor blog posts from [company]", "content performance metrics from [analysis]", "SEO audit findings from [tool/study]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting evidence from the input data
+- All recommendations must include rationale with supporting citations from the input data
 - Focus exclusively on content strategy - avoid business metrics like ROI or revenue
 
 ### INPUT REPORTS AND USAGE INSTRUCTIONS:
@@ -1511,7 +1511,7 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 ### For Content Recommendations:
 
 - **Extract content gaps** from Gap Analysis and Blog Performance reports
-- **Use specific metrics** (scores, percentages, counts) as evidence
+- **Use specific metrics** (scores, percentages, counts) as citations
 - **Reference competitor advantages** from Competitive Intelligence report
 - **Provide specific content solutions** with rationale and information_source
 - **Include content volume recommendations** based on gaps identified
@@ -1522,25 +1522,25 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 - **Extract competitor AI advantages** from the report findings
 - **Recommend specific content optimizations** for AI platforms
 - **Base priorities on actual visibility scores and gaps**
-- Include evidence_source for all AI-related recommendations
+- Include citations_source for all AI-related recommendations
 
 ### For Content Quality Fixes:
 
 - **Use quality metrics** from Blog Performance and Technical SEO reports
 - **Identify specific quality issues** (depth scores, structure adoption rates, etc.)
 - **Provide concrete improvement methods** based on gaps found
-- **Reference exact performance data** as evidence
-- Include evidence_source for quality issue identification
+- **Reference exact performance data** as citations
+- Include citations_source for quality issue identification
 
 ### CRITICAL SUCCESS FACTORS:
 
 1. **Data Fidelity**: Every recommendation must reference specific data points from the reports
 2. **Specificity**: Avoid generic advice - be specific about content types, topics, approaches, volumes
-3. **Evidence Chain**: Each insight must trace back to specific metrics or findings with proper source attribution
+3. **Citations Chain**: Each insight must trace back to specific metrics or findings with proper source attribution
 4. **Content Focus**: Stay strictly within content strategy - no business outcomes or ROI
 5. **Actionable Clarity**: Provide clear, implementable recommendations
 
-### EVIDENCE STANDARDS:
+### CITATIONS STANDARDS:
 
 - **Quote specific metrics** (e.g., "Content performance analysis shows 64% structure adoption rate")
 - **Reference competitor names** and their specific advantages from Competitive Intelligence
@@ -1555,7 +1555,7 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 - [ ]  No external assumptions or generic advice included
 - [ ]  Competitor advantages are specific and data-backed
 - [ ]  Content solutions are actionable and specific
-- [ ]  Evidence sources are clearly identified with proper attribution
+- [ ]  Citations sources are clearly identified with proper attribution
 - [ ]  Focus remains purely on content strategy
 - [ ]  All rationale and information_source fields are populated with relevant data
 
@@ -1688,7 +1688,7 @@ Generate a JSON report following the provided schema that:
 - **Convinces through data**: Every insight backed by specific metrics
 - **Shows competitive urgency**: Uses competitor performance to prove threats are real
 - **Quantifies business impact**: Translates visibility gaps into revenue/market share implications
-- **Validates problems exist**: Uses concrete evidence to prove each identified issue
+- **Validates problems exist**: Uses concrete citations to prove each identified issue
 - **Creates urgency**: Shows what happens if problems aren't addressed
 
 Focus on making executives think: "We have a serious problem that needs immediate attention" rather than "Here's a nice-to-have improvement project."
@@ -1705,7 +1705,7 @@ Generate the analysis now, ensuring every recommendation is a compelling problem
 
 """
 BLOG_AI_VISIBILITY_REPORT_SYSTEM_PROMPT = """
-You are an expert AI visibility analyst specializing in evaluating how companies perform across AI platforms (ChatGPT, Claude, Gemini, Perplexity) and their competitive positioning in AI-generated search results. Your role is to analyze raw AI visibility data and transform it into compelling, evidence-based insights that convince executives of critical problems requiring attention.
+You are an expert AI visibility analyst specializing in evaluating how companies perform across AI platforms (ChatGPT, Claude, Gemini, Perplexity) and their competitive positioning in AI-generated search results. Your role is to analyze raw AI visibility data and transform it into compelling, citations-based insights that convince executives of critical problems requiring attention.
 
 **Your Core Expertise:**
 
@@ -1720,7 +1720,7 @@ You are an expert AI visibility analyst specializing in evaluating how companies
 - Use concrete data to prove issues exist and matter
 - Quantify business impact and competitive threats
 - Build compelling cases for why executives should care
-- Prioritize evidence-based insights over generic recommendations
+- Prioritize citations-based insights over generic recommendations
 
 **Output Requirements:**
 
@@ -1793,7 +1793,7 @@ class LinkedInExecutiveSummary(BaseModel):
 class CopyableTactic(BaseModel):
     tactic_name: str = Field(description="Short name for specific tactic")
     tactic_description: str = Field(description="Detailed explanation of how this tactic works")
-    success_evidence: str = Field(description="Metrics or engagement evidence showing this works")
+    success_citations: str = Field(description="Metrics or engagement citations showing this works")
     implementation_approach: str = Field(description="How to adapt this for our executive")
     content_examples: List[str] = Field(description="Example content pieces")
     posting_frequency: str = Field(description="How often to use this tactic")
@@ -1816,7 +1816,7 @@ class IndustryLeadingPeer(BaseModel):
 class HighImpactContentTactic(BaseModel):
     tactic_name: str = Field(description="Name of proven content tactic")
     tactic_description: str = Field(description="Detailed explanation of the tactic")
-    success_evidence: str = Field(description="Peer examples and engagement metrics showing effectiveness")
+    success_citations: str = Field(description="Peer examples and engagement metrics showing effectiveness")
     implementation_approach: str = Field(description="Step-by-step guide to execute this tactic")
     content_examples: List[str] = Field(description="Specific examples")
     posting_frequency: str = Field(description="Recommended frequency for using this tactic")
@@ -1853,9 +1853,9 @@ class CompetitiveContentGap(BaseModel):
     implementation_priority: ImplementationPriority = Field(description="Priority level")
 
 class ThoughtLeadershipOpportunity(BaseModel):
-    rationale: str = Field(description="Evidence and reasoning from industry analysis showing why this territory is underserved and valuable")
+    rationale: str = Field(description="Citations and reasoning from industry analysis showing why this territory is underserved and valuable")
     opportunity_area: str = Field(description="Specific thought leadership territory to claim")
-    market_gap_evidence: str = Field(description="Why this area is underserved")
+    market_gap_citations: str = Field(description="Why this area is underserved")
     expertise_alignment: str = Field(description="How this aligns with our executive's background")
     content_approach: str = Field(description="Content strategy to establish authority")
     differentiation_angle: str = Field(description="Unique perspective that sets us apart")
@@ -1866,7 +1866,7 @@ class ThoughtLeadershipOpportunity(BaseModel):
 
 class AudienceIntelligence(BaseModel):
     insight: str = Field(description="Key insight about what resonates with target audience")
-    evidence_source: str = Field(description="Where this insight comes from - peer analysis/engagement patterns")
+    citations_source: str = Field(description="Where this insight comes from - peer analysis/engagement patterns")
     content_implication: str = Field(description="How this should influence content strategy")
     implementation_tactics: List[str] = Field(description="Specific tactics to apply this insight")
     peer_validation: str = Field(description="Which peers successfully leverage this insight")
@@ -1895,7 +1895,7 @@ class SeasonalContentOpportunity(BaseModel):
     peer_examples: List[str] = Field(description="Peers who do this well")
 
 class ContentCalendarRecommendations(BaseModel):
-    rationale: str = Field(description="Evidence from peer analysis and performance data supporting these calendar recommendations")
+    rationale: str = Field(description="Citations from peer analysis and performance data supporting these calendar recommendations")
     optimal_posting_frequency: str = Field(description="Posts per week based on peer analysis")
     content_mix_strategy: ContentMixStrategy = Field(description="Content mix distribution")
     peak_engagement_timing: PeakEngagementTiming = Field(description="Optimal timing data")
@@ -2098,9 +2098,9 @@ class LinkedInStrategicExecutiveSummary(BaseModel):
     urgency_rationale: str = Field(description="Why immediate action is needed for LinkedIn content strategy")
     top_strategic_priorities: List[str] = Field(description="Top 3 strategic priorities for LinkedIn content based on all analysis", max_items=3)
 
-class SupportingEvidence(BaseModel):
-    evidence_point: str = Field(description="Specific finding supporting this recommendation")
-    source_report: str = Field(description="Which LinkedIn analysis report this evidence comes from")
+class SupportingCitations(BaseModel):
+    citations_point: str = Field(description="Specific finding supporting this recommendation")
+    source_report: str = Field(description="Which LinkedIn analysis report this citations comes from")
 
 class ImplementationApproach(BaseModel):
     content_tactics: List[str] = Field(description="Specific content creation tactics to implement")
@@ -2113,7 +2113,7 @@ class ContentStrategyRecommendation(BaseModel):
     priority_level: PriorityLevel = Field(description="Priority ranking based on business impact")
     strategic_gap_addressed: str = Field(description="Specific gap in current LinkedIn strategy this addresses")
     business_rationale: str = Field(description="Why this recommendation is critical for achieving LinkedIn goals")
-    supporting_evidence: List[SupportingEvidence] = Field(description="Evidence supporting this recommendation")
+    supporting_citations: List[SupportingCitations] = Field(description="Citations supporting this recommendation")
     implementation_approach: ImplementationApproach = Field(description="How to implement this recommendation")
     competitive_context: str = Field(description="How peers/competitors handle this area and why we need to respond")
     expected_outcomes: List[str] = Field(description="Expected improvements to LinkedIn presence and thought leadership")
@@ -2150,7 +2150,7 @@ class EngagementAmplificationTactic(BaseModel):
     tactic_name: str = Field(description="Name of engagement tactic")
     implementation_method: str = Field(description="How to implement this tactic")
     expected_engagement_lift: str = Field(description="Expected engagement improvement")
-    peer_success_evidence: str = Field(description="Evidence of peer success with this tactic")
+    peer_success_citations: str = Field(description="Citations of peer success with this tactic")
 
 class AudienceEngagementOptimization(BaseModel):
     persona_specific_strategies: List[PersonaSpecificStrategy] = Field(description="Strategies for specific personas")
@@ -2324,7 +2324,7 @@ class ContentOptimizationOpportunities(BaseModel):
 class PriorityRecommendation(BaseModel):
     title: str = Field(description="Specific problem identification title")
     priority: str = Field(description="critical/high/medium/low")
-    problem_evidence: str = Field(description="Data and evidence proving this is a real issue")
+    problem_citations: str = Field(description="Data and citations proving this is a real issue")
     business_case: str = Field(description="Why this problem matters to business outcomes")
     competitive_context: str = Field(description="How competitors are capitalizing on this gap")
     market_opportunity: str = Field(description="Size and value of the opportunity being missed")
@@ -2344,13 +2344,12 @@ class BlogAIVisibilityReportSchema(BaseModel):
     critical_gaps: BlogAICriticalGaps = Field(description="Critical gaps analysis")
     buyer_intent_analysis: BuyerIntentAnalysis = Field(description="Buyer intent analysis")
     content_optimization_opportunities: ContentOptimizationOpportunities = Field(description="Content optimization opportunities")
-    business_impact_summary: str = Field(description="Overall assessment of how AI visibility gaps affect business growth, market positioning, and competitive advantage")
     priority_recommendations: BlogAIPriorityRecommendations = Field(description="Priority recommendations")
 
 # Blog Competitive Intelligence Report Schema Models
 class BlogCompetitiveMarketPosition(BaseModel):
     your_position: str = Field(description="leading/competitive/behind")
-    position_evidence: str = Field(description="Specific metrics proving current position")
+    position_citations: str = Field(description="Specific metrics proving current position")
     market_leader: str = Field(description="Competitor name")
     leader_advantage: str = Field(description="Why they lead - specific content strategy")
     biggest_threat: str = Field(description="Competitor threatening your position")
@@ -2362,7 +2361,7 @@ class CompetitorAnalysis(BaseModel):
     ai_visibility_score: str = Field(description="0-100 score")
     content_velocity: str = Field(description="Posts per month")
     winning_strategy: str = Field(description="What they do better than you")
-    strategy_evidence: str = Field(description="Proof their strategy works")
+    strategy_citations: str = Field(description="Proof their strategy works")
     exploitable_weakness: str = Field(description="Their vulnerability you can attack")
     audience_overlap: str = Field(description="High/Medium/Low")
     why_we_should_copy: str = Field(description="Specific tactics to adopt from them")
@@ -2371,12 +2370,12 @@ class BlogCompetitiveCriticalGap(BaseModel):
     gap_name: str = Field(description="Specific content gap")
     business_risk: str = Field(description="Revenue/market share impact")
     competitor_exploiting: str = Field(description="Who's winning in this area")
-    gap_evidence: str = Field(description="Proof this gap exists and matters")
+    gap_citations: str = Field(description="Proof this gap exists and matters")
     urgency_reasoning: str = Field(description="Why this must be fixed now")
 
 class UntappedOpportunity(BaseModel):
     opportunity: str = Field(description="Market opportunity")
-    size_indicator: str = Field(description="Search volume/demand evidence")
+    size_indicator: str = Field(description="Search volume/demand citations")
     competitor_weakness: str = Field(description="Why competitors can't capture this")
     first_mover_advantage: str = Field(description="Window for early leadership")
     success_reasoning: str = Field(description="Why you can win here")
@@ -2385,7 +2384,7 @@ class BlogCompetitiveStrategicRecommendation(BaseModel):
     recommendation: str = Field(description="Specific action to take")
     competitive_reasoning: str = Field(description="Which competitor success inspired this")
     business_impact: str = Field(description="Why this will move the needle")
-    supporting_evidence: str = Field(description="Data proving this approach works")
+    supporting_citations: str = Field(description="Data proving this approach works")
     priority_level: str = Field(description="P0/P1/P2")
 
 class BlogCompetitiveIntelligenceReportSchema(BaseModel):
@@ -2407,7 +2406,7 @@ class BlogPerformanceSnapshot(BaseModel):
 
 class ContentHealthAlert(BaseModel):
     issue: str = Field(description="From strategic_recommendations or content_gaps_priority")
-    evidence: str = Field(description="Specific metrics from content_portfolio_health")
+    citations: str = Field(description="Specific metrics from content_portfolio_health")
     affected_content_count: str = Field(description="From topic analysis total_posts or funnel post_count")
     severity: str = Field(description="Based on whether it appears in strategic_recommendations priority")
 
@@ -2443,7 +2442,7 @@ class StructuralContentAnalysis(BaseModel):
     featured_snippet_readiness: str = Field(description="Count of question_answer_extraction featured_snippet_potential across stages")
     content_structure_gaps: str = Field(description="Analysis of content_structure_elements usage patterns")
     storytelling_effectiveness: str = Field(description="Assessment of storytelling_elements across funnel stages")
-    supporting_evidence_strength: str = Field(description="Analysis of supporting_evidence_types quality")
+    supporting_citations_strength: str = Field(description="Analysis of supporting_citations_types quality")
 
 class FunnelPerformanceReality(BaseModel):
     stage_investment_distribution: str = Field(description="Percentage breakdown of content across awareness/consideration/purchase/retention")
@@ -2473,7 +2472,7 @@ class ImmediateAttentionPriority(BaseModel):
     priority_area: str = Field(description="From content_gaps_priority or strategic_recommendations")
     current_performance_data: str = Field(description="Specific metrics showing current state")
     business_risk_level: str = Field(description="Impact assessment based on strategic importance")
-    evidence_of_urgency: str = Field(description="Data proving this needs immediate focus")
+    citations_of_urgency: str = Field(description="Data proving this needs immediate focus")
 
 class BlogPerformanceReportSchema(BaseModel):
     """Blog Performance Report schema"""
@@ -2502,7 +2501,7 @@ class CriticalFunnelImbalance(BaseModel):
     current_post_count: str = Field(description="Actual number from data")
     current_quality_score: str = Field(description="Actual score from data")
     imbalance_severity: str = Field(description="Critical/High/Medium/Low")
-    business_impact_evidence: str = Field(description="How this imbalance hurts conversions/growth")
+    business_impact_citations: str = Field(description="How this imbalance hurts conversions/growth")
     competitor_advantage: str = Field(description="How competitors leverage better balance")
     content_gap_specifics: str = Field(description="What specific content types are missing")
     audience_journey_disruption: str = Field(description="How this affects user experience")
@@ -2537,7 +2536,7 @@ class CompetitorContentAdvantage(BaseModel):
     our_current_weakness: str = Field(description="How we fall short in comparison")
     content_strategy_difference: str = Field(description="How their approach differs")
     audience_appeal_factor: str = Field(description="Why their content resonates better")
-    market_share_impact: str = Field(description="Evidence of their content driving results")
+    market_share_impact: str = Field(description="Citations of their content driving results")
     positioning_threat: str = Field(description="How they're winning mindshare")
     content_format_superiority: str = Field(description="Specific formats they execute better")
     our_vulnerable_topics: List[str] = Field(description="Topics where they consistently outperform us")
@@ -2563,10 +2562,10 @@ class MessagingConsistencyIssue(BaseModel):
 
 class UntappedContentTerritory(BaseModel):
     territory_name: str = Field(description="Content area/topic not covered")
-    opportunity_evidence: str = Field(description="Why this is valuable based on competitor analysis")
+    opportunity_citations: str = Field(description="Why this is valuable based on competitor analysis")
     competitor_presence: str = Field(description="How competitors are winning in this area")
     content_theme_alignment: str = Field(description="How this fits our existing themes")
-    audience_demand_indicators: str = Field(description="Evidence of audience interest")
+    audience_demand_indicators: str = Field(description="Citations of audience interest")
     authority_building_potential: str = Field(description="How this could establish thought leadership")
     business_goal_alignment: str = Field(description="How this supports business objectives")
     content_gap_specifics: str = Field(description="Exactly what content is missing")
@@ -2576,7 +2575,7 @@ class BlogGapStrategicContentRecommendation(BaseModel):
     recommendation_type: str = Field(description="Fix/Build/Optimize/Restructure")
     priority_level: str = Field(description="Critical/High/Medium/Low")
     gap_addressed: str = Field(description="Which specific gap this solves")
-    evidence_basis: str = Field(description="Data supporting this recommendation")
+    citations_basis: str = Field(description="Data supporting this recommendation")
     competitive_response: str = Field(description="How this addresses competitor advantages")
     business_case_summary: str = Field(description="Why this matters for business goals")
     content_scope: str = Field(description="What content work is involved")
@@ -2605,17 +2604,17 @@ class BlogGapAnalysisValidationSchema(BaseModel):
 # Blog Strategic Recommendations Schema Models
 class BlogStrategicExecutiveSummary(BaseModel):
     content_health_status: str = Field(description="Overall content portfolio health: EXCELLENT/GOOD/NEEDS_IMPROVEMENT/CRITICAL")
-    rationale: str = Field(description="Evidence from content analysis supporting the priority identification and urgency assessment")
+    rationale: str = Field(description="Citations from content analysis supporting the priority identification and urgency assessment")
     top_content_priority: str = Field(description="Most critical content issue requiring immediate attention")
     key_findings_summary: List[str] = Field(description="Top 3 content findings from analysis", max_items=3)
     information_source: str = Field(description="Source of priority assessment - content audit, performance analysis, or competitive research")
 
-class BlogSupportingEvidence(BaseModel):
-    evidence_point: str = Field(description="Specific finding or metric supporting this recommendation")
+class BlogSupportingCitations(BaseModel):
+    citations_point: str = Field(description="Specific finding or metric supporting this recommendation")
     source_report: str = Field(description="Source of information - specific content analysis, competitor research, or performance data rather than internal report names")
 
 class BlogContentSolution(BaseModel):
-    rationale: str = Field(description="Evidence and reasoning from analysis showing why this content solution is needed and will be effective")
+    rationale: str = Field(description="Citations and reasoning from analysis showing why this content solution is needed and will be effective")
     what_to_create: str = Field(description="Specific content types, topics, or formats to develop")
     content_approach: str = Field(description="How to approach creating this content")
     content_volume: str = Field(description="Recommended volume or frequency")
@@ -2626,7 +2625,7 @@ class BlogContentRecommendation(BaseModel):
     priority_level: PriorityLevel = Field(description="Priority ranking")
     content_gap_identified: str = Field(description="Specific content gap or issue this addresses")
     rationale: str = Field(description="Why this recommendation is important for content strategy")
-    supporting_evidence: List[BlogSupportingEvidence] = Field(description="Evidence supporting this recommendation")
+    supporting_citations: List[BlogSupportingCitations] = Field(description="Citations supporting this recommendation")
     content_solution: BlogContentSolution = Field(description="Content solution details")
     competitor_context: str = Field(description="How competitors are handling this content area differently/better")
     expected_content_outcomes: List[str] = Field(description="Expected content performance improvements")
@@ -2636,13 +2635,13 @@ class AIContentPriority(BaseModel):
     current_ai_visibility: str = Field(description="Current performance on AI platforms")
     optimization_strategy: str = Field(description="How to make content more AI-friendly")
     competitor_advantage: str = Field(description="How competitors are winning in this area")
-    evidence_source: str = Field(description="Source of AI visibility data - platform testing, citation analysis, or competitive AI research")
+    citations_source: str = Field(description="Source of AI visibility data - platform testing, citation analysis, or competitive AI research")
 
 class ContentQualityFix(BaseModel):
     quality_issue: str = Field(description="Specific content quality problem identified")
     current_performance: str = Field(description="Current metrics showing the quality issue")
     improvement_method: str = Field(description="How to fix this quality issue")
-    evidence_source: str = Field(description="Source that identified this quality issue - content audit, performance analysis, or quality assessment")
+    citations_source: str = Field(description="Source that identified this quality issue - content audit, performance analysis, or quality assessment")
 
 class BlogStrategicRecommendationsSchema(BaseModel):
     """Blog Strategic Recommendations schema"""
@@ -2677,7 +2676,7 @@ You are a Senior Content Strategy Analyst specializing in synthesizing multiple 
 ### Analysis Principles:
 1. **Content-Only Focus**: All insights must relate to content strategy, creation, optimization, or performance
 2. **Executive-Level Synthesis**: Provide high-level insights, not detailed tactical recommendations
-3. **Evidence-Based Assessment**: Base all conclusions on specific data from provided reports
+3. **Citations-Based Assessment**: Base all conclusions on specific data from provided reports
 4. **Strategic Prioritization**: Identify the most critical content issues requiring leadership attention
 5. **Cross-Report Integration**: Synthesize insights across all analysis reports for holistic view
 
@@ -2688,11 +2687,11 @@ You are a Senior Content Strategy Analyst specializing in synthesizing multiple 
 - **DATA-DRIVEN CONCLUSIONS**: Every insight must trace back to specific report findings
 - **PRIORITY CLARITY**: Clearly distinguish between critical, high, and medium priority content issues
 
-### Evidence and Source Requirements:
+### Citations and Source Requirements:
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
 - **Source Attribution**: For information_source fields, reference specific, credible sources like "content performance analysis from [platform]", "competitor research from [company blog]", "technical audit from [SEO tool]" - avoid internal report names
-- **Evidence Documentation**: All rationale fields must include specific evidence from input data supporting assessments
+- **Citations Documentation**: All rationale fields must include specific citations from input data supporting assessments
 - **Completeness Standards**: If data is insufficient for an assessment, leave fields empty rather than making assumptions
 - **Content Focus Maintenance**: All insights must relate directly to content strategy, creation, optimization, or performance
 - **Executive Appropriateness**: Provide strategic-level insights suitable for executive decision-making
@@ -2706,7 +2705,7 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
 - For information_source fields, cite specific data sources like "competitor blog analysis from [company]", "content audit findings from [tool]", "SEO analysis results from [platform]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All assessments must include rationale with supporting evidence from the input data
+- All assessments must include rationale with supporting citations from the input data
 - Focus exclusively on content strategy - avoid business metrics like ROI or revenue
 
 ### INPUT REPORTS AND CONTENT FOCUS AREAS:
@@ -2769,7 +2768,7 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 - Rank by criticality (P0, P1, P2) based on impact on content performance
 - Provide rationale focused on content strategy benefits
 
-### EVIDENCE REQUIREMENTS:
+### CITATIONS REQUIREMENTS:
 - Quote specific metrics and scores from reports
 - Reference exact findings from each source report  
 - Use actual performance data and gap measurements
@@ -2788,7 +2787,7 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 - Executive-level insights, not tactical details
 - Content-focused recommendations only
 - Clear prioritization of content actions
-- Evidence-based conclusions from report data
+- Citations-based conclusions from report data
 - Strategic synthesis across multiple analysis areas
 - All rationale and information_source fields populated with relevant data from inputs
 
@@ -2835,7 +2834,7 @@ class BlogExecutiveContentQualityOverview(BaseModel):
 
 class BlogExecutiveContentStructureStatus(BaseModel):
     structural_adoption_rate: str = Field(description="Content structure best practices adoption rate")
-    rationale: str = Field(description="Evidence from content analysis showing specific structural deficiencies and their impact")
+    rationale: str = Field(description="Citations from content analysis showing specific structural deficiencies and their impact")
     structural_gaps: List[str] = Field(description="Key structural content improvements needed", max_items=3)
     information_source: str = Field(description="Source of structural data - content audit findings, SEO analysis, or user experience research")
 
@@ -2845,12 +2844,12 @@ class BlogExecutiveContentPerformanceSummary(BaseModel):
 
 class BlogExecutiveCompetitorContentThreat(BaseModel):
     competitor_name: str = Field(description="Competitor name")
-    rationale: str = Field(description="Evidence showing how this competitor outperforms in content strategy")
+    rationale: str = Field(description="Citations showing how this competitor outperforms in content strategy")
     their_content_advantage: str = Field(description="Specific content area where this competitor outperforms us")
     information_source: str = Field(description="Source of competitive data - competitor content analysis, market research, or performance comparisons")
 
 class BlogExecutiveCompetitiveContentPosition(BaseModel):
-    rationale: str = Field(description="Evidence from competitive analysis supporting content positioning assessment")
+    rationale: str = Field(description="Citations from competitive analysis supporting content positioning assessment")
     content_advantages_vs_competitors: List[str] = Field(description="Content areas where we outperform competitors", max_items=2)
     competitor_content_threats: List[BlogExecutiveCompetitorContentThreat] = Field(description="Key competitor content advantages threatening our position", max_items=3)
     content_differentiation_opportunities: List[str] = Field(description="Content opportunities where we can differentiate from competitors", max_items=2)
@@ -2858,13 +2857,13 @@ class BlogExecutiveCompetitiveContentPosition(BaseModel):
 
 class BlogExecutiveAIContentReadiness(BaseModel):
     ai_visibility_status: str = Field(description="Overall content visibility on AI platforms", enum=["EXCELLENT", "GOOD", "POOR", "INVISIBLE"])
-    rationale: str = Field(description="Evidence from AI platform analysis showing content visibility performance and gaps")
+    rationale: str = Field(description="Citations from AI platform analysis showing content visibility performance and gaps")
     ai_content_gaps: List[str] = Field(description="Key content gaps for AI platform optimization", max_items=3)
     ai_content_opportunities: List[str] = Field(description="Content opportunities to improve AI platform presence", max_items=3)
     information_source: str = Field(description="Source of AI visibility data - platform query testing, citation analysis, or AI search performance research")
 
 class BlogExecutiveCriticalTechnicalContentIssue(BaseModel):
-    rationale: str = Field(description="Evidence from technical analysis showing why this issue is critical for content performance")
+    rationale: str = Field(description="Citations from technical analysis showing why this issue is critical for content performance")
     issue: str = Field(description="Specific technical content issue")
     impact_on_content: str = Field(description="How this technical issue affects content performance")
     information_source: str = Field(description="Source of technical issue identification - site audit, SEO analysis, or performance testing")
@@ -2914,7 +2913,7 @@ class LinkedInBiggestContentWeakness(BaseModel):
 class LinkedInContentConsistencyAssessment(BaseModel):
     posting_frequency_status: str = Field(description="Assessment of posting frequency consistency")
     content_quality_consistency: str = Field(description="Assessment of content quality consistency")
-    rationale: str = Field(description="Evidence from content analysis showing specific consistency gaps and their impact")
+    rationale: str = Field(description="Citations from content analysis showing specific consistency gaps and their impact")
     improvement_needed: str = Field(description="Areas where consistency improvements are needed")
     information_source: str = Field(description="Source of consistency data - specific posts analysis, engagement patterns, or posting history review")
 
@@ -2930,9 +2929,9 @@ class LinkedInPeerContentAdvantage(BaseModel):
     catch_up_strategy: str = Field(description="Strategy to catch up")
 
 class LinkedInUntappedContentOpportunity(BaseModel):
-    rationale: str = Field(description="Evidence from competitive analysis showing why this opportunity exists and remains underutilized")
+    rationale: str = Field(description="Citations from competitive analysis showing why this opportunity exists and remains underutilized")
     opportunity_area: str = Field(description="Content opportunity area")
-    content_approach: str = Field(description="Recommended content approach")
+    content_approach: str = Field(description="Recommended content approach, keep it short and concise")
     competitive_advantage_potential: str = Field(description="Potential competitive advantage")
     information_source: str = Field(description="Source of opportunity data - competitor content gaps, industry trends, or audience demand indicators")
 
@@ -2951,23 +2950,23 @@ class LinkedInContentGapPriority(BaseModel):
     gap_severity: str = Field(description="Severity of this content gap")
     impact_on_goals: str = Field(description="How this content gap affects achieving LinkedIn goals")
     content_solution: str = Field(description="Specific content creation solution to address this gap")
-    evidence_source: str = Field(description="Source of gap identification - content performance data, competitor comparison, or audience analysis")
+    citations_source: str = Field(description="Source of gap identification - content performance data, competitor comparison, or audience analysis")
 
 class LinkedInAIVisibilityContentInsights(BaseModel):
     current_ai_content_visibility: str = Field(description="How well current content performs on AI platforms and search")
     content_citation_opportunities: str = Field(description="Content areas where executive could be more frequently cited by AI platforms")
     competitor_ai_content_advantages: str = Field(description="How competitors' content strategies make them more visible on AI platforms")
-    rationale: str = Field(description="Evidence from AI platform analysis showing specific content gaps and optimization opportunities")
+    rationale: str = Field(description="Citations from AI platform analysis showing specific content gaps and optimization opportunities")
     ai_optimized_content_recommendations: List[str] = Field(description="Top 3 content recommendations to improve AI platform visibility", max_items=3)
     information_source: str = Field(description="Source of AI visibility data - platform query results, citation analysis, or competitor AI presence research")
 
 class LinkedInContentQuickWin(BaseModel):
-    rationale: str = Field(description="Evidence and data supporting why this is a quick win opportunity")
+    rationale: str = Field(description="Citations and data supporting why this is a quick win opportunity")
     quick_win: str = Field(description="Quick win content optimization")
     information_source: str = Field(description="Source of quick win identification - performance data, competitor analysis, or engagement patterns")
 
 class LinkedInContentInvestmentPriority(BaseModel):
-    rationale_for_investment: str = Field(description="Evidence-based reasoning for investing in this content area")
+    rationale_for_investment: str = Field(description="Citations-based reasoning for investing in this content area")
     content_area: str = Field(description="Content area for investment")
     information_source: str = Field(description="Source supporting investment priority - market analysis, competitor performance, or engagement data")
 
@@ -3026,11 +3025,11 @@ You are an expert LinkedIn content strategy synthesizer specializing in creating
 - Consider executive time constraints and focus on content strategies with highest ROI
 - Ensure all content recommendations align with professional executive positioning
 
-**Evidence-Based Recommendations:**
+**Citations-Based Recommendations:**
 - Base every content insight on specific data from the provided LinkedIn analysis reports
 - Use actual performance metrics, competitive analysis, and gap identification data
 - Avoid generic LinkedIn content advice - only include insights derived from the specific analysis
-- Support content recommendations with concrete evidence from peer benchmarks and performance data
+- Support content recommendations with concrete citations from peer benchmarks and performance data
 
 ### Critical Requirements:
 
@@ -3041,11 +3040,11 @@ You are an expert LinkedIn content strategy synthesizer specializing in creating
 5. **Goal Alignment**: Connect content recommendations to specific LinkedIn goals and business objectives
 6. **Implementation Clarity**: Provide specific, actionable content tactics that can be immediately implemented
 
-### Evidence and Source Requirements:
+### Citations and Source Requirements:
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
-- **Source Attribution**: For information_source and evidence_source fields, reference specific, credible sources like "LinkedIn engagement data from competitor [name]", "content performance metrics from [platform]", "AI platform query results" - avoid internal report names
-- **Evidence Documentation**: All rationale fields must include specific evidence from input data supporting recommendations
+- **Source Attribution**: For information_source and citations_source fields, reference specific, credible sources like "LinkedIn engagement data from competitor [name]", "content performance metrics from [platform]", "AI platform query results" - avoid internal report names
+- **Citations Documentation**: All rationale fields must include specific citations from input data supporting recommendations
 - **Completeness Standards**: If data is insufficient for a recommendation, leave fields empty rather than making assumptions
 
 ### Report Objectives:
@@ -3066,9 +3065,9 @@ Generate a comprehensive LinkedIn Executive Summary that synthesizes insights fr
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For evidence_source and information_source fields, cite specific data sources like "LinkedIn posts from [executive name]", "engagement metrics from competitor analysis", "industry studies from [source]" - DO NOT mention internal report names
+- For citations_source and information_source fields, cite specific data sources like "LinkedIn posts from [executive name]", "engagement metrics from competitor analysis", "industry studies from [source]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting evidence from the input data
+- All recommendations must include rationale with supporting citations from the input data
 - Focus EXCLUSIVELY on LinkedIn content creation, optimization, strategy, and performance
 
 **CRITICAL FOCUS REQUIREMENT: This executive summary must focus EXCLUSIVELY on LinkedIn content creation, optimization, strategy, and performance. Do not include general business advice, platform features, networking tactics, or non-content related recommendations.**
@@ -3132,7 +3131,7 @@ Generate a comprehensive LinkedIn Executive Summary that synthesizes insights fr
 - Extract 3-5 most critical content gaps from gap analysis report
 - Prioritize by severity and impact on achieving LinkedIn content goals
 - Provide specific content creation solutions for each identified gap
-- Include evidence_source for gap identification
+- Include citations_source for gap identification
 - Focus on content gaps that limit engagement, thought leadership, and goal achievement
 
 ### Step 5: AI Visibility Content Optimization
@@ -3167,7 +3166,7 @@ Generate a comprehensive LinkedIn Executive Summary that synthesizes insights fr
 - Technical platform optimization not related to content
 - Business development strategies not involving content creation
 
-### EVIDENCE STANDARDS FOR CONTENT RECOMMENDATIONS:
+### CITATIONS STANDARDS FOR CONTENT RECOMMENDATIONS:
 
 Every content insight and recommendation must be supported by:
 - Specific metrics from content performance analysis (engagement rates, format performance, etc.)
@@ -3193,12 +3192,12 @@ Generate a complete LinkedIn Executive Summary following the provided JSON schem
 - Focuses on high-leverage content activities that maximize thought leadership impact
 - Includes clear content success metrics and tracking framework
 
-**Evidence-Based Insights:**
+**Citations-Based Insights:**
 - Supports every content recommendation with specific data from analysis reports
 - Uses actual performance metrics and competitive benchmarks
 - Focuses on content insights derived from the specific LinkedIn analysis data
 - Avoids generic advice in favor of data-driven, situation-specific content recommendations
-- All evidence fields reference specific, credible sources from the input data
+- All citations fields reference specific, credible sources from the input data
 
 ### QUALITY ASSURANCE FOR CONTENT FOCUS:
 
@@ -3211,12 +3210,9 @@ Before completing the summary, ensure:
 - [ ] Success metrics focus on content performance and engagement outcomes
 - [ ] Executive summary maintains focus on high-impact content opportunities
 - [ ] All rationale and information_source fields are populated with relevant data from inputs
-- [ ] Evidence sources reference specific, credible sources rather than internal report names
+- [ ] Citations sources reference specific, credible sources rather than internal report names
 
 ### INPUT DATA:
-```json
-{linkedin_content_doc}
-```
 ```json
 {linkedin_visibility_assessment}
 ```

@@ -95,6 +95,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.tools import BaseTool
 from langchain.chat_models import init_chat_model
+
+from langgraph.config import get_stream_writer
 # from langchain_community.chat_models import ChatPerplexity
 
 # Add db and service imports
@@ -737,6 +739,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
     input_schema_cls: ClassVar[Type[LLMNodeInputSchema]] = LLMNodeInputSchema
     output_schema_cls: ClassVar[Type[LLMNodeOutputSchema]] = LLMNodeOutputSchema
     config_schema_cls: ClassVar[Type[LLMNodeConfigSchema]] = LLMNodeConfigSchema
+
+    node_default_retry_count: ClassVar[int] = 1
     
     # instance config
     config: LLMNodeConfigSchema
@@ -850,11 +854,13 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         # Execute model with provider-specific handling
         allocated_credits = 0.0
+        stream_id = str(uuid4())
         try:
             start_time = time.time()
             response, allocated_credits = await self._execute_model(
                 chat_model, messages_for_model, model_metadata, ext_context=ext_context, app_context=app_context,  # **tool_kwargs
                 has_code_execution_tool=has_code_execution_tool,
+                stream_id=stream_id,
             )
             # NOTE: 
             # if (not self.config.output_schema.is_output_str()): 
@@ -865,6 +871,13 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             latency = time.time() - start_time
         except Exception as e:
             self.critical("Model execution failed")
+            try:
+                stream_writer = get_stream_writer()
+            except Exception as e:
+                self.warning(f"Failed to get stream writer: {str(e)}")
+                stream_writer = None
+            if stream_writer:
+                stream_writer({"event_type": "node_status", "node_id": self.node_id, "status": "llm_call_failed", "payload": {"error": str(e), "stream_id": stream_id}})
             raise RuntimeError(f"Model execution failed: {str(e)}") from e
 
         # Parse and validate response using node config
@@ -1625,7 +1638,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
         return has_code_execution_tool, is_all_inbuild_tools, model.bind_tools(tools=tools, **kwargs), tools, kwargs
 
-    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context: "ExternalContextManager", app_context, has_code_execution_tool: bool, **kwargs) -> Any:
+    async def _execute_model(self, model: Any, messages: List[AnyMessage], model_metadata: ModelMetadata, ext_context: "ExternalContextManager", app_context, has_code_execution_tool: bool, stream_id: str, **kwargs) -> Any:
         """Execute model with provider-specific streaming handling."""
         # if self.config.stream:
         #     return self._handle_streaming(model, messages)
@@ -1711,6 +1724,15 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             allocated_credits = estimated_cost
             self.info(f"Allocated ${allocated_credits:.6f} credits for LLM call")
         
+        try:
+            stream_writer = get_stream_writer()
+        except Exception as e:
+            self.warning(f"Failed to get stream writer: {str(e)}")
+            stream_writer = None
+        
+        if stream_writer:
+            stream_writer({"event_type": "node_status", "node_id": self.node_id, "status": "start_llm_streaming", "payload": {"stream_id": stream_id}})
+        
         if "extra_body" in invoke_kwargs:
             # TODO: migrate this to using model_kwargs or directly providing this to model init!
             response = await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)
@@ -1726,6 +1748,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 message["raw"] = message_chunk_to_message(message["raw"])
             # import ipdb; ipdb.set_trace()
             response = message
+        
+        if stream_writer:
+            stream_writer({"event_type": "node_status", "node_id": self.node_id, "status": "end_llm_streaming", "payload": {"stream_id": stream_id}})
         
         return (response, allocated_credits)
         # return await asyncio.to_thread(model.invoke, messages, **invoke_kwargs)

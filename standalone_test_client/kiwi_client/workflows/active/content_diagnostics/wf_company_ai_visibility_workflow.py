@@ -134,10 +134,13 @@ workflow_graph_schema = {
                     "user_prompt": {
                         "id": "user_prompt",
                         "template": BLOG_COVERAGE_USER_PROMPT_TEMPLATE,
-                        "variables": {"blog_company_data": None, "competitive_analysis": None},
+                        "variables": {"blog_company_data": None, 
+                                      "competitive_analysis": None, 
+                                      "current_date": "$current_date"
+                                      },
                         "construct_options": {
                             "blog_company_data": "blog_company_doc",
-                            "competitive_analysis": "competitive_analysis",
+                            "competitive_analysis": "competitive_analysis"
                         },
                     },
                 }
@@ -486,23 +489,26 @@ workflow_graph_schema = {
             {"src_field": "company_name", "dst_field": "company_name"},
         ]},
 
-        # Store paths in state
+        # Store paths and passthrough data in state
         {"src_node_id": "store_blog_coverage_report", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "paths_processed", "dst_field": "stored_blog_report_paths"},
+            {"src_field": "passthrough_data", "dst_field": "blog_coverage_report"}
         ]},
         {"src_node_id": "store_company_comp_report", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "paths_processed", "dst_field": "stored_company_report_paths"},
+            {"src_field": "passthrough_data", "dst_field": "company_comp_report"}
+        ]},
+
+        {"src_node_id": "store_blog_coverage_report", "dst_node_id": "output_node", "mappings": [
+        ]},
+
+        {"src_node_id": "store_company_comp_report", "dst_node_id": "output_node", "mappings": [
         ]},
 
         # Output mapping from state
-        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": []},
-
-        # Direct output connections from storage nodes
-        {"src_node_id": "store_blog_coverage_report", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
-        ]},
-        {"src_node_id": "store_company_comp_report", "dst_node_id": "output_node", "mappings": [
-            {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
+            {"src_field": "blog_coverage_report", "dst_field": "blog_coverage_report"},
+            {"src_field": "company_comp_report", "dst_field": "company_comp_report"}
         ]},
     ],
     # --- Define Start and End ---

@@ -223,16 +223,16 @@ workflow_graph_schema = {
                 "fields": {
                     "user_action": {
                         "type": "enum",
-                        "enum_values": ["accept", "provide_feedback", "cancel_workflow"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow"],
                         "required": True,
                         "description": "User's decision on topic and content type selection"
                     },
                     "selected_topic_id": {
                         "type": "str",
                         "required": False,
-                        "description": "Single topic_id selected by user (required if accept)"
+                        "description": "Single topic_id selected by user (required if complete)"
                     },
-                    "regeneration_feedback": {
+                    "revision_feedback": {
                         "type": "str",
                         "required": False,
                         "description": "Feedback for topic regeneration (required if provide_feedback)"
@@ -252,7 +252,7 @@ workflow_graph_schema = {
                     {
                         "choice_id": "filter_selected_topic",
                         "input_path": "user_action",
-                        "target_value": "accept"
+                        "target_value": "complete"
                     },
                     {
                         "choice_id": "check_topic_iteration_limit",
@@ -515,8 +515,12 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "initial_status",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "initial_status"
+                            },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
                             }
                         ],
                         "versioning": {
@@ -611,8 +615,12 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "initial_status",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "initial_status"
+                            },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
                             }
                         ]
                     }
@@ -795,8 +803,12 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_brief_action",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "user_brief_action"
+                            },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
                             }
                         ]
                     }
@@ -1676,13 +1688,13 @@ async def main_test_content_brief_workflow():
         },
         # 2) Topic selection (after regeneration): accept a specific topic
         {
-            "user_action": "accept",
+            "user_action": "complete",
             "selected_topic_id": "topic_01",
             "regeneration_feedback": None
         },
         # 3) Brief approval: provide feedback first (allows one revision loop)
         {
-            "user_action": "provide_feedback",
+            "user_brief_action": "provide_feedback",
             "revision_feedback": "Tighten the hook and add one concrete remote-team scenario. Keep the 80/20 framing, but make success metrics more specific.",
             "updated_content_brief": {
                 "content_brief": {
@@ -1759,7 +1771,7 @@ async def main_test_content_brief_workflow():
         },
         # 4) Brief approval: save as draft (avoid hitting iteration limits)
         {
-            "user_action": "draft",
+            "user_brief_action": "draft",
             "revision_feedback": None,
             "updated_content_brief": {
                 "content_brief": {
@@ -1836,7 +1848,7 @@ async def main_test_content_brief_workflow():
         },
         # 5) Brief approval: provide feedback again, then proceed to save in next step
         {
-            "user_action": "provide_feedback",
+            "user_brief_action": "provide_feedback",
             "revision_feedback": "Looks good. Please make the CTA more outcome-oriented and add one metric example (e.g., 20% faster status reporting).",
             "updated_content_brief": {
                 "content_brief": {
@@ -1913,7 +1925,7 @@ async def main_test_content_brief_workflow():
         },
         # 6) Brief approval: complete (save final)
         {
-            "user_action": "complete",
+            "user_brief_action": "complete",
             "revision_feedback": None,
             "updated_content_brief": {
                 "content_brief": {

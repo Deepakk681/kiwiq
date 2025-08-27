@@ -99,10 +99,13 @@ workflow_graph_schema = {
                     "user_prompt": {
                         "id": "user_prompt",
                         "template": EXEC_VISIBILITY_USER_PROMPT_TEMPLATE,
-                        "variables": {"linkedin_user_profile": None, "linkedin_scraped_profile": None},
+                        "variables": {"linkedin_user_profile": None, 
+                                      "linkedin_scraped_profile": None,
+                                      "current_date": "$current_date"
+                                      },
                         "construct_options": {
                             "linkedin_user_profile": "linkedin_user_profile_doc",
-                            "linkedin_scraped_profile": "linkedin_scraped_profile_doc",
+                            "linkedin_scraped_profile": "linkedin_scraped_profile_doc"
                         },
                     },
                 }
@@ -283,10 +286,6 @@ workflow_graph_schema = {
         # Store paths in state
         {"src_node_id": "store_exec_report", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "paths_processed", "dst_field": "stored_exec_report_paths"},
-        ]},
-
-        # Output mapping from state
-        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
         ]},
 
         # Direct output connections from storage nodes

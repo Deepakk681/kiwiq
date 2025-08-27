@@ -561,10 +561,10 @@ async def main():
         # },
 
 
-        {
-            "workflow_key": "linkedin_linkedin_content_analysis_workflow",
-            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_linkedin_content_analysis",
-        },
+        # {
+        #     "workflow_key": "linkedin_linkedin_content_analysis_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_linkedin_content_analysis",
+        # },
         
 
         {
@@ -572,29 +572,65 @@ async def main():
             "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_deep_research_workflow",
         },
 
-        {
-            "workflow_key": "blog_content_analysis_workflow",
-            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_blog_content_analysis",
-        },
+        # {
+        #     "workflow_key": "blog_content_analysis_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_blog_content_analysis",
+        # },
 
+        # {
+        #     "workflow_key": "company_ai_visibility_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_workflow",
+        # },
 
-        {
-            "workflow_key": "company_ai_visibility_workflow",
-            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_workflow",
-        },
+        # {
+        #     "workflow_key": "executive_ai_visibility_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_executive_ai_visibility",
+        # },
 
+        # {
+        #     "workflow_key": "blog_content_calendar_entry",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_content_calendar_entry",
+        # },
 
-        {
-            "workflow_key": "blog_competitor_content_analysis_workflow",
-            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_competitor_content_analysis",
-        },
+        # {
+        #     "workflow_key": "linkedin_content_calendar_entry",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_content_calendar_entry",
+        # },
 
+        # {
+        #     "workflow_key": "blog_competitor_content_analysis_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_competitor_content_analysis",
+        # },
 
-        {
-            "workflow_key": "orchestrator_workflow",
-            "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_orchestrator_workflow",
-        },
+        # {
+        #     "workflow_key": "orchestrator_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_orchestrator_workflow",
+        # },
 
+        # {
+        #     "workflow_key": "linkedin_brief_to_post_draft_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_content_creation_workflow",
+        # },
+
+        # {
+        #     "workflow_key": "linkedin_user_input_to_brief_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_user_input_to_brief",
+        # },
+
+        # {
+        #     "workflow_key": "blog_brief_to_blog_draft_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_brief_to_blog",
+        # },
+
+        # {
+        #     "workflow_key": "blog_user_input_to_brief_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_user_input_to_brief",
+        # },
+
+        # {
+        #     "workflow_key": "blog_content_optimisation_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_content_optimisation_workflow",
+        # },
 
         # {
         #     "workflow_key": "linkedin_user_input_to_brief_workflow",

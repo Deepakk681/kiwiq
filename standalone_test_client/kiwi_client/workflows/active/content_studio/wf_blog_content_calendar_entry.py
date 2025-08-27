@@ -54,19 +54,18 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_POST_IS_SHARED,
 )
 from kiwi_client.workflows.active.content_studio.llm_inputs.blog_content_calendar_entry import (
-    BRIEF_USER_PROMPT_TEMPLATE, 
-    BRIEF_SYSTEM_PROMPT_TEMPLATE, 
-    BRIEF_LLM_OUTPUT_SCHEMA, 
-    BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE,
-    TOPIC_SUMMARY_SYSTEM_PROMPT,
-    TOPIC_SUMMARY_USER_PROMPT_TEMPLATE,
-    TOPIC_SUMMARY_OUTPUT_SCHEMA,
+    TOPIC_USER_PROMPT_TEMPLATE, 
+    TOPIC_SYSTEM_PROMPT_TEMPLATE, 
+    TOPIC_LLM_OUTPUT_SCHEMA, 
+    TOPIC_ADDITIONAL_USER_PROMPT_TEMPLATE,
+
     RESEARCH_SYSTEM_PROMPT,
     RESEARCH_USER_PROMPT_TEMPLATE,
     RESEARCH_OUTPUT_SCHEMA,
     THEME_SUGGESTION_SYSTEM_PROMPT,
     THEME_SUGGESTION_USER_PROMPT_TEMPLATE,
     THEME_SUGGESTION_OUTPUT_SCHEMA,
+    THEME_ADDITIONAL_USER_PROMPT_TEMPLATE,
 )
 
 # Configure logging
@@ -89,7 +88,7 @@ MAX_TOPIC_SUMMARY_ITERATIONS = 1  # Maximum iterations for topic summary to prev
 # Perplexity Configuration for Research
 PERPLEXITY_PROVIDER = "perplexity"
 PERPLEXITY_MODEL = "sonar-pro"
-PERPLEXITY_TEMPERATURE = 0.3
+PERPLEXITY_TEMPERATURE = 0.5
 PERPLEXITY_MAX_TOKENS = 3000
 
 # Tool Executor Configuration
@@ -151,160 +150,43 @@ workflow_graph_schema = {
         },
     },
  
-    # --- 2. Construct Topic Summary Prompt ---
-    "construct_topic_summary_prompt": {
-        "node_id": "construct_topic_summary_prompt",
-        "node_name": "prompt_constructor",
+    # --- 2. Load Previous Posts ---
+    "load_previous_posts": {
+        "node_id": "load_previous_posts",
+        "node_name": "load_multiple_customer_data",
         "node_config": {
-            "prompt_templates": {
-                "topic_summary_user_prompt": {
-                    "id": "topic_summary_user_prompt",
-                    "template": TOPIC_SUMMARY_USER_PROMPT_TEMPLATE,
-                    "variables": {
-                        "company_doc": None,
-                        "company_name": None,
-                        "current_datetime": "$current_date"
-                    },
-                    "construct_options": {
-                        "company_name": "company_name",
-                        "company_doc": "company_doc"
-                    }
-                },
-                "topic_summary_system_prompt": {
-                    "id": "topic_summary_system_prompt",
-                    "template": TOPIC_SUMMARY_SYSTEM_PROMPT,
-                    "variables": {
-                        "company_name": None
-                    },
-                    "construct_options": {
-                        "company_name": "company_name"
-                    }
-                }
-            }
-        }
-    },
-    
-    # --- 3. Topic Summary LLM with Tools ---
-    "topic_summary_llm": {
-        "node_id": "topic_summary_llm",
-        "node_name": "llm",
-        "node_config": {
-            "llm_config": {
-                "model_spec": {"provider": LLM_PROVIDER, "model": GENERATION_MODEL},
-                "temperature": LLM_TEMPERATURE,
-                "max_tokens": LLM_MAX_TOKENS
-            },
-            "tool_calling_config": {
-                "enable_tool_calling": True,
-                "parallel_tool_calls": True
-            },
-            "tools": [
-                {
-                    "tool_name": "list_documents",
-                    "is_provider_inbuilt_tool": False,
-                    "provider_inbuilt_user_config": {}
-                },
-                {
-                    "tool_name": "search_documents",
-                    "is_provider_inbuilt_tool": False,
-                    "provider_inbuilt_user_config": {}
-                },
-                {
-                    "tool_name": "view_documents",
-                    "is_provider_inbuilt_tool": False,
-                    "provider_inbuilt_user_config": {}
-                }
-            ],
-            "output_schema": {
-                "schema_definition": TOPIC_SUMMARY_OUTPUT_SCHEMA,
-                "convert_loaded_schema_to_pydantic": False
-            }
-        }
-    },
-    
-    # --- 4. Check Topic Summary Conditions ---
-    "check_topic_summary_conditions": {
-        "node_id": "check_topic_summary_conditions",
-        "node_name": "if_else_condition",
-        "node_config": {
-            "tagged_conditions": [
-                {
-                    "tag": "iteration_limit_reached",
-                    "condition_groups": [{
-                        "conditions": [{
-                            "field": "topic_summary_iteration_count.iteration_count",
-                            "operator": "greater_than_or_equals",
-                            "value": MAX_TOPIC_SUMMARY_ITERATIONS
-                        }]
-                    }]
-                },
-                {
-                    "tag": "has_tool_calls",
-                    "condition_groups": [{
-                        "conditions": [{
-                            "field": "tool_calls",
-                            "operator": "is_not_empty"
-                        }]
-                    }]
-                },
-                {
-                    "tag": "proceed_to_next_step",
-                    "condition_groups": [{
-                        "conditions": [{
-                            "field": "structured_output",
-                            "operator": "is_not_empty"
-                        }]
-                    }]
-                }
-            ],
-            "branch_logic_operator": "or"
+            "namespace_pattern": BLOG_POST_NAMESPACE_TEMPLATE,
+            "namespace_pattern_input_path": "company_name",
+            "include_shared": False,
+            "include_user_specific": True,
+            "include_system_entities": False,
+            "limit": 10,
+            "sort_by": "updated_at",
+            "sort_order": "desc",
+            "output_field_name": "previous_posts"
         }
     },
 
-    # --- 5. Route Topic Summary Actions ---
-    "route_topic_summary_actions": {
-        "node_id": "route_topic_summary_actions",
-        "node_name": "router_node",
+    # --- 3. Load Previous Topics ---
+    "load_previous_topics": {
+        "node_id": "load_previous_topics",
+        "node_name": "load_multiple_customer_data",
         "node_config": {
-            "choices": ["execute_topic_summary_tools", "prepare_generation_context"],
-            "allow_multiple": False,
-            "choices_with_conditions": [
-                {
-                    "choice_id": "execute_topic_summary_tools",
-                    "input_path": "tag_results.has_tool_calls",
-                    "target_value": True
-                },
-                {
-                    "choice_id": "prepare_generation_context",
-                    "input_path": "tag_results.iteration_limit_reached",
-                    "target_value": True
-                },
-                {
-                    "choice_id": "prepare_generation_context",
-                    "input_path": "tag_results.proceed_to_next_step",
-                    "target_value": True
-                }
-            ],
-            "default_choice": "prepare_generation_context"
-        }
-    },
-
-    # --- 6. Tool Executor for Topic Summary ---
-    "execute_topic_summary_tools": {
-        "node_id": "execute_topic_summary_tools",
-        "node_name": "tool_executor",
-        "node_config": {
-            "default_timeout": TOOL_EXECUTOR_TIMEOUT,
-            "max_concurrent_executions": TOOL_EXECUTOR_MAX_CONCURRENT,
-            "continue_on_error": True,
-            "include_error_details": True,
-            "map_executor_input_fields_to_tool_input": True
+            "namespace_pattern": BLOG_TOPIC_IDEAS_CARD_NAMESPACE_TEMPLATE,
+            "namespace_pattern_input_path": "company_name", 
+            "include_shared": False,
+            "include_user_specific": True,
+            "include_system_entities": False,
+            "limit": 10,
+            "sort_by": "updated_at",
+            "sort_order": "desc",
+            "output_field_name": "previous_topics"
         }
     },
     
 
 
-    # --- 7. Prepare Generation Context (Extract posts_per_week from playbook) ---
+    # --- 4. Prepare Generation Context (Extract posts_per_week from playbook) ---
     "prepare_generation_context": {
       "node_id": "prepare_generation_context",
       "node_name": "merge_aggregate",
@@ -348,7 +230,7 @@ workflow_graph_schema = {
       },
     },
 
-    # --- 8. Construct Theme Suggestion Prompt ---
+    # --- 5. Construct Theme Suggestion Prompt ---
     "construct_theme_prompt": {
       "node_id": "construct_theme_prompt",
       "node_name": "prompt_constructor",
@@ -360,12 +242,12 @@ workflow_graph_schema = {
             "variables": {
               "company_doc": None,
               "playbook": None,
-              "topic_summary": None,
+              "previous_topics": None,
             },
             "construct_options": {
               "company_doc": "company_doc",
               "playbook": "playbook",
-              "topic_summary": "topic_summary",
+              "previous_topics": "previous_topics",
             }
           },
           "theme_suggestion_system_prompt": {
@@ -377,7 +259,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 9. Theme Suggestion LLM ---
+    # --- 6. Theme Suggestion LLM ---
     "theme_suggestion_llm": {
       "node_id": "theme_suggestion_llm",
       "node_name": "llm",
@@ -394,7 +276,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 10. Construct Research Prompt ---
+    # --- 7. Construct Research Prompt ---
     "construct_research_prompt": {
       "node_id": "construct_research_prompt",
       "node_name": "prompt_constructor",
@@ -406,13 +288,13 @@ workflow_graph_schema = {
             "variables": {
               "company_doc": None,
               "playbook": None,
-              "topic_summary": None,
+              "previous_posts": None,
               "selected_theme": None
             },
             "construct_options": {
               "company_doc": "company_doc",
               "playbook": "playbook",
-              "topic_summary": "topic_summary",
+              "previous_posts": "previous_posts",
               "selected_theme": "theme_suggestion"
             }
           },
@@ -425,7 +307,7 @@ workflow_graph_schema = {
       }
     },
     
-    # --- 11. Research LLM (Perplexity - Reddit only) ---
+    # --- 8. Research LLM (Perplexity - Reddit only) ---
     "research_llm": {
       "node_id": "research_llm",
       "node_name": "llm",
@@ -445,7 +327,81 @@ workflow_graph_schema = {
       }
     },
     
-    # --- 12. Construct Topic Prompt ---
+    # --- 8.1 Check Theme Iteration ---
+    "check_theme_iteration": {
+      "node_id": "check_theme_iteration",
+      "node_name": "if_else_condition",
+      "node_config": {
+        "tagged_conditions": [
+          {
+            "tag": "is_second_iteration",
+            "condition_groups": [{
+              "logical_operator": "and",
+              "conditions": [{
+                "field": "metadata.iteration_count",
+                "operator": "greater_than",
+                "value": 1
+              }]
+            }],
+            "group_logical_operator": "and"
+          }
+        ],
+        "branch_logic_operator": "and"
+      }
+    },
+
+    # --- 8.2 Router Based on Theme Iteration ---
+    "route_on_theme_iteration": {
+      "node_id": "route_on_theme_iteration",
+      "node_name": "router_node",
+      "node_config": {
+        "choices": ["construct_topic_prompt", "construct_additional_topic_prompt"],
+        "allow_multiple": False,
+        "choices_with_conditions": [
+          {
+            "choice_id": "construct_additional_topic_prompt",
+            "input_path": "if_else_condition_tag_results.is_second_iteration",
+            "target_value": True
+          },
+          {
+            "choice_id": "construct_topic_prompt",
+            "input_path": "if_else_condition_tag_results.is_second_iteration",
+            "target_value": False
+          }
+        ]
+      }
+    },
+
+    # --- 8.3 Construct Additional Topic Prompt ---
+    "construct_additional_topic_prompt": {
+      "node_id": "construct_additional_topic_prompt",
+      "node_name": "prompt_constructor",
+      "node_config": {
+        "prompt_templates": {
+          "additional_topic_user_prompt": {
+            "id": "additional_topic_user_prompt",
+            "template": TOPIC_ADDITIONAL_USER_PROMPT_TEMPLATE,
+            "variables": {
+              "company_doc": None,
+              "playbook": None,
+              "current_datetime": "$current_date",
+              "previous_topics": None,
+              "research_insights": None,
+              "selected_theme": None
+            },
+            "construct_options": {
+              "company_doc": "company_doc",
+              "playbook": "playbook",
+              "previous_topics": "previous_topics",
+              "research_insights": "research_insights",
+              "selected_theme": "theme_suggestion"
+            }
+          }
+        }
+      }
+    },
+
+    # --- 9. Construct Topic Prompt ---
     "construct_topic_prompt": {
       "node_id": "construct_topic_prompt",
       "node_name": "prompt_constructor",
@@ -453,28 +409,28 @@ workflow_graph_schema = {
         "prompt_templates": {
           "topic_user_prompt": {
             "id": "topic_user_prompt",
-            "template": BRIEF_USER_PROMPT_TEMPLATE,
+            "template": TOPIC_USER_PROMPT_TEMPLATE,
             "variables": {
               "company_doc": None,
               "playbook": None,
               "current_datetime": "$current_date",
-              "topic_summary": None,
+              "previous_topics": None,
               "research_insights": None,
               "selected_theme": None
             },
             "construct_options": {
                "company_doc": "company_doc",
                "playbook": "playbook",
-               "topic_summary": "topic_summary",
+               "previous_topics": "previous_topics",
                "research_insights": "research_insights",
                "selected_theme": "theme_suggestion"
             }
           },
           "topic_system_prompt": {
             "id": "topic_system_prompt",
-            "template": BRIEF_SYSTEM_PROMPT_TEMPLATE,
+            "template": TOPIC_SYSTEM_PROMPT_TEMPLATE,
             "variables": { 
-                "schema": json.dumps(BRIEF_LLM_OUTPUT_SCHEMA, indent=2), 
+                "schema": json.dumps(TOPIC_LLM_OUTPUT_SCHEMA, indent=2), 
                 "current_datetime": "$current_date" 
             },
             "construct_options": {}
@@ -483,7 +439,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 13. Generate Topics (LLM) ---
+    # --- 10. Generate Topics (LLM) ---
     "generate_topics": {
       "node_id": "generate_topics",
       "node_name": "llm",
@@ -494,13 +450,13 @@ workflow_graph_schema = {
               "max_tokens": LLM_MAX_TOKENS
           },
           "output_schema": {
-             "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA,
+             "schema_definition": TOPIC_LLM_OUTPUT_SCHEMA,
              "convert_loaded_schema_to_pydantic": False
           },
       }
     },
 
-    # --- 14. Check Topic Count ---
+    # --- 11. Check Topic Count ---
     "check_topic_count": {
       "node_id": "check_topic_count",
       "node_name": "if_else_condition",
@@ -523,16 +479,16 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 15. Router Based on Topic Count Check ---
+    # --- 12. Router Based on Topic Count Check ---
     "route_on_topic_count": {
       "node_id": "route_on_topic_count",
       "node_name": "router_node",
       "node_config": {
-        "choices": ["construct_additional_topic_prompt", "store_all_topics"],
+        "choices": ["construct_additional_theme_prompt", "store_all_topics"],
         "allow_multiple": False,
         "choices_with_conditions": [
           {
-            "choice_id": "construct_additional_topic_prompt",
+            "choice_id": "construct_additional_theme_prompt",
             "input_path": "if_else_condition_tag_results.topic_count_check",
             "target_value": True
           },
@@ -545,21 +501,33 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 16. Construct Additional Topic Prompt ---
-    "construct_additional_topic_prompt": {
-      "node_id": "construct_additional_topic_prompt",
+    # --- 13. Construct Additional Theme Prompt ---
+    "construct_additional_theme_prompt": {
+      "node_id": "construct_additional_theme_prompt",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
-          "additional_topic_prompt": {
-            "id": "additional_topic_prompt",
-            "template": BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE,
+          "additional_theme_user_prompt": {
+            "id": "additional_theme_user_prompt",
+            "template": THEME_ADDITIONAL_USER_PROMPT_TEMPLATE,
+            "variables": {
+              "all_generated_topics": None,
+              "company_doc": None,
+              "playbook": None,
+              "previous_topics": None
+            },
+            "construct_options": {
+              "all_generated_topics": "all_generated_topics",
+              "company_doc": "company_doc",
+              "playbook": "playbook",
+              "previous_topics": "previous_topics"
+            }
           },
         }
       }
     },
 
-    # --- 17. Store All Generated Topics ---
+    # --- 14. Store All Generated Topics ---
     "store_all_topics": {
       "node_id": "store_all_topics",
       "node_name": "store_customer_data",
@@ -586,7 +554,7 @@ workflow_graph_schema = {
       }
     },
 
-    # --- 18. Output Node ---
+    # --- 15. Output Node ---
     "output_node": {
       "node_id": "output_node",
       "node_name": "output_node",
@@ -617,85 +585,38 @@ workflow_graph_schema = {
       ]
     },
 
-    # --- Load Context Docs triggers Topic Summary Prompt ---
-    { "src_node_id": "load_all_context_docs", "dst_node_id": "construct_topic_summary_prompt", "mappings": [
-        { "src_field": "company_doc", "dst_field": "company_doc" }
-      ]
-    },
+    # --- Load Context Docs triggers Load Previous Posts ---
+    { "src_node_id": "load_all_context_docs", "dst_node_id": "load_previous_posts" },
 
-    # --- State to Topic Summary Prompt (provide company context) ---
-    { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_summary_prompt", "mappings": [
-        { "src_field": "company_doc", "dst_field": "company_doc" },
+    # --- State to Load Previous Posts (provide company name) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "load_previous_posts", "mappings": [
         { "src_field": "company_name", "dst_field": "company_name" }
       ]
     },
 
-    # --- Topic Summary Prompt to LLM ---
-    { "src_node_id": "construct_topic_summary_prompt", "dst_node_id": "topic_summary_llm", "mappings": [
-        { "src_field": "topic_summary_user_prompt", "dst_field": "user_prompt" },
-        { "src_field": "topic_summary_system_prompt", "dst_field": "system_prompt" }
+    # --- Load Previous Posts triggers Load Previous Topics ---
+    { "src_node_id": "load_previous_posts", "dst_node_id": "load_previous_topics" },
+
+    # --- State to Load Previous Topics (provide company name) ---
+    { "src_node_id": "$graph_state", "dst_node_id": "load_previous_topics", "mappings": [
+        { "src_field": "company_name", "dst_field": "company_name" }
       ]
     },
 
-    # --- State to Topic Summary LLM (messages history) ---
-    { "src_node_id": "$graph_state", "dst_node_id": "topic_summary_llm", "mappings": [
-        { "src_field": "topic_summary_messages_history", "dst_field": "messages_history" }
+    # --- Load Previous Posts to State ---
+    { "src_node_id": "load_previous_posts", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "previous_posts", "dst_field": "previous_posts" }
       ]
     },
 
-    # --- Topic Summary LLM to Check Conditions ---
-    { "src_node_id": "topic_summary_llm", "dst_node_id": "check_topic_summary_conditions", "mappings": [
-        { "src_field": "tool_calls", "dst_field": "tool_calls" },
-        { "src_field": "structured_output", "dst_field": "structured_output" }
+    # --- Load Previous Topics to State ---
+    { "src_node_id": "load_previous_topics", "dst_node_id": "$graph_state", "mappings": [
+        { "src_field": "previous_topics", "dst_field": "previous_topics" }
       ]
     },
 
-    # --- State to Check Conditions (iteration count) ---
-    { "src_node_id": "$graph_state", "dst_node_id": "check_topic_summary_conditions", "mappings": [
-        { "src_field": "topic_summary_iteration_count", "dst_field": "topic_summary_iteration_count" }
-      ]
-    },
-
-    # --- Check Conditions to Router ---
-    { "src_node_id": "check_topic_summary_conditions", "dst_node_id": "route_topic_summary_actions", "mappings": [
-        { "src_field": "tag_results", "dst_field": "tag_results" }
-      ]
-    },
-
-    # --- Router to Tool Executor ---
-    { "src_node_id": "route_topic_summary_actions", "dst_node_id": "execute_topic_summary_tools" },
-
-    # --- State to Tool Executor (context) ---
-    { "src_node_id": "$graph_state", "dst_node_id": "execute_topic_summary_tools", "mappings": [
-        { "src_field": "company_name", "dst_field": "company_name" },
-        { "src_field": "view_context", "dst_field": "view_context" },
-        { "src_field": "topic_summary_tool_calls", "dst_field": "tool_calls" }
-      ]
-    },
-
-    # --- Tool Executor back to Topic Summary LLM ---
-    { "src_node_id": "execute_topic_summary_tools", "dst_node_id": "topic_summary_llm", "mappings": [
-        { "src_field": "tool_outputs", "dst_field": "tool_outputs" }
-      ]
-    },
-
-    # --- Tool Executor to State (update view context) ---
-    { "src_node_id": "execute_topic_summary_tools", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "state_changes", "dst_field": "view_context" }
-      ]
-    },
-
-    # --- Router to Context Preparation ---
-    { "src_node_id": "route_topic_summary_actions", "dst_node_id": "prepare_generation_context" },
-
-    # --- Topic Summary to State ---
-    { "src_node_id": "topic_summary_llm", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "structured_output", "dst_field": "topic_summary" },
-        { "src_field": "current_messages", "dst_field": "topic_summary_messages_history" },
-        { "src_field": "metadata", "dst_field": "topic_summary_iteration_count" },
-        { "src_field": "tool_calls", "dst_field": "topic_summary_tool_calls" }
-      ]
-    },
+    # --- Load Previous Topics triggers Context Preparation ---
+    { "src_node_id": "load_previous_topics", "dst_node_id": "prepare_generation_context" },
     
     # --- Mapping State to Context Prep Node ---
     { "src_node_id": "$graph_state", "dst_node_id": "prepare_generation_context", "mappings": [
@@ -718,7 +639,7 @@ workflow_graph_schema = {
     { "src_node_id": "$graph_state", "dst_node_id": "construct_theme_prompt", "mappings": [
         { "src_field": "company_doc", "dst_field": "company_doc" },
         { "src_field": "playbook", "dst_field": "playbook"},
-        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+        { "src_field": "previous_topics", "dst_field": "previous_topics" },
       ]
     },
 
@@ -731,7 +652,8 @@ workflow_graph_schema = {
 
     # --- Theme LLM to State ---
     { "src_node_id": "theme_suggestion_llm", "dst_node_id": "$graph_state", "mappings": [
-        { "src_field": "structured_output", "dst_field": "theme_suggestion" }
+        { "src_field": "structured_output", "dst_field": "theme_suggestion" },
+        { "src_field": "metadata", "dst_field": "theme_suggestion_metadata" }
       ]
     },
 
@@ -742,7 +664,7 @@ workflow_graph_schema = {
     { "src_node_id": "$graph_state", "dst_node_id": "construct_research_prompt", "mappings": [
         { "src_field": "company_doc", "dst_field": "company_doc" },
         { "src_field": "playbook", "dst_field": "playbook" },
-        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+        { "src_field": "previous_posts", "dst_field": "previous_posts" },
         { "src_field": "theme_suggestion", "dst_field": "theme_suggestion" }
       ]
     },
@@ -760,14 +682,49 @@ workflow_graph_schema = {
       ]
     },
 
-    # --- Research triggers Topic Generation ---
-    { "src_node_id": "research_llm", "dst_node_id": "construct_topic_prompt" },
+    # --- Research triggers Theme Iteration Check ---
+    { "src_node_id": "research_llm", "dst_node_id": "check_theme_iteration" },
+
+    # --- State to Theme Iteration Check ---
+    { "src_node_id": "$graph_state", "dst_node_id": "check_theme_iteration", "mappings": [
+        { "src_field": "theme_suggestion_metadata", "dst_field": "metadata" }
+      ]
+    },
+
+    # --- Theme Iteration Check to Router ---
+    { "src_node_id": "check_theme_iteration", "dst_node_id": "route_on_theme_iteration", "mappings": [
+        { "src_field": "tag_results", "dst_field": "if_else_condition_tag_results" },
+        { "src_field": "condition_result", "dst_field": "if_else_overall_condition_result" }
+      ]
+    },
+
+    # --- Router to Construct Topic Prompt ---
+    { "src_node_id": "route_on_theme_iteration", "dst_node_id": "construct_topic_prompt" },
+
+    # --- Router to Additional Topic Prompt ---
+    { "src_node_id": "route_on_theme_iteration", "dst_node_id": "construct_additional_topic_prompt" },
+
+    # --- State to Construct Additional Topic Prompt ---
+    { "src_node_id": "$graph_state", "dst_node_id": "construct_additional_topic_prompt", "mappings": [
+        { "src_field": "company_doc", "dst_field": "company_doc" },
+        { "src_field": "playbook", "dst_field": "playbook"},
+        { "src_field": "previous_topics", "dst_field": "previous_topics" },
+        { "src_field": "research_insights", "dst_field": "research_insights" },
+        { "src_field": "theme_suggestion", "dst_field": "selected_theme" }
+      ]
+    },
+
+    # --- Additional Topic Prompt to Generate Topics ---
+    { "src_node_id": "construct_additional_topic_prompt", "dst_node_id": "generate_topics", "mappings": [
+        { "src_field": "additional_topic_user_prompt", "dst_field": "user_prompt"},
+      ]
+    },
 
     # --- State to Construct Topic Prompt ---
     { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_prompt", "mappings": [
         { "src_field": "company_doc", "dst_field": "company_doc" },
         { "src_field": "playbook", "dst_field": "playbook"},
-        { "src_field": "topic_summary", "dst_field": "topic_summary" },
+        { "src_field": "previous_topics", "dst_field": "previous_topics" },
         { "src_field": "research_insights", "dst_field": "research_insights" },
         { "src_field": "theme_suggestion", "dst_field": "selected_theme" }
       ]
@@ -811,12 +768,21 @@ workflow_graph_schema = {
       ]
     },
 
-    # --- Router to Additional Prompt ---
-    { "src_node_id": "route_on_topic_count", "dst_node_id": "construct_additional_topic_prompt" },
+    # --- Router to Additional Theme Prompt ---
+    { "src_node_id": "route_on_topic_count", "dst_node_id": "construct_additional_theme_prompt" },
 
-    # --- Additional Prompt to Theme Suggestion (loop for next suggestion) ---
-    { "src_node_id": "construct_additional_topic_prompt", "dst_node_id": "construct_theme_prompt", "mappings": [
-        { "src_field": "additional_topic_prompt", "dst_field": "additional_instructions" }
+    # --- State to Additional Theme Prompt ---
+    { "src_node_id": "$graph_state", "dst_node_id": "construct_additional_theme_prompt", "mappings": [
+        { "src_field": "all_generated_topics", "dst_field": "all_generated_topics" },
+        { "src_field": "company_doc", "dst_field": "company_doc" },
+        { "src_field": "playbook", "dst_field": "playbook" },
+        { "src_field": "previous_topics", "dst_field": "previous_topics" }
+      ]
+    },
+
+    # --- Additional Theme Prompt to Theme Suggestion (loop for next suggestion) ---
+    { "src_node_id": "construct_additional_theme_prompt", "dst_node_id": "theme_suggestion_llm", "mappings": [
+        { "src_field": "additional_theme_user_prompt", "dst_field": "user_prompt" }
       ]
     },
 
@@ -847,14 +813,12 @@ workflow_graph_schema = {
         "reducer": {
           "all_generated_topics": "collect_values",
           "generate_topics_messages_history": "add_messages",
-          "topic_summary_messages_history": "add_messages",
-          "view_context": "merge_dicts",
-          "topic_summary": "replace",
+          "previous_posts": "replace",
+          "previous_topics": "replace",
           "research_insights": "replace",
           "content_pillars": "replace",
           "theme_suggestion": "replace",
-          "topic_summary_iteration_count": "replace",
-          "topic_summary_tool_calls": "replace"
+          "theme_suggestion_metadata": "replace"
           }
       }
   }
@@ -862,6 +826,47 @@ workflow_graph_schema = {
 
 
 # --- Test Execution Logic ---
+
+# Predefined HITL inputs for comprehensive testing
+# Note: This workflow currently doesn't have HITL nodes, but these inputs would be suitable
+# if HITL interactions were added for topic review and approval at key decision points
+predefined_hitl_inputs = [
+    # 1) Theme Approval - After theme suggestion generation
+    {
+        "user_action": "approve_theme",
+        "theme_feedback": "Great theme selection! This aligns perfectly with our content strategy pillars. Please proceed with generating topics around enterprise automation insights.",
+        "approved_theme_id": "theme_01",
+        "modifications": []
+    },
+    # 2) Research Insights Review - After research completion
+    {
+        "user_action": "approve_research",
+        "research_feedback": "Excellent research insights from Reddit and industry discussions. The pain points identified will help create very targeted content.",
+        "additional_research_requests": [],
+        "approved_insights": True
+    },
+    # 3) Topic Suggestions Review - First iteration: provide feedback
+    {
+        "user_action": "provide_feedback",
+        "topic_feedback": "These topic suggestions are solid, but I'd like to see more emphasis on ROI metrics and specific implementation timelines. Also, can we add topics about change management during ERP rollouts?",
+        "selected_topic_ids": [],
+        "regenerate_topics": True
+    },
+    # 4) Topic Suggestions Review - Second iteration: approve topics
+    {
+        "user_action": "approve_topics", 
+        "topic_feedback": "Perfect! These revised topics address our audience's key concerns and provide actionable insights. The mix of strategic and tactical content is excellent.",
+        "selected_topic_ids": ["topic_01", "topic_02", "topic_03", "topic_04"],
+        "regenerate_topics": False
+    },
+    # 5) Final Calendar Review - Approve the complete calendar before storage
+    {
+        "user_action": "approve_calendar",
+        "calendar_feedback": "Excellent topic calendar! The scheduling and theme distribution across the weeks looks great. Ready to publish.",
+        "schedule_modifications": [],
+        "final_approval": True
+    }
+]
 
 async def main_test_blog_content_calendar_workflow():
     """
@@ -1118,8 +1123,10 @@ async def main_test_blog_content_calendar_workflow():
         workflow_graph_schema=workflow_graph_schema,
         initial_inputs=test_inputs,
         expected_final_status=WorkflowRunStatus.COMPLETED,
+        hitl_inputs=predefined_hitl_inputs,
         setup_docs=setup_docs,
         cleanup_docs=cleanup_docs,
+        cleanup_docs_created_by_setup=False,
         validate_output_func=validate_calendar_output,
         stream_intermediate_results=True,
         poll_interval_sec=5,

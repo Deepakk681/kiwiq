@@ -58,8 +58,7 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_calendar_select
     BRIEF_FEEDBACK_ADDITIONAL_USER_PROMPT,
     
     # Output schemas
-    BRIEF_GENERATION_OUTPUT_SCHEMA,
-    BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA,
+    BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA
 )
 from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_brief import (
     GOOGLE_RESEARCH_SYSTEM_PROMPT,
@@ -68,6 +67,7 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_b
     REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
     GOOGLE_RESEARCH_OUTPUT_SCHEMA,
     REDDIT_RESEARCH_OUTPUT_SCHEMA,
+    BRIEF_GENERATION_OUTPUT_SCHEMA
 )
 
 # LLM Configuration
@@ -155,12 +155,10 @@ workflow_graph_schema = {
                         "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "content_playbook_doc": None,
                             "user_input": None
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "content_playbook_doc": "playbook_doc",
                             "user_input": "user_input"
                         }
                     },
@@ -204,13 +202,11 @@ workflow_graph_schema = {
                         "template": REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "user_input": None
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "content_playbook_doc": "playbook_doc",
                             "google_research_output": "google_research_output",
                             "user_input": "user_input"
                         }
@@ -386,12 +382,8 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
-                            },
-                            {
-                                "src_path": "selected_topic",
-                                "dst_path": "source_topic"
+                                "src_path": "status",
+                                "dst_path": "user_action"
                             }
                         ],
                         "versioning": {
@@ -575,8 +567,8 @@ workflow_graph_schema = {
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "user_action"
                             }
                         ],
                         "versioning": {
@@ -622,7 +614,7 @@ workflow_graph_schema = {
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "playbook_doc", "dst_field": "playbook_doc"}
+                {"src_field": "playbook_doc", "dst_field": "content_playbook_doc"}
             ]
         },
         
@@ -631,9 +623,7 @@ workflow_graph_schema = {
             "src_node_id": "load_company_and_playbook",
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
-                {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "playbook_doc", "dst_field": "playbook_doc"}
-            ]
+                {"src_field": "company_doc", "dst_field": "company_doc"}            ]
         },
         
         # State -> Google Research Prompt
@@ -679,7 +669,6 @@ workflow_graph_schema = {
             "dst_node_id": "construct_reddit_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "selected_topic", "dst_field": "user_input"}
             ]
         },
@@ -974,13 +963,6 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "paths_processed", "dst_field": "final_paths_processed"}
             ]
-        },
-        
-        # State -> Output
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "output_node",
-            "mappings": [            ]
         }
     ],
     

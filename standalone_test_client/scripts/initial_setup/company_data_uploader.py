@@ -17,8 +17,8 @@ Supported features:
 """
 
 # === CONFIG (edit these) ===
-NAMESPACE = "blog_company_profile_Otter"
-DOCNAME = "blog_company_doc"
+NAMESPACE = "linkedin_executive_profile_namespace_hungweiwu"
+DOCNAME = "linkedin_executive_profile_doc"
 VERSION = None
 IS_SHARED = False
 IS_SYSTEM_ENTITY = False
@@ -30,64 +30,79 @@ SCHEMA_TEMPLATE_VERSION = None  # e.g., "1.0.0"
 USER_ID = "400d6df9-6758-4f44-9ec6-83ebf551848c"
 
 # === DATA (edit this payload) ===
-# EXECUTIVE_PROFILE_DATA = {
-#     "name": "Sam Liang",
-#     "title": "CEO & Founder",
-#     "company": "Otter.ai",
-#     "industry_experience": "15 years in project management and SaaS",
-#     "expertise_areas": [
-#         "AI-powered project management",
-#         "Team productivity optimization",
-#         "Remote work culture",
-#         "SaaS product development",
-#     ],
-#     "thought_leadership_focus": [
-#         "The future of work and AI integration",
-#         "Building efficient remote teams",
-#         "Project management best practices",
-#         "Technology adoption in growing companies",
-#     ],
-#     "linkedin_goals": [
-#         "Build thought leadership in project management space",
-#         "Share insights on AI adoption",
-#         "Connect with other industry leaders",
-#         "Promote Momentum's vision",
-#     ],
-# }
-
 EXECUTIVE_PROFILE_DATA = {
-  "company_name": "Otter",
-  "website_url": "https://otter.ai",
-  "positioning_headline": "Otter.ai is an AI-powered transcription platform that transcribes audio and video content into text, making it easier to share and collaborate on meetings, interviews, and presentations.",
-  "icp": {
-    "icp_name": "Enterprise Marketing and Operations Teams",
-    "target_industry": "Technology, Financial Services, Healthcare, and Professional Services",
-    "company_size": "Mid-market to Enterprise (500+ employees)",
-    "buyer_persona": "CMO, Head of Content, VP of Marketing, Operations Lead",
-    "pain_points": [
-      "Inconsistent brand voice across departments",
-      "Low content velocity",
-      "Difficulty scaling content creation while maintaining quality",
-      "Inefficiencies in cross-functional communication and documentation"
-    ],
-    "goals": [
-      "Standardize brand voice across all content",
-      "Improve writing quality at scale",
-      "Enable all team members to write clearly and efficiently",
-      "Speed up content production processes"
-    ]
-  },
-  "competitors": [
-    {
-      "website_url": "https://fathom.video",
-      "name": "Fathom"
-    },
-    {
-      "website_url": "https://grain.com",
-      "name": "Grain"
-    }
+  "name": "Hung-WEI Wu",
+  "title": "Founder & CEO",
+  "company": "Momentic.ai",
+  "industry_experience": "10+ years in software testing, DevTools, and AI/ML",
+  "expertise_areas": [
+    "AI-driven test automation",
+    "Developer tools and platforms",
+    "Enterprise QA strategy",
+    "Product-led growth in B2B SaaS",
+    "Go-to-market for technical products"
+  ],
+  "thought_leadership_focus": [
+    "How AI is redefining software testing and QA",
+    "From scripts to self-healing, adaptive testing",
+    "Shortening enterprise sales cycles for DevTools",
+    "Building category leadership in 'AI testing tools'",
+    "Scaling developer-focused content engines"
+  ],
+  "linkedin_goals": [
+    "Establish thought leadership in AI testing and DevTools",
+    "Educate buyers on differences from Selenium/Cypress-era tools",
+    "Grow mid-market and enterprise network across EMEA and North America",
+    "Attract senior engineering, QA, and GTM talent",
+    "Drive qualified demo pipeline and Series A visibility"
   ]
 }
+
+
+# EXECUTIVE_PROFILE_DATA = {
+#   "company_name": "Momentic.ai",
+#   "website_url": "http://momentic.ai/",
+#   "positioning_headline": "Momentic.ai is an AI-powered testing automation platform that helps enterprises accelerate software release cycles by eliminating flaky tests, reducing test maintenance, and providing intelligent testing coverage far beyond traditional frameworks like Selenium or Cypress.",
+#   "icps": {
+#     "icp_name": "Enterprise Software Development & QA Teams",
+#     "target_industry": "Technology, Financial Services, E-commerce, SaaS, and Telecommunications",
+#     "company_size": "Mid-market to Enterprise (500+ employees)",
+#     "buyer_persona": "VP of Engineering, Head of QA, DevOps Lead, CTO",
+#     "pain_points": [
+#       "Heavy time and costs lost to test maintenance and flaky automation scripts",
+#       "Difficulty scaling test coverage without slowing down release cycles",
+#       "Existing tools (e.g., Selenium, Cypress) are too manual and break easily",
+#       "Pressure to accelerate software delivery while ensuring quality",
+#       "Confusion in evaluating next-gen testing tools due to crowded market positioning"
+#     ],
+#   },
+#   "goals": [
+#       "Shorten release cycles by cutting testing time",
+#       "Reduce manual intervention and maintenance effort in automated testing",
+#       "Achieve higher quality and reliability in software before release",
+#       "Adopt true AI-first testing solutions instead of legacy frameworks",
+#       "Elevate QA and testing from cost center to strategic enabler of velocity"
+#     ],
+#   "competitors": [
+#     {
+#       "website_url": "https://www.mabl.com/",
+#       "name": "Mabl"
+#     },
+#     {
+#       "website_url": "https://www.testim.io/",
+#       "name": "Testim"
+#     },
+#     {
+#       "website_url": "https://www.selenium.dev/",
+#       "name": "Selenium (legacy open-source)"
+#     },
+#     {
+#       "website_url": "https://www.cypress.io/",
+#       "name": "Cypress"
+#     }
+#   ]
+# }
+
 
 async def upload_company_data():
     uploader = SimpleDataUploader()

@@ -1,5 +1,7 @@
 import json
+import asyncio
 from logging import Logger
+import random
 import re
 from typing import Any, Callable, ClassVar, Dict, Generic, Optional, Type, TypeVar, Union, get_type_hints
 import inspect
@@ -80,6 +82,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     dynamic_schemas: ClassVar[bool] = False
     node_is_tool: ClassVar[bool] = False
     node_default_timeout_seconds: ClassVar[int] = 3600
+    node_default_retry_count: ClassVar[int] = 0
     # Schema class references to be overridden by subclasses
     input_schema_cls: ClassVar[Optional[Type[InputSchemaT]]] = None
     output_schema_cls: ClassVar[Optional[Type[OutputSchemaT]]] = None
@@ -418,10 +421,39 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             kwargs["central_state_data"] = central_state_data
 
             # Process the input data
+            config_node_retry_count = getattr(self.config, "node_retry_count", None)
+            node_retry_count = config_node_retry_count if config_node_retry_count is not None else self.__class__.node_default_retry_count
+            retry_delay_seconds = 10
+            retry_jitter_factor = 0.5
+            retry_config = {
+                "retry_delay_seconds": retry_delay_seconds,
+                "retries": node_retry_count,
+                "retry_jitter_factor": retry_jitter_factor,
+            }
             if self.prefect_mode:
-                output_data = await task(name=f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", cache_policy=NO_CACHE, timeout_seconds=self.__class__.node_default_timeout_seconds)(self.process)(input_data, config, *args, **kwargs)
+                kwargs = {
+                    "name": f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", 
+                    "cache_policy":NO_CACHE, 
+                    "timeout_seconds":self.__class__.node_default_timeout_seconds,
+                }
+                if node_retry_count:
+                    kwargs.update(retry_config)
+
+                output_data = await task(**kwargs)(self.process)(input_data, config, *args, **kwargs)
             else:
-                output_data = await self.process(input_data, config, *args, **kwargs)
+                i = 0
+                node_retry_count = node_retry_count or 0
+                while i <= node_retry_count:
+                    try:
+                        output_data = await self.process(input_data, config, *args, **kwargs)
+                        break
+                    except Exception as e:
+                        if node_retry_count > i:
+                            self.error(f"Retry #{i} of {node_retry_count} for Node {self.node_id} failed with error: {e}", exc_info=True)
+                        else:
+                            raise e
+                        i += 1
+                        await asyncio.sleep(retry_delay_seconds * (1 + random.random() * retry_jitter_factor))
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
             
             # Convert output to dict and return as state update

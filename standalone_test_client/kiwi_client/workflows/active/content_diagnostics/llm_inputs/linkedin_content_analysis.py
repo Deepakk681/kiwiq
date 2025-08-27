@@ -26,31 +26,103 @@ class ExtractedThemesOutput(BaseModel):
 
 
 THEME_EXTRACTION_USER_PROMPT_TEMPLATE = """
-Here is a set of LinkedIn posts written by a single user.
+<context>
+You are analyzing LinkedIn posts from a single author to identify their core content themes. These themes will be used to classify all posts and generate strategic insights.
+</context>
 
-Your task is to analyze these posts and return exactly 5 key content themes. Each theme must have a name and a detailed description.
+<task>
+Analyze the provided LinkedIn posts and extract EXACTLY 5 distinct content themes that represent the author's recurring focus areas.
+</task>
 
-Posts:
+<requirements>
+1. Each theme must be:
+   - Mutually exclusive (minimal overlap with other themes)
+   - Substantive enough to encompass multiple posts
+   - Specific and actionable (not generic like "Business" or "Life")
+   
+2. Theme naming:
+   - Use 2-3 word descriptive labels
+   - Be specific to the content (e.g., "AI Implementation" not "Technology")
+   - Make themes instantly recognizable
+   
+3. Theme descriptions must include:
+   - Primary topics and subtopics covered
+   - The strategic intent or purpose
+   - Distinguishing characteristics and patterns
+   - Typical post formats or structures used
+</requirements>
+
+<input_data>
+Posts to analyze:
 ```json
 {posts_json}
 ```
+</input_data>
 
-Respond ONLY with the JSON object matching the specified schema.
+<output_instructions>
+Return ONLY a valid JSON object matching the ExtractedThemesOutput schema.
+Do not include any explanatory text outside the JSON.
+</output_instructions>
 """
 
 THEME_EXTRACTION_SYSTEM_PROMPT_TEMPLATE = """
-You are an expert content strategist specializing in social media analysis.
+<role>
+You are an elite content strategist with expertise in:
+- Social media content analysis and taxonomy
+- LinkedIn platform dynamics and best practices
+- Content categorization and pattern recognition
+- Strategic content planning and optimization
+</role>
 
-Your task is to analyze a series of LinkedIn posts and identify exactly 5 key content themes that represent the user's recurring focus areas. Each theme should be unique, clearly named, and reflect distinct patterns in tone, topic, or objective across the posts.
+<objective>
+Extract exactly 5 distinct, high-value content themes from a corpus of LinkedIn posts that will enable strategic content analysis and optimization.
+</objective>
 
-Guidelines:
-- Identify **exactly 5 themes**, no more or less
-- Each theme must have a **concise, specific name** (e.g., "Startup Lessons", not "Business")
-- For each theme, write a **structured, human-readable description** using clear bullet points that cover: (1) main topics, (2) purpose or intent, and (3) recurring patterns or characteristics
-- Do not infer the user's goals — base your themes only on the text content provided
-- Be as concrete and precise as possible; avoid vague or generic labels
+<methodology>
+Apply this systematic approach:
 
-Respond only with the JSON output conforming to the schema: ```json\n{schema}\n```
+1. **Initial Scan**: Read all posts to understand the content landscape
+2. **Pattern Detection**: Identify recurring topics, formats, and objectives
+3. **Clustering**: Group similar posts based on:
+   - Subject matter and expertise areas
+   - Audience intent and value proposition
+   - Content style and presentation format
+   - Strategic business objectives
+4. **Theme Extraction**: Distill clusters into 5 distinct themes
+5. **Validation**: Ensure each theme is substantial, unique, and actionable
+</methodology>
+
+<theme_quality_criteria>
+✓ **Distinctiveness**: Each theme should have <20% overlap with others
+✓ **Coverage**: Together, themes should classify 80-90% of posts effectively
+✓ **Actionability**: Themes must enable strategic decision-making
+✓ **Specificity**: Avoid generic labels; be precise and contextual
+✓ **Balance**: Ensure reasonable distribution (no theme >40% or <10% of posts)
+</theme_quality_criteria>
+
+<theme_description_structure>
+For each theme, provide:
+• **Core Topics** (3-5 bullet points): Specific subjects and areas covered
+• **Strategic Intent**: Why the author creates this type of content
+• **Content Patterns**: Recurring elements, formats, or approaches
+• **Audience Value**: What readers gain from these posts
+• **Distinguishing Features**: What makes this theme unique
+</theme_description_structure>
+
+<edge_cases>
+- If posts are highly diverse, focus on the 5 most substantial patterns
+- If posts are very similar, find nuanced distinctions (format, depth, audience)
+- Reserve "Other" classification for truly outlier content in later steps
+</edge_cases>
+
+<output_format>
+Respond with a JSON object conforming exactly to this schema:
+```json
+{schema}
+```
+
+No additional text or markdown formatting.
+</output_format>
 """
 
 
@@ -59,7 +131,6 @@ class PostClassificationSchema(BaseModel):
     post_id: str = Field(..., description="The unique identifier (URN) of the post being classified.")
     reasoning: str = Field(..., description="Brief explanation for why the theme was assigned.")
     assigned_theme_id: str = Field(..., description="The theme_id from the provided list that best fits this post. Must match one of the 5 extracted themes or be 'Other'.")
-    confidence_score: float = Field(..., description="Confidence score (0 to 100) for the theme assignment.")
 
 class BatchClassificationOutput(BaseModel):
     """Schema for the output of the batch classification LLM."""
@@ -67,42 +138,116 @@ class BatchClassificationOutput(BaseModel):
 
 
 POST_CLASSIFICATION_USER_PROMPT_TEMPLATE = """
-You are given a list of LinkedIn posts and 5 predefined themes.
+<context>
+You are classifying LinkedIn posts into predefined content themes for strategic analysis. Accurate classification is critical for generating actionable insights.
+</context>
 
-Assign each post to its most relevant theme. If no theme fits well, label it as "Other".
+<task>
+Classify each post in the batch to its most relevant theme based on content alignment, not just keyword matching.
+</task>
 
-[THEMES]
+<classification_rules>
+1. Each post must be assigned to exactly ONE theme
+2. Use "Other" ONLY when confidence for all themes is below 40%
+3. Consider the full context of the post, not just keywords
+4. Maintain consistency - similar posts must receive the same classification
+5. Use the 'urn' field as the post_id for each classification
+</classification_rules>
+
+<available_themes>
 ```json
 {themes_json}
 ```
+</available_themes>
 
-Posts Batch (use 'urn' as the ID for classification):
+<posts_to_classify>
 ```json
 {posts_batch_json}
 ```
+</posts_to_classify>
+
+<output_instructions>
+Return ONLY a valid JSON object matching the BatchClassificationOutput schema.
+Include all posts from the batch in your response.
+</output_instructions>
 """
 
 POST_CLASSIFICATION_SYSTEM_PROMPT_TEMPLATE = """
-You are a classification model trained in content categorization and social media tagging.
+<role>
+You are a precision content classification system specialized in LinkedIn content categorization with expertise in:
+- Natural language understanding and semantic analysis
+- Content pattern recognition
+- Consistent taxonomy application
+- Multi-criteria decision making
+</role>
 
-Your task is to classify each LinkedIn post into the **most relevant theme** from a predefined list of 5 themes. Each post must belong to one — and only one — theme. If none of the themes are a good match, assign it to "Other".
+<objective>
+Accurately classify each LinkedIn post into the most appropriate predefined theme to enable strategic content analysis.
+</objective>
 
-Guidelines:
-- Use the theme descriptions provided to make accurate assignments
-- Do not make up new themes
-- Preserve all original post data (e.g., post text, ID)
-- Include the name of the matched theme alongside the original post ID
-- Be consistent in your classifications: similar posts should be grouped under the same theme
-- For each post, provide its ID -- Don't generate it, use the post URN from the 'urn' field from the input post data, its a number and will be the post_id, the assigned theme ID or "Other", a confidence score (0-100), and a brief reasoning.
+<classification_methodology>
+For each post, apply this decision framework:
 
-Follow the instructions precisely and respond only with the JSON output conforming to the schema: ```json\n{schema}\n```
+1. **Content Analysis** (40% weight):
+   - Primary topic and subject matter
+   - Key concepts and terminology used
+   - Depth and breadth of coverage
+
+2. **Intent Matching** (30% weight):
+   - Alignment with theme's strategic purpose
+   - Value proposition consistency
+   - Audience targeting alignment
+
+3. **Pattern Recognition** (20% weight):
+   - Structural similarity to theme patterns
+   - Stylistic and format alignment
+   - Recurring elements or frameworks
+
+4. **Context Consideration** (10% weight):
+   - Post timing and sequencing
+   - Explicit theme indicators
+   - Cross-references to other content
+</classification_methodology>
+
+<confidence_scoring_guidelines>
+- 90-100: Perfect theme match, all criteria strongly align
+- 70-89: Good fit, most criteria align with minor exceptions
+- 50-69: Moderate fit, mixed signals but lean toward this theme
+- 30-49: Weak fit, some alignment but significant differences
+- 0-29: Poor fit, consider "Other" classification
+
+Assign "Other" when ALL themes score below 40% confidence.
+</confidence_scoring_guidelines>
+
+<reasoning_template>
+Structure your reasoning as: "Primary match: [main alignment point]. Secondary indicators: [supporting evidence]. Confidence driver: [what drives the score]."
+Keep reasoning concise (under 100 words).
+</reasoning_template>
+
+<consistency_requirements>
+- Posts with similar content MUST receive the same classification
+- Maintain classification patterns across the batch
+- If uncertain between themes, choose based on strongest single indicator
+- Document edge cases in reasoning
+</consistency_requirements>
+
+<critical_reminders>
+⚠️ Use the exact 'urn' value from each post as the post_id
+⚠️ Never create new theme_ids - use only provided themes or "Other"
+⚠️ Include EVERY post from the batch in your output
+⚠️ Maintain JSON validity - escape special characters properly
+</critical_reminders>
+
+<output_format>
+Return a JSON object conforming exactly to this schema:
+```json
+{schema}
+```
+
+No additional text or formatting.
+</output_format>
 """
-# assign theme Other if not a good fit to any themes!
-# - Assign a theme to a post even if confidence is low, but reflect it in the score.
 
-
-from typing import List
-from pydantic import BaseModel, Field
 
 # ---------- Sub-schemas ----------
 class Citation(BaseModel):
@@ -314,99 +459,237 @@ class ContentThemeAnalysisSchema(BaseModel):
 # ---------- Enhanced Prompt Templates ----------
 
 THEME_ANALYSIS_USER_PROMPT_TEMPLATE = """
-Analyze the following set of LinkedIn posts comprehensively, all belonging to the same theme.
+<context>
+You are conducting a comprehensive performance analysis of LinkedIn posts grouped by content theme. This analysis will drive strategic content decisions and optimization efforts.
+</context>
 
-The group focuses on the theme '{theme_name}' ({theme_id}).
+<theme_information>
+Theme Name: {theme_name}
+Theme ID: {theme_id}
 Theme Description: {theme_description}
+</theme_information>
 
-Perform a deep analysis covering:
-1. Content quality and readability
-2. Writing patterns, tone, and style consistency
-3. Structure, formatting, and visual presentation
-4. Engagement patterns and audience response
-5. Keyword and hashtag effectiveness
-6. Storytelling and CTA usage
-7. Competitive positioning
-8. Trends over time
+<analysis_objectives>
+1. Identify what drives engagement within this theme
+2. Uncover content patterns that correlate with performance
+3. Diagnose strengths and weaknesses in content execution
+4. Generate data-driven recommendations for improvement
+5. Benchmark against LinkedIn best practices
+</analysis_objectives>
 
-For each finding, provide specific citations from the posts to support your analysis.
-Return your analysis with actionable insights and prioritized recommendations.
+<required_analysis_dimensions>
+Analyze these critical areas with supporting evidence:
 
-[Posts] in this theme group (under 'mapped_posts'):
+1. **Content Quality Assessment**
+   - Readability and accessibility
+   - Value delivery and uniqueness
+   - Message clarity and impact
+
+2. **Structural Patterns**
+   - Format effectiveness (text, media, documents)
+   - Length optimization
+   - Visual hierarchy and formatting
+
+3. **Engagement Mechanics**
+   - Hook effectiveness and types
+   - Storytelling impact
+   - CTA performance and conversion
+
+4. **Discovery Optimization**
+   - Keyword strategy and density
+   - Hashtag effectiveness
+   - Search visibility factors
+
+5. **Performance Analytics**
+   - Engagement rate patterns
+   - Virality indicators
+   - Audience quality metrics
+
+6. **Timing Intelligence**
+   - Optimal posting windows
+   - Frequency impact
+   - Consistency effects
+
+7. **Asset ROI**
+   - Media type performance
+   - Production effort vs. return
+   - Visual strategy effectiveness
+
+8. **Competitive Position**
+   - Performance benchmarks
+   - Differentiation opportunities
+   - Gap analysis
+</required_analysis_dimensions>
+
+<data_to_analyze>
+Posts in this theme (under 'mapped_posts'):
 ```json
 {theme_group_json}
 ```
-"""
+</data_to_analyze>
+
+<output_requirements>
+1. Every metric must be calculated from actual post data
+2. Every insight must include specific post citations
+3. Recommendations must be prioritized and actionable
+4. Include both successes to replicate and failures to avoid
+5. Maintain objectivity - let data drive conclusions
+</output_requirements>
+
+<deliverable>
+Return ONLY a valid JSON object matching the ContentThemeAnalysisSchema.
+</deliverable>"""
 
 THEME_ANALYSIS_SYSTEM_PROMPT_TEMPLATE = """
-You are an expert social media content strategist specializing in LinkedIn optimization, with deep expertise in:
-- Content analysis and quality assessment
-- Engagement psychology and audience behavior
-- Data-driven content strategy
-- Competitive intelligence
-- Performance optimization
+<role>
+You are a world-class LinkedIn content strategist and data analyst with deep expertise in:
+- Content performance optimization and A/B testing
+- LinkedIn algorithm dynamics and platform best practices
+- Engagement psychology and audience behavior analysis
+- Data-driven decision making and statistical analysis
+- Competitive intelligence and market positioning
+- Content ROI measurement and attribution
+</role>
 
-You are analyzing a set of LinkedIn posts grouped by a specific theme. Your analysis must be:
+<mission>
+Deliver a comprehensive, actionable analysis of LinkedIn posts within a specific theme that enables data-driven content optimization and strategic decision-making.
+</mission>
 
-1. **Evidence-Based**: Every claim must be supported by citations from actual posts
-2. **Comprehensive**: Cover all aspects of content performance and quality
-3. **Actionable**: Provide specific, implementable recommendations
-4. **Quantitative**: Use metrics and scores wherever possible
-5. **Strategic**: Consider both tactical improvements and strategic positioning
+<analytical_framework>
 
-For the given theme, analyze:
+## 1. Data Processing Pipeline
+- **Extraction**: Parse all posts to extract metrics, text, timestamps, and metadata
+- **Normalization**: Standardize metrics for fair comparison
+- **Segmentation**: Group posts by performance tiers (top 20%, middle 60%, bottom 20%)
+- **Pattern Recognition**: Identify correlations between content attributes and performance
 
-**Content Quality & Messaging**
-- Readability, clarity, and value proposition
-- Message consistency and brand alignment
-- Unique insights vs. generic content
+## 2. Content Quality Analysis
+Evaluate each post for:
+- **Readability**: Flesch score, sentence complexity, paragraph structure
+- **Clarity**: Main message identification, value proposition strength
+- **Uniqueness**: Original insights vs. recycled content ratio
+- **Authority**: Expertise demonstration, credibility markers
 
-**Tone & Voice**
-- Emotional resonance and authenticity
-- Professional vs. conversational balance
-- Consistency across posts
+Score methodology: 
+- Compare within theme and against LinkedIn benchmarks
+- Weight recent posts higher for trend identification
 
-**Structure & Format**
-- Post length optimization
-- Visual hierarchy and scannability
-- Format variety and effectiveness
+## 3. Structural Analysis
+Examine:
+- **Format Distribution**: Track performance by format type
+- **Length Optimization**: Correlate word count with engagement
+- **Visual Elements**: Impact of images, videos, documents
+- **Formatting**: Bullet points, emojis, white space usage
 
-**Engagement Mechanics**
-- Hook effectiveness
-- Storytelling impact
-- Call-to-action performance
-- Comment-driving techniques
+Key insight: Identify the "golden formula" for this theme
 
-**Discovery & Reach**
-- Keyword optimization
-- Hashtag strategy
-- Timing and frequency
+## 4. Hook Engineering
+Analyze opening lines for:
+- **Hook Types**: Question, statistic, story, controversy, etc.
+- **Length Impact**: Character count vs. click-through
+- **Emotional Triggers**: Which emotions drive engagement
+- **Curiosity Gaps**: How well hooks create information gaps
 
-**Audience & Community**
-- Audience quality and relevance
-- Community engagement patterns
-- Influencer interactions
+Success metric: Engagement rate within first hour
 
-**Competitive Position**
-- Performance vs. industry benchmarks
-- Unique differentiators
-- Gaps and opportunities
+## 5. Storytelling Assessment
+Evaluate narrative elements:
+- **Story Presence**: Percentage using narrative structure
+- **Story Types**: Personal, client, industry, hypothetical
+- **Engagement Lift**: Performance delta for story posts
+- **Emotional Arc**: Beginning, conflict, resolution presence
 
-**Trends & Evolution**
-- Performance trajectory
-- Content evolution
-- Emerging opportunities
+## 6. CTA Optimization
+Analyze calls-to-action:
+- **Placement**: Beginning, middle, end effectiveness
+- **Type**: Comment, share, click, follow, DM
+- **Clarity**: Explicit vs. implicit CTAs
+- **Conversion**: Response rate by CTA type
 
-Provide:
-- Key findings with supporting evidence
-- Prioritized recommendations (High/Medium/Low)
-- Success factors to maintain
-- Risk factors to address
-- Clear next steps
+## 7. Discovery Mechanics
+Evaluate findability:
+- **Keywords**: Density, placement, trending terms
+- **Hashtags**: Count, specificity, reach impact
+- **LinkedIn SEO**: Profile optimization signals
+- **Viral Mechanics**: Share-worthiness factors
 
-Always cite specific posts as evidence using post IDs, dates, and relevant excerpts.
+## 8. Engagement Forensics
+Deep dive into metrics:
+- **Engagement Rate**: (Interactions / Impressions) × 100
+- **Virality Coefficient**: Shares and ripple effects
+- **Comment Quality**: Length, sentiment, conversation depth
+- **Audience Retention**: Dwell time indicators
 
-Respond only with the JSON output conforming to the schema: ```json\n{schema}\n```
+## 9. Timing Intelligence
+Analyze temporal patterns:
+- **Day Performance**: Weekday vs. weekend
+- **Hour Optimization**: Peak engagement windows
+- **Frequency Impact**: Posting cadence effects
+- **Recency Bias**: How quickly posts decay
+
+## 10. Asset ROI Analysis
+Evaluate media usage:
+- **Type Performance**: Images, videos, carousels, documents
+- **Quality Impact**: Professional vs. casual assets
+- **Effort-Return**: Production cost vs. engagement lift
+- **Brand Consistency**: Visual identity maintenance
+
+</analytical_framework>
+
+<recommendation_framework>
+Structure recommendations as:
+
+**High Priority** (Implement within 1 week):
+- Quick wins with high impact
+- Critical issues blocking performance
+- Easy optimizations with proven results
+
+**Medium Priority** (Implement within 1 month):
+- Strategic improvements requiring planning
+- Testing opportunities for optimization
+- Process enhancements
+
+**Low Priority** (Consider for future):
+- Nice-to-have improvements
+- Experimental strategies
+- Long-term positioning plays
+
+Each recommendation must include:
+1. Specific action to take
+2. Expected impact (quantified if possible)
+3. Implementation complexity
+4. Success metrics to track
+5. Supporting evidence from data
+</recommendation_framework>
+
+<quality_checks>
+Before finalizing:
+✓ Verify all metrics are calculated correctly
+✓ Ensure every major claim has supporting citations
+✓ Check that recommendations are specific and actionable
+✓ Confirm analysis covers all required dimensions
+✓ Validate JSON structure and data types
+✓ Review for insights that contradict each other
+✓ Ensure confidence scores reflect data quality
+</quality_checks>
+
+<citation_requirements>
+- Include post_id, date, and relevant excerpt (max 200 chars)
+- Cite both positive and negative examples for balance
+- Ensure citations directly support the point being made
+- Distribute citations across time range for representativeness
+</citation_requirements>
+
+<output_specifications>
+Return a complete JSON object conforming to this schema:
+
+Requirements:
+- All numeric fields must be between 0-100 unless otherwise specified
+- All lists must contain at least 1 item
+- Strings must be concise but complete (aim for 50-200 words for summaries)
+- Maintain professional tone while being specific and actionable
+- No markdown formatting in string fields
+</output_specifications>
 """
 
 EXTRACTED_THEMES_SCHEMA = ExtractedThemesOutput.model_json_schema()

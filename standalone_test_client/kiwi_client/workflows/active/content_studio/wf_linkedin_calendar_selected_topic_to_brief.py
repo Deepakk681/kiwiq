@@ -58,14 +58,9 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_calendar_se
     BRIEF_FEEDBACK_ADDITIONAL_USER_PROMPT,
     
     # Output schemas
-    ContentBriefDetailSchema,
-    BriefFeedbackAnalysisSchema,
+    BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA,
+    BRIEF_GENERATION_OUTPUT_SCHEMA,
 )
-
-# Convert Pydantic schemas to JSON schemas
-BRIEF_GENERATION_OUTPUT_SCHEMA = ContentBriefDetailSchema.model_json_schema()
-BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA = BriefFeedbackAnalysisSchema.model_json_schema()
-
 # LLM Configuration
 LLM_PROVIDER = "anthropic"
 LLM_MODEL = "claude-sonnet-4-20250514"
@@ -91,7 +86,7 @@ workflow_graph_schema = {
             "node_config": {},
             "dynamic_output_schema": {
                 "fields": {
-                    "executive_name": {
+                    "entity_username": {
                         "type": "str",
                         "required": True,
                         "description": "Name of the executive for document operations"
@@ -117,7 +112,7 @@ workflow_graph_schema = {
                     {
                         "filename_config": {
                             "input_namespace_field_pattern": LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE,
-                            "input_namespace_field": "executive_name",
+                            "input_namespace_field": "entity_username",
                             "static_docname": LINKEDIN_USER_PROFILE_DOCNAME,
                         },
                         "output_field_name": "executive_profile_doc"
@@ -125,7 +120,7 @@ workflow_graph_schema = {
                     {
                         "filename_config": {
                             "input_namespace_field_pattern": LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE,
-                            "input_namespace_field": "executive_name",
+                            "input_namespace_field": "entity_username",
                             "static_docname": LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
                         },
                         "output_field_name": "playbook_doc"
@@ -259,19 +254,15 @@ workflow_graph_schema = {
                         "target_path": {
                             "filename_config": {
                                 "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
-                                "input_namespace_field": "executive_name",
+                                "input_namespace_field": "entity_username",
                                 "static_docname": LINKEDIN_BRIEF_DOCNAME
                             }
                         },
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
-                            },
-                            {
-                                "src_path": "selected_topic",
-                                "dst_path": "source_topic"
+                                "src_path": "status",
+                                "dst_path": "user_action"
                             }
                         ],
                         "versioning": {
@@ -448,15 +439,15 @@ workflow_graph_schema = {
                         "target_path": {
                             "filename_config": {
                                 "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
-                                "input_namespace_field": "executive_name",
+                                "input_namespace_field": "entity_username",
                                 "static_docname": LINKEDIN_BRIEF_DOCNAME
                             }
                         },
                         "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "user_action"
                             }
                         ],
                         "versioning": {
@@ -482,7 +473,7 @@ workflow_graph_schema = {
             "src_node_id": "input_node",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "executive_name", "dst_field": "executive_name"},
+                {"src_field": "entity_username", "dst_field": "entity_username"},
                 {"src_field": "selected_topic", "dst_field": "selected_topic"}
             ]
         },
@@ -492,7 +483,7 @@ workflow_graph_schema = {
             "src_node_id": "input_node",
             "dst_node_id": "load_executive_and_playbook",
             "mappings": [
-                {"src_field": "executive_name", "dst_field": "executive_name"}
+                {"src_field": "entity_username", "dst_field": "entity_username"}
             ]
         },
         
@@ -640,7 +631,7 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "current_content_brief", "dst_field": "current_content_brief"},
                 {"src_field": "user_action", "dst_field": "user_action"},
-                {"src_field": "executive_name", "dst_field": "executive_name"}
+                {"src_field": "entity_username", "dst_field": "entity_username"}
             ]
         },
         
@@ -762,7 +753,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "save_brief",
             "mappings": [
-                {"src_field": "executive_name", "dst_field": "executive_name"},
+                {"src_field": "entity_username", "dst_field": "entity_username"},
                 {"src_field": "current_content_brief", "dst_field": "final_content_brief"},
                 {"src_field": "user_action", "dst_field": "user_action"}
             ]
@@ -774,14 +765,6 @@ workflow_graph_schema = {
             "dst_node_id": "output_node",
             "mappings": [
                 {"src_field": "paths_processed", "dst_field": "final_paths_processed"}
-            ]
-        },
-        
-        # State -> Output
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "output_node",
-            "mappings": [
             ]
         }
     ],
@@ -880,7 +863,7 @@ async def main_test_selected_topic_brief_workflow():
     print(f"--- Starting {test_name} ---")
     
     # Test parameters
-    test_executive_name = "JohnDoe"
+    test_entity_username = "JohnDoe"
     
     # Create test executive profile document data
     executive_profile_data = {
@@ -976,14 +959,14 @@ async def main_test_selected_topic_brief_workflow():
     
     # Test inputs
     test_inputs = {
-        "executive_name": test_executive_name,
+        "entity_username": test_entity_username,
         "selected_topic": test_selected_topic
     }
     
     # Setup test documents
     setup_docs: List[SetupDocInfo] = [
         {
-            'namespace': f"linkedin_executive_profile_namespace_{test_executive_name}",
+            'namespace': f"linkedin_executive_profile_namespace_{test_entity_username}",
             'docname': LINKEDIN_USER_PROFILE_DOCNAME,
             'initial_data': executive_profile_data,
             'is_shared': False,
@@ -992,7 +975,7 @@ async def main_test_selected_topic_brief_workflow():
             'is_system_entity': False
         },
         {
-            'namespace': f"linkedin_executive_strategy_{test_executive_name}",
+            'namespace': f"linkedin_executive_strategy_{test_entity_username}",
             'docname': LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
             'initial_data': playbook_data,
             'is_shared': False,
@@ -1005,14 +988,14 @@ async def main_test_selected_topic_brief_workflow():
     # Cleanup configuration
     cleanup_docs: List[CleanupDocInfo] = [
         {
-            'namespace': f"linkedin_executive_profile_namespace_{test_executive_name}",
+            'namespace': f"linkedin_executive_profile_namespace_{test_entity_username}",
             'docname': LINKEDIN_USER_PROFILE_DOCNAME,
             'is_shared': False,
             'is_versioned': LINKEDIN_USER_PROFILE_IS_VERSIONED,
             'is_system_entity': False
         },
         {
-            'namespace': f"linkedin_executive_strategy_{test_executive_name}",
+            'namespace': f"linkedin_executive_strategy_{test_entity_username}",
             'docname': LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
             'is_shared': False,
             'is_versioned': LINKEDIN_CONTENT_PLAYBOOK_IS_VERSIONED,
@@ -1022,6 +1005,91 @@ async def main_test_selected_topic_brief_workflow():
     
     # Predefined HITL inputs for testing
     predefined_hitl_inputs = [
+        {
+            "user_action": "revise_brief",
+            "revision_feedback": "The brief needs more specific examples and should include more actionable steps. Also, make the tone more conversational and add a personal story in the hook.",
+            "updated_content_brief": {
+                "title": "Why Your Sales Team's CRM Adoption is Failing (And How to Fix It)",
+                "content_type": "LinkedIn Post",
+                "content_format": "Text-based thought leadership post",
+                "target_audience": "Sales leaders and Revenue Operations professionals at enterprise companies",
+                "content_goal": "Share insights on CRM adoption challenges and provide actionable solutions",
+                "key_message": "CRM adoption fails due to process issues, not technology - fix the human element first",
+                "content_structure": [
+                    {
+                        "section_title": "Hook",
+                        "key_points": [
+                            "Bold statement about 70% of CRM implementations failing",
+                            "Personal anecdote about witnessing failed adoption"
+                        ],
+                        "estimated_word_count": 50
+                    }
+                ],
+                "linkedin_formatting": {
+                    "hook_style": "Contrarian statement with surprising statistic",
+                    "emoji_strategy": "Use sparingly - checkmarks for lists, warning for problems",
+                    "hashtag_strategy": "#SalesOps #CRM #RevenueOperations #SalesLeadership #SalesEnablement"
+                },
+                "call_to_action": "What's your biggest CRM adoption challenge?",
+                "engagement_tactics": ["Ask provocative question at the end"],
+                "success_metrics": ["200+ reactions within 24 hours"],
+                "estimated_reading_time": "2-3 minutes",
+                "writing_guidelines": ["Use 'you' and 'your' to speak directly to reader"]
+            }
+        },
+        {
+            "user_action": "draft",
+            "updated_content_brief": {
+                "title": "Why Your Sales Team's CRM Adoption is Failing (And How to Fix It)",
+                "content_type": "LinkedIn Post",
+                "content_format": "Text-based thought leadership post",
+                "target_audience": "Sales leaders and Revenue Operations professionals at enterprise companies",
+                "content_goal": "Share insights on CRM adoption challenges and provide actionable solutions",
+                "key_message": "CRM adoption fails due to process issues, not technology - fix the human element first",
+                "content_structure": [
+                    {
+                        "section_title": "Hook",
+                        "key_points": [
+                            "Bold statement about 70% of CRM implementations failing",
+                            "Personal anecdote about witnessing failed adoption"
+                        ],
+                        "estimated_word_count": 50
+                    },
+                    {
+                        "section_title": "Problem Diagnosis",
+                        "key_points": [
+                            "Top 3 reasons for failure",
+                            "Real examples from enterprise teams",
+                            "Cost of poor adoption"
+                        ],
+                        "estimated_word_count": 150
+                    }
+                ],
+                "linkedin_formatting": {
+                    "hook_style": "Contrarian statement with surprising statistic",
+                    "emoji_strategy": "Use sparingly - checkmarks for lists, warning for problems",
+                    "hashtag_strategy": "#SalesOps #CRM #RevenueOperations #SalesLeadership #SalesEnablement",
+                    "formatting_notes": [
+                        "Use line breaks between paragraphs",
+                        "Bold key statistics"
+                    ]
+                },
+                "call_to_action": "What's your biggest CRM adoption challenge? Share below and I'll provide personalized advice.",
+                "engagement_tactics": [
+                    "Ask provocative question at the end",
+                    "Respond to early comments to boost algorithm"
+                ],
+                "success_metrics": [
+                    "200+ reactions within 24 hours",
+                    "50+ meaningful comments"
+                ],
+                "estimated_reading_time": "2-3 minutes",
+                "writing_guidelines": [
+                    "Use 'you' and 'your' to speak directly to reader",
+                    "Include specific numbers and percentages"
+                ]
+            }
+        },
         {
             "user_action": "complete",
             "updated_content_brief": {

@@ -362,6 +362,8 @@ class WorkflowRunTestClient:
                         validated_event = event_schemas.HITLRequestEvent.model_validate(event_data)
                     elif base_event.event_type == event_schemas.WorkflowEvent.TOOL_CALL:
                         validated_event = event_schemas.ToolCallEvent.model_validate(event_data)
+                    elif base_event.event_type == event_schemas.WorkflowEvent.NODE_STATUS:
+                        validated_event = event_schemas.NodeStatusEvent.model_validate(event_data)
                     else:
                         # Fallback to base event if type is unknown
                         validated_event = base_event

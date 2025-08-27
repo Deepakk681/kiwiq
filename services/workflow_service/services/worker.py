@@ -55,6 +55,7 @@ from workflow_service.services.events import (
     WorkflowRunStatusUpdateEvent, # Renamed from Update to UpdateEvent
     HITLRequestEvent,
     ToolCallEvent,
+    NodeStatusEvent,
 )
 from kiwi_app.workflow_app.schemas import WorkflowRunUpdate, NotificationType # Added NotificationType
 
@@ -474,9 +475,9 @@ async def run_graph(
                     elif stream_mode == "custom":
                         # Process tool call chunks (e.g., from tools)
                         if isinstance(data, dict):
-                            if data.get("event_type") == "tool_call":
-                                try:
-                                    tool_call_event = ToolCallEvent(
+                            try:
+                                if data.get("event_type") == "tool_call":
+                                    custom_event = ToolCallEvent(
                                         **base_event_data,
                                         node_id=data.get("node_id", ""),
                                         payload={k:v for k,v in data.items() if k not in ["node_id", *ToolCallEvent.model_fields.keys()]},
@@ -484,19 +485,31 @@ async def run_graph(
                                         tool_name=data.get("tool_name", ""),
                                         status=data.get("status", ""),
                                     )
-                                    tool_call_event_dump = tool_call_event.model_dump(mode='json', exclude_defaults=False)
-                                    if mongo_path:
-                                        await external_context.mongo.workflow.create_object(
-                                            path=mongo_path,
-                                            data=tool_call_event_dump
-                                        )
-                                        logger.debug(f"Persisted event {tool_call_event.event_type} (RunID: {tool_call_event.run_id}, SeqID: {tool_call_event.sequence_i}) to MongoDB.")
-                                    # Publish to RabbitMQ Stream
-                                    await external_context.rabbit.publish_workflow_event(tool_call_event_dump)
-                                    sequence_id_counter += 1
-                                except Exception as e:
-                                    logger.error(f"Error processing tool call event: {e}", exc_info=True)
+                                elif data.get("event_type") == "node_status":
+                                    custom_event = NodeStatusEvent(
+                                        **base_event_data,
+                                        node_id=data.get("node_id", ""),
+                                        status=data.get("status", ""),
+                                    )
+                                    if payload:=data.get("payload", {}):
+                                        custom_event.payload = payload
+                                else:
+                                    logger.warning(f"Received unhandled custom event type: {data.get('event_type')}")
                                     continue
+                                
+                                custom_event_dump = custom_event.model_dump(mode='json', exclude_defaults=False)
+                                if mongo_path:
+                                    await external_context.mongo.workflow.create_object(
+                                        path=mongo_path,
+                                        data=custom_event_dump
+                                    )
+                                    logger.debug(f"Persisted event {custom_event.event_type} (RunID: {custom_event.run_id}, SeqID: {custom_event.sequence_i}) to MongoDB.")
+                                # Publish to RabbitMQ Stream
+                                await external_context.rabbit.publish_workflow_event(custom_event_dump)
+                                sequence_id_counter += 1
+                            except Exception as e:
+                                logger.error(f"Error processing {data.get('event_type', 'unknown')} event: {e}", exc_info=True)
+                                continue
 
                     elif stream_mode == "updates":
                         # Process state updates, node outputs, and interrupts

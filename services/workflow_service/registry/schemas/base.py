@@ -1126,6 +1126,11 @@ class BaseSchema(BaseModel, ABC):
 
 class BaseNodeConfig(BaseSchema, ABC):
     model_config = ConfigDict(extra='forbid')
+    
+    node_retry_count: Optional[int] = Field(
+        None,
+        description="Default retry count for the node"
+    )
 
 
 # class InnerSchema(BaseSchema):

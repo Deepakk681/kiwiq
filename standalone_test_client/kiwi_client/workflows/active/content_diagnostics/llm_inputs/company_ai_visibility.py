@@ -342,6 +342,16 @@ class DetailedEvidence(BaseModel):
     timestamp: str = Field(description="When this result was retrieved (ISO format)")
     confidence_score: float = Field(description="Confidence in this evidence (0-100)")
     verification_status: str = Field(description="verified/unverified/disputed/corroborated")
+    supporting_queries: List[str] = Field(description="Additional queries that support this evidence")
+
+class CitationReason(BaseModel):
+    """Citation with reasoning for findings."""
+    finding_statement: str = Field(description="The specific finding or claim being made")
+    supporting_queries: List[str] = Field(description="Exact queries that led to this finding")
+    reasoning: str = Field(description="Why this evidence supports the finding")
+    confidence_level: str = Field(description="high/medium/low confidence in this reasoning")
+    cross_validation: bool = Field(description="Whether finding is validated across multiple queries/platforms")
+    evidence_strength: str = Field(description="strong/moderate/weak evidence strength")
 
 # ============================================
 # SUPPORTING DATA MODELS
@@ -388,6 +398,8 @@ class ContentOpportunity(BaseModel):
     expected_impact: str = Field(description="Expected impact: high/medium/low")
     implementation_effort: str = Field(description="Implementation effort: high/medium/low")
     priority_score: int = Field(description="Priority score (1-100)")
+    source_queries: List[str] = Field(description="Original queries that revealed this opportunity")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this opportunity")
 
 class ContentPerformance(BaseModel):
     """Content performance metrics."""
@@ -403,6 +415,8 @@ class ReputationRisk(BaseModel):
     description: str = Field(description="Detailed risk description")
     mitigation_strategies: List[str] = Field(description="Strategies to mitigate risk")
     monitoring_indicators: List[str] = Field(description="Key indicators to monitor")
+    source_queries: List[str] = Field(description="Queries that revealed this risk")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this risk assessment")
 
 class CompetitiveRisk(BaseModel):
     """Competitive risk assessment."""
@@ -411,6 +425,8 @@ class CompetitiveRisk(BaseModel):
     description: str = Field(description="Detailed risk description")
     impact_areas: List[str] = Field(description="Business areas that could be impacted")
     response_strategies: List[str] = Field(description="Strategies to respond to threat")
+    source_queries: List[str] = Field(description="Queries that revealed this competitive risk")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this risk assessment")
 
 # ============================================
 # 3. COMPETITIVE ANALYSIS - ENHANCED
@@ -484,6 +500,9 @@ class CompetitiveIntelligence(BaseModel):
     )
     target_segments: List[str] = Field(description="Primary customer segments")
     
+    source_queries: List[str] = Field(description="Queries used to gather this intelligence")
+    citation_reasoning: List[CitationReason] = Field(description="Citations and reasoning for key findings")
+    
 
 class EnhancedCompetitiveAnalysis(BaseModel):
     """Comprehensive competitive landscape with evidence."""
@@ -527,6 +546,7 @@ BLOG_COVERAGE_SYSTEM_PROMPT = (
 
 BLOG_COVERAGE_USER_PROMPT_TEMPLATE = (
     "Generate EXACTLY 15 search queries for blog visibility analysis based on the company and competitive data.\n\n"
+    "Current Date: {current_date}\n\n"
     "Query Distribution Requirements:\n"
     "- industry_insights (3-4): Trends, market analysis, future predictions\n"
     "- educational_guides (3-4): How-to, tutorials, best practices, frameworks\n"
@@ -600,12 +620,12 @@ COMPANY_COMP_USER_PROMPT_TEMPLATE = (
     "4. implementation_technical (3): Integration, deployment, technical requirements\n"
     "5. validation_proof (3): Reviews, case studies, ROI, references\n\n"
     "Query Patterns to Include:\n"
-    "- Direct entity queries: '{Company} [aspect]'\n"
-    "- Comparison queries: '{Company} vs {Competitor}'\n"
-    "- Evaluation queries: 'Is {Company} good for [use case]'\n"
-    "- Technical queries: 'How to integrate {Company} with [system]'\n"
-    "- Proof queries: '{Company} customer success stories'\n"
-    "- Problem queries: '{Company} limitations', 'problems with {Company}'\n\n"
+    "- Direct entity queries: 'Company [aspect]'\n"
+    "- Comparison queries: 'Company vs Competitor'\n"
+    "- Evaluation queries: 'Is Company good for [use case]'\n"
+    "- Technical queries: 'How to integrate Company with [system]'\n"
+    "- Proof queries: 'Company customer success stories'\n"
+    "- Problem queries: 'Company limitations', 'problems with Company'\n\n"
     "Stakeholder Perspectives:\n"
     "- Technical: APIs, integration, security, performance\n"
     "- Business: ROI, pricing, support, scalability\n"
@@ -649,17 +669,23 @@ COMPANY_COMP_QUERIES_SCHEMA = EnhancedCompanyCompetitorQueries.model_json_schema
 BLOG_COVERAGE_REPORT_SYSTEM_PROMPT = (
     "You are a content intelligence analyst producing comprehensive, evidence-based blog visibility reports "
     "that provide actionable insights for content strategy optimization across AI platforms.\n\n"
+    "CRITICAL REQUIREMENT - QUERY CITATION MANDATE:\n"
+    "- EVERY finding, insight, problem, opportunity, or recommendation MUST include the exact queries that revealed it\n"
+    "- NO statement should be made without listing the specific search queries used as evidence\n"
+    "- Include source_queries field for every major finding\n"
+    "- Populate citation_reasoning with clear connections between queries and conclusions\n\n"
     "Analysis Framework:\n"
-    "1. EVIDENCE COLLECTION: Extract and cite specific results with platforms and positions\n"
-    "2. PATTERN RECOGNITION: Identify visibility patterns, content gaps, competitive advantages\n"
-    "3. QUANTITATIVE ANALYSIS: Calculate metrics with clear methodology\n"
-    "4. COMPETITIVE BENCHMARKING: Compare performance against identified competitors\n"
-    "5. STRATEGIC SYNTHESIS: Convert findings into prioritized, actionable recommendations\n\n"
+    "1. EVIDENCE COLLECTION: Extract and cite specific results with platforms, positions, and EXACT QUERIES\n"
+    "2. PATTERN RECOGNITION: Identify visibility patterns, content gaps, competitive advantages WITH QUERY SOURCES\n"
+    "3. QUANTITATIVE ANALYSIS: Calculate metrics with clear methodology and SUPPORTING QUERIES\n"
+    "4. COMPETITIVE BENCHMARKING: Compare performance against identified competitors WITH QUERY EVIDENCE\n"
+    "5. STRATEGIC SYNTHESIS: Convert findings into prioritized, actionable recommendations WITH QUERY CITATIONS\n\n"
     "Evidence Standards:\n"
-    "- Every finding must cite: platform, query, position, source domain, excerpt\n"
+    "- Every finding must cite: platform, query, position, source domain, excerpt, AND original search queries\n"
     "- Confidence levels: HIGH (multiple sources agree), MEDIUM (single strong source), LOW (inferred)\n"
     "- Verification status: VERIFIED (confirmed across platforms), PARTIAL (some confirmation), UNVERIFIED\n"
-    "- Include timestamps for all evidence\n\n"
+    "- Include timestamps for all evidence\n"
+    "- List the exact queries that led to each conclusion in source_queries fields\n\n"
     "Metric Definitions:\n"
     "- visibility_score = weighted average of (presence * position * relevance)\n"
     "- content_authority = (unique authoritative sources citing content) / (total sources) * 100\n"
@@ -667,44 +693,56 @@ BLOG_COVERAGE_REPORT_SYSTEM_PROMPT = (
     "- coverage_rate = (queries with client presence) / (total queries) * 100\n"
     "- dominance_score = (queries where client ranks #1) / (queries with presence) * 100\n\n"
     "Report Depth Requirements:\n"
-    "- Include 3-5 evidence citations per major finding\n"
+    "- Include 3-5 evidence citations per major finding WITH QUERY SOURCES\n"
     "- Provide confidence and verification status for all claims\n"
     "- Explain methodology for calculated metrics\n"
-    "- Include competitive context for all assessments"
+    "- Include competitive context for all assessments\n"
+    "- MANDATORY: Every insight must trace back to specific queries that revealed it"
 )
 
 BLOG_COVERAGE_REPORT_USER_PROMPT_TEMPLATE = (
     "Generate a comprehensive Blog Coverage Intelligence Report with detailed evidence and analysis.\n\n"
     "Search Results Data:\n{loaded_query_results}\n\n"
+    "MANDATORY QUERY CITATION REQUIREMENTS:\n"
+    "- For EVERY finding, gap, opportunity, threat, or recommendation, you MUST specify the exact queries that revealed it\n"
+    "- Fill source_queries fields with the specific search queries used\n"
+    "- Complete citation_reasoning fields explaining how the queries led to each conclusion\n"
+    "- NO insight should be provided without clear query traceability\n"
+    "- When mentioning competitor advantages, list the queries that showed this\n"
+    "- When identifying content gaps, specify which queries revealed the gaps\n\n"
     "Report Requirements:\n\n"
     "1. OVERALL ANALYSIS (Aggregate across all platforms):\n"
-    "   - Executive summary with key metrics and findings\n"
-    "   - Overall visibility score with calculation methodology\n"
-    "   - Competitive positioning assessment with evidence\n"
-    "   - Critical gaps and opportunities\n\n"
+    "   - Executive summary with key metrics and findings + SOURCE QUERIES\n"
+    "   - Overall visibility score with calculation methodology + SUPPORTING QUERIES\n"
+    "   - Competitive positioning assessment with evidence + QUERY SOURCES\n"
+    "   - Critical gaps and opportunities + REVEALING QUERIES\n\n"
     "2. PROVIDER-SPECIFIC ANALYSIS for each (perplexity, google, openai):\n"
-    "   - Platform-specific visibility metrics\n"
-    "   - Top performing content/topics with evidence\n"
-    "   - Competitive dynamics on this platform\n"
-    "   - Platform-specific optimization opportunities\n\n"
+    "   - Platform-specific visibility metrics + MEASUREMENT QUERIES\n"
+    "   - Top performing content/topics with evidence + SOURCE QUERIES\n"
+    "   - Competitive dynamics on this platform + ANALYSIS QUERIES\n"
+    "   - Platform-specific optimization opportunities + OPPORTUNITY QUERIES\n\n"
     "3. DETAILED EVIDENCE REQUIREMENTS:\n"
-    "   - For each finding, include 2-3 DetailedEvidence objects\n"
-    "   - Quote relevant excerpts (up to 500 chars)\n"
-    "   - Include source URLs where available\n"
-    "   - Note result positions and timestamps\n\n"
+    "   - For each finding, include 2-3 DetailedEvidence objects WITH ORIGINAL QUERIES\n"
+    "   - Quote relevant excerpts (up to 500 chars) + QUERY THAT FOUND IT\n"
+    "   - Include source URLs where available + SEARCH QUERY USED\n"
+    "   - Note result positions and timestamps + EXACT QUERY TEXT\n\n"
     "4. QUERY-LEVEL DEEP DIVE:\n"
-    "   - Analyze top 10 most important queries\n"
-    "   - Show exact results and positioning\n"
-    "   - Identify patterns and anomalies\n\n"
+    "   - Analyze top 10 most important queries WITH RESULTS BREAKDOWN\n"
+    "   - Show exact results and positioning FOR EACH QUERY\n"
+    "   - Identify patterns and anomalies ACROSS QUERIES\n"
+    "   - Explain what each query reveals about visibility\n\n"
     "5. COMPETITIVE INTELLIGENCE:\n"
-    "   - Detailed competitor performance by platform\n"
-    "   - Head-to-head visibility comparisons\n"
-    "   - Competitive threats and opportunities\n\n"
+    "   - Detailed competitor performance by platform + ANALYSIS QUERIES\n"
+    "   - Head-to-head visibility comparisons + COMPARISON QUERIES\n"
+    "   - Competitive threats and opportunities + THREAT-REVEALING QUERIES\n\n"
     "6. STRATEGIC RECOMMENDATIONS:\n"
-    "   - 8-10 prioritized actions with evidence\n"
-    "   - Expected impact scores (1-100)\n"
-    "   - Implementation complexity assessment\n"
-    "   - Success metrics and KPIs\n\n"
+    "   - 5-7 prioritized actions with evidence + SUPPORTING QUERIES\n"
+    "   - Expected impact scores (1-100) + IMPACT-INDICATING QUERIES\n"
+    "   - Implementation complexity assessment + COMPLEXITY-REVEALING QUERIES\n"
+    "   - Success metrics and KPIs + MEASUREMENT QUERIES\n\n"
+    "CRITICAL: Every content_gaps, content_opportunities, competitive_analysis, and recommendations object MUST have:\n"
+    "- source_queries: List of exact queries that revealed this insight\n"
+    "- citation_reasoning: Clear explanation of how the queries support the finding\n\n"
     "Output valid JSON matching BlogCoverageReport schema."
 )
 
@@ -740,6 +778,8 @@ class CompetitorPerformance(BaseModel):
     platform_strength: PlatformStrengthMetrics = Field(description="Performance by platform")
     competitive_threats: List[str] = Field(description="Specific threats posed")
     evidence_samples: List[DetailedEvidence] = Field(description="Supporting evidence")
+    analysis_queries: List[str] = Field(description="Queries used to analyze this competitor")
+    citation_reasoning: List[CitationReason] = Field(description="Citations for competitor analysis findings")
 
 class ContentGap(BaseModel):
     """Identified content gap with business impact."""
@@ -749,6 +789,8 @@ class ContentGap(BaseModel):
     priority_score: int = Field(description="Priority to address (1-100)")
     recommended_content: List[str] = Field(description="Specific content to create")
     evidence: List[DetailedEvidence] = Field(description="Evidence of the gap")
+    source_queries: List[str] = Field(description="Original queries that revealed this gap")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this gap identification")
 
 class StrategicRecommendation(BaseModel):
     """Actionable recommendation with full context."""
@@ -759,6 +801,8 @@ class StrategicRecommendation(BaseModel):
     success_metrics: List[str] = Field(description="How to measure success")
     supporting_evidence: List[DetailedEvidence] = Field(description="Evidence supporting this recommendation")
     example_implementation: str = Field(description="Concrete example of implementation")
+    source_queries: List[str] = Field(description="Queries that led to this recommendation")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this recommendation")
 
 class PlatformBlogAnalysis(BaseModel):
     """Platform-specific blog visibility analysis."""
@@ -823,63 +867,81 @@ BLOG_COVERAGE_REPORT_SCHEMA = EnhancedBlogCoverageReport.model_json_schema()
 COMPANY_COMP_REPORT_SYSTEM_PROMPT = (
     "You are a competitive intelligence expert producing comprehensive market positioning reports "
     "based on AI platform analysis, providing strategic insights for market dominance.\n\n"
+    "CRITICAL REQUIREMENT - QUERY CITATION MANDATE:\n"
+    "- EVERY finding, insight, threat, opportunity, or strategic recommendation MUST include the exact queries that revealed it\n"
+    "- NO analysis should be made without listing the specific search queries used as evidence\n"
+    "- Include source_queries or analysis_queries fields for every major finding\n"
+    "- Populate citation_reasoning with clear connections between queries and strategic conclusions\n"
+    "- When identifying buyer journey patterns, specify which queries revealed each stage\n"
+    "- When assessing competitive positioning, list the queries that showed relative strengths/weaknesses\n\n"
     "Intelligence Framework:\n"
-    "1. BUYER JOURNEY MAPPING: Understand how buyers research and evaluate\n"
-    "2. COMPETITIVE POSITIONING: Assess relative market position with evidence\n"
-    "3. PERCEPTION ANALYSIS: Understand market sentiment and narrative\n"
-    "4. OPPORTUNITY IDENTIFICATION: Find gaps and advantages to exploit\n"
-    "5. STRATEGIC PLANNING: Convert insights into executable strategy\n\n"
+    "1. BUYER JOURNEY MAPPING: Understand how buyers research and evaluate WITH QUERY EVIDENCE\n"
+    "2. COMPETITIVE POSITIONING: Assess relative market position with evidence AND SUPPORTING QUERIES\n"
+    "3. PERCEPTION ANALYSIS: Understand market sentiment and narrative WITH PERCEPTION QUERIES\n"
+    "4. OPPORTUNITY IDENTIFICATION: Find gaps and advantages to exploit WITH OPPORTUNITY QUERIES\n"
+    "5. STRATEGIC PLANNING: Convert insights into executable strategy WITH STRATEGIC QUERIES\n\n"
     "Evidence Requirements:\n"
-    "- Multiple evidence points per strategic finding (minimum 3)\n"
-    "- Cross-platform validation for major claims\n"
-    "- Timestamp and position data for all evidence\n"
-    "- Confidence scoring with rationale\n"
-    "- Competitive context for all assessments\n\n"
+    "- Multiple evidence points per strategic finding (minimum 3) WITH ORIGINAL QUERIES\n"
+    "- Cross-platform validation for major claims WITH VALIDATING QUERIES\n"
+    "- Timestamp and position data for all evidence WITH SOURCE QUERIES\n"
+    "- Confidence scoring with rationale AND QUERY SUPPORT\n"
+    "- Competitive context for all assessments WITH COMPARISON QUERIES\n\n"
     "Analysis Depth:\n"
-    "- Include verbatim quotes showing market perception\n"
-    "- Trace buyer decision factors to specific evidence\n"
-    "- Quantify competitive advantages/disadvantages\n"
-    "- Provide before/after scenarios for recommendations\n"
-    "- Include risk assessment for each strategic move"
+    "- Include verbatim quotes showing market perception WITH ORIGINATING QUERIES\n"
+    "- Trace buyer decision factors to specific evidence AND REVEALING QUERIES\n"
+    "- Quantify competitive advantages/disadvantages WITH MEASUREMENT QUERIES\n"
+    "- Provide before/after scenarios for recommendations WITH SUPPORTING QUERIES\n"
+    "- Include risk assessment for each strategic move WITH RISK-INDICATING QUERIES"
 )
 
 COMPANY_COMP_REPORT_USER_PROMPT_TEMPLATE = (
     "Generate a comprehensive Company & Competitor Intelligence Report with deep evidence.\n\n"
     "Search Results Data:\n{loaded_query_results}\n\n"
+    "MANDATORY QUERY CITATION REQUIREMENTS:\n"
+    "- For EVERY strategic finding, competitive insight, buyer journey pattern, or recommendation, you MUST specify the exact queries that revealed it\n"
+    "- Fill analysis_queries, positioning_queries, perception_queries, and driving_queries fields\n"
+    "- Complete citation_reasoning fields explaining how the queries led to each strategic conclusion\n"
+    "- NO strategic insight should be provided without clear query traceability\n"
+    "- When identifying competitive threats, list the queries that revealed the threat\n"
+    "- When analyzing buyer journey stages, specify which queries showed each stage behavior\n"
+    "- When assessing market perception, list the queries that revealed sentiment\n\n"
     "Report Structure:\n\n"
     "1. EXECUTIVE INTELLIGENCE BRIEFING:\n"
-    "   - Market position assessment with evidence\n"
-    "   - Competitive threats and opportunities\n"
-    "   - Strategic imperatives with urgency levels\n\n"
+    "   - Market position assessment with evidence + ASSESSMENT QUERIES\n"
+    "   - Competitive threats and opportunities + THREAT-REVEALING QUERIES\n"
+    "   - Strategic imperatives with urgency levels + IMPERATIVE-DRIVING QUERIES\n\n"
     "2. BUYER JOURNEY INTELLIGENCE:\n"
-    "   - How buyers discover and research the company\n"
-    "   - Decision factors and evaluation criteria found\n"
-    "   - Comparison patterns and alternative considerations\n"
-    "   - Purchase barriers and accelerators identified\n\n"
+    "   - How buyers discover and research the company + DISCOVERY QUERIES\n"
+    "   - Decision factors and evaluation criteria found + DECISION QUERIES\n"
+    "   - Comparison patterns and alternative considerations + COMPARISON QUERIES\n"
+    "   - Purchase barriers and accelerators identified + BARRIER/ACCELERATOR QUERIES\n\n"
     "3. COMPETITIVE POSITIONING ANALYSIS:\n"
-    "   - Head-to-head comparisons with evidence\n"
-    "   - Win/loss factors from search results\n"
-    "   - Competitive advantages and vulnerabilities\n"
-    "   - Market share of voice analysis\n\n"
+    "   - Head-to-head comparisons with evidence + COMPARISON QUERIES\n"
+    "   - Win/loss factors from search results + WIN/LOSS QUERIES\n"
+    "   - Competitive advantages and vulnerabilities + ADVANTAGE/VULNERABILITY QUERIES\n"
+    "   - Market share of voice analysis + VOICE-SHARE QUERIES\n\n"
     "4. PLATFORM-SPECIFIC ANALYSIS (perplexity, google, openai):\n"
-    "   - Platform-specific positioning\n"
-    "   - Unique narratives per platform\n"
-    "   - Platform optimization opportunities\n\n"
+    "   - Platform-specific positioning + POSITIONING QUERIES\n"
+    "   - Unique narratives per platform + NARRATIVE QUERIES\n"
+    "   - Platform optimization opportunities + OPPORTUNITY QUERIES\n\n"
     "5. MARKET PERCEPTION INSIGHTS:\n"
-    "   - Sentiment analysis with examples\n"
-    "   - Key narratives and themes\n"
-    "   - Perception gaps vs reality\n"
-    "   - Reputation risks and opportunities\n\n"
+    "   - Sentiment analysis with examples + SENTIMENT QUERIES\n"
+    "   - Key narratives and themes + NARRATIVE QUERIES\n"
+    "   - Perception gaps vs reality + GAP-REVEALING QUERIES\n"
+    "   - Reputation risks and opportunities + RISK/OPPORTUNITY QUERIES\n\n"
     "6. STRATEGIC RECOMMENDATIONS:\n"
-    "   - 10-12 prioritized actions\n"
-    "   - Expected outcomes with metrics\n"
-    "   - Implementation roadmap\n"
-    "   - Competitive response scenarios\n\n"
+    "   - 10-12 prioritized actions + SUPPORTING QUERIES\n"
+    "   - Expected outcomes with metrics + OUTCOME-INDICATING QUERIES\n"
+    "   - Implementation roadmap + IMPLEMENTATION QUERIES\n"
+    "   - Competitive response scenarios + RESPONSE-SCENARIO QUERIES\n\n"
     "Evidence Standards:\n"
-    "- Include 3-5 DetailedEvidence objects per major finding\n"
-    "- Show exact quotes and positions\n"
-    "- Note cross-platform validation\n"
-    "- Assess confidence levels\n\n"
+    "- Include 3-5 DetailedEvidence objects per major finding WITH ORIGINAL QUERIES\n"
+    "- Show exact quotes and positions WITH SOURCE QUERIES\n"
+    "- Note cross-platform validation WITH VALIDATING QUERIES\n"
+    "- Assess confidence levels WITH CONFIDENCE-SUPPORTING QUERIES\n\n"
+    "CRITICAL: Every buyer_journey_analysis, competitive_positioning, market_perception, strategic_imperatives, reputation_risks, and competitive_risks object MUST have:\n"
+    "- Appropriate query fields (analysis_queries, positioning_queries, perception_queries, driving_queries, etc.)\n"
+    "- citation_reasoning: Clear explanation of how the queries support the strategic finding\n\n"
     "Output valid JSON matching the enhanced schema."
 )
 
@@ -893,6 +955,8 @@ class BuyerJourneyStage(BaseModel):
     content_effectiveness: str = Field(description="How well content serves this stage")
     optimization_needs: List[str] = Field(description="What's needed to improve")
     evidence: List[DetailedEvidence] = Field(description="Supporting evidence")
+    analysis_queries: List[str] = Field(description="Specific queries used to analyze this stage")
+    citation_reasoning: List[CitationReason] = Field(description="Citations for buyer journey findings")
 
 class CompetitivePositioning(BaseModel):
     """Detailed competitive positioning analysis."""
@@ -905,6 +969,8 @@ class CompetitivePositioning(BaseModel):
     threat_level: str = Field(description="high/medium/low threat assessment")
     counter_strategies: List[str] = Field(description="How to counter this competitor")
     evidence_base: List[DetailedEvidence] = Field(description="Evidence for analysis")
+    positioning_queries: List[str] = Field(description="Queries used to assess competitive positioning")
+    citation_reasoning: List[CitationReason] = Field(description="Citations for positioning analysis")
 
 class MarketPerception(BaseModel):
     """Market perception and sentiment analysis."""
@@ -916,6 +982,8 @@ class MarketPerception(BaseModel):
     narrative_examples: List[DetailedEvidence] = Field(description="Example narratives")
     perception_gaps: List[str] = Field(description="Gaps between reality and perception")
     narrative_opportunities: List[str] = Field(description="Opportunities to shape narrative")
+    perception_queries: List[str] = Field(description="Queries used to assess market perception")
+    citation_reasoning: List[CitationReason] = Field(description="Citations for perception analysis")
 
 class StrategicImperative(BaseModel):
     """High-priority strategic action."""
@@ -927,6 +995,8 @@ class StrategicImperative(BaseModel):
     success_criteria: List[str] = Field(description="How to measure success")
     risk_mitigation: str = Field(description="How to mitigate risks")
     evidence_foundation: List[DetailedEvidence] = Field(description="Evidence driving this imperative")
+    driving_queries: List[str] = Field(description="Queries that revealed the need for this imperative")
+    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this strategic imperative")
 
 class PlatformCompanyAnalysis(BaseModel):
     """Platform-specific company analysis."""

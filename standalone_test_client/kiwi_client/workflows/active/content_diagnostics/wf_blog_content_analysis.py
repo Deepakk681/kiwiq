@@ -87,12 +87,12 @@ ANALYSIS_MODEL = "gpt-5"
 LLM_TEMPERATURE = 0.5
 LLM_MAX_TOKENS_CLASSIFY = 20000
 LLM_MAX_TOKENS_ANALYSIS = 20000
-LLM_MAX_TOKENS_TECHNICAL_SEO = 3000
+LLM_MAX_TOKENS_TECHNICAL_SEO = 10000
 # New model for portfolio analysis with code execution
-PORTFOLIO_ANALYSIS_MODEL = "gpt-5-mini"
+PORTFOLIO_ANALYSIS_MODEL = "gpt-5"
 PORTFOLIO_FINAL_ANALYSIS_MODEL = "gpt-5"
-LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS = 5000
-LLM_MAX_TOKENS_PORTFOLIO_FINAL_ANALYSIS = 4000
+LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS = 10000
+LLM_MAX_TOKENS_PORTFOLIO_FINAL_ANALYSIS = 20000
 
 POST_BATCH_SIZE = 10
 POST_BATCH_SIZE_ANALYSIS = 20
@@ -549,41 +549,41 @@ workflow_graph_schema = {
                     "model_spec": {"provider": LLM_PROVIDER, "model": PORTFOLIO_ANALYSIS_MODEL},
                     "temperature": LLM_TEMPERATURE,
                     "max_tokens": LLM_MAX_TOKENS_PORTFOLIO_ANALYSIS,
-                    # "reasoning_effort_class": "high"
+                    "reasoning_effort_class": "minimal"
                 },
-                "tool_calling_config": {"enable_tool_calling": True, "parallel_tool_calls": True},
-                "tools": [
-                    {"tool_name": "code_interpreter", "is_provider_inbuilt_tool": True, "provider_inbuilt_user_config": None}
-                ],
+                # "tool_calling_config": {"enable_tool_calling": True, "parallel_tool_calls": True},
+                # "tools": [
+                #     {"tool_name": "code_interpreter", "is_provider_inbuilt_tool": True, "provider_inbuilt_user_config": None}
+                # ],
                 "output_schema": {"schema_definition": FINAL_ANALYSIS_SCHEMA, "convert_loaded_schema_to_pydantic": False}
             }
         },
 
-        # --- New: 11e. Merge Portfolio Batch Reports ---
-        "merge_portfolio_batch_reports": {
-            "node_id": "merge_portfolio_batch_reports",
-            "node_name": "merge_aggregate",
-            "enable_node_fan_in": True,
-            "node_config": {
-                "operations": [
-                    {
-                        "output_field_name": "combined_reports",
-                        "select_paths": ["all_portfolio_batch_reports"],
-                        "merge_each_object_in_selected_list": False,
-                        "merge_strategy": {
-                            "reduce_phase": {
-                                "default_reducer": "combine_in_list"
-                            },
-                            "post_merge_transformations": {
-                                "flatten_op": {
-                                    "operation_type": "recursive_flatten_list"
-                                }
-                            }
-                        }
-                    }
-                ]
-            }
-        },
+        # # --- New: 11e. Merge Portfolio Batch Reports ---
+        # "merge_portfolio_batch_reports": {
+        #     "node_id": "merge_portfolio_batch_reports",
+        #     "node_name": "merge_aggregate",
+        #     "enable_node_fan_in": True,
+        #     "node_config": {
+        #         "operations": [
+        #             {
+        #                 "output_field_name": "combined_reports",
+        #                 "select_paths": ["all_portfolio_batch_reports"],
+        #                 "merge_each_object_in_selected_list": False,
+        #                 "merge_strategy": {
+        #                     "reduce_phase": {
+        #                         "default_reducer": "combine_in_list"
+        #                     },
+        #                     "post_merge_transformations": {
+        #                         "flatten_op": {
+        #                             "operation_type": "recursive_flatten_list"
+        #                         }
+        #                     }
+        #                 }
+        #             }
+        #         ]
+        #     }
+        # },
 
         # --- New: 11e. Construct Final Synthesis Prompt ---
         "construct_final_synthesis_prompt": {
@@ -592,6 +592,7 @@ workflow_graph_schema = {
             # "private_input_mode": True,
             # "output_private_output_to_central_state": True,
             # "private_output_mode": True,
+            "enable_node_fan_in": True,
             "node_config": {
                 "prompt_templates": {
                     "final_synthesis_user_prompt": {
@@ -601,7 +602,7 @@ workflow_graph_schema = {
                             "batch_reports_json": None
                         },
                         "construct_options": {
-                            "batch_reports_json": "all_portfolio_batch_reports.combined_reports"
+                            "batch_reports_json": "all_portfolio_batch_reports"
                         }
                     },
                     "final_synthesis_system_prompt": {
@@ -716,7 +717,8 @@ workflow_graph_schema = {
                 "llm_config": {
                     "model_spec": {"provider": LLM_PROVIDER, "model": CLASSIFICATION_MODEL},
                     "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS_TECHNICAL_SEO
+                    "max_tokens": LLM_MAX_TOKENS_TECHNICAL_SEO,
+                    "reasoning_effort_class": "low"
                 },
                 "output_schema": {
                     "schema_definition": TECHNICAL_SEO_REPORT_SCHEMA,
@@ -791,13 +793,9 @@ workflow_graph_schema = {
         ]},
         
         # Message history for classification
-        {"src_node_id": "$graph_state", "dst_node_id": "classify_batch", "mappings": [
-            {"src_field": "classify_batch_messages_history", "dst_field": "messages_history"}
-        ]},
+
         {"src_node_id": "classify_batch", "dst_node_id": "$graph_state", "mappings": [
-            {"src_field": "structured_output", "dst_field": "all_classifications_batches"},
-            {"src_field": "current_messages", "dst_field": "classify_batch_messages_history"}
-        ]},
+            {"src_field": "structured_output", "dst_field": "all_classifications_batches"}        ]},
         
         # Flatten and join classifications
         {"src_node_id": "classify_batch", "dst_node_id": "flatten_classifications", "mappings": []},
@@ -826,13 +824,19 @@ workflow_graph_schema = {
         {"src_node_id": "run_portfolio_batch_analysis", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "structured_output", "dst_field": "all_portfolio_batch_reports"}
         ]},
-        {"src_node_id": "run_portfolio_batch_analysis", "dst_node_id": "merge_portfolio_batch_reports", "mappings": []},
-        {"src_node_id": "$graph_state", "dst_node_id": "merge_portfolio_batch_reports", "mappings": [
+        # {"src_node_id": "run_portfolio_batch_analysis", "dst_node_id": "merge_portfolio_batch_reports", "mappings": []},
+        # {"src_node_id": "$graph_state", "dst_node_id": "merge_portfolio_batch_reports", "mappings": [
+        #     {"src_field": "all_portfolio_batch_reports", "dst_field": "all_portfolio_batch_reports"}
+        # ]},
+
+        
+        {"src_node_id": "run_portfolio_batch_analysis", "dst_node_id": "construct_final_synthesis_prompt", "mappings": [
+        ]},
+
+        {"src_node_id": "$graph_state", "dst_node_id": "construct_final_synthesis_prompt", "mappings": [
             {"src_field": "all_portfolio_batch_reports", "dst_field": "all_portfolio_batch_reports"}
         ]},
-        {"src_node_id": "merge_portfolio_batch_reports", "dst_node_id": "construct_final_synthesis_prompt", "mappings": [
-            {"src_field": "merged_data", "dst_field": "all_portfolio_batch_reports"}
-        ]},
+
         {"src_node_id": "construct_final_synthesis_prompt", "dst_node_id": "run_final_synthesis", "mappings": [
             {"src_field": "final_synthesis_user_prompt", "dst_field": "user_prompt"},
             {"src_field": "final_synthesis_system_prompt", "dst_field": "system_prompt"}
@@ -932,10 +936,10 @@ workflow_graph_schema = {
         ]},
         
         # Output
-        {"src_node_id": "store_analysis", "dst_node_id": "output_node", "mappings": []},
-        {"src_node_id": "store_classified_posts", "dst_node_id": "output_node", "mappings": []},
-        {"src_node_id": "store_technical_analysis", "dst_node_id": "output_node", "mappings": []},
-        {"src_node_id": "store_portfolio_analysis", "dst_node_id": "output_node", "mappings": [
+        {"src_node_id": "store_analysis", "dst_node_id": "$graph_state", "mappings": []},
+        {"src_node_id": "store_classified_posts", "dst_node_id": "$graph_state", "mappings": []},
+        {"src_node_id": "store_technical_analysis", "dst_node_id": "$graph_state", "mappings": []},
+        {"src_node_id": "store_technical_analysis", "dst_node_id": "output_node", "mappings": [
             {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
         ]}
     ],
@@ -950,12 +954,7 @@ workflow_graph_schema = {
             "reducer": {
                 "all_classifications_batches": "collect_values",
                 "all_funnel_stage_reports": "collect_values",
-                "classify_batch_messages_history": "add_messages",
-                "analyze_funnel_stage_group_messages_history": "add_messages",
-                "run_technical_analysis_messages_history": "add_messages",
-                "all_portfolio_batch_reports": "collect_values",
-                "run_portfolio_batch_analysis_messages_history": "add_messages",
-                "run_final_synthesis_messages_history": "add_messages"
+                "all_portfolio_batch_reports": "collect_values"
             }
         }
     }
@@ -981,7 +980,7 @@ TEST_INPUTS = {
     #     {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
     #     {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
     # ],
-    "start_urls": "https://www.momentum.io",
+    "start_urls": "https://www.entelligence.ai/",
     # "allowed_domains": ["prefect.io"],  # optional
     # "max_processed_urls_per_domain": 10,
     # "max_crawl_depth": 2,

@@ -1,5 +1,6 @@
 """
 LLM Inputs for LinkedIn Selected Topic to Brief Generation Workflow
+IMPROVED VERSION with enhanced prompts and reasoning fields
 
 This file contains prompts, schemas, and configurations for the workflow that:
 - Takes a user-selected topic from ContentTopicsOutput
@@ -26,6 +27,12 @@ class ContentObjective(str, Enum):
     LEAD_GENERATION = "lead_generation"
     COMMUNITY_BUILDING = "community_building"
 
+class EngagementPriority(str, Enum):
+    """Priority levels for engagement tactics"""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
 # =============================================================================
 # INPUT SCHEMAS
 # =============================================================================
@@ -45,189 +52,539 @@ class ContentTopicsOutput(BaseModel):
     why_important: str = Field(..., description="Brief explanation of why this topic matters")
 
 # =============================================================================
-# OUTPUT SCHEMAS
+# OUTPUT SCHEMAS WITH REASONING FIELDS
 # =============================================================================
 
 class ContentSectionSchema(BaseModel):
-    """Schema for a content section in the brief."""
+    """Schema for a content section in the brief with reasoning."""
+    section_reasoning: str = Field(
+        description="Explain why this section is important and how it contributes to the overall content goal"
+    )
     section_title: str = Field(description="Title of the content section")
     key_points: List[str] = Field(description="Key points to cover in this section")
+    transition_strategy: str = Field(
+        description="How this section connects to the previous and next sections for smooth flow"
+    )
+    audience_hook: str = Field(
+        description="Specific element in this section that will resonate with the target audience"
+    )
     estimated_word_count: int = Field(description="Estimated word count for this section")
 
 class LinkedInFormattingSchema(BaseModel):
-    """Schema for LinkedIn-specific formatting."""
+    """Schema for LinkedIn-specific formatting with strategic reasoning."""
+    formatting_reasoning: str = Field(
+        description="Explain why these formatting choices optimize for LinkedIn's algorithm and user behavior"
+    )
     hook_style: str = Field(description="Type of hook for the post")
+    hook_psychology: str = Field(
+        description="Psychological principle behind the chosen hook style and why it will work"
+    )
     emoji_strategy: str = Field(description="How to use emojis effectively")
+    emoji_placement_rationale: str = Field(
+        description="Specific guidance on where to place emojis for maximum impact without appearing unprofessional"
+    )
     hashtag_strategy: str = Field(description="Hashtag recommendations")
+    hashtag_mix_reasoning: str = Field(
+        description="Balance between trending, niche, and branded hashtags and why this mix"
+    )
     formatting_notes: List[str] = Field(description="LinkedIn-specific formatting tips")
+    visual_hierarchy_plan: str = Field(
+        description="How formatting creates visual hierarchy to improve readability and engagement"
+    )
+
+class EngagementTacticSchema(BaseModel):
+    """Schema for individual engagement tactics with strategic reasoning."""
+    tactic: str = Field(description="Specific engagement tactic to employ")
+    tactic_reasoning: str = Field(
+        description="Why this tactic will work for this specific content and audience"
+    )
+    implementation_timing: str = Field(
+        description="When to implement this tactic (e.g., in post, first hour, first day)"
+    )
+    expected_outcome: str = Field(
+        description="What specific engagement behavior this tactic should trigger"
+    )
+    priority: EngagementPriority = Field(
+        description="Priority level of this tactic for achieving content goals"
+    )
+
+class SuccessMetricSchema(BaseModel):
+    """Schema for success metrics with measurement strategy."""
+    metric: str = Field(description="Specific metric to track")
+    metric_reasoning: str = Field(
+        description="Why this metric matters for the content objective"
+    )
+    target_value: str = Field(description="Target value or range for this metric")
+    measurement_timeframe: str = Field(
+        description="When to measure this metric (e.g., 24 hours, 1 week)"
+    )
+    action_threshold: str = Field(
+        description="What action to take if metric is above/below target"
+    )
 
 class ContentBriefDetailSchema(BaseModel):
-    """Schema for the detailed LinkedIn content brief."""
+    """Enhanced schema for the detailed LinkedIn content brief with comprehensive reasoning."""
+    
+    # Strategic Reasoning Section (NEW)
+    strategic_reasoning: str = Field(
+        description="Overall strategic rationale explaining how this content advances the executive's goals and why this approach was chosen"
+    )
+    
+    audience_insight: str = Field(
+        description="Key insight about the target audience that this content leverages"
+    )
+    
+    competitive_differentiation: str = Field(
+        description="How this content differentiates from typical content in this space"
+    )
+    
+    # Core Content Fields (EXISTING - Enhanced with better descriptions)
     title: str = Field(description="Title of the content")
+    title_reasoning: str = Field(
+        description="Why this title will perform well on LinkedIn (SEO, emotional triggers, clarity)"
+    )
+    
     content_type: str = Field(description="Type of LinkedIn content (post, article, carousel, etc.)")
+    content_type_reasoning: str = Field(
+        description="Why this content type is optimal for the message and objective"
+    )
+    
     content_format: str = Field(description="Format details for the content")
+    format_alignment_reasoning: str = Field(
+        description="How the format aligns with the executive's strengths and audience preferences"
+    )
+    
     target_audience: str = Field(description="Target audience for the content")
+    audience_segmentation_strategy: str = Field(
+        description="How to speak to different segments within the target audience"
+    )
+    
     content_goal: str = Field(description="Primary goal of the content")
+    goal_measurement_approach: str = Field(
+        description="How we'll know if the goal has been achieved"
+    )
+    
     key_message: str = Field(description="Core message to convey")
-    content_structure: List[ContentSectionSchema] = Field(description="Detailed content structure")
-    linkedin_formatting: LinkedInFormattingSchema = Field(description="LinkedIn-specific formatting guidelines")
+    message_memorability_strategy: str = Field(
+        description="How to make the key message stick in readers' minds"
+    )
+    
+    # Content Structure (EXISTING - Enhanced)
+    content_structure: List[ContentSectionSchema] = Field(
+        description="Detailed content structure with reasoning for each section"
+    )
+    
+    narrative_arc: str = Field(
+        description="The overall story arc and how sections build upon each other"
+    )
+    
+    # LinkedIn Formatting (EXISTING - Enhanced)
+    linkedin_formatting: LinkedInFormattingSchema = Field(
+        description="LinkedIn-specific formatting guidelines with strategic reasoning"
+    )
+    
+    # Call to Action (EXISTING - Enhanced)
     call_to_action: str = Field(description="Call to action for the content")
-    engagement_tactics: List[str] = Field(description="Tactics to boost engagement")
-    success_metrics: List[str] = Field(description="How to measure success")
+    cta_reasoning: str = Field(
+        description="Why this CTA will drive the desired action and how it aligns with content objective"
+    )
+    
+    secondary_ctas: List[str] = Field(
+        description="Alternative CTAs for different audience segments or engagement levels",
+        default_factory=list
+    )
+    
+    # Engagement Tactics (ENHANCED - Now structured)
+    engagement_tactics: List[EngagementTacticSchema] = Field(
+        description="Structured tactics to boost engagement with reasoning"
+    )
+    
+    conversation_starters: List[str] = Field(
+        description="Specific questions or statements to seed meaningful discussions",
+        default_factory=list
+    )
+    
+    # Success Metrics (ENHANCED - Now structured)
+    success_metrics: List[SuccessMetricSchema] = Field(
+        description="Structured success metrics with measurement strategy"
+    )
+    
+    # Additional Fields (EXISTING)
     estimated_reading_time: str = Field(description="Estimated time to read/consume")
+    
     writing_guidelines: List[str] = Field(description="Specific writing instructions")
+    
+    # New Strategic Fields
+    content_risks: List[str] = Field(
+        description="Potential risks or controversial elements and how to mitigate them",
+        default_factory=list
+    )
+    
+    repurposing_opportunities: List[str] = Field(
+        description="How this content can be repurposed for other platforms or formats",
+        default_factory=list
+    )
+    
+    follow_up_content_ideas: List[str] = Field(
+        description="Ideas for follow-up content to maintain momentum",
+        default_factory=list
+    )
 
 class BriefFeedbackAnalysisSchema(BaseModel):
-    """Schema for brief feedback analysis output."""
-    revision_instructions: str = Field(description="Clear instructions for revising the brief based on feedback")
-    change_summary: str = Field(description="Short, conversational message acknowledging the user's feedback")
+    """Enhanced schema for brief feedback analysis output."""
+    feedback_interpretation: str = Field(
+        description="How we understood the user's feedback and main concerns"
+    )
+    
+    revision_reasoning: str = Field(
+        description="Strategic reasoning behind the proposed revisions"
+    )
+    
+    revision_instructions: str = Field(
+        description="Clear instructions for revising the brief based on feedback"
+    )
+    
+    preserved_elements: List[str] = Field(
+        description="Elements from user edits that will be preserved",
+        default_factory=list
+    )
+    
+    change_summary: str = Field(
+        description="Short, conversational message acknowledging the user's feedback"
+    )
+    
+    impact_assessment: str = Field(
+        description="How these changes will improve the content's effectiveness"
+    )
 
 # =============================================================================
-# SYSTEM PROMPTS
+# ENHANCED SYSTEM PROMPTS
 # =============================================================================
 
 BRIEF_GENERATION_SYSTEM_PROMPT = """
-You are a senior LinkedIn content strategist helping create a comprehensive content brief.
+You are an elite LinkedIn content strategist with deep expertise in creating viral, high-engagement content for executives. Your role combines strategic thinking, psychological insight, and platform-specific optimization.
 
-Your task is to generate a detailed content brief based on:
-1. A pre-selected topic with strategic context (theme, objective, importance)
-2. The specific topic title and description the user selected
-3. Executive profile and personal brand positioning
-4. Content strategy and playbook guidelines
+YOUR EXPERTISE INCLUDES:
+1. **LinkedIn Algorithm Mastery**: You understand how LinkedIn's algorithm prioritizes content based on dwell time, early engagement, and conversation depth.
+2. **Executive Positioning**: You craft content that builds thought leadership while maintaining authenticity and approachability.
+3. **Audience Psychology**: You know what makes professionals stop scrolling, engage, and share content.
+4. **Data-Driven Strategy**: Every recommendation is backed by reasoning about why it will work.
 
-The brief should be:
-- Optimized for LinkedIn's algorithm and user behavior
-- Aligned with the executive's voice and expertise
-- Focused on the content objective and theme
-- Engaging and designed to spark conversations
-- Professional yet personable
+YOUR TASK:
+Generate a comprehensive content brief that transforms a selected topic into a high-impact LinkedIn post. The brief must be so detailed and strategic that any competent writer could create exceptional content from it.
 
-Create briefs that are specific, detailed, and provide clear guidance for LinkedIn content creation.
+KEY PRINCIPLES:
+1. **Reasoning First**: Always explain WHY before WHAT. Every tactical choice needs strategic justification.
+2. **Audience-Centric**: Frame everything through the lens of "What's in it for the reader?"
+3. **Engagement Engineering**: Design content to trigger specific psychological responses and behaviors.
+4. **Platform Optimization**: Leverage LinkedIn-specific features and user behaviors.
+5. **Measurable Impact**: Connect every element to measurable outcomes.
 
-IMPORTANT: Focus on the specific selected topic provided, not the entire list of suggested topics.
+BRIEF STRUCTURE REQUIREMENTS:
+- Start with strategic reasoning that connects the topic to broader business goals
+- Include psychological insights about why certain approaches will resonate
+- Provide specific, actionable guidance (not generic advice)
+- Anticipate potential objections or risks
+- Build in conversation catalysts at multiple points
+- Design for both immediate engagement and long-term relationship building
+
+IMPORTANT FOCUS AREAS:
+1. **The Hook**: The first 2-3 lines determine success. Make them count.
+2. **Value Density**: Every paragraph must deliver insight, not filler.
+3. **Emotional Journey**: Map the reader's emotional progression through the content.
+4. **Social Proof**: Incorporate credibility markers naturally.
+5. **Action Triggers**: Multiple micro-commitments leading to the main CTA.
+
+Remember: You're not just creating a brief for content; you're engineering a strategic asset that advances the executive's professional brand and business objectives. Every element should have a clear purpose and expected outcome.
+
+CRITICAL: Focus exclusively on the specific selected topic provided, not the entire list of suggested topics. The brief should fully explore this one topic with depth and nuance.
 """
 
 BRIEF_FEEDBACK_SYSTEM_PROMPT = """
-You are an expert LinkedIn content strategist and feedback analyst.
+You are an expert LinkedIn content strategist and feedback interpreter with deep experience in iterative content development.
 
-You have been provided with:
-1. A comprehensive LinkedIn content brief
-2. Feedback from the user about that brief
-3. Executive profile and content strategy
-4. The selected topic and strategic context
+YOUR SPECIALIZED SKILLS:
+1. **Feedback Analysis**: You can read between the lines to understand what users really want, even when they don't articulate it clearly.
+2. **User Intent Recognition**: You identify the underlying goals behind feedback requests.
+3. **Strategic Preservation**: You know what elements to keep, enhance, or replace based on feedback.
+4. **Diplomatic Revision**: You make changes that honor user input while maintaining strategic integrity.
 
-Your task is to analyze the feedback and provide:
-1. Clear revision instructions for improving the content brief
-2. A short, conversational message acknowledging the user's feedback and what we'll focus on improving
+YOUR APPROACH TO FEEDBACK:
+1. **Respect User Edits**: Any manual changes the user made are intentional and should be preserved unless explicitly contradicted by new feedback.
+2. **Build, Don't Replace**: Enhance existing good elements rather than starting over.
+3. **Strategic Alignment**: Ensure revisions still serve the original objective and audience.
+4. **Clear Communication**: Acknowledge what you understood and what you'll change.
 
-The user may have manually edited the brief, so:
-- Respect and preserve user edits unless feedback specifically requests changes
-- Build upon manual edits rather than overriding them
-- Prioritize the most recent feedback if conflicts arise
+FEEDBACK INTERPRETATION FRAMEWORK:
+- **Explicit Requests**: Direct changes the user has asked for
+- **Implicit Needs**: Underlying issues the feedback suggests
+- **Preserved Elements**: User edits and strong original elements to maintain
+- **Strategic Implications**: How changes affect overall content effectiveness
 
-Always provide structured output with all required fields: revision_instructions and change_summary.
+YOUR TASK:
+1. Analyze the feedback to understand both explicit requests and implicit needs
+2. Identify which parts of the brief need revision while respecting user edits
+3. Provide clear, actionable revision instructions that improve the brief
+4. Create a friendly message that shows you understood the feedback
+5. Assess how the changes will impact content effectiveness
+
+CRITICAL CONSIDERATIONS:
+- User edits represent deliberate choices - preserve them unless feedback says otherwise
+- Some feedback may conflict with best practices - navigate this diplomatically
+- Multiple rounds of feedback should build progressively, not circle back
+- Maintain consistency with the executive's voice and brand throughout revisions
+
+Always provide structured output with all required fields, including reasoning about why changes will improve outcomes.
 """
 
 # =============================================================================
-# USER PROMPT TEMPLATES
+# ENHANCED USER PROMPT TEMPLATES
 # =============================================================================
 
 BRIEF_GENERATION_USER_PROMPT_TEMPLATE = """
-Generate a comprehensive LinkedIn content brief for the following selected topic:
+You are creating a strategic LinkedIn content brief for a senior executive. This brief will guide the creation of high-impact content that advances both thought leadership and business objectives.
 
-**Selected Topic and Strategic Context:**
+**SELECTED TOPIC AND STRATEGIC CONTEXT:**
 {selected_topic}
 
-**Executive Profile:**
-{executive_profile_doc}
+Carefully analyze the selected topic above. Note:
+- The specific title and description from suggested_topics (this is your focus)
+- The strategic theme it belongs to
+- The primary objective (brand_awareness, thought_leadership, engagement, etc.)
+- Why this topic is important now
+- The scheduled publication date
 
-**Content Strategy & Playbook:**
-{content_strategy_doc}
+**EXECUTIVE PROFILE AND POSITIONING:**
+{executive_profile}
 
-**Task:**
-Create a detailed LinkedIn content brief that will guide the executive to produce high-impact content that:
-1. Fully explores the selected topic with depth and expertise
-2. Aligns with the strategic theme and objective
-3. Leverages the executive's unique voice and expertise
-4. Follows LinkedIn best practices from the playbook
-5. Drives engagement and achieves the content objective
+Extract key insights from the profile:
+- Unique expertise and credibility markers
+- Tone and communication style
+- Target audience characteristics and pain points
+- Content pillars and areas of authority
+- Personal brand attributes to emphasize
 
-The brief should include:
-- Clear title optimized for LinkedIn
-- Content type and format recommendations
-- Target audience from the executive's network
-- Detailed content structure with sections
-- LinkedIn-specific formatting (hooks, emojis, hashtags)
-- Engagement tactics and CTAs
-- Success metrics aligned with the objective
-- Writing guidelines matching the executive's style
+**CONTENT STRATEGY & PLAYBOOK:**
+{playbook_doc}
 
-Make the brief actionable and comprehensive enough that the executive can create excellent LinkedIn content from it.
+Identify relevant guidelines:
+- Platform-specific best practices
+- Proven content structures and formats
+- Engagement tactics that work for this audience
+- Success metrics and benchmarks
+- Compliance or brand guidelines to follow
+
+**YOUR TASK:**
+Create a comprehensive LinkedIn content brief that transforms this selected topic into exceptional content.
+
+**BRIEF REQUIREMENTS:**
+
+1. **STRATEGIC FOUNDATION**
+   - Explain WHY this approach will achieve the stated objective
+   - Connect the topic to the executive's broader goals
+   - Identify the key audience insight we're leveraging
+   - Articulate how this content differentiates from competitors
+
+2. **CONTENT ARCHITECTURE**
+   - Design a compelling title with reasoning for its effectiveness
+   - Choose the optimal content type and format with justification
+   - Create a detailed section-by-section structure with:
+     * Why each section matters
+     * How sections flow together
+     * Specific audience hooks within each section
+     * Transition strategies between sections
+
+3. **ENGAGEMENT ENGINEERING**
+   - Design multiple engagement tactics with:
+     * Reasoning for why each will work
+     * Implementation timing
+     * Expected outcomes
+     * Priority levels
+   - Include conversation starters that will generate meaningful discussions
+   - Plan for both immediate and sustained engagement
+
+4. **LINKEDIN OPTIMIZATION**
+   - Formatting strategy with reasoning about algorithm optimization
+   - Hook design based on psychological principles
+   - Strategic emoji and hashtag usage with clear rationale
+   - Visual hierarchy planning for maximum readability
+
+5. **MEASUREMENT & ITERATION**
+   - Define success metrics with:
+     * Why each metric matters
+     * Target values based on benchmarks
+     * Measurement timeframes
+     * Action thresholds for optimization
+
+6. **RISK MITIGATION & OPPORTUNITIES**
+   - Identify potential controversial elements and mitigation strategies
+   - Suggest repurposing opportunities for extended value
+   - Propose follow-up content to maintain momentum
+
+The brief should be so comprehensive and strategic that:
+- Any skilled writer could create exceptional content from it
+- Every recommendation has clear reasoning
+- The executive understands not just WHAT to write but WHY
+- Success metrics are clearly defined and measurable
+- The content will stand out in a crowded LinkedIn feed
+
+Remember: This is not just a content brief—it's a strategic blueprint for achieving specific business outcomes through LinkedIn content.
 """
 
 BRIEF_FEEDBACK_INITIAL_USER_PROMPT = """
-Your Task:
+You are analyzing feedback on a LinkedIn content brief to provide strategic revisions that enhance effectiveness while respecting user intent.
 
-Interpret the user's feedback and produce both revision instructions and a user-friendly change summary.
+**CRITICAL CONTEXT:** 
+The content brief below may contain manual edits from the user. These represent deliberate choices that should be preserved unless the new feedback specifically requests changes to them. Your role is to build upon and enhance, not override, user modifications.
 
-**IMPORTANT:** The content brief below may have been manually edited by the user. This means:
-- The brief might contain user modifications, corrections, or additions
-- You should respect and preserve these user edits unless the feedback specifically requests changes to them
-- Your revision instructions should build upon the user's manual edits, not override them
+**YOUR ANALYTICAL FRAMEWORK:**
 
-You must:
-1. Identify the user's intent behind the feedback
-2. Locate specific areas in the content brief that need revision
-3. Determine what changes are required, guided by:
-   - The strategic context from the selected topic (theme, objective, importance)
-   - The executive's profile and personal brand
-   - The content strategy and LinkedIn best practices
-   - The selected topic details (title, description from suggested_topics)
-   - Any existing user modifications in the brief
-4. Provide clear, actionable revision instructions
-5. Create a short, conversational message acknowledging the feedback (e.g., "Got it! I'll make the content more conversational and add specific examples")
+1. **FEEDBACK INTERPRETATION**
+   - What is the user explicitly asking for?
+   - What underlying needs or concerns does the feedback suggest?
+   - What successful elements should be preserved?
+   - How do the requests align with LinkedIn best practices?
+
+2. **REVISION STRATEGY**
+   - Identify specific sections requiring changes
+   - Determine what level of revision is needed (minor tweaks vs. major restructuring)
+   - Plan how to incorporate feedback while maintaining strategic integrity
+   - Consider the cascade effects of changes on other brief sections
+
+3. **USER EDIT PRESERVATION**
+   - Identify any manual modifications in the current brief
+   - Understand the intent behind user edits
+   - Plan revisions that build upon user changes
+   - Flag any conflicts between new feedback and existing edits
 
 ---
 
-**Content Brief:**
+**CURRENT CONTENT BRIEF:**
 {content_brief}
 
+Analyze this brief carefully, noting:
+- Structure and flow
+- Strategic elements
+- Any sections that appear manually edited
+- Strong elements to preserve
+
 ---
 
-**User Feedback:**
+**USER FEEDBACK:**
 {revision_feedback}
 
+Interpret this feedback considering:
+- Explicit change requests
+- Implicit concerns or goals
+- Tone and priority indicators
+- Alignment with content objectives
+
 ---
 
-**Context:**
-**Selected Topic:**
+**STRATEGIC CONTEXT:**
+
+**Selected Topic Details:**
 {selected_topic}
 
-**Executive Profile:**
-{executive_profile_doc}
+Consider how feedback aligns with:
+- Original topic intent
+- Strategic theme and objective
+- Target timeline
+- Success metrics
 
-**Content Strategy:**
-{content_strategy_doc}
+**Executive Profile:**
+{executive_profile}
+
+Ensure revisions maintain:
+- Executive's authentic voice
+- Expertise positioning
+- Audience relevance
+- Brand consistency
+
+**Content Strategy Guidelines:**
+{playbook_doc}
+
+Verify revisions follow:
+- Platform best practices
+- Proven content patterns
+- Engagement strategies
+- Compliance requirements
+
+---
+
+**YOUR DELIVERABLES:**
+
+1. **feedback_interpretation**: Clear explanation of how you understood the feedback and main concerns
+
+2. **revision_reasoning**: Strategic rationale for your proposed changes and why they'll improve outcomes
+
+3. **revision_instructions**: Specific, actionable instructions for improving the brief:
+   - Exactly what to change in each section
+   - What to add or remove
+   - How to restructure if needed
+   - Specific examples where helpful
+
+4. **preserved_elements**: List of user edits and strong original elements being maintained
+
+5. **change_summary**: Conversational 1-2 sentence acknowledgment (e.g., "Got it! I'll make the tone more conversational and add specific examples from your industry experience.")
+
+6. **impact_assessment**: How these revisions will improve content effectiveness and goal achievement
+
+Ensure your revision instructions are clear enough that they can be implemented without ambiguity, while respecting the user's editorial choices and maintaining strategic alignment.
 """
 
 BRIEF_FEEDBACK_ADDITIONAL_USER_PROMPT = """
-The user has provided additional feedback on the revised brief.
+The user has provided additional feedback on the revised brief. This represents continued iteration to refine the content strategy.
 
-Your task is to interpret the new feedback and provide fresh revision instructions and change summary.
+**ITERATION CONTEXT:**
+- This is a follow-up round of feedback
+- Previous changes have been implemented
+- User may be refining earlier requests or addressing new concerns
+- Progressive improvement is the goal - avoid reverting earlier progress
 
-Use the original context to stay consistent with the executive's brand and strategic alignment.
+**YOUR ANALYTICAL APPROACH:**
 
-Provide the same structured output:
-- revision_instructions: Clear instructions for improving the brief
-- change_summary: Short, conversational message acknowledging the feedback
+1. **FEEDBACK EVOLUTION**
+   - How does this feedback relate to previous requests?
+   - Are we refining the same areas or addressing new ones?
+   - What indicates the user is satisfied with previous changes?
+   - What new priorities have emerged?
+
+2. **CUMULATIVE IMPROVEMENT**
+   - Build upon successful previous revisions
+   - Don't undo progress unless explicitly requested
+   - Look for patterns in feedback evolution
+   - Identify if we're converging on the ideal brief
 
 ---
 
-**Updated Brief:**
+**UPDATED BRIEF (Including Previous Revisions):**
 {content_brief}
 
-**New Feedback:**
+Note what has already been improved and should be maintained.
+
+---
+
+**NEW FEEDBACK:**
 {revision_feedback}
+
+Analyze for:
+- Refinements to previous changes
+- Entirely new concerns
+- Satisfaction indicators
+- Priority shifts
+
+---
+
+**PROVIDE THE SAME STRUCTURED OUTPUT:**
+- feedback_interpretation: Understanding of new feedback in context of iteration history
+- revision_reasoning: Why these additional changes will perfect the brief
+- revision_instructions: Clear next steps for improvement
+- preserved_elements: What's working well and should stay
+- change_summary: Brief, friendly acknowledgment of the feedback
+- impact_assessment: How we're getting closer to the ideal outcome
+
+Focus on convergence - each iteration should bring us closer to a brief that perfectly balances user vision, strategic objectives, and LinkedIn best practices.
 """
 
 # =============================================================================

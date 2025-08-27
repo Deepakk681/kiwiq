@@ -108,7 +108,7 @@ LINKEDIN_SCRAPING_WORKFLOW_NAME = "linkedin_linkedin_scraping_workflow"
 LINKEDIN_ANALYSIS_WORKFLOW_NAME = "linkedin_linkedin_content_analysis_workflow"
 
 # Timeouts for each workflow (in seconds)
-DEEP_RESEARCH_TIMEOUT = 1200  # 20 minutes for deep research
+DEEP_RESEARCH_TIMEOUT = 1800  # 30 minutes for deep research
 BLOG_ANALYSIS_TIMEOUT = 1200  # 20 minutes for blog analysis
 AI_VISIBILITY_TIMEOUT = 1200  # 20 minutes for AI visibility (multiple LLM calls)
 SCRAPING_TIMEOUT = 600  # 10 minutes for scraping
@@ -117,13 +117,15 @@ ANALYSIS_TIMEOUT = 1200  # 20 minutes for analysis (LLM processing can take time
 LLM_PROVIDER_FOR_STRATEGIC_RECOMMENDATIONS = "openai"
 LLM_MODEL_FOR_STRATEGIC_RECOMMENDATIONS = "gpt-5"
 LLM_TEMPERATURE_FOR_STRATEGIC_RECOMMENDATIONS = 0.5
-LLM_MAX_TOKENS_FOR_STRATEGIC_RECOMMENDATIONS = 10000
+LLM_MAX_TOKENS_FOR_STRATEGIC_RECOMMENDATIONS = 20000
 
 # LLM defaults
 LLM_PROVIDER = "anthropic"
 LLM_MODEL = "claude-sonnet-4-20250514"
 LLM_TEMPERATURE = 0.7
 LLM_MAX_TOKENS = 4000
+
+CACHE_ENABLED = True
 
 # --- Workflow Graph Definition ---
 workflow_graph_schema = {
@@ -235,10 +237,9 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": DEEP_RESEARCH_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": DEEP_RESEARCH_TIMEOUT,
-                "poll_interval_seconds": 5
-                }
+                "enable_workflow_cache": CACHE_ENABLED
+            }
         },
 
         # --- 4. Blog Content Analysis Workflow ---
@@ -247,10 +248,9 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": BLOG_CONTENT_ANALYSIS_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": BLOG_ANALYSIS_TIMEOUT,
-                "poll_interval_seconds": 5
-                }
+                "enable_workflow_cache": CACHE_ENABLED
+            }
         },
 
         # --- 5. Executive AI Visibility Workflow ---
@@ -259,10 +259,9 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": EXECUTIVE_AI_VISIBILITY_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": AI_VISIBILITY_TIMEOUT,
-                "poll_interval_seconds": 5,
-                "check_error_free_logs": False
+                "check_error_free_logs": False,
+                "enable_workflow_cache": CACHE_ENABLED
             }
         },
 
@@ -272,10 +271,9 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": COMPANY_AI_VISIBILITY_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": AI_VISIBILITY_TIMEOUT,
-                "poll_interval_seconds": 5,
-                "check_error_free_logs": False
+                "check_error_free_logs": False,
+                "enable_workflow_cache": CACHE_ENABLED
             }
         },
 
@@ -285,9 +283,8 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": LINKEDIN_SCRAPING_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": SCRAPING_TIMEOUT,
-                "poll_interval_seconds": 5
+                "enable_workflow_cache": CACHE_ENABLED
                 }
         },
 
@@ -297,9 +294,8 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": LINKEDIN_ANALYSIS_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": ANALYSIS_TIMEOUT,
-                "poll_interval_seconds": 5
+                "enable_workflow_cache": False
                 }
         },
 
@@ -309,9 +305,8 @@ workflow_graph_schema = {
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": BLOG_COMPETITOR_CONTENT_ANALYSIS_WORKFLOW_NAME,
-                "execution_mode": "subprocess",
                 "timeout_seconds": BLOG_ANALYSIS_TIMEOUT,
-                "poll_interval_seconds": 5
+                "enable_workflow_cache": CACHE_ENABLED
                 }
         },
 
@@ -319,7 +314,7 @@ workflow_graph_schema = {
         "wait_for_core_workflows": {
             "node_id": "wait_for_core_workflows",
             "node_name": "transform_data",
-            "enable_node_fan_in": True,
+            "defer_node": True,
             "node_config": {
                 "mappings": [
                     {
@@ -495,7 +490,7 @@ workflow_graph_schema = {
         "wait_for_documents": {
             "node_id": "wait_for_documents",
             "node_name": "transform_data",
-            "enable_node_fan_in": True,
+            "defer_node": True,
             "node_config": {
                 "mappings": [
                     {
@@ -566,13 +561,6 @@ workflow_graph_schema = {
             }
         },
 
-
-
-
-
-
-
-        
         # # --- EXECUTIVE REPORT GENERATION NODES ---
         
         # # 1. LinkedIn Competitive Intelligence Prompt Constructor
@@ -829,21 +817,14 @@ workflow_graph_schema = {
                     {
                         "source_path": "strategic_linkedin_recommendations",
                         "destination_path": "executive_reports.strategic_linkedin_recommendations"
+                    },
+                    {
+                        "source_path": "linkedin_executive_summary",
+                        "destination_path": "executive_reports.executive_summary"
                     }
                 ]
             }
         },
-
-
-
-
-
-
-
-
-
-
-
 
         # # --- COMPANY REPORT GENERATION NODES ---
         # # 1. AI Visibility Report Prompt Constructor
@@ -1142,10 +1123,6 @@ workflow_graph_schema = {
                         "destination_path": "company_reports.technical_seo_foundation"
                     },
                     {
-                        "source_path": "ai_visibility_report",
-                        "destination_path": "company_reports.content_quality_structure"
-                    },
-                    {
                         "source_path": "competitive_intelligence_report",
                         "destination_path": "company_reports.competitive_intelligence"
                     },
@@ -1156,6 +1133,10 @@ workflow_graph_schema = {
                     {
                         "source_path": "strategic_recommendations",
                         "destination_path": "company_reports.strategic_opportunities"
+                    },
+                    {
+                        "source_path": "blog_executive_summary",
+                        "destination_path": "company_reports.executive_summary"
                     }
                 ]
             }
@@ -1209,11 +1190,10 @@ workflow_graph_schema = {
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
-            "enable_node_fan_in": True,
+            "defer_node": True,
             "node_config": {}
         }
     },
-
     # --- Edges Defining Data Flow ---
     "edges": [
         # Store essential data in graph state
@@ -1687,7 +1667,8 @@ workflow_graph_schema = {
                 {"src_field": "linkedin_ai_visibility_doc", "dst_field": "linkedin_visibility_assessment"},
                 {"src_field": "linkedin_competitive_intelligence", "dst_field": "linkedin_competitive_intelligence"},
                 {"src_field": "content_performance_analysis", "dst_field": "content_performance_analysis"},
-                {"src_field": "content_strategy_gaps", "dst_field": "content_strategy_gaps"}
+                {"src_field": "content_strategy_gaps", "dst_field": "content_strategy_gaps"},
+                {"src_field": "linkedin_user_profile_doc", "dst_field": "linkedin_user_profile_doc"}
             ]
         },
         
@@ -1770,7 +1751,8 @@ workflow_graph_schema = {
                 {"src_field": "linkedin_competitive_intelligence", "dst_field": "linkedin_competitive_intelligence"},
                 {"src_field": "content_performance_analysis", "dst_field": "content_performance_analysis"},
                 {"src_field": "content_strategy_gaps", "dst_field": "content_strategy_gaps"},
-                {"src_field": "strategic_linkedin_recommendations", "dst_field": "strategic_linkedin_recommendations"}
+                {"src_field": "strategic_linkedin_recommendations", "dst_field": "strategic_linkedin_recommendations"},
+                {"src_field": "linkedin_executive_summary", "dst_field": "linkedin_executive_summary"}
             ]
         },
         {
@@ -1923,7 +1905,8 @@ workflow_graph_schema = {
                 {"src_field": "ai_visibility_report", "dst_field": "ai_visibility_report"},
                 {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
                 {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
-                {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"}
+                {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
+                {"src_field": "technical_seo_doc", "dst_field": "technical_seo_report"}
             ]
         },
         {
@@ -2060,6 +2043,7 @@ workflow_graph_schema = {
                 {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
                 {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
                 {"src_field": "strategic_recommendations", "dst_field": "strategic_recommendations"},
+                {"src_field": "blog_executive_summary", "dst_field": "blog_executive_summary"}
             ]
         },
         {
@@ -2276,13 +2260,13 @@ async def main_test_orchestrator():
     """
     # --- Test Inputs ---
     TEST_INPUTS = {
-        "entity_username": "samliang",  # LinkedIn username
-        "company_name": "Otter",  # Company name for analysis
+        "entity_username": "example-user-1",  # LinkedIn username
+        "company_name": "Entelligence.ai",  # Company name for analysis
         "run_linkedin_exec": True,  # Execute LinkedIn workflows
         "run_blog_analysis": True,  # Skip company workflows for now
-        "linkedin_profile_url": "https://www.linkedin.com/in/samliang/",  # LinkedIn URL
-        "company_url": "https://www.momentum.io",  # Company website URL (optional)
-        "blog_start_urls": ["https://www.momentum.io"] # Example blog start URL
+        "linkedin_profile_url": "https://www.linkedin.com/in/example-user-1/",  # LinkedIn URL
+        "company_url": "https://www.entelligence.ai/",  # Company website URL (optional)
+        "blog_start_urls": ["https://www.entelligence.ai/"] # Example blog start URL
     }
     
     test_name = "Content Orchestrator Workflow Test"

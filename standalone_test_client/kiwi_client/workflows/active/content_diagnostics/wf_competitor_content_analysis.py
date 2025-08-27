@@ -211,6 +211,7 @@ workflow_graph_schema = {
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
+            "enable_node_fan_in": True,
             "node_config": {}
         }
     },
@@ -321,9 +322,17 @@ workflow_graph_schema = {
         # Save Analysis -> Output
         {
             "src_node_id": "save_competitor_analysis",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "passthrough_data", "dst_field": "competitor_analysis_passthrough_data"}
+            ]
+        },
+
+        {
+            "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+                {"src_field": "competitor_analysis_passthrough_data", "dst_field": "competitor_analysis_passthrough_data"}
             ]
         }
     ],
@@ -336,7 +345,7 @@ workflow_graph_schema = {
             "reducer": {
                 "company_doc": "replace",
                 "all_competitor_analysis_results": "collect_values",
-                "analyze_competitor_content_messages_history": "add_messages"
+                "competitor_analysis_passthrough_data": "collect_values"
             }
         }
     }
@@ -382,7 +391,7 @@ async def main_test_competitor_analysis_workflow():
     test_company_name = "momentum"
     
     # Create test company document data
-#     company_data = {
+#    company_data = {
 #   "company_name": "Writer",
 #   "website_url": "https://writer.com",
 #   "positioning_headline": "Writer is an AI writing platform built for teams, helping enterprises ensure consistent, on-brand, and high-quality content across all departments.",

@@ -20,6 +20,7 @@ EXEC_VISIBILITY_SYSTEM_PROMPT = (
 EXEC_VISIBILITY_USER_PROMPT_TEMPLATE = (
     "Based on the executive profile data below, generate EXACTLY 10 search queries that stakeholders would use "
     "to research this person on AI platforms (ChatGPT, Perplexity, Gemini, Claude). "
+    "Current Date: {current_date}\n\n"
     "Distribute queries across these categories:\n\n"
     "- expertise_credibility (2-3): Domain expertise, technical knowledge, industry credibility\n"
     "- leadership_impact (1-2): Leadership philosophy, team building, organizational impact\n"

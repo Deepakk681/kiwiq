@@ -1,7 +1,7 @@
 """
 # Inputs to workflow:
 1. Generate content topic suggestions for next X weeks: (X) int input optional, default 2
-2. Load list of customer context docs such as dna, strategy doc, scraped posts etc
+2. Load list of customer context docs such as strategy doc, scraped posts etc
 3. Load multiple user draft posts using multiple loader node within posts namespace, load latest N posts (limit and sort by updated_at, DESC); also load user preferences from onboarding namespace, user preferences doc which has user's requested posting frequency / week
 5. Merge both lists and limit the merged list limit using merge aggregate node; also in another operation: compute next X weeks (input) multiplied by user preferences post frequency / week (this is number of content topic suggestions we have to generate)
 6. construct prompt for first generation (includes system prompt) with all user docs and merged list in prompt
@@ -32,10 +32,7 @@ from kiwi_client.test_run_workflow_client import (
 )
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 from kiwi_client.workflows.active.document_models.customer_docs import (
-    # User DNA
-    LINKEDIN_USER_DNA_DOCNAME,
-    LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE,
-    LINKEDIN_USER_DNA_IS_VERSIONED,
+
     # Content Strategy (Playbook)
     LINKEDIN_CONTENT_PLAYBOOK_DOCNAME,
     LINKEDIN_CONTENT_PLAYBOOK_NAMESPACE_TEMPLATE,
@@ -51,12 +48,13 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     LINKEDIN_DRAFT_DOCNAME,
     LINKEDIN_DRAFT_NAMESPACE_TEMPLATE,
     LINKEDIN_DRAFT_IS_VERSIONED,
-    # Content Brief
-    LINKEDIN_BRIEF_DOCNAME,
-    LINKEDIN_BRIEF_NAMESPACE_TEMPLATE,
-    LINKEDIN_BRIEF_IS_VERSIONED,
+    # LinkedIn Ideas (for storing topic suggestions)
+    LINKEDIN_IDEA_DOCNAME,
+    LINKEDIN_IDEA_NAMESPACE_TEMPLATE,
+    LINKEDIN_IDEA_IS_VERSIONED,
+
 )
-from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_content_calendar_entry import BRIEF_USER_PROMPT_TEMPLATE, BRIEF_SYSTEM_PROMPT_TEMPLATE, BRIEF_LLM_OUTPUT_SCHEMA, BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE
+from kiwi_client.workflows.active.content_studio.llm_inputs.linkedin_content_calendar_entry import TOPIC_USER_PROMPT_TEMPLATE, TOPIC_SYSTEM_PROMPT_TEMPLATE, TOPIC_LLM_OUTPUT_SCHEMA, TOPIC_ADDITIONAL_USER_PROMPT_TEMPLATE
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,21 +76,20 @@ PAST_CONTEXT_POSTS_LIMIT = 10 # Limit the combined list of posts fed to the LLM
 # --- Workflow Graph Schema Definition ---
 
 workflow_graph_schema = {
-  "nodes": {
-    # --- 1. Input Node ---
-    "input_node": {
-      "node_id": "input_node",
-      "node_name": "input_node",
-      "node_config": {},
-      "dynamic_output_schema": {
-          "fields": {
-              "weeks_to_generate": { "type": "int", "required": False, "default": DEFAULT_WEEKS_TO_GENERATE, "description": f"Number of weeks ahead to generate topic suggestions for (default: {DEFAULT_WEEKS_TO_GENERATE})." },
-              "past_context_posts_limit": { "type": "int", "required": False, "default": PAST_CONTEXT_POSTS_LIMIT, "description": f"Max number of combined posts (drafts + scraped) to use for context (default: {PAST_CONTEXT_POSTS_LIMIT})."},
-              "entity_username": {"type": "str", "required": True},
-          }
-        }
-        # Outputs: weeks_to_generate, past_context_posts_limit, entity_username -> $graph_state
-    },
+    "nodes": {
+        # --- 1. Input Node ---
+        "input_node": {
+            "node_id": "input_node",
+            "node_name": "input_node",
+            "node_config": {},
+            "dynamic_output_schema": {
+                "fields": {
+                    "weeks_to_generate": { "type": "int", "required": False, "default": DEFAULT_WEEKS_TO_GENERATE, "description": f"Number of weeks ahead to generate topic suggestions for (default: {DEFAULT_WEEKS_TO_GENERATE})." },
+                    "past_context_posts_limit": { "type": "int", "required": False, "default": PAST_CONTEXT_POSTS_LIMIT, "description": f"Max number of combined posts (drafts + scraped) to use for context (default: {PAST_CONTEXT_POSTS_LIMIT})."},
+                    "entity_username": {"type": "str", "required": True},
+                }
+            }
+        },
  
     # --- 2. Load Customer Context Documents and Scraped Posts (Single Node) ---
     "load_all_context_docs": {
@@ -116,13 +113,19 @@ workflow_graph_schema = {
                     },
                     "output_field_name": "scraped_posts"
                 },
+                {
+                    "filename_config": {
+                        "input_namespace_field_pattern": LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE, 
+                        "input_namespace_field": "entity_username",
+                        "static_docname": LINKEDIN_USER_PROFILE_DOCNAME,
+                    },
+                    "output_field_name": "user_profile"
+                },
             ],
             "global_is_shared": False,
             "global_is_system_entity": False,
             "global_schema_options": {"load_schema": False}
-        },
-        # Reads: entity_username (from input_node via edge mapping)
-        # Writes: user_dna, user_preferences, strategy_doc, scraped_posts -> $graph_state
+        }
     },
 
     # --- 3. Load Latest User Draft Posts ---
@@ -182,7 +185,7 @@ workflow_graph_schema = {
           # Operation 2: Compute Total Topics Needed - weeks_to_generate * posts_per_week
           {
             "output_field_name": "total_topics_needed",
-            "select_paths": ["playbook.posts_per_week"], # Inputs from state
+            "select_paths": ["user_profile.posting_schedule.posts_per_week"], # Inputs from state
             "merge_strategy": {
                 "map_phase": {"unspecified_keys_strategy": "ignore"}, # Only care about the selected value
                 "reduce_phase": {
@@ -213,7 +216,7 @@ workflow_graph_schema = {
         "prompt_templates": {
           "topic_user_prompt": {
             "id": "topic_user_prompt",
-            "template": BRIEF_USER_PROMPT_TEMPLATE,
+            "template": TOPIC_USER_PROMPT_TEMPLATE,
             "variables": {
               "strategy_doc": None,  # Mapped from strategy_doc
               "merged_posts": None,     # Mapped from merged_posts
@@ -221,22 +224,21 @@ workflow_graph_schema = {
               "current_datetime": "$current_date",
             },
             "construct_options": {
+               "user_timezone": "user_profile.timezone",
                "strategy_doc": "strategy_doc", # Map the number passed by the mapper
                "merged_posts": "merged_data.final_merged_posts_for_prompt", # Map directly from merged_posts
             }
           },
           "topic_system_prompt": {
             "id": "topic_system_prompt",
-            "template": BRIEF_SYSTEM_PROMPT_TEMPLATE,
+            "template": TOPIC_SYSTEM_PROMPT_TEMPLATE,
             "variables": { 
-                "schema": json.dumps(BRIEF_LLM_OUTPUT_SCHEMA, indent=2), 
+                "schema": json.dumps(TOPIC_LLM_OUTPUT_SCHEMA, indent=2), 
                 "current_datetime": "$current_date" },
             "construct_options": {}
           }
         }
       }
-      # Reads: merged_posts from prepare_generation_context, user_preferences/strategy_doc/user_dna from state (including timezone)
-      # Writes: topic_user_prompt, topic_system_prompt for generate_topics node
     },
 
     # --- 10. Generate Topics (LLM - Inside Map Branch) ---
@@ -250,7 +252,7 @@ workflow_graph_schema = {
               "max_tokens": LLM_MAX_TOKENS
           },
           "output_schema": {
-             "schema_definition": BRIEF_LLM_OUTPUT_SCHEMA,
+             "schema_definition": TOPIC_LLM_OUTPUT_SCHEMA,
              "convert_loaded_schema_to_pydantic": False
           },
       }
@@ -315,7 +317,7 @@ workflow_graph_schema = {
         "prompt_templates": {
           "additional_topic_prompt": {
             "id": "additional_topic_prompt",
-            "template": BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE,
+            "template": TOPIC_ADDITIONAL_USER_PROMPT_TEMPLATE,
 
           },
         }
@@ -328,7 +330,7 @@ workflow_graph_schema = {
       "node_id": "store_all_topics",
       "node_name": "store_customer_data", # Store the final list
       "node_config": {
-          "global_versioning": { "is_versioned": LINKEDIN_BRIEF_IS_VERSIONED, "operation": "upsert_versioned"},
+          "global_versioning": { "is_versioned": LINKEDIN_IDEA_IS_VERSIONED, "operation": "upsert_versioned"},
           "global_is_shared": False,
           "store_configs": [
               {
@@ -337,9 +339,9 @@ workflow_graph_schema = {
                   "process_list_items_separately": True,
                   "target_path": {
                       "filename_config": {
-                          "input_namespace_field_pattern": LINKEDIN_BRIEF_NAMESPACE_TEMPLATE, 
+                          "input_namespace_field_pattern": LINKEDIN_IDEA_NAMESPACE_TEMPLATE, 
                           "input_namespace_field": "entity_username",
-                          "static_docname": LINKEDIN_BRIEF_DOCNAME,
+                          "static_docname": LINKEDIN_IDEA_DOCNAME,
                       }
                   },
                   "generate_uuid": True,
@@ -359,12 +361,10 @@ workflow_graph_schema = {
       "node_name": "output_node",
       "node_config": {},
 
+        }
     },
-
-  },
-
-  # --- Edges Defining Data Flow ---
-  "edges": [
+    
+    "edges": [
     # --- Input to State ---
     { "src_node_id": "input_node", "dst_node_id": "$graph_state", "mappings": [
         { "src_field": "weeks_to_generate", "dst_field": "weeks_to_generate" },
@@ -372,8 +372,6 @@ workflow_graph_schema = {
         { "src_field": "entity_username", "dst_field": "entity_username" },
       ]
     },
-    
-    
 
     { "src_node_id": "input_node", "dst_node_id": "load_all_context_docs", "mappings": [
         { "src_field": "entity_username", "dst_field": "entity_username" },
@@ -390,7 +388,8 @@ workflow_graph_schema = {
     { "src_node_id": "load_all_context_docs", "dst_node_id": "$graph_state", "mappings": [
         # Store the lists under their respective keys in state
         { "src_field": "strategy_doc", "dst_field": "strategy_doc"},
-        { "src_field": "scraped_posts", "dst_field": "scraped_posts"}
+        { "src_field": "scraped_posts", "dst_field": "scraped_posts"},
+        { "src_field": "user_profile", "dst_field": "user_profile"}
       ]
     },
     # --- Start Draft Posts Loading ---
@@ -412,6 +411,7 @@ workflow_graph_schema = {
         { "src_field": "scraped_posts", "dst_field": "scraped_posts" },
         { "src_field": "past_context_posts_limit", "dst_field": "past_context_posts_limit" },
         { "src_field": "weeks_to_generate", "dst_field": "weeks_to_generate" },
+        { "src_field": "user_profile", "dst_field": "user_profile" },
       ]
     },
 
@@ -431,6 +431,7 @@ workflow_graph_schema = {
     # --- State -> Construct Prompt (Public Edges for Context) ---
     { "src_node_id": "$graph_state", "dst_node_id": "construct_topic_prompt", "mappings": [
         { "src_field": "strategy_doc", "dst_field": "strategy_doc" },
+        { "src_field": "user_profile", "dst_field": "user_profile" },
       ]
     },
 
@@ -493,36 +494,29 @@ workflow_graph_schema = {
 
     { "src_node_id": "store_all_topics", "dst_node_id": "output_node", 
      "mappings": [
+        { "src_field": "paths_processed", "dst_field": "final_post_paths"}
       ]
-     },
-
-    # --- State -> Output ---
-    { "src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
-      ]
-    },
-  ],
-
-  # --- Define Start and End ---
-  "input_node_id": "input_node",
-  "output_node_id": "output_node",
-
-  # --- State Reducers ---
-  "metadata": {
-      "$graph_state": {
-        "reducer": {
-          "all_generated_topics": "collect_values",   # Collect topic objects from each generation iteration
-          "generate_topics_messages_history": "add_messages" # Message history for topic generation LLM
-
         }
-      }
-  }
+    ],
+    
+    "input_node_id": "input_node",
+    "output_node_id": "output_node",
+    
+    "metadata": {
+        "$graph_state": {
+            "reducer": {
+                "all_generated_topics": "collect_values",   # Collect topic objects from each generation iteration
+                "generate_topics_messages_history": "add_messages" # Message history for topic generation LLM
+            }
+        }
+    }
 }
 
 
 # --- Test Execution Logic (Placeholder) ---
 
 
-async def main_test_content_calendar_workflow():
+async def main_test_linkedin_content_calendar_workflow():
     """
     Test the Content Topic Suggestions Workflow.
     Sets up required test documents, runs the workflow, validates the output and cleans up after.
@@ -545,243 +539,7 @@ async def main_test_content_calendar_workflow():
 
     # Create realistic test data for setup
     setup_docs: List[SetupDocInfo] = [
-        # User DNA Document
-        {
-            'namespace': LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_USER_DNA_DOCNAME,
-            'initial_data': {
-                "professional_identity": {
-                    "full_name": "Test User",
-                    "job_title": "Founder and CEO",
-                    "industry_sector": "Business Consulting and Services (RevOps/Sales Operations)",
-                    "company_name": "Revology Consulting",
-                    "company_size": "Small (early‑stage startup)",
-                    "years_of_experience": 10,
-                    "professional_certifications": [],
-                    "areas_of_expertise": [
-                        "RevOps consulting and implementation",
-                        "Sales operations strategy and enablement",
-                        "Tech stack assessment, consolidation, and optimization",
-                        "CRM expertise (Salesforce, HubSpot implementation and optimization)",
-                        "Sales engagement tools (Outreach, SalesLoft)",
-                        "Business process optimization and automation",
-                        "Metrics identification and tracking",
-                        "Email personalization and outreach strategies",
-                        "Cross‑departmental alignment (sales and marketing)",
-                        "Tech stack security auditing and vulnerability assessment",
-                        "Leading vs. lagging indicator frameworks for business measurement"
-                    ],
-                    "career_milestones": [
-                        "Founded Revology Consulting (December 2024)",
-                        "Senior RevOps Consultant at Skaled Consulting (2021‑Present)",
-                        "Worked with ~80 different clients over 5 years on RevOps",
-                        "Worked with notable companies including OpenAI, UiPath, SurveyMonkey",
-                        "Roles at Groupon, Microsoft, Verizon, Zebra Technologies",
-                        "Scientific background with transition to operations roles"
-                    ],
-                    "professional_bio": "Test User is the Founder and CEO of Revology Consulting, a firm specializing in helping companies streamline their revenue operations. With an analytical foundation (Master's in Genetics and Genetic Manipulation) and over a decade in operations roles, she helps businesses optimize their tech stack, sales processes, and revenue operations to drive efficiency and growth. Her expertise spans multiple industries, company sizes, and global markets, giving her unique insights into operational excellence across diverse business contexts."
-                },
-                "linkedin_profile_analysis": {
-                    "follower_count": 1495,
-                    "connection_count": None,
-                    "profile_headline_analysis": "All things RevOps | Founder & CEO | Simplifying Processes and Demystifying Tech",
-                    "about_section_summary": "Focuses on expertise in revenue operations, helping companies integrate and optimize tech stacks, sales processes, and enablement strategies to drive efficiency and scalability. Emphasizes enhancing workflows, building scalable systems, and driving measurable results with focus on reducing inefficiencies and creating data‑driven processes.",
-                    "engagement_metrics": {
-                        "average_likes_per_post": 76,
-                        "average_comments_per_post": 40,
-                        "average_shares_per_post": 0
-                    },
-                    "top_performing_content_pillars": [
-                        "Business & Entrepreneurship",
-                        "Workplace Culture & Employee Experience",
-                        "Community & Networking"
-                    ],
-                    "content_posting_frequency": "Inconsistent historically; moving forward: RevOps education/brand awareness, weekly Founder Friday, tool spotlights, and event recaps (2 per week)",
-                    "content_types_used": [
-                        "Text posts with emoji bullets",
-                        "Milestone updates with specific metrics",
-                        "Personal narratives with reflections",
-                        "Lists with emoji markers",
-                        "Short, direct posts for simple updates",
-                        "Security‑focused content with lock emojis (🔓)",
-                        "Contrast formats highlighting what works vs. what doesn't",
-                        "Relatable analogies connecting with everyday experiences"
-                    ],
-                    "network_composition": [
-                        "Predominantly US‑based connections (~90%)",
-                        "Connections in UK, Europe, and globally (including Singapore)",
-                        "Mix of B2B and B2C companies",
-                        "Focus on companies using Salesforce and HubSpot",
-                        "Strong ties to RevOps, sales operations, and SaaS sectors",
-                        "Growing network of agency owners"
-                    ]
-                },
-                "brand_voice_and_style": {
-                    "communication_style": "Straightforward, authoritative yet approachable",
-                    "tone_preferences": [
-                        "Enthusiastic",
-                        "Confident but not overly technical",
-                        "Occasionally vulnerable/authentic",
-                        "Celebratory for achievements",
-                        "Reflective when sharing lessons",
-                        "Definitive on security vulnerabilities",
-                        "Direct in content body"
-                    ],
-                    "vocabulary_level": "Professional but accessible; uses industry‑specific terms without excessive jargon; occasionally employs scientific references, relatable analogies, and humor with cultural references.",
-                    "sentence_structure_preferences": "Mix of short declarative statements for impact and longer explanatory sentences for complex topics; questions mainly used as CTAs at post ends; bulleted lists; preference for direct statements in body.",
-                    "content_format_preferences": [
-                        "Emoji‑bulleted lists",
-                        "Achievement markers with visual indicators",
-                        "Short paragraphs (2‑3 sentences)",
-                        "Clear headline formats for announcements",
-                        "\"Statement‑Problem‑Solution\" advice structure",
-                        "Contrasting sections with emojis (✅ vs. 🚫)",
-                        "Leading vs. lagging indicator differentiation"
-                    ],
-                    "emoji_usage": "Frequent emoji use, especially in milestone posts (average 14.3 per post in Business & Entrepreneurship); common emojis include 🎉, ✅, 🚀, ❤️, 🔓; 4‑14 emojis per post depending on content.",
-                    "hashtag_usage": "Moderate; placed at post ends; present in 55‑62% of posts; uses relevant industry tags; strong preference for #WhoStillHasYourPasswords in security content.",
-                    "storytelling_approach": "Personal founder narratives with practical takeaways; celebratory announcements; personal declarations for community posts; combines vulnerability with expertise; uses plant care and scientific metaphors for business."
-                },
-                "content_strategy_goals": {
-                    "primary_goal": "Increase brand awareness for Revology Consulting and position Mahak as a trusted RevOps expert",
-                    "secondary_goals": [
-                        "Educate audience about RevOps, especially in Europe",
-                        "Document and share founder journey and weekly lessons",
-                        "Develop strategic partnerships with complementary businesses",
-                        "Generate business through referrals",
-                        "Grow Mahak's personal brand",
-                        "Establish reputation for tech stack security expertise"
-                    ],
-                    "target_audience_demographics": "SMBs (<5 M USD revenue, <200 employees) primarily B2B; similar B2C companies; users of Salesforce and HubSpot; agency owners",
-                    "ideal_reader_personas": [
-                        "SMB decision‑makers needing RevOps expertise",
-                        "Operations leaders optimizing tech stack",
-                        "Founders focused on operational excellence",
-                        "Sales and marketing leaders seeking alignment"
-                    ],
-                    "audience_pain_points": [
-                        "Poor tech stack optimization",
-                        "Bad email personalization practices",
-                        "Measuring wrong metrics",
-                        "Lack of sales and marketing alignment",
-                        "Excessive manual processes",
-                        "Security risks from unmonitored tool access",
-                        "Over‑focus on lagging indicators",
-                        "Neglected security risks in tech stack integrations",
-                        "Unmonitored tool access security vulnerabilities",
-                        "Customer engagement patterns not tracked properly",
-                        "Using insecure platforms for sensitive data"
-                    ],
-                    "value_proposition_to_audience": "Expertise in identifying and solving operational inefficiencies; tech stack optimization to reduce redundancy and cost; proper metrics selection; task automation; global perspective; practical advice; security auditing expertise; frameworks for leading indicators.",
-                    "call_to_action_preferences": [
-                        "Direct engagement in comments",
-                        "Open invitations for connections",
-                        "Occasional discussion questions"
-                    ],
-                    "content_pillar_themes": [
-                        "RevOps education and best practices",
-                        "Founder journey insights (Founder Friday)",
-                        "Tool spotlights and collaborations",
-                        "Event recaps and insights",
-                        "Tech stack security and vulnerability assessments",
-                        "Leading vs. lagging indicator frameworks"
-                    ],
-                    "topics_of_interest": [
-                        "Tech stack audits and optimization",
-                        "Metrics selection and tracking",
-                        "Email personalization strategies",
-                        "Sales and marketing alignment challenges and solutions",
-                        "Automation opportunities and implementation",
-                        "Data security in operations",
-                        "Tool comparison and selection criteria",
-                        "Revology product developments (speedy setup)",
-                        "Tech stack security vulnerabilities",
-                        "Integration security risks with CRMs",
-                        "Leading vs. lagging indicators contrast",
-                        "Plant care metaphors for business growth",
-                        "Client feedback collection and implementation"
-                    ]
-                },
-                "personal_context": {
-                    "personal_values": [
-                        "Efficiency and optimization",
-                        "Authenticity and cultural pride",
-                        "Cross‑cultural understanding and global perspective",
-                        "Analytical thinking",
-                        "Continuous learning and knowledge sharing",
-                        "Continuous improvement through feedback",
-                        "Growth through consistency and patience"
-                    ],
-                    "professional_mission_statement": "Helping companies streamline revenue operations by integrating and optimizing tech stack and processes to reduce inefficiencies, empower teams, and create data‑driven processes that support long‑term growth.",
-                    "content_creation_challenges": [
-                        "Consistency and structure in content",
-                        "Strategic approach to content pillars",
-                        "Time management balancing content creation with running business",
-                        "Desire for specific, detailed feedback on content",
-                        "Rapid implementation of constructive feedback",
-                        "Appreciation for high ratings with actionable feedback"
-                    ],
-                    "personal_story_elements_for_content": [
-                        "Cultural background and international perspective",
-                        "Scientific/analytical foundation (Master's in Genetics)",
-                        "Global experience with clients across regions",
-                        "Early‑stage founder experiences and challenges",
-                        "Plant care and gardening metaphors for business growth",
-                        "Scientific method applied to client feedback",
-                        "Collecting and implementing feedback via Typeform",
-                        "Dropping \"golden nuggets\" during focused training"
-                    ],
-                    "notable_life_experiences": [
-                        "Transition from science to operations roles",
-                        "Working across multiple countries and cultures",
-                        "Observations of regional work culture differences",
-                        "Recent marriage and related cultural traditions",
-                        "Connection to plant care and growth enthusiasm"
-                    ],
-                    "inspirations_and_influences": None,
-                    "books_resources_they_reference": None,
-                    "quotes_they_resonate_with": None
-                },
-                "analytics_insights": {
-                    "optimal_content_length": "Business & Entrepreneurship ~217 words; Community & Networking ~112; Professional Growth ~127; Sales & Marketing ~87; Workplace Culture ~187; hooks 5–8 words for impact",
-                    "audience_geographic_distribution": "~90% US‑based, some UK presence, international reach including Singapore",
-                    "engagement_time_patterns": None,
-                    "keyword_performance_analysis": "Engagement drivers: \"community\", \"culture\", \"modern outbound\", \"RevOps\", \"Revology Consulting\", security‑related terms, #WhoStillHasYourPasswords, leading/lagging indicators terminology",
-                    "competitor_benchmarking": None,
-                    "growth_rate_metrics": "7 clients, 3 partnerships, £77,100 closed deals within first 3 months"
-                },
-                "success_metrics": {
-                    "content_performance_kpis": [
-                        "Engagement metrics by post type",
-                        "Follower growth",
-                        "Brand recognition for Revology",
-                        "Content quality feedback ratings (9–10/10)"
-                    ],
-                    "engagement_quality_metrics": [
-                        "Comments and meaningful conversations",
-                        "Quality engagement from target audience",
-                        "Styling preference feedback"
-                    ],
-                    "conversion_goals": [
-                        "Generate new business through referrals",
-                        "Establish and grow partnerships",
-                        "Drive awareness of Revology's services"
-                    ],
-                    "brand_perception_goals": [
-                        "Establish Revology's market reputation",
-                        "Position Mahak as a trusted RevOps expert",
-                        "Increase knowledge of RevOps in Europe",
-                        "Authoritative yet approachable brand",
-                        "Reputation for tech stack security expertise"
-                    ],
-                    "timeline_for_expected_results": "3–6 months",
-                    "benchmarking_standards": "Previous post performance and business growth metrics serve as baseline; content rated on 10‑point feedback scale"
-                }
-            }, 
-            'is_versioned': LINKEDIN_USER_DNA_IS_VERSIONED, 
-            'is_shared': False,
-            'initial_version': 'default'  # Required for versioned documents
-        },
+    
         # User Profile Document (contains preferences)
         {
             'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
@@ -923,6 +681,7 @@ async def main_test_content_calendar_workflow():
                         ]
                     }
                 ],
+                "posts_per_week": 2,
                 "implementation": {
                     "thirty_day_targets": {
                         "goal": "1. Establish consistent posting rhythm across all pillars; 2. Test engagement levels for each content pillar; 3. Generate at least 5 meaningful conversations with target audience members; 4. Begin building connection with European audience through targeted content; 5. Showcase at least 2 partner relationships through Tool Spotlight pillar.",
@@ -996,13 +755,7 @@ async def main_test_content_calendar_workflow():
 
     # Define cleanup docs to remove test artifacts after test completion
     cleanup_docs: List[CleanupDocInfo] = [
-        # DNA Doc
-        {
-            'namespace': LINKEDIN_USER_DNA_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
-            'docname': LINKEDIN_USER_DNA_DOCNAME, 
-            'is_versioned': LINKEDIN_USER_DNA_IS_VERSIONED, 
-            'is_shared': False
-        },
+
         # User Profile
         {
             'namespace': LINKEDIN_USER_PROFILE_NAMESPACE_TEMPLATE.format(item=test_entity_username), 
@@ -1049,18 +802,16 @@ async def main_test_content_calendar_workflow():
     async def validate_calendar_output(outputs: Optional[Dict[str, Any]]) -> bool:
         assert outputs is not None, "Validation Failed: Workflow returned no outputs."
         logger.info("Validating content topic suggestions workflow outputs...")
-        assert 'final_briefs_list' in outputs, "Validation Failed: 'final_briefs_list' missing."
+        assert 'final_post_paths' in outputs, "Validation Failed: 'final_post_paths' missing."
         
-        # Handle both single object and list formats (workflow iteration issue workaround)
-        final_briefs = outputs['final_briefs_list']
-        if isinstance(final_briefs, dict):
-            # Single topic suggestion object - convert to list for consistent validation
-            topic_suggestions_list = [final_briefs]
-            logger.info("⚠️  Found single topic suggestion object instead of list. This indicates the workflow iteration didn't work properly.")
-        elif isinstance(final_briefs, list):
-            topic_suggestions_list = final_briefs
-        else:
-            assert False, f"Validation Failed: 'final_briefs_list' must be a list or dict, got {type(final_briefs)}"
+        # The output contains paths to stored topic suggestions, not the topics themselves
+        final_paths = outputs['final_post_paths']
+        assert isinstance(final_paths, list), f"Validation Failed: 'final_post_paths' must be a list, got {type(final_paths)}"
+        assert len(final_paths) > 0, "Validation Failed: No topic suggestions were stored."
+        
+        logger.info(f"✓ Found {len(final_paths)} stored topic suggestion documents.")
+        # For basic validation, we just check that paths were created
+        # In a more complete validation, we could load and validate each stored document
         
         # Calculate expected number of topic suggestions based on user profile
         user_prefs = next((doc['initial_data'] for doc in setup_docs 
@@ -1072,61 +823,16 @@ async def main_test_content_calendar_workflow():
         expected_count = test_inputs.get("weeks_to_generate", DEFAULT_WEEKS_TO_GENERATE) * posts_per_week
         
         # Validate topic suggestions count
-        actual_count = len(topic_suggestions_list)
+        actual_count = len(final_paths)
         
         if actual_count != expected_count:
             logger.warning(f"⚠️  Expected {expected_count} topic suggestions, found {actual_count}. This indicates workflow iteration issues.")
             logger.warning("   The workflow should generate one topic suggestion for each scheduled posting date.")
             logger.warning(f"   Expected: {expected_count} = {test_inputs.get('weeks_to_generate', DEFAULT_WEEKS_TO_GENERATE)} weeks × {posts_per_week} posts per week")
         
-        # Validate topic suggestion structure according to the new ContentTopicsOutput schema
-        for idx, topic_output in enumerate(topic_suggestions_list, 1):
-            logger.info(f"   Validating topic suggestion {idx}/{len(topic_suggestions_list)}...")
-            
-            # Check required top-level fields
-            assert 'suggested_topics' in topic_output, f"Topic suggestion {idx} missing required field: suggested_topics"
-            assert isinstance(topic_output['suggested_topics'], list), f"suggested_topics in suggestion {idx} must be a list"
-            assert len(topic_output['suggested_topics']) > 0, f"suggested_topics in suggestion {idx} cannot be empty"
-            
-            assert 'scheduled_date' in topic_output, f"Topic suggestion {idx} missing required field: scheduled_date"
-            assert 'theme' in topic_output, f"Topic suggestion {idx} missing required field: theme"
-            assert 'play_aligned' in topic_output, f"Topic suggestion {idx} missing required field: play_aligned"
-            assert 'objective' in topic_output, f"Topic suggestion {idx} missing required field: objective"
-            assert 'why_important' in topic_output, f"Topic suggestion {idx} missing required field: why_important"
-            
-            # Validate exactly 4 topics per suggestion
-            assert len(topic_output['suggested_topics']) == 4, f"Topic suggestion {idx} must contain exactly 4 topics, found {len(topic_output['suggested_topics'])}"
-            
-            # Validate individual topic structure
-            for i, topic in enumerate(topic_output['suggested_topics'], 1):
-                assert 'title' in topic, f"Topic suggestion {idx}, topic {i} missing required field: title"
-                assert 'description' in topic, f"Topic suggestion {idx}, topic {i} missing required field: description"
-                assert isinstance(topic['title'], str) and len(topic['title'].strip()) > 0, f"Topic suggestion {idx}, topic {i} title must be a non-empty string"
-                assert isinstance(topic['description'], str) and len(topic['description'].strip()) > 0, f"Topic suggestion {idx}, topic {i} description must be a non-empty string"
-            
-            # Validate objective is valid enum value
-            valid_objectives = ["brand_awareness", "thought_leadership", "engagement", "education", "lead_generation", "community_building"]
-            assert topic_output['objective'] in valid_objectives, f"Topic suggestion {idx} invalid objective: {topic_output['objective']}. Must be one of {valid_objectives}"
-            
-            # Validate that scheduled_date is a valid ISO 8601 UTC datetime format
-            try:
-                # Check for ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ)
-                if isinstance(topic_output['scheduled_date'], str):
-                    # Try to parse ISO 8601 format
-                    if topic_output['scheduled_date'].endswith('Z'):
-                        datetime.strptime(topic_output['scheduled_date'], '%Y-%m-%dT%H:%M:%SZ')
-                    else:
-                        # Also accept formats with timezone offset
-                        datetime.fromisoformat(topic_output['scheduled_date'].replace('Z', '+00:00'))
-                else:
-                    raise ValueError("scheduled_date must be a string")
-            except ValueError:
-                assert False, f"Topic suggestion {idx} invalid scheduled_date format: {topic_output['scheduled_date']}. Expected ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SSZ)"
-        
-        logger.info(f"   Found {actual_count} topic suggestions, expected {expected_count}.")
-        logger.info("✓ Each topic suggestion contains exactly 4 topics around one theme.")
-        logger.info("✓ Output structure validation passed.")
-        logger.info("✓ Timezone-aware scheduling validation completed.")
+        logger.info(f"   Found {actual_count} topic suggestion documents, expected {expected_count}.")
+        logger.info("✓ Topic suggestions have been stored successfully.")
+        logger.info("✓ Output validation completed.")
         
         if actual_count == expected_count:
             logger.info("✓ Topic suggestion count matches expected (workflow iteration worked correctly).")
@@ -1167,7 +873,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     try:
-        asyncio.run(main_test_content_calendar_workflow())
+        asyncio.run(main_test_linkedin_content_calendar_workflow())
     except KeyboardInterrupt:
         print("\nExecution interrupted.")
     except Exception as e:

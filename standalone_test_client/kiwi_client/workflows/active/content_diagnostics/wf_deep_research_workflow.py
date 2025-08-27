@@ -70,7 +70,7 @@ LLM_PROVIDER = "openai"
 LLM_MODEL = "o4-mini-deep-research"  # Deep research model
 LLM_TEMPERATURE = 0.8
 LLM_MAX_TOKENS = 100000
-MAX_TOOL_CALLS = 65
+MAX_TOOL_CALLS = 60
 STRUCTURED_OUTPUT_PROVIDER = "openai"
 STRUCTURED_OUTPUT_MODEL = "gpt-5"
 STRUCTURED_OUTPUT_MAX_TOKENS = 10000
@@ -530,6 +530,7 @@ workflow_graph_schema = {
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
+            "defer_node": True,
             "node_config": {}
         },
     },
@@ -667,11 +668,21 @@ workflow_graph_schema = {
         ]},
 
         # Store -> Output
-        {"src_node_id": "store_blog_research", "dst_node_id": "output_node", "mappings": [
+        {"src_node_id": "store_blog_research", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "paths_processed", "dst_field": "blog_storage_paths"}
         ]},
-        {"src_node_id": "store_linkedin_research", "dst_node_id": "output_node", "mappings": [
+        {"src_node_id": "store_linkedin_research", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "paths_processed", "dst_field": "linkedin_storage_paths"}
+        ]},
+
+        {"src_node_id": "store_blog_research", "dst_node_id": "output_node", "mappings": [
+        ]},
+        {"src_node_id": "store_linkedin_research", "dst_node_id": "output_node", "mappings": [
+        ]},
+
+        {"src_node_id": "$graph_state", "dst_node_id": "output_node", "mappings": [
+            {"src_field": "blog_storage_paths", "dst_field": "blog_storage_paths"},
+            {"src_field": "linkedin_storage_paths", "dst_field": "linkedin_storage_paths"}
         ]},
 
     ],

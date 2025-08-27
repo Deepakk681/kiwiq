@@ -709,6 +709,9 @@ async def main():
         elif base_event.event_type == event_schemas.WorkflowEvent.TOOL_CALL.value:
             typed_event = event_schemas.ToolCallEvent.model_validate(event_dict)
             # stream_events.append(typed_event)
+        elif base_event.event_type == event_schemas.WorkflowEvent.NODE_STATUS.value:
+            typed_event = event_schemas.NodeStatusEvent.model_validate(event_dict)
+            # stream_events.append(typed_event)
         # else:
         #     # For unknown event types, use the base event
         #     logger.info(f"Unknown event type {base_event.event_type} for run {run.id}, using base event model")

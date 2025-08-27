@@ -117,6 +117,17 @@ workflow_graph_schema = {
                         "required": False,
                         "default": True,
                         "description": "Whether to route all choices to all nodes"
+                    },
+                    "initial_status": {
+                        "type": "str",
+                        "required": False,
+                        "default": "draft",
+                        "description": "Initial status used when saving drafts"
+                    },
+                    "post_uuid": {
+                        "type": "str",
+                        "required": True,
+                        "description": "UUID of the post being generated"
                     }
                 }
             }
@@ -507,18 +518,18 @@ workflow_graph_schema = {
             "node_config": {},
             "dynamic_output_schema": {
                 "fields": {
-                    "approval_status": {
+                    "user_action": {
                         "type": "enum",
-                        "enum_values": ["approve", "reject"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow", "draft"],
                         "required": True,
                         "description": "User's approval decision"
                     },
-                    "optimized_content": {
+                    "updated_content_draft": {
                         "type": "dict",
                         "required": True,
                         "description": "The optimized content to review and approve"
                     },
-                    "user_feedback": {
+                    "revision_feedback": {
                         "type": "str",
                         "required": False,
                         "description": "Feedback for revision (required if reject)"
@@ -532,21 +543,31 @@ workflow_graph_schema = {
             "node_id": "route_final_approval",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["save_blog_post", "check_iteration_limit"],
+                "choices": ["save_blog_post", "check_iteration_limit", "output_node", "save_draft"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
                         "choice_id": "save_blog_post",
-                        "input_path": "approval_status",
-                        "target_value": "approve"
+                        "input_path": "user_action",
+                        "target_value": "complete"
                     },
                     {
                         "choice_id": "check_iteration_limit",
-                        "input_path": "approval_status",
-                        "target_value": "reject"
+                        "input_path": "user_action",
+                        "target_value": "provide_feedback"
+                    },
+                    {
+                        "choice_id": "output_node",
+                        "input_path": "user_action",
+                        "target_value": "cancel_workflow"
+                    },
+                    {
+                        "choice_id": "save_draft",
+                        "input_path": "user_action",
+                        "target_value": "draft"
                     }
                 ],
-                "default_choice": "save_blog_post"
+                "default_choice": "output_node"
             }
         },
         
@@ -659,14 +680,56 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": BLOG_POST_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "company_name",
-                                "static_docname": "blog_post_{_uuid_}",
+                                "input_docname_field_pattern": BLOG_POST_DOCNAME,
+                                "input_docname_field": "post_uuid"
                             }
                         },
                         "generate_uuid": True,
                         "versioning": {
                             "is_versioned": BLOG_POST_IS_VERSIONED,
                             "operation": "upsert_versioned",
-                        }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "status",
+                                "dst_path": "user_action"
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        
+        # 14a. Save as Draft (Store Customer Data)
+        "save_draft": {
+            "node_id": "save_draft",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": {
+                    "is_versioned": True,
+                    "operation": "upsert_versioned"
+                },
+                "store_configs": [
+                    {
+                        "input_field_path": "final_optimized_content",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_POST_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "input_docname_field_pattern": BLOG_POST_DOCNAME,
+                                "input_docname_field": "post_uuid"
+                            }
+                        },
+                        "versioning": {
+                            "is_versioned": BLOG_POST_IS_VERSIONED,
+                            "operation": "upsert_versioned"
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "status",
+                                "dst_path": "initial_status"
+                            }
+                        ]
                     }
                 ]
             }
@@ -689,7 +752,8 @@ workflow_graph_schema = {
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "original_blog", "dst_field": "original_blog"},
                 {"src_field": "post_uuid", "dst_field": "post_uuid"},
-                {"src_field": "route_all_choices", "dst_field": "route_all_choices"}
+                {"src_field": "route_all_choices", "dst_field": "route_all_choices"},
+                {"src_field": "initial_status", "dst_field": "initial_status"}
             ]
         },
         
@@ -942,7 +1006,7 @@ workflow_graph_schema = {
             "src_node_id": "final_approval_hitl",
             "dst_node_id": "route_final_approval",
             "mappings": [
-                {"src_field": "approval_status", "dst_field": "approval_status"}
+                {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
@@ -951,8 +1015,9 @@ workflow_graph_schema = {
             "src_node_id": "final_approval_hitl",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "optimized_content", "dst_field": "final_optimized_content"},
-                {"src_field": "user_feedback", "dst_field": "user_feedback"}
+                {"src_field": "updated_content_draft", "dst_field": "final_optimized_content"},
+                {"src_field": "revision_feedback", "dst_field": "user_feedback"},
+                {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
@@ -964,6 +1029,14 @@ workflow_graph_schema = {
         {
             "src_node_id": "route_final_approval",
             "dst_node_id": "check_iteration_limit"
+        },
+        {
+            "src_node_id": "route_final_approval",
+            "dst_node_id": "save_draft"
+        },
+        {
+            "src_node_id": "route_final_approval",
+            "dst_node_id": "output_node"
         },
         
         # Check Iteration Limit edges
@@ -1000,7 +1073,28 @@ workflow_graph_schema = {
             "dst_node_id": "save_blog_post",
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
-                {"src_field": "final_optimized_content", "dst_field": "final_optimized_content"}            ]
+                {"src_field": "final_optimized_content", "dst_field": "final_optimized_content"},
+                {"src_field": "post_uuid", "dst_field": "post_uuid"},
+                {"src_field": "user_action", "dst_field": "user_action"}
+            ]
+        },
+        
+        # State -> Save as Draft
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "save_draft",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "final_optimized_content", "dst_field": "final_optimized_content"},
+                {"src_field": "post_uuid", "dst_field": "post_uuid"},
+                {"src_field": "initial_status", "dst_field": "initial_status"}
+            ]
+        },
+        
+        # Save Draft -> HITL (loop back)
+        {
+            "src_node_id": "save_draft",
+            "dst_node_id": "final_approval_hitl"
         },
         
         # Save Blog Post -> Output
@@ -1008,6 +1102,7 @@ workflow_graph_schema = {
             "src_node_id": "save_blog_post",
             "dst_node_id": "output_node",
             "mappings": [
+                {"src_field": "paths_processed", "dst_field": "final_blog_post_paths"}
             ]
         },
         
@@ -1081,7 +1176,8 @@ workflow_graph_schema = {
                 "final_structure_improvement": "replace",
                 "user_feedback": "replace",
                 "generation_metadata": "replace",
-                "feedback_analysis_message_history": "add_messages"
+                "feedback_analysis_message_history": "add_messages",
+                "user_action": "replace"
             }
         }
     }
@@ -1349,7 +1445,8 @@ Contact us to learn more about our AI-powered project management solutions.
     # Test inputs
     test_inputs = {
         "company_name": test_company_name,
-        "original_blog": original_blog_content
+        "original_blog": original_blog_content,
+        "post_uuid": "blog_post_001"
     }
     
     # Setup test documents
@@ -1377,7 +1474,52 @@ Contact us to learn more about our AI-powered project management solutions.
     ]
     
     # Predefined HITL inputs - leaving empty to allow for interactive testing
-    predefined_hitl_inputs = []
+    predefined_hitl_inputs = [
+        {
+            "final_gap_improvement": "Prioritize adding concrete case studies and comparative analysis vs competitors.",
+            "final_seo_improvement": "Target long-tail keywords related to AI project management ROI and include internal links.",
+            "final_structure_improvement": "Improve headings hierarchy and readability; add bullet lists and short paragraphs.",
+            "gap_improvement_instructions": "Add 2 case studies with metrics; include an FAQ addressing objections.",
+            "seo_improvement_instructions": "Integrate primary and secondary keywords naturally; craft a 155-char meta description.",
+            "structure_improvement_instructions": "Use H2/H3 for sections, 1 idea per paragraph, add a summary box."
+        },
+        {
+            "user_action": "provide_feedback",
+            "revision_feedback": "Tighten the intro with a stronger hook and make recommendations more actionable.",
+            "updated_content_draft": {
+                "optimized_blog_content": "DRAFT_PLACEHOLDER: refined intro and actionable bullet points.",
+                "optimization_summary": {
+                    "content_gaps_filled": ["Added case study A", "Added FAQ section"],
+                    "seo_improvements_made": ["Keyword integration", "Meta description added"],
+                    "structure_enhancements": ["H2/H3 applied", "Bullet lists"]
+                }
+            }
+        },
+        {
+            "user_action": "draft",
+            "revision_feedback": None,
+            "updated_content_draft": {
+                "optimized_blog_content": "DRAFT_V2_PLACEHOLDER after applying feedback.",
+                "optimization_summary": {
+                    "content_gaps_filled": ["Case study B added"],
+                    "seo_improvements_made": ["Improved internal linking"],
+                    "structure_enhancements": ["Added summary box"]
+                }
+            }
+        },
+        {
+            "user_action": "complete",
+            "revision_feedback": None,
+            "updated_content_draft": {
+                "optimized_blog_content": "FINAL_PLACEHOLDER content for saving.",
+                "optimization_summary": {
+                    "content_gaps_filled": ["All planned gaps addressed"],
+                    "seo_improvements_made": ["Final pass"],
+                    "structure_enhancements": ["Final readability pass"]
+                }
+            }
+        }
+    ]
     
     # VALID HUMAN INPUTS FOR MANUAL TESTING:
     

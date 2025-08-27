@@ -16,6 +16,7 @@ class WorkflowEvent(str, Enum):
     WORKFLOW_RUN_STATUS = "workflow_run_status"
     HITL_REQUEST = "hitl_request"
     TOOL_CALL = "tool_call"
+    NODE_STATUS = "node_status"
 
 
 class WorkflowBaseEvent(BaseModel):
@@ -48,6 +49,11 @@ class ToolCallEvent(WorkflowBaseEvent):
     event_type: WorkflowEvent = WorkflowEvent.TOOL_CALL
     tool_call_id: str
     tool_name: str
+    status: str
+
+class NodeStatusEvent(WorkflowBaseEvent):
+    """Event emitted when a node status changes."""
+    event_type: WorkflowEvent = WorkflowEvent.NODE_STATUS
     status: str
 
 

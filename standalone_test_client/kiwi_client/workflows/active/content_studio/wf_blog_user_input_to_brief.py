@@ -133,6 +133,11 @@ workflow_graph_schema = {
                         "required": True,
                         "default": "draft",
                         "description": "Initial status of the workflow"
+                    },
+                    "brief_uuid": {
+                        "type": "str",
+                        "required": True,
+                        "description": "UUID of the brief being generated"
                     }
                 }
             }
@@ -178,12 +183,10 @@ workflow_graph_schema = {
                         "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "content_playbook_doc": None,
                             "user_input": None
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "content_playbook_doc": "content_playbook_doc",
                             "user_input": "user_input"
                         }
                     },
@@ -227,13 +230,11 @@ workflow_graph_schema = {
                         "template": REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "content_playbook_doc": None,
                             "google_research_output": None,
                             "user_input": None
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "user_input": "user_input"
                         }
@@ -335,7 +336,7 @@ workflow_graph_schema = {
                 "fields": {
                     "user_action": {
                         "type": "enum",
-                        "enum_values": ["accept_topic", "regenerate_topics", "cancel_workflow"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow"],
                         "required": True,
                         "description": "User's decision on topic selection"
                     },
@@ -344,7 +345,7 @@ workflow_graph_schema = {
                         "required": False,
                         "description": "Single topic_id selected by user (required if accept_topic)"
                     },
-                    "regeneration_feedback": {
+                    "revision_feedback": {
                         "type": "str",
                         "required": False,
                         "description": "Feedback for topic regeneration (required if regenerate_topics)"
@@ -364,12 +365,12 @@ workflow_graph_schema = {
                     {
                         "choice_id": "filter_selected_topic",
                         "input_path": "user_action",
-                        "target_value": "accept_topic"
+                        "target_value": "complete"
                     },
                     {
                         "choice_id": "construct_topic_feedback_prompt",
                         "input_path": "user_action",
-                        "target_value": "regenerate_topics"
+                        "target_value": "provide_feedback"
                     },
                     {
                         "choice_id": "output_node",
@@ -574,6 +575,45 @@ workflow_graph_schema = {
             }
         },
         
+        "save_as_draft_after_brief_generation": {
+            "node_id": "save_as_draft_after_brief_generation",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": {
+                    "is_versioned": BLOG_CONTENT_BRIEF_IS_VERSIONED,
+                    "operation": "upsert_versioned"
+                },
+                "global_is_shared": False,
+                "store_configs": [
+                    {
+                        "input_field_path": "current_content_brief",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
+                            }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "status",
+                                "dst_path": "initial_status"
+                            },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
+                            }
+                        ],
+                        "versioning": {
+                            "is_versioned": BLOG_CONTENT_BRIEF_IS_VERSIONED,
+                            "operation": "upsert_versioned"
+                        }
+                    }
+                ],
+            }
+        },
+        
         # 18. Brief Approval - HITL Node
         "brief_approval_hitl": {
             "node_id": "brief_approval_hitl",
@@ -581,9 +621,9 @@ workflow_graph_schema = {
             "node_config": {},
             "dynamic_output_schema": {
                 "fields": {
-                    "user_action": {
+                    "user_brief_action": {
                         "type": "enum",
-                        "enum_values": ["complete", "revise_brief", "cancel_workflow", "draft"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow", "draft"],
                         "required": True,
                         "description": "User's decision on brief approval"
                     },
@@ -611,22 +651,22 @@ workflow_graph_schema = {
                 "choices_with_conditions": [
                     {
                         "choice_id": "save_brief",
-                        "input_path": "user_action",
+                        "input_path": "user_brief_action",
                         "target_value": "complete"
                     },
                     {
                         "choice_id": "check_iteration_limit",
-                        "input_path": "user_action",
-                        "target_value": "revise_brief"
+                        "input_path": "user_brief_action",
+                        "target_value": "provide_feedback"
                     },
                     {
                         "choice_id": "output_node",
-                        "input_path": "user_action",
+                        "input_path": "user_brief_action",
                         "target_value": "cancel_workflow"
                     },
                     {
                         "choice_id": "save_as_draft",
-                        "input_path": "user_action",
+                        "input_path": "user_brief_action",
                         "target_value": "draft"
                     }
                 ],
@@ -650,14 +690,18 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "company_name",
-                                "static_docname": BLOG_CONTENT_BRIEF_DOCNAME
+                                "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
                             }
                         },
-                        "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "user_brief_action"
+                            },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
                             }
                         ],
                         "versioning": {
@@ -845,15 +889,19 @@ workflow_graph_schema = {
                             "filename_config": {
                                 "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
                                 "input_namespace_field": "company_name",
-                                "static_docname": BLOG_CONTENT_BRIEF_DOCNAME
+                                "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
                             }
                         },
-                        "generate_uuid": True,
                         "extra_fields": [
                             {
-                                "src_path": "user_action",
-                                "dst_path": "status"
+                                "src_path": "status",
+                                "dst_path": "user_brief_action"
                             },
+                            {
+                                "src_path": "uuid",
+                                "dst_path": "brief_uuid"
+                            }
                         ],
                         "versioning": {
                             "is_versioned": BLOG_CONTENT_BRIEF_IS_VERSIONED,
@@ -879,7 +927,9 @@ workflow_graph_schema = {
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
-                {"src_field": "user_input", "dst_field": "user_input"}            ]
+                {"src_field": "user_input", "dst_field": "user_input"},
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}            ]
         },
         
         # Input -> Load Company Doc
@@ -906,9 +956,7 @@ workflow_graph_schema = {
             "src_node_id": "load_company_doc",
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
-                {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"}
-            ]
+                {"src_field": "company_doc", "dst_field": "company_doc"}            ]
         },
         
         # State -> Google Research Prompt
@@ -954,7 +1002,6 @@ workflow_graph_schema = {
             "dst_node_id": "construct_reddit_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
                 {"src_field": "user_input", "dst_field": "user_input"}
             ]
         },
@@ -1247,13 +1294,44 @@ workflow_graph_schema = {
             ]
         },
         
-        # Brief Generation LLM -> HITL
+        # Brief Generation LLM -> Save as Draft After Brief Generation
         {
             "src_node_id": "brief_generation_llm",
-            "dst_node_id": "brief_approval_hitl",
+            "dst_node_id": "save_as_draft_after_brief_generation",
             "mappings": [
-                {"src_field": "structured_output", "dst_field": "content_brief"}
+                {"src_field": "structured_output", "dst_field": "current_content_brief"}
             ]
+        },
+
+        
+        
+        # State -> Save as Draft After Brief Generation
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "save_as_draft_after_brief_generation",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
+            ]
+        },
+        
+        # Brief Generation LLM -> HITL
+        # {
+        #     "src_node_id": "brief_generation_llm",
+        #     "dst_node_id": "brief_approval_hitl",
+        #     "mappings": [
+        #         {"src_field": "structured_output", "dst_field": "content_brief"}
+        #     ]
+        # },
+        
+        # Save as Draft After Brief Generation -> Brief Approval HITL
+        { "src_node_id": "save_as_draft_after_brief_generation", "dst_node_id": "brief_approval_hitl", "mappings": [          ] },
+
+        # ---- graph state -> brief approval hitl ----
+        { "src_node_id": "$graph_state", "dst_node_id": "brief_approval_hitl", "mappings": [
+            { "src_field": "current_content_brief", "dst_field": "content_brief"}
+          ]
         },
         
         # Brief Approval HITL -> Route
@@ -1261,7 +1339,7 @@ workflow_graph_schema = {
             "src_node_id": "brief_approval_hitl",
             "dst_node_id": "route_brief_approval",
             "mappings": [
-                {"src_field": "user_action", "dst_field": "user_action"}
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"}
             ]
         },
         
@@ -1272,7 +1350,7 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "updated_content_brief", "dst_field": "current_content_brief"},
-                {"src_field": "user_action", "dst_field": "user_action"}            ]
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"}            ]
         },
         
         # --- Brief Approval Router Paths ---
@@ -1327,19 +1405,16 @@ workflow_graph_schema = {
 
         # --- State -> Save as Draft ---
         { "src_node_id": "$graph_state", "dst_node_id": "save_as_draft", "mappings": [
-            { "src_field": "current_content_brief", "dst_field": "current_content_brief"},            { "src_field": "user_action", "dst_field": "user_action"},
-            { "src_field": "company_name", "dst_field": "company_name"}
+            { "src_field": "current_content_brief", "dst_field": "current_content_brief"},
+            { "src_field": "user_brief_action", "dst_field": "user_brief_action"},
+            { "src_field": "company_name", "dst_field": "company_name"},
+            { "src_field": "brief_uuid", "dst_field": "brief_uuid"}
           ]
         },
 
         # ---- Save as Draft -> brief approval hitl ----
-        { "src_node_id": "save_as_draft", "dst_node_id": "brief_approval_hitl"},
+        { "src_node_id": "save_as_draft", "dst_node_id": "brief_approval_hitl", "mappings": [          ]},
 
-        # ---- graph state -> brief approval hitl ----
-        { "src_node_id": "$graph_state", "dst_node_id": "brief_approval_hitl", "mappings": [
-            { "src_field": "current_content_brief", "dst_field": "content_brief"}
-          ]
-        },
         
         # State -> Brief Feedback Prompt Constructor
         {
@@ -1455,7 +1530,8 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "current_content_brief", "dst_field": "final_content_brief"},
-                {"src_field": "user_action", "dst_field": "user_action"}            ]
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}            ]
         },
         
         # Save Brief -> Output
@@ -1490,7 +1566,8 @@ workflow_graph_schema = {
                 "topic_feedback_analysis_messages_history": "add_messages",
                 "brief_generation_messages_history": "add_messages",
                 "brief_feedback_analysis_messages_history": "add_messages",
-                "user_action": "replace"
+                "user_action": "replace",
+                "user_brief_action": "replace"
             }
         }
     }
@@ -1746,6 +1823,7 @@ async def main_test_content_brief_workflow():
     test_inputs = {
         "company_name": test_company_name,
         "user_input": "I've been thinking about writing content around how AI is changing project management. I want to explore how small teams can leverage AI tools without losing the human touch in their workflows. Maybe something about the balance between automation and personal connection in remote teams?",
+        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000"
     }
     
     # Setup test documents
@@ -1792,7 +1870,76 @@ async def main_test_content_brief_workflow():
     ]
     
     # Predefined HITL inputs - leaving empty to allow for interactive testing
-    predefined_hitl_inputs = []
+    predefined_hitl_inputs = [
+        {
+            "user_action": "provide_feedback",
+            "selected_topic_id": None,
+            "revision_feedback": "Promising directions. Emphasize remote-team collaboration impacts and an exec framework for what to automate vs. where human leadership is essential."
+        },
+        {
+            "user_action": "complete",
+            "selected_topic_id": "topic_01",
+            "revision_feedback": None
+        },
+        {
+            "user_brief_action": "provide_feedback",
+            "revision_feedback": "Please tighten the hook and add one concrete scenario. Keep the framework but make success metrics more specific.",
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "AI and Human Balance in Project Management: An 80/20 Framework",
+                    "target_audience": "Project managers at 50-500 employee tech companies",
+                    "content_goal": "Clarify what to automate vs. what requires human leadership",
+                    "key_takeaways": [
+                        "Automate repetitive PM tasks",
+                        "Preserve human judgment for priorities and stakeholder alignment"
+                    ],
+                    "content_structure": [
+                        {"section": "Hook & Context", "word_count": 80, "description": "Execs struggle with where to apply AI; introduce 80/20."},
+                        {"section": "80/20 Framework", "word_count": 200, "description": "Automate vs. Keep Human table with examples."},
+                        {"section": "Remote Team Scenario", "word_count": 200, "description": "Concrete example with metrics."},
+                        {"section": "Implementation Tips", "word_count": 180, "description": "Guardrails and checkpoints."},
+                        {"section": "CTA", "word_count": 60, "description": "Invite engagement and next steps."}
+                    ],
+                    "seo_keywords": {"primary_keyword": "AI in project management", "secondary_keywords": ["human-in-the-loop", "remote teams"]},
+                    "call_to_action": "Comment your top AI adoption challenge and get a readiness checklist.",
+                    "estimated_word_count": 700,
+                    "difficulty_level": "Intermediate",
+                    "writing_instructions": ["Conversational yet authoritative", "Data-informed with practical examples"]
+                }
+            }
+        },
+        {
+            "user_brief_action": "draft",
+            "revision_feedback": None,
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "AI and Human Balance in Project Management: An 80/20 Framework (Draft V2)",
+                    "estimated_word_count": 750
+                }
+            }
+        },
+        {
+            "user_brief_action": "provide_feedback",
+            "revision_feedback": "Looks good—make the CTA more outcome-oriented and add a metric example (e.g., 20% faster status reporting).",
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "AI and Human Balance in Project Management: An 80/20 Framework",
+                    "call_to_action": "Download the AI readiness checklist and benchmark your current process.",
+                    "writing_instructions": ["Add metric example in Remote Team Scenario"]
+                }
+            }
+        },
+        {
+            "user_brief_action": "complete",
+            "revision_feedback": None,
+            "updated_content_brief": {
+                "content_brief": {
+                    "title": "AI and Human Balance in Project Management: An 80/20 Framework (Final)",
+                    "estimated_word_count": 800
+                }
+            }
+        }
+    ]
     
     # VALID HUMAN INPUTS FOR MANUAL TESTING:
     # {"user_action": "accept_topic", "selected_topic_id": "topic_01"}

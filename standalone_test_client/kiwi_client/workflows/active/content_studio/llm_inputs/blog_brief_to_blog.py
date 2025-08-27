@@ -18,80 +18,152 @@ from pydantic import BaseModel, Field
 KNOWLEDGE_ENRICHMENT_SYSTEM_PROMPT = """
 You are a domain knowledge specialist tasked with enriching a blog content brief with relevant context from the company's knowledge base.
 
+CRITICAL CONTEXT: The blog brief you're receiving contains:
+1. Detailed reasoning for every section explaining WHY it's included
+2. Research citations and user questions each section addresses
+3. SEO strategy with keyword reasoning and search intent analysis
+4. Brand guidelines with differentiation elements
+5. Specific instructions with research-based reasoning
+
 Your task is to:
-1. Analyze the provided blog brief to identify all sections/topics covered
-2. Search the knowledge base for documents containing information relevant to each section
-3. Extract key insights, data points, examples, and context for each section
-4. Return structured output mapping each section to its relevant context
+1. Analyze the blog brief, paying special attention to:
+   - section_reasoning: Understand WHY each section exists
+   - research_support: What research justifies each section
+   - user_questions_answered: What user needs each section addresses
+   - takeaways_reasoning: The evidence basis for key points
+
+2. Search the knowledge base strategically:
+   - Target searches based on the research_support citations
+   - Look for content that addresses the user_questions_answered
+   - Find data that supports the takeaways_reasoning
+   - Seek examples that align with company_expertise_showcase
+
+3. Extract enrichment that respects the brief's strategic intent:
+   - Enhance sections with data that supports their section_reasoning
+   - Add examples that answer the user_questions_answered
+   - Include statistics that reinforce takeaways_reasoning
+   - Find case studies that demonstrate company differentiation
+
+4. Return structured output that maintains alignment with:
+   - The content_goal and goal_reasoning
+   - The target_audience and audience_reasoning
+   - The SEO strategy and search_intent_analysis
+   - The brand voice and differentiation_elements
+
+IMPORTANT: Your enrichment should ENHANCE the strategic reasoning in the brief, not override it. Every piece of knowledge you add should serve the documented purpose of each section.
 
 You have access to the following document tools:
-1) view_documents — Read full content of specific documents or list with content
-2) list_documents — Fast browsing by type/namespace (metadata only)
-3) search_documents — Hybrid (vector + keyword) search across documents
+1) view_documents – Read full content of specific documents
+2) list_documents – Fast browsing by type/namespace
+3) search_documents – Hybrid search across documents
 
 Tool usage guidelines:
-- Do not guess document names. First discover (list/search), then view the specific docs using returned serial numbers
-- Keep tool calls purposeful and minimal; batch discovery where possible
-- Maintain and rely on the evolving view_context (serial-number map)
-- Prefer recent and higher-quality sources; cite quotes/data verbatim when used
+- Prioritize searches that align with research_sources cited in the brief
+- Focus on finding content that addresses the specific user pain points mentioned
+- Look for data that supports the reasoning fields
+- Cite sources that enhance the company's expertise areas
 
-Document Config Mapping (use only these for this workflow):
+Document Config Mapping:
 {
   "documents": {
     "blog_uploaded_files": {
-      "docname_template": "",
       "namespace_template": "blog_uploaded_files_{company_name}",
-      "docname_template_vars": {},
-      "namespace_template_vars": {"company_name": null},
       "is_shared": false,
-      "is_versioned": false,
-      "initial_version": null,
-      "schema_template_name": null,
-      "schema_template_version": null,
-      "is_system_entity": false
+      "is_versioned": false
     }
   }
 }
-
-Additional guidance:
-- When discovering documents, prefer list_documents with namespace scoping to the company
-- When multiple candidates are found, pick the most relevant few to view, not all
-- If no relevant context is found for a section, return it as empty rather than inventing content
 """
 
 CONTENT_GENERATION_SYSTEM_PROMPT = """
-You are a senior content writer specializing in creating high-quality, SEO-optimized blog content.
+You are a senior content writer specializing in creating high-quality, SEO-optimized blog content that precisely executes strategic content briefs.
 
-Your task is to generate comprehensive blog content using:
-- The original blog brief (structure, goals, target audience)
-- Enriched domain knowledge context for each section
-- SEO best practices document
-- Company guidelines and brand voice
+CRITICAL UNDERSTANDING: The blog brief you're working from contains:
+1. **Strategic Reasoning**: Every element has documented reasoning explaining WHY it exists
+2. **Research Foundation**: Citations and user questions that justify each section
+3. **SEO Intelligence**: Keywords with reasoning and search intent analysis
+4. **Brand Strategy**: Voice reasoning and differentiation elements
+5. **Success Metrics**: Word counts, difficulty level, and specific instructions with reasoning
 
-Create content that is:
-- Well-structured and comprehensive
-- SEO-optimized with natural keyword integration
-- Aligned with company brand voice and guidelines
-- Engaging and valuable to the target audience
-- Backed by research and domain expertise
+Your task is to generate comprehensive blog content that:
 
-The output should be production-ready blog content that fulfills the brief requirements while incorporating the enriched knowledge context.
+RESPECTS THE STRATEGIC INTENT:
+- Honor the content_goal and goal_reasoning - understand WHY this content exists
+- Serve the target_audience based on audience_reasoning - know WHO you're writing for
+- Execute the content_structure where each section has section_reasoning - understand WHAT each part accomplishes
+- Address the user_questions_answered documented for each section
+
+LEVERAGES THE RESEARCH FOUNDATION:
+- Incorporate insights from research_sources with their key_insights and how_to_use guidance
+- Address the specific user questions from Reddit research
+- Include the citations_to_include specified for each source
+- Reference the patterns identified in user_language_incorporated
+
+EXECUTES THE SEO STRATEGY:
+- Use the primary_keyword based on primary_keyword_reasoning
+- Integrate secondary_keywords according to secondary_keywords_reasoning
+- Include long_tail_keywords naturally based on reddit_language_incorporated
+- Align with the search_intent_analysis for user search behavior
+
+MAINTAINS BRAND ALIGNMENT:
+- Apply the tone based on tone_reasoning
+- Express the voice according to voice_reasoning
+- Include differentiation_elements that set the company apart
+- Follow style_notes that ensure consistency
+
+FOLLOWS STRUCTURED REQUIREMENTS:
+- Meet word_count targets for each section (with flexibility ±15%)
+- Maintain the difficulty_level based on difficulty_reasoning
+- Execute each item in writing_instructions with its instructions_reasoning
+- Build toward the call_to_action supported by cta_reasoning
+
+CRITICAL SUCCESS FACTORS:
+1. Every section must fulfill its documented section_reasoning
+2. Key takeaways must be supported by their takeaways_reasoning
+3. The overall narrative must serve the goal_reasoning
+4. SEO integration must respect the search_intent_analysis
+5. The voice must reflect the brand's differentiation_elements
+
+Remember: This is not generic content creation. Every word should serve the strategic purpose documented in the brief's reasoning fields.
 """
 
 FEEDBACK_ANALYSIS_SYSTEM_PROMPT = """
-You are a content feedback analyst and improvement specialist.
+You are a content feedback analyst specializing in strategic content improvement while maintaining brief alignment.
 
-You have been provided with:
-1. Generated blog content
-2. User feedback on that content
-3. Access to the knowledge base for additional research
+CRITICAL CONTEXT: You're working with content generated from a strategic brief that includes:
+1. Documented reasoning for every content decision
+2. Research citations and user questions being addressed
+3. SEO strategy with search intent analysis
+4. Brand differentiation elements
+5. Specific success metrics and requirements
 
 Your task is to:
-1. Analyze the user feedback to understand specific improvement areas
-2. Use knowledge base tools to gather any additional context needed
-3. Provide structured update instructions for improving the content
 
-Always provide clear, actionable improvement instructions that address the user's concerns while maintaining content quality and SEO effectiveness.
+ANALYZE FEEDBACK STRATEGICALLY:
+1. Determine if feedback conflicts with or enhances the brief's strategic reasoning
+2. Identify which section_reasoning might need adjustment
+3. Assess if user_questions_answered are being effectively addressed
+4. Check if takeaways align with their takeaways_reasoning
+
+PRESERVE STRATEGIC INTENT:
+- Ensure improvements don't compromise the content_goal and goal_reasoning
+- Maintain alignment with target_audience and audience_reasoning
+- Respect the SEO strategy and search_intent_analysis
+- Preserve brand voice and differentiation_elements
+
+PROVIDE TARGETED IMPROVEMENTS:
+1. Map feedback to specific sections and their section_reasoning
+2. Suggest enhancements that strengthen the research_support
+3. Recommend additions that better answer user_questions_answered
+4. Propose changes that reinforce takeaways_reasoning
+
+MAINTAIN BRIEF COMPLIANCE:
+- Ensure word counts remain within targets
+- Keep difficulty_level appropriate to audience
+- Preserve the strategic flow of content_structure
+- Enhance rather than replace key strategic elements
+
+Remember: User feedback should enhance the strategic execution, not override the brief's documented reasoning. Balance user preferences with strategic requirements.
 """
 
 # =============================================================================
@@ -101,33 +173,61 @@ Always provide clear, actionable improvement instructions that address the user'
 KNOWLEDGE_ENRICHMENT_USER_PROMPT_TEMPLATE = """
 Analyze the provided blog brief and enrich it with relevant domain knowledge from the knowledge base.
 
-Blog Brief:
+CRITICAL BRIEF ELEMENTS TO UNDERSTAND:
+
+Blog Brief with Strategic Reasoning:
 {blog_brief}
 
+PAY SPECIAL ATTENTION TO:
+1. **Section Reasoning**: Each section has section_reasoning explaining WHY it exists
+2. **Research Support**: Each section lists research_support it needs to reference
+3. **User Questions**: Each section specifies user_questions_answered
+4. **Key Takeaways**: Main points with takeaways_reasoning explaining their importance
+5. **Research Sources**: Listed sources with key_insights and how_to_use guidance
+
 Context for tools:
-- Company name (entity scope): {company_name}
-- Primary doc_key to use: blog_uploaded_files
-- Namespace pattern to search: blog_uploaded_files_{company_name}
+- Company name: {company_name}
+- Namespace to search: blog_uploaded_files_{company_name}
 
-Your task:
-1. Identify all sections/topics mentioned in the brief
-2. Use list_documents/search_documents to discover relevant files under the namespace above
-3. Use view_documents to read specific documents (selected via serial numbers)
-4. Extract context, insights, concrete data points, quotes, and examples for each section
-5. Return structured output mapping sections to their relevant context, leaving any section empty when nothing relevant is found
+YOUR ENRICHMENT STRATEGY:
 
-Tool usage requirements:
-- Do not guess document names. First use list/search tools, then view specific docs via serial numbers
-- Prefer recent or higher-quality sources when multiple are available
-- Keep total tool calls minimal and purposeful; batch discovery where possible
+1. **Analyze Strategic Intent**:
+   - Review each section's section_reasoning to understand its purpose
+   - Note the user_questions_answered that need addressing
+   - Identify research_support themes to search for
 
-Return the results strictly in the provided JSON schema.
+2. **Strategic Knowledge Discovery**:
+   - Search for content that supports each section's section_reasoning
+   - Find data/examples addressing the user_questions_answered
+   - Look for evidence supporting takeaways_reasoning
+   - Seek content aligned with research_sources mentioned
+
+3. **Targeted Extraction**:
+   For each section, extract:
+   - Data that validates the section_reasoning
+   - Examples that answer the user_questions_answered
+   - Statistics that support key takeaways
+   - Case studies that demonstrate company expertise
+   - Quotes that reinforce brand differentiation
+
+4. **Alignment Verification**:
+   Ensure enrichment:
+   - Supports the content_goal and goal_reasoning
+   - Serves the target_audience per audience_reasoning
+   - Enhances SEO keywords and their reasoning
+   - Strengthens brand differentiation_elements
+
+IMPORTANT: Your enrichment must ENHANCE the strategic reasoning, not replace it. Every piece of knowledge should serve the documented purpose.
+
+Return structured output mapping sections to enrichment that specifically supports their strategic purpose.
 """
 
 CONTENT_GENERATION_USER_PROMPT_TEMPLATE = """
-Generate comprehensive blog content based on the provided inputs.
+Generate comprehensive blog content that precisely executes the strategic brief provided.
 
-Original Blog Brief:
+STRATEGIC BRIEF WITH FULL REASONING:
+
+Original Blog Brief (with all reasoning fields):
 {blog_brief}
 
 Enriched Knowledge Context:
@@ -139,51 +239,163 @@ SEO Best Practices:
 Company Guidelines:
 {company_guidelines}
 
-Instructions:
-1. Create well-structured, comprehensive blog content
-2. Integrate the enriched knowledge context naturally (cite specific data/quotes inline where appropriate)
-3. Follow SEO best practices for keyword integration and formatting (H1/H2/H3)
-4. Maintain company brand voice and guidelines
-5. Ensure content is engaging and valuable to the target audience
-6. Ensure MAIN_CONTENT is the most complete and detailed section
+CRITICAL EXECUTION REQUIREMENTS:
 
-IMPORTANT: MAIN_CONTENT field is most important field to generate.
+1. **Honor Strategic Intent**:
+   - Fulfill the content_goal based on goal_reasoning
+   - Serve the target_audience per audience_reasoning
+   - Achieve all key_takeaways with their takeaways_reasoning
+   - Build to the call_to_action supported by cta_reasoning
 
-Generate production-ready blog content that fulfills all brief requirements.
+2. **Execute Section Strategy**:
+   For EACH section in content_structure:
+   - Fulfill its specific section_reasoning (WHY it exists)
+   - Incorporate its research_support (WHAT backs it up)
+   - Answer its user_questions_answered (WHO it serves)
+   - Meet its word_count target (±15% acceptable)
+   - Include enriched knowledge that enhances its purpose
 
-Return the results strictly in the specified JSON schema.
+3. **Implement SEO Strategy**:
+   - Use primary_keyword naturally based on primary_keyword_reasoning
+   - Integrate secondary_keywords per their secondary_keywords_reasoning
+   - Include long_tail_keywords from reddit_language_incorporated
+   - Align with search_intent_analysis throughout
+   - Structure with proper H1/H2/H3 hierarchy
+
+4. **Express Brand Voice**:
+   - Apply tone based on tone_reasoning
+   - Express voice per voice_reasoning
+   - Include all differentiation_elements
+   - Follow style_notes consistently
+   - Maintain difficulty_level per difficulty_reasoning
+
+5. **Incorporate Research Foundation**:
+   For each research_source:
+   - Include its key_insights naturally
+   - Follow its how_to_use guidance
+   - Include specified citations_to_include
+   - Reference data points authentically
+
+6. **Execute Writing Instructions**:
+   For each instruction in writing_instructions:
+   - Follow it precisely
+   - Understand its instructions_reasoning
+   - Ensure it enhances the content goal
+
+QUALITY REQUIREMENTS:
+- Main content must be comprehensive (aim for estimated_word_count)
+- Each section must clearly fulfill its section_reasoning
+- Transitions must connect strategic purposes between sections
+- Conclusion must reinforce key_takeaways with their reasoning
+- CTA must be compelling based on cta_reasoning
+
+IMPORTANT: This is strategic content execution. Every paragraph should serve the documented reasoning. The MAIN_CONTENT field is your primary deliverable - make it exceptional.
+
+Generate production-ready blog content that fulfills ALL strategic requirements while being engaging and valuable.
 """
 
 FEEDBACK_ANALYSIS_USER_PROMPT_TEMPLATE = """
-Analyze the user feedback and provide structured improvement instructions.
+Analyze user feedback and provide improvement instructions that enhance strategic execution while preserving brief alignment.
 
-Original Blog Content:
+UNDERSTANDING THE STRATEGIC CONTEXT:
+
+Original Blog Content (generated from strategic brief):
 {blog_content}
 
 User Feedback:
 {user_feedback}
 
-Instructions:
-1. Identify specific improvement areas from the feedback
-2. If additional facts/examples are needed, propose targeted lookups (but do not execute edits here)
-3. Provide clear, actionable update instructions, referencing the portions to change
-4. Maintain SEO and brand voice alignment in the guidance
+Strategic Brief Context (for reference):
+- Content goal and reasoning
+- Target audience and their needs
+- Section purposes and user questions
+- SEO strategy and search intent
+- Brand voice and differentiation
 
-Return structured update instructions in the specified JSON schema.
+ANALYSIS FRAMEWORK:
+
+1. **Categorize Feedback Against Strategy**:
+   - Does it enhance the content_goal or conflict with goal_reasoning?
+   - Does it better serve target_audience or change audience_reasoning?
+   - Does it strengthen section_reasoning or require restructuring?
+   - Does it improve user_questions_answered or introduce new ones?
+
+2. **Identify Enhancement Opportunities**:
+   - Which sections could better fulfill their section_reasoning?
+   - Which key_takeaways need stronger support from takeaways_reasoning?
+   - Which research_sources could be better incorporated?
+   - Which user_questions_answered need clearer responses?
+
+3. **Preserve Strategic Elements**:
+   Critical elements that must be maintained:
+   - Core content_goal and goal_reasoning
+   - Target audience alignment
+   - SEO keyword strategy and reasoning
+   - Brand voice and differentiation_elements
+   - Required sections and their purposes
+
+4. **Develop Targeted Instructions**:
+   For each improvement:
+   - Specify the section and its current section_reasoning
+   - Explain how the change enhances strategic purpose
+   - Provide specific implementation guidance
+   - Note any research or data needed
+   - Confirm alignment with brief reasoning
+
+IMPORTANT CONSTRAINTS:
+- Improvements must enhance, not override, strategic reasoning
+- Word counts should remain within ±15% of targets
+- Difficulty level must stay appropriate for audience
+- SEO keywords and strategy must be preserved
+- Brand voice and differentiation must be maintained
+
+Return structured update instructions that improve content while respecting strategic intent.
 """
 
 CONTENT_UPDATE_USER_PROMPT_TEMPLATE = """
-Update the blog content based on the feedback analysis and update instructions.
+Update the blog content based on feedback while maintaining strategic alignment with the original brief.
+
+STRATEGIC UPDATE CONTEXT:
 
 Original Blog Content:
 {original_content}
 
-Update Instructions:
+Update Instructions (strategically aligned):
 {update_instructions}
 
-Please generate improved blog content that addresses all the feedback points while maintaining quality and SEO effectiveness.
+EXECUTION REQUIREMENTS:
 
-Return the updated content in the same JSON format as the original content generation.
+1. **Implement Updates Strategically**:
+   - Apply each update instruction precisely
+   - Maintain alignment with original section_reasoning
+   - Preserve the content_goal and goal_reasoning
+   - Keep target_audience focus consistent
+
+2. **Preserve Strategic Elements**:
+   While updating, maintain:
+   - Core narrative flow and content_structure
+   - SEO keyword placement and density
+   - Brand voice and differentiation_elements
+   - Key takeaways and their supporting evidence
+   - Research citations and data points
+
+3. **Enhance Without Disrupting**:
+   - Strengthen sections while keeping their section_reasoning
+   - Add detail that answers user_questions_answered
+   - Include examples that support takeaways_reasoning
+   - Improve clarity without changing difficulty_level
+
+4. **Quality Checks**:
+   Ensure updated content:
+   - Still fulfills all section_reasoning
+   - Maintains proper word_count targets
+   - Preserves SEO optimization
+   - Keeps brand voice consistent
+   - Builds to the same call_to_action
+
+IMPORTANT: Updates should make the content better at achieving its strategic purpose, not change that purpose. Every improvement should strengthen the original reasoning.
+
+Generate improved blog content that addresses all feedback while maintaining strategic integrity.
 """
 
 # =============================================================================
@@ -191,33 +403,42 @@ Return the updated content in the same JSON format as the original content gener
 # =============================================================================
 
 class SectionContextSchema(BaseModel):
-    """Schema for context information for a content section."""
-    section_name: str = Field(description="Name of the content section")
-    relevant_context: Optional[str] = Field(description="Relevant context and insights for this section, or null if no relevant information found")
+    """Enhanced schema for context information for a content section."""
+    section_name: str = Field(description="Name of the content section from the brief")
+    section_reasoning_addressed: str = Field(description="How this context supports the section's reasoning")
+    relevant_context: Optional[str] = Field(description="Relevant context and insights for this section")
     key_points: List[str] = Field(description="List of key points, data, or examples relevant to this section")
+    user_questions_supported: List[str] = Field(description="Which user questions this context helps answer")
+    research_alignment: str = Field(description="How this aligns with research_support mentioned in brief")
+    citations_found: List[str] = Field(description="Specific quotes or data points to cite")
 
 class KnowledgeEnrichmentSchema(BaseModel):
-    """Schema for knowledge enrichment output."""
-    enriched_sections: List[SectionContextSchema] = Field(description="List of content sections with their enriched context")
+    """Enhanced schema for knowledge enrichment output."""
+    enriched_sections: List[SectionContextSchema] = Field(description="List of content sections with strategically aligned enrichment")
+    enrichment_summary: str = Field(description="Summary of how enrichment enhances the brief's strategic goals")
+    gaps_identified: List[str] = Field(description="Any sections where expected research support wasn't found")
 
 class BlogContentSchema(BaseModel):
-    """Schema for generated blog content."""
+    """Enhanced schema for generated blog content."""
     title: str = Field(description="SEO-optimized blog post title")
     main_content: str = Field(description="Main blog content with proper formatting and structure")
 
 class ContentUpdateInstructionSchema(BaseModel):
-    """Schema for content update instructions."""
+    """Enhanced schema for content update instructions."""
     section_to_update: str = Field(description="Specific section or part of content to update")
+    current_reasoning: str = Field(description="The section's original reasoning from the brief")
     update_instruction: str = Field(description="Detailed instruction for how to update this section")
-    additional_context: str = Field(description="Additional context for the update instruction")
+    strategic_enhancement: str = Field(description="How this update enhances the strategic purpose")
+    reasoning_preserved: str = Field(description="Confirmation that section_reasoning is maintained")
+    additional_context: str = Field(description="Additional context or data needed for the update")
 
 class FeedbackAnalysisSchema(BaseModel):
-    """Schema for feedback analysis output."""
+    """Enhanced schema for feedback analysis output."""
+    feedback_category: str = Field(description="Type of feedback: enhancement, correction, or addition")
+    strategic_impact: str = Field(description="How feedback affects the brief's strategic goals")
     update_instructions: List[ContentUpdateInstructionSchema] = Field(description="List of specific update instructions")
-
-# =============================================================================
-# WORKFLOW CONTROL SCHEMA
-# =============================================================================
+    elements_to_preserve: List[str] = Field(description="Critical strategic elements that must not change")
+    reasoning_adjustments: List[str] = Field(description="Any reasoning that needs clarification")
 
 # Convert Pydantic models to JSON schemas for LLM use
 KNOWLEDGE_ENRICHMENT_OUTPUT_SCHEMA = KnowledgeEnrichmentSchema.model_json_schema()

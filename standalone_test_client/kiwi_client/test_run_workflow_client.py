@@ -264,6 +264,8 @@ class InteractiveWorkflowRunClient:
                 print(f"  HITL Request: User Prompt: {prompt_str}, Schema: {schema_str}")
             elif isinstance(event, event_schemas.ToolCallEvent):
                 print(f"  Tool Call: {event.tool_name} (ID: {event.tool_call_id}) -- status: {event.status}")
+            elif isinstance(event, event_schemas.NodeStatusEvent):
+                print(f"  Node Status: {event.status} (Node: {event.node_id})")
             # Add more specific event type printing if needed
             # else: # Optional: print generic payload if not handled above
             #     if hasattr(event, 'payload') and event.payload:

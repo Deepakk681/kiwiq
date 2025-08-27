@@ -19,24 +19,25 @@ class ContentObjective(str, Enum):
     COMMUNITY_BUILDING = "community_building"
 
 
-BRIEF_USER_PROMPT_TEMPLATE = """Generate content topic suggestions for LinkedIn posts.
+TOPIC_USER_PROMPT_TEMPLATE = """Generate content topic suggestions for LinkedIn posts.
 
 **Rules:**
 - Do NOT fabricate facts or statistics. Base suggestions on the provided documents and user expertise.
 - Use the **exact content pillar names** from the provided `strategy_doc` when assigning themes to topics.
 - Generate diverse and unique topic ideas that align with the user's expertise and audience needs.
 - Use `merged_posts` to understand the **style, tone, and content themes** that the user typically covers.
-- Align suggestions to the **expertise areas and topics of interest** from `user_dna`, especially:  
-  - `areas_of_expertise`  
-  - `content_strategy_goals.topics_of_interest`
-  - `content_pillar_themes`
+- Align suggestions to the **expertise areas and content strategy** from `strategy_doc`, especially:  
+  - `foundation_elements.expertise`  
+  - `foundation_elements.objectives`
+  - `content_pillars`
+- Consider the user's `content_goals` from `user_profile` for strategic alignment.
 
 **TIMEZONE AND SCHEDULING REQUIREMENTS:**
 1. **Date Selection:**
    - Current Date: {current_datetime}
    - CRITICAL: NEVER select a date that is in the past or before the current date
    - Schedule topics across the **next 2 weeks** (14 days starting from tomorrow)
-   - Dates must fall on preferred days listed in `user_preferences.posting_schedule.posting_days`
+   - Dates must fall on preferred days listed in `user_profile.posting_schedule.posting_days`
    - Distribute topics evenly across the 2-week period
    - If today is the last day of the week, start from next Monday
 
@@ -65,9 +66,7 @@ BRIEF_USER_PROMPT_TEMPLATE = """Generate content topic suggestions for LinkedIn 
 
 **Context:**
 - Content Strategy: {strategy_doc}
-- User Preferences: {user_preferences}
 - User Timezone Information: {user_timezone}
-- Customer Context (User DNA Summary): {user_dna}
 - Recent User Posts (Drafts/Scraped): {merged_posts}
 - Today's Date: {current_datetime}
 
@@ -80,8 +79,8 @@ Create compelling topic suggestions that align with the user's expertise, audien
 - The theme must align with a specific **play** from the user's strategy (a "play" is a strategic content approach or pillar from the content strategy)
 - Each individual topic should:
   - Be clearly defined with a descriptive **title** and **description**
-  - Connect to the user's **areas of expertise**
-  - Address **audience pain points** mentioned in the user DNA
+  - Connect to the user's **areas of expertise** from `strategy_doc.foundation_elements.expertise`
+  - Address **audience needs** mentioned in the strategy document
   - Offer a unique angle or perspective within the common theme
   - Complement the other 3 topics to provide comprehensive coverage of the theme
 - Have a clear **objective** (brand awareness, thought leadership, etc.) for the entire topic set
@@ -90,16 +89,16 @@ Create compelling topic suggestions that align with the user's expertise, audien
 Respond ONLY with the JSON object matching the specified schema.
 """
 
-BRIEF_SYSTEM_PROMPT_TEMPLATE = """You are an expert LinkedIn content strategist specializing in topic ideation and scheduling.
+TOPIC_SYSTEM_PROMPT_TEMPLATE = """You are an expert LinkedIn content strategist specializing in topic ideation and scheduling.
 
 Your job is to generate high-quality, strategic content topic suggestions using structured user data. You must:
 
 **Content Requirements:**
-- NEVER invent facts or statistics. Base all suggestions on information from the documents (`strategy_doc`, `user_dna`, or `merged_posts`).
-- Use content pillars exactly as defined in `strategy_doc.content_pillars[*].name` or `strategy_doc.content_pillar_themes`.
-- Generate topics that leverage the user's demonstrated expertise from `user_dna.areas_of_expertise`.
-- Address audience pain points from `user_dna.content_strategy_goals.audience_pain_points`.
-- Ensure topics align with `user_dna.content_strategy_goals.topics_of_interest`.
+- NEVER invent facts or statistics. Base all suggestions on information from the documents (`strategy_doc`, `user_profile`, or `merged_posts`).
+- Use content pillars exactly as defined in `strategy_doc.content_pillars[*].name` or `strategy_doc.content_pillars[*].pillar`.
+- Generate topics that leverage the user's demonstrated expertise from `strategy_doc.foundation_elements.expertise`.
+- Address audience needs from `strategy_doc.strategy_audience` and align with `strategy_doc.foundation_elements.objectives`.
+- Ensure topics align with the user's `content_goals` from `user_profile`.
 
 **Topic Generation Requirements:**
 - Generate exactly **4 topic ideas** for each scheduled date
@@ -124,7 +123,7 @@ Your job is to generate high-quality, strategic content topic suggestions using 
    - Current Date: {current_datetime}
    - CRITICAL: NEVER select a date that is in the past or before the current date
    - Schedule topics across the next 2 weeks (14 days starting from tomorrow)
-   - Align with user's preferred posting days from user_preferences.posting_schedule.posting_days
+   - Align with user's preferred posting days from user_profile.posting_schedule.posting_days
    - Distribute topics evenly across the 2-week period
    - If today is the last day of the week, start from next Monday
    - Validate final date is:
@@ -146,7 +145,7 @@ Your job is to generate high-quality, strategic content topic suggestions using 
 
 Respond strictly with the JSON output conforming to the schema: ```json\n{schema}\n```"""
 
-BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE = """Generate one additional content topic suggestion.
+TOPIC_ADDITIONAL_USER_PROMPT_TEMPLATE = """Generate one additional content topic suggestion.
 
 **CRITICAL REQUIREMENTS:**
 - Generate exactly **4 topic ideas** for the scheduled date
@@ -156,7 +155,7 @@ BRIEF_ADDITIONAL_USER_PROMPT_TEMPLATE = """Generate one additional content topic
 
 Ensure:
 - It is distinct in theme and scheduled date from all previously generated suggestions
-- It respects all schema fields and draws only from the provided documents
+- It respects all schema fields and draws only from the provided documents (`strategy_doc`, `user_profile`, `merged_posts`)
 - It uses a different content pillar/theme from previous suggestions or what best aligns with the user's content strategy
 - It has a unique scheduled date that fits within the 2-week planning window
 - No invented facts. Base all suggestions on the provided user context
@@ -168,6 +167,7 @@ If previous suggestion was "RevOps Education & Best Practices", this could be "F
 
 class ContentTopic(BaseModel):
     """Individual content topic suggestion"""
+    reasoning: str = Field(..., description="Reasoning for the suggested content topic")
     title: str = Field(..., description="Suggested content topic/title")
     description: str = Field(..., description="Description of suggested content topic/title")
 
@@ -181,5 +181,5 @@ class ContentTopicsOutput(BaseModel):
     why_important: str = Field(..., description="Brief explanation of why this topic matters")
 
 
-BRIEF_LLM_OUTPUT_SCHEMA = ContentTopicsOutput.model_json_schema()
+TOPIC_LLM_OUTPUT_SCHEMA = ContentTopicsOutput.model_json_schema()
 
