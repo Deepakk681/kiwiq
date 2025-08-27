@@ -95,7 +95,7 @@ class WorkflowRunnerConfig(BaseNodeConfig):
         description="Number of days to look back for matching successful runs."
     )
     check_error_free_logs: bool = Field(
-        default=True,
+        default=False,
         description="When True, only reuse cached runs that have no error logs. When False, pick the recent run with the fewest error logs."
     )
     
