@@ -1517,10 +1517,6 @@ class StoreCustomerDataNode(BaseDynamicNode):
         input_dict = input_data if isinstance(input_data, dict) else input_data.model_dump(mode='json')
         passthrough_input = input_dict
         input_dict = copy.deepcopy(input_dict)
-
-        # DEBUG
-        if self.node_id == "save_competitor_analysis":
-            self.warning(f"DEBUG: input_dict: {json.dumps(input_dict, indent=4)}")
         
         if not runtime_config:
             self.error("Missing runtime_config.")
