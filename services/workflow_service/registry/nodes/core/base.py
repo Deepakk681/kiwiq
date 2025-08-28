@@ -440,15 +440,15 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 "retry_jitter_factor": retry_jitter_factor,
             }
             if self.prefect_mode:
-                kwargs = {
+                prefect_kwargs = {
                     "name": f"Node Name: `{self.node_name}` - Node ID: `{self.node_id}`", 
                     "cache_policy":NO_CACHE, 
                     "timeout_seconds":self.__class__.node_default_timeout_seconds,
                 }
                 if node_retry_count:
-                    kwargs.update(retry_config)
+                    prefect_kwargs.update(retry_config)
 
-                output_data = await task(**kwargs)(self.process)(input_data, config, *args, **kwargs)
+                output_data = await task(**prefect_kwargs)(self.process)(input_data, config, *args, **kwargs)
             else:
                 i = 0
                 node_retry_count = node_retry_count or 0
