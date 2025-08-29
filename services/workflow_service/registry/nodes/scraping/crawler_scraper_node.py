@@ -303,18 +303,22 @@ class CrawlerScraperInput(BaseSchema):
     include_only_paths: Optional[List[str]] = Field(
         default=None,
         description=(
-            "List of URL path patterns to include during crawling. "
+            "List of URL path patterns or full URLs to include during crawling. "
             "If specified, only URLs matching these patterns will be followed and processed. "
-            "Supports wildcard patterns using * (e.g., '/blog/*', '/news/*'). "
+            "Supports path patterns ('/blog/*', '/news'), full URL patterns "
+            "('https://example.com/blog/*', 'http://site.com/news'), and wildcard matching. "
+            "For full URLs, the domain must match the target URL's domain. "
             "Homepage URLs are always included unless explicitly excluded."
         ),
     )
     exclude_paths: Optional[List[str]] = Field(
         default=None,
         description=(
-            "List of URL path patterns to exclude during crawling. "
+            "List of URL path patterns or full URLs to exclude during crawling. "
             "URLs matching these patterns will not be followed or processed. "
-            "Supports wildcard patterns using * (e.g., '/admin/*', '/api/*'). "
+            "Supports path patterns ('/admin/*', '/api'), full URL patterns "
+            "('https://example.com/admin/*', 'http://site.com/api'), and wildcard matching. "
+            "For full URLs, the domain must match the target URL's domain. "
             "Takes precedence over include_only_paths."
         ),
     )

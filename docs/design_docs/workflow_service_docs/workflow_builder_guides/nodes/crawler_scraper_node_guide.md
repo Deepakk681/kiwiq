@@ -131,15 +131,21 @@ Control which URL paths are crawled and processed using include/exclude patterns
 }
 ```
 
-- **`include_only_paths`** (Optional[List[str]], default `None`): List of URL path patterns to include during crawling. If specified, only URLs matching these patterns will be followed and processed. Supports both wildcard patterns using `*` (e.g., `/blog/*`, `/news/*`) and prefix matching (e.g., `/blog` matches `/blog/post1`, `/blog/category/tech`). Homepage URLs are always included unless explicitly excluded.
-- **`exclude_paths`** (Optional[List[str]], default `None`): List of URL path patterns to exclude during crawling. URLs matching these patterns will not be followed or processed. Supports both wildcard patterns using `*` (e.g., `/admin/*`, `/api/*`) and prefix matching (e.g., `/admin` excludes `/admin/dashboard`, `/admin/users`). Takes precedence over `include_only_paths`.
+- **`include_only_paths`** (Optional[List[str]], default `None`): List of URL path patterns or full URLs to include during crawling. If specified, only URLs matching these patterns will be followed and processed. Supports path patterns (`/blog/*`, `/news`), full URL patterns (`https://example.com/blog/*`, `http://site.com/news`), wildcard matching with `*`, and prefix matching. For full URLs, the domain must match the target URL's domain. Homepage URLs are always included unless explicitly excluded.
+- **`exclude_paths`** (Optional[List[str]], default `None`): List of URL path patterns or full URLs to exclude during crawling. URLs matching these patterns will not be followed or processed. Supports path patterns (`/admin/*`, `/api`), full URL patterns (`https://example.com/admin/*`, `http://site.com/api`), wildcard matching with `*`, and prefix matching. For full URLs, the domain must match the target URL's domain. Takes precedence over `include_only_paths`.
 
 **Pattern Matching Logic**:
-1. **Wildcard matching**: Use `*` for flexible patterns (e.g., `/blog/*` matches `/blog/post1`, `/blog/category/tech`)
-2. **Prefix matching**: Pattern acts as prefix (e.g., `/blog` matches `/blog`, `/blog/post1`, `/blogpost`) - implemented as `path.startswith(pattern)`
-3. **Exact matching**: Pattern matches exactly (e.g., `/contact` matches only `/contact`)
+1. **Path patterns**: Traditional path-based matching
+   - **Wildcard matching**: Use `*` for flexible patterns (e.g., `/blog/*` matches `/blog/post1`, `/blog/category/tech`)
+   - **Prefix matching**: Pattern acts as prefix (e.g., `/blog` matches `/blog`, `/blog/post1`, `/blogpost`) - implemented as `path.startswith(pattern)`
+   - **Exact matching**: Pattern matches exactly (e.g., `/contact` matches only `/contact`)
 
-**Note**: The matching logic combines both fnmatch wildcard support and prefix matching. A URL path matches a pattern if either the wildcard pattern matches OR the path starts with the pattern string.
+2. **Full URL patterns**: Complete URL-based matching
+   - **Domain matching**: Full URL patterns only apply to URLs with matching domains
+   - **Path extraction**: Domain-specific path is extracted and matched using the same logic as path patterns
+   - **Examples**: `https://example.com/blog/*` only matches URLs on `example.com` domain with paths starting with `/blog/`
+
+**Note**: The matching logic combines both fnmatch wildcard support and prefix matching. A URL matches a pattern if either the wildcard pattern matches OR the path starts with the pattern string. For full URL patterns, domain matching is enforced first.
 
 **Homepage Exception**: Homepage URLs (`/`, `/index.html`, `/home`, etc.) are always allowed in `should_follow_link` unless explicitly forbidden in `exclude_paths`. This ensures the crawler can start from and return to homepages even with restrictive include patterns.
 
@@ -335,6 +341,32 @@ But will skip:
 
 **Note**: Blog classification is automatically disabled since `include_only_paths` is specified.
 
+#### Include Using Full URL Patterns
+```json
+{
+  "input": {
+    "start_urls": ["https://example.com", "https://blog.example.com"],
+    "allowed_domains": ["example.com", "blog.example.com"],
+    "max_processed_urls_per_domain": 100,
+    "include_only_paths": [
+      "https://example.com/blog/*",
+      "https://blog.example.com/posts/*",
+      "/news"
+    ]
+  }
+}
+```
+This will crawl:
+- Homepage (`/`) on both domains - homepage exception
+- `https://example.com/blog/anything` - full URL pattern match on example.com
+- `https://blog.example.com/posts/anything` - full URL pattern match on blog.example.com  
+- `/news` on both domains - path pattern match
+
+But will skip:
+- `https://example.com/about` - doesn't match full URL patterns for example.com
+- `https://blog.example.com/about` - doesn't match full URL patterns for blog.example.com
+- `https://example.com/posts/anything` - full URL pattern specifies blog.example.com only
+
 #### Exclude Admin and API Endpoints
 ```json
 {
@@ -491,6 +523,8 @@ The node returns a filtered preview of each document with safe, high-signal fiel
 4. **Test patterns carefully** - verify they match the intended URL structure
 5. **Combine strategically** - use both include/exclude for precise control
 6. **Consider prefix matching** - pattern `/blog` catches `/blog`, `/blog/posts`, `/blogroll`
+7. **Use full URL patterns for multi-domain precision** - when crawling multiple domains, use full URL patterns to target specific paths on specific domains
+8. **Mix pattern types** - combine path patterns (apply to all domains) with full URL patterns (domain-specific) for flexible control
 
 ## Example Graph Schema Integration
 
@@ -573,6 +607,8 @@ The node returns a filtered preview of each document with safe, high-signal fiel
 - **Too few results with include_only_paths**: Check if patterns are too restrictive or don't match actual URL structure
 - **Patterns not working**: Verify URL paths start with `/` and patterns use correct syntax
 - **Homepage blocked unexpectedly**: Check if homepage is explicitly listed in `exclude_paths`
+- **Full URL patterns not matching**: Verify the domain in the full URL pattern exactly matches the target domain (case-sensitive)
+- **Mixed domains with full URL patterns**: Remember that full URL patterns only apply to their specific domain - use path patterns for cross-domain matching
 - **Debug path matching**: Enable debug logging to see which URLs are blocked by path filtering
 
 ### Allowed Domains Behavior
@@ -580,8 +616,10 @@ The node returns a filtered preview of each document with safe, high-signal fiel
 - Include subdomains explicitly (e.g., `blog.example.com`) if you need to restrict crawling to specific subdomains. When omitted, the spider allows subdomains of the base domain.
 
 ### Path Filtering Behavior
-- **Pattern Matching**: Supports both fnmatch wildcard (`*`) and prefix matching via `startswith()`. Pattern `/blog` matches `/blog`, `/blog/post1`, `/blogpost`.
+- **Pattern Types**: Supports both path patterns (`/blog`, `/admin/*`) and full URL patterns (`https://example.com/blog`, `http://site.com/admin/*`).
+- **Pattern Matching**: Uses fnmatch wildcard (`*`) and prefix matching via `startswith()`. Pattern `/blog` matches `/blog`, `/blog/post1`, `/blogpost`.
+- **Domain Filtering**: Full URL patterns only match URLs with exactly matching domains (case-sensitive).
 - **Path Normalization**: All paths are normalized to start with `/` before matching.
 - **Priority**: Exclude patterns always take precedence over include patterns.
 - **Homepage Exception**: Homepage URLs are allowed in link following unless explicitly excluded.
-- **Implementation Detail**: A path matches if either `fnmatch.fnmatch(path, pattern)` returns True OR `path.startswith(pattern)` returns True.
+- **Implementation Detail**: A path matches if either `fnmatch.fnmatch(path, pattern)` returns True OR `path.startswith(pattern)` returns True. For full URLs, domain must match first.

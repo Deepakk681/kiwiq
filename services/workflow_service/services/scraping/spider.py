@@ -729,9 +729,10 @@ class BaseProcessor:
         self.perform_technical_seo = kwargs.get('perform_technical_seo')
         self.disable_html_dump_in_data = kwargs.get('disable_html_dump_in_data')
         # Path filtering configurations
-        self.include_only_paths = kwargs.get('include_only_paths', None) or []  # List of path patterns to include
+        # Supports both path patterns ('/blog/*') and full URL patterns ('https://example.com/blog/*')
+        self.include_only_paths = kwargs.get('include_only_paths', None) or []  # List of path patterns or full URLs to include
         self.include_only_paths = sorted(list(set([path.strip() for path in self.include_only_paths])))
-        self.exclude_paths = kwargs.get('exclude_paths', None) or []  # List of path patterns to exclude
+        self.exclude_paths = kwargs.get('exclude_paths', None) or []  # List of path patterns or full URLs to exclude
         self.exclude_paths = sorted(list(set([path.strip() for path in self.exclude_paths])))
     
     def _is_homepage_url(self, url: str) -> bool:
@@ -767,11 +768,16 @@ class BaseProcessor:
         """
         Check if URL path matches any of the given patterns.
         
-        Supports wildcard matching using * character.
+        Supports both path patterns and full URL patterns:
+        - Path patterns: '/blog/*', '/news', '/articles/*' 
+        - Full URL patterns: 'https://example.com/blog/*', 'http://site.com/news'
+        
+        For full URL patterns, the domain must match the target URL's domain.
+        Uses wildcard matching with * character and prefix matching.
         
         Args:
             url: URL to check
-            patterns: List of path patterns (e.g., ['/blog/*', '/news/*'])
+            patterns: List of path patterns or full URL patterns
             
         Returns:
             True if URL path matches any pattern
@@ -785,6 +791,7 @@ class BaseProcessor:
             
             parsed = urlparse(url)
             path = parsed.path
+            domain = parsed.netloc
             
             # Ensure path starts with /
             if not path.startswith('/'):
@@ -793,15 +800,26 @@ class BaseProcessor:
             # Check each pattern
             for pattern in patterns:
                 # Ensure pattern starts with /
-                if not pattern.startswith('/'):
-                    pattern = '/' + pattern
-                    
-                # Use fnmatch for wildcard support
-                if fnmatch.fnmatch(path, pattern):
+                to_match_pattern = pattern
+
+                is_http_full_url_pattern = (pattern.startswith("http://") or pattern.startswith("https://"))
+                if is_http_full_url_pattern:
+                    parsed_pattern = urlparse(pattern)
+                    domain_pattern = parsed_pattern.netloc
+                    if domain_pattern != domain:
+                        continue
+                    # Extract path component from full URL pattern
+                    to_match_pattern = parsed_pattern.path
+
+                if not to_match_pattern.startswith('/'):
+                    to_match_pattern = '/' + to_match_pattern
+                
+                # Also check if the pattern matches exactly
+                if (path and path.startswith(to_match_pattern)) or (is_http_full_url_pattern and url.startswith(pattern)):
                     return True
                     
-                # Also check if the pattern matches exactly
-                if path and path.startswith(pattern):
+                # Use fnmatch for wildcard support
+                if fnmatch.fnmatch(path, to_match_pattern):
                     return True
                     
             return False
