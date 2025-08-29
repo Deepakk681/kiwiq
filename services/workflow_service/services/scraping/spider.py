@@ -728,7 +728,115 @@ class BaseProcessor:
         self._date_parser: Optional[PageDateParser] = kwargs.get('date_parser')
         self.perform_technical_seo = kwargs.get('perform_technical_seo')
         self.disable_html_dump_in_data = kwargs.get('disable_html_dump_in_data')
+        # Path filtering configurations
+        self.include_paths = kwargs.get('include_paths', None)  # List of path patterns to include
+        self.exclude_paths = kwargs.get('exclude_paths', None)  # List of path patterns to exclude
     
+    def _is_homepage_url(self, url: str) -> bool:
+        """
+        Check if the given URL represents a homepage.
+        
+        A homepage is considered to be:
+        - Root path ("/")
+        - Empty path ("")
+        - Just domain without path
+        - Common homepage patterns like /index.html, /home, etc.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if URL appears to be a homepage
+        """
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            path = parsed.path.strip('/')
+            
+            # Root paths are homepages
+            if not path or path in ['', 'index.html', 'index.htm', 'home', 'index.php']:
+                return True
+            
+            return False
+        except Exception:
+            return False
+    
+    def _matches_path_pattern(self, url: str, patterns: List[str]) -> bool:
+        """
+        Check if URL path matches any of the given patterns.
+        
+        Supports wildcard matching using * character.
+        
+        Args:
+            url: URL to check
+            patterns: List of path patterns (e.g., ['/blog/*', '/news/*'])
+            
+        Returns:
+            True if URL path matches any pattern
+        """
+        if not patterns:
+            return False
+            
+        try:
+            from urllib.parse import urlparse
+            import fnmatch
+            
+            parsed = urlparse(url)
+            path = parsed.path
+            
+            # Ensure path starts with /
+            if not path.startswith('/'):
+                path = '/' + path
+            
+            # Check each pattern
+            for pattern in patterns:
+                # Ensure pattern starts with /
+                if not pattern.startswith('/'):
+                    pattern = '/' + pattern
+                    
+                # Use fnmatch for wildcard support
+                if fnmatch.fnmatch(path, pattern):
+                    return True
+                    
+                # Also check if the pattern matches exactly
+                if path and path.startswith(pattern):
+                    return True
+                    
+            return False
+        except Exception:
+            return False
+    
+    def _should_filter_by_path(self, url: str, allow_homepage_exception: bool = True) -> bool:
+        """
+        Check if URL should be filtered based on include/exclude path patterns.
+        
+        Args:
+            url: URL to check
+            allow_homepage_exception: If True, always allow homepage URLs unless explicitly excluded
+            
+        Returns:
+            True if URL should be filtered (blocked), False if URL should be allowed
+        """
+        # Check if it's a homepage and we have the exception enabled
+        is_homepage = allow_homepage_exception and self._is_homepage_url(url)
+        
+        # If exclude_paths are specified, check if URL is excluded
+        if self.exclude_paths:
+            is_excluded = self._matches_path_pattern(url, self.exclude_paths)
+            if is_excluded:
+                # Even homepages are filtered if explicitly excluded
+                return True
+        
+        # If include_paths are specified, URL must match to be allowed
+        if self.include_paths:
+            is_included = self._matches_path_pattern(url, self.include_paths)
+            if not is_included and not is_homepage:
+                # URL doesn't match include patterns and is not a homepage
+                return True
+        
+        # URL passes all path filtering checks
+        return False
+
     def on_response(self, response: Response, spider: Spider) -> Dict[str, Any]:
         """
         Process response and extract data.
@@ -786,7 +894,8 @@ class BaseProcessor:
         """
         Determine if a link should be followed.
         
-        This method now checks robots.txt rules before allowing a link to be followed.
+        This method checks domain restrictions, robots.txt rules, path filtering,
+        and file extensions before allowing a link to be followed.
         
         Args:
             url: URL to potentially follow
@@ -799,6 +908,11 @@ class BaseProcessor:
         url_domain = parse_domain_from_url(url)
         if not any(domain in url_domain for domain in self.allowed_domains):
             spider.logger.debug(f"URL not in allowed domains: {url} - {url_domain} - {self.allowed_domains}")
+            return False
+        
+        # Check path filtering (with homepage exception)
+        if self._should_filter_by_path(url, allow_homepage_exception=True):
+            spider.logger.debug(f"URL blocked by path filtering: {url}")
             return False
         
         # Check robots.txt if we have a robots cache
@@ -829,6 +943,12 @@ class BaseProcessor:
         """
         # Check response status
         if response.status >= 400:
+            return False
+            
+        # Check path filtering (without homepage exception for processing)
+        # We want to be more strict here since this is about processing content
+        if self._should_filter_by_path(response.url, allow_homepage_exception=True):
+            spider.logger.debug(f"Response blocked by path filtering: {response.url}")
             return False
             
         # Check if we have meaningful content
@@ -952,6 +1072,9 @@ class GenericSpider(Spider):
         processor_init_params['date_parser'] = self._date_parser
         processor_init_params['perform_technical_seo'] = self.perform_technical_seo
         processor_init_params['disable_html_dump_in_data'] = self.disable_html_dump_in_data
+        # Pass path filtering configurations to processor
+        processor_init_params['include_paths'] = self.job_config.get('include_paths')
+        processor_init_params['exclude_paths'] = self.job_config.get('exclude_paths')
         
         # Initialize processor with parameters
         self.processor = processor_class(**processor_init_params)
@@ -1090,20 +1213,21 @@ class GenericSpider(Spider):
         if self.crawl_sitemaps:
             for url, metadata in all_sitemap_pages.items():
                 # Include sitemap metadata in request meta
-                request_meta = {
-                    'is_start_url': False, 
-                    'depth': 0, 
-                    "from_sitemap": True,
-                    'url_last_modified': metadata.get('url_last_modified'),
-                    'sitemap_priority': metadata.get('sitemap_priority'),
-                    'sitemap_changefreq': metadata.get('sitemap_changefreq')
-                }
-                yield Request(
-                    url,
-                    callback=self.parse,
-                    meta=request_meta,
-                    priority = self.processor.get_link_priority(url, 0, None, self),
-                )
+                if self.processor.should_follow_link(url, None, self):
+                    request_meta = {
+                        'is_start_url': False, 
+                        'depth': 0, 
+                        "from_sitemap": True,
+                        'url_last_modified': metadata.get('url_last_modified'),
+                        'sitemap_priority': metadata.get('sitemap_priority'),
+                        'sitemap_changefreq': metadata.get('sitemap_changefreq')
+                    }
+                    yield Request(
+                        url,
+                        callback=self.parse,
+                        meta=request_meta,
+                        priority = self.processor.get_link_priority(url, 0, None, self),
+                    )
         # Note: robots analysis is attached to stats on spider close
     
     def _check_processed_limit(self, response: Response, domain: str) -> bool:
