@@ -810,12 +810,14 @@ class BaseProcessor:
                         continue
                     # Extract path component from full URL pattern
                     to_match_pattern = parsed_pattern.path
+                    if not to_match_pattern:
+                        to_match_pattern = '/'
 
                 if not to_match_pattern.startswith('/'):
                     to_match_pattern = '/' + to_match_pattern
                 
                 # Also check if the pattern matches exactly
-                if (path and path.startswith(to_match_pattern)) or (is_http_full_url_pattern and url.startswith(pattern)):
+                if (path and path.startswith(to_match_pattern)):
                     return True
                     
                 # Use fnmatch for wildcard support
@@ -2033,6 +2035,7 @@ def run_scraping_job(job_config: Dict[str, Any], use_prefect_logging: bool = Fal
     settings.set('BROWSER_POOL_TIMEOUT', job_config.get('browser_pool_timeout', scraping_settings.BROWSER_POOL_TIMEOUT))
     settings.set('BROWSER_POOL_INTERCEPT_MEDIA', job_config.get('browser_pool_intercept_media', scraping_settings.BROWSER_POOL_INTERCEPT_MEDIA))
     settings.set('BROWSER_POOL_INTERCEPT_IMAGES', job_config.get('browser_pool_intercept_images', scraping_settings.BROWSER_POOL_INTERCEPT_IMAGES))
+    settings.set('BROWSER_POOL_PAGE_LOADING_TIMEOUT', job_config.get('browser_pool_page_loading_timeout', scraping_settings.BROWSER_POOL_PAGE_LOADING_TIMEOUT))
     settings.set('BROWSER_POOL_PROXY_COUNTRY', job_config.get('browser_pool_proxy_country', scraping_settings.BROWSER_POOL_PROXY_COUNTRY))
     settings.set('BROWSER_POOL_MAX_FALLBACKS_PER_JOB', job_config.get('browser_pool_max_fallbacks_per_job', scraping_settings.BROWSER_POOL_MAX_FALLBACKS_PER_JOB))
     

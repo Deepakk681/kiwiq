@@ -835,7 +835,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 
                 filtered_sample = [self._allowlist_output_item(doc, clean_markdown=self.config.clean_markdown) for doc in scraped_sample]
 
-                if len(filtered_sample) >= input_data.max_processed_urls_per_domain // 2:
+                min_cache_size = 5
+                if len(filtered_sample) >= min_cache_size:
 
                     # Optional filtering by blog classification
                     if self.config.classify_pages_as_blog:
@@ -873,7 +874,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                         robots_analysis=robots_analysis_cached,
                     )
                 else:
-                    self.warning(f"Cached sample is too small to be useful: {len(filtered_sample)} < {input_data.max_processed_urls_per_domain // 2}")
+                    self.warning(f"Cached sample is too small to be useful: {len(filtered_sample)} < {min_cache_size}")
                     # Continue with a fresh run
         
         # Build job configuration

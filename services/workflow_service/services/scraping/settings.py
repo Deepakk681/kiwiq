@@ -27,10 +27,11 @@ class ScrapingSettings(Settings):
     USE_IN_MEMORY_QUEUE: bool = True  # Use in-memory storage instead of Redis (suitable for single-process deployments)
 
     # Browser Pool Configuration for backup scraping strategy
-    BROWSER_POOL_ENABLED: bool = False  # Enable browser pool as backup scraping strategy
-    BROWSER_POOL_SIZE: int = 5  # Maximum number of browsers to maintain in pool
-    BROWSER_POOL_LOCAL_CONCURRENCY_LIMIT: int = 5  # Local concurrency limit for browser pool operations
-    BROWSER_POOL_TIMEOUT: int = 30  # Timeout in seconds for browser acquisition
+    BROWSER_POOL_ENABLED: bool = True  # Enable browser pool as backup scraping strategy
+    BROWSER_POOL_SIZE: int = 20  # Maximum number of browsers to maintain in pool
+    BROWSER_POOL_LOCAL_CONCURRENCY_LIMIT: int = 20  # Local concurrency limit for browser pool operations
+    BROWSER_POOL_TIMEOUT: int = 100  # Timeout in seconds for browser acquisition
+    BROWSER_POOL_PAGE_LOADING_TIMEOUT: int = 10  # Timeout in seconds for page loading
     BROWSER_POOL_SESSION_TTL: int = 900  # Session TTL in seconds (15 minutes)
     BROWSER_POOL_PERSIST_PROFILE: bool = False  # Whether to persist browser profiles
     BROWSER_POOL_INTERCEPT_MEDIA: bool = True  # Block media resources to save bandwidth
@@ -38,7 +39,7 @@ class ScrapingSettings(Settings):
     BROWSER_POOL_PROXY_COUNTRY: str = "US"  # Default proxy country for browsers
     
     # Browser pool fallback limits
-    BROWSER_POOL_MAX_FALLBACKS_PER_JOB: int = 10  # Maximum browser fallbacks allowed per job (expensive operation)
+    BROWSER_POOL_MAX_FALLBACKS_PER_JOB: int = 100  # Maximum browser fallbacks allowed per job (expensive operation)
     BROWSER_POOL_FALLBACK_COUNTER_KEY_PATTERN: str = "browser_fallback_count:{spider}:{job}"  # Key pattern for tracking fallback usage
     
     # Proxy tier fallback limits

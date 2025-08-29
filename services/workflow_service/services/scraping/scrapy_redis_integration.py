@@ -1297,6 +1297,8 @@ class TieredDownloadHandler:
         # Check status codes
         if response.status in self.browser_pool_trigger_codes:
             return (True, f"status_{response.status}")
+
+        return (False, None)
         
         # if response.status == 404:
         #     return False
@@ -1386,8 +1388,14 @@ class TieredDownloadHandler:
                 spider.prefect_logger.debug(f"Browser acquired from pool for {request.url}")
                 
                 # Navigate to the URL
-                timeout_ms = self.settings.getint('BROWSER_POOL_TIMEOUT', scraping_settings.BROWSER_POOL_TIMEOUT) * 1000
-                await browser.page.goto(request.url, timeout=timeout_ms, wait_until='load')
+                timeout_ms = self.settings.getint('BROWSER_POOL_PAGE_LOADING_TIMEOUT', scraping_settings.BROWSER_POOL_PAGE_LOADING_TIMEOUT) * 1000
+                try:
+                    await browser.page.goto(request.url, timeout=timeout_ms, wait_until='load')
+                except (asyncio.TimeoutError, Exception) as e:
+                    spider.prefect_logger.error(f"Browser pool timeout for {request.url}: {e}")
+                    if self.stats:
+                        self.stats.inc_value('downloader/browser_pool/render_success/caught_timeout', spider=spider)
+                
                 
                 # Get the page content
                 html = await browser.page.content()
