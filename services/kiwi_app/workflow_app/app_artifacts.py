@@ -651,7 +651,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "company_name": null,
         "user_input": null,
-        "brief_uuid": null
+        "brief_uuid": null,
+        "initial_status": "draft"
         },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -662,7 +663,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
           "post_uuid": null,
         "company_name": null,
-        "brief_docname": null
+        "brief_docname": null,
+        "initial_status": "draft"
       },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -673,7 +675,10 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "company_name": null,
         "original_blog": null,
-        "route_all_choices": true
+        "route_all_choices": true,
+        "post_uuid": null,
+        "initial_status": "draft"
+        
       },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -684,7 +689,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "original_post": null,
         "entity_username": null,
-        "route_all_choices": true
+        "route_all_choices": true,
+        "initial_status": "draft"
       },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -707,7 +713,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "post_uuid": null,
         "entity_username": null,
-        "brief_docname": null
+        "brief_docname": null,
+        "initial_status": "draft"
       },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -811,6 +818,117 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "user_documents_config_variables": {},
       "template_specific": false
     },
+    "LITE_linkedin_linkedin_scraping_workflow": {
+      "name": "linkedin_linkedin_scraping_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "entity_url": null
+      },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
+    "LITE_linkedin_linkedin_content_analysis_workflow": {
+      "name": "linkedin_linkedin_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+      },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
+    "LITE_linkedin_content_playbook_workflow": {
+      "name": "linkedin_content_playbook_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_deep_research_workflow": {
+      "name": "deep_research_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_blog_content_analysis_workflow": {
+      "name": "blog_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "funnel_stages_input": [
+        {"stage_id": "awareness", "stage_name": "Awareness", "stage_description": "Top of funnel - building brand awareness"},
+        {"stage_id": "consideration", "stage_name": "Consideration", "stage_description": "Middle of funnel - evaluating solutions"},
+        {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
+        {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
+    ],
+        "start_urls": null,
+        "allowed_domains": null,
+        "max_urls_per_domain": 250,
+        "max_processed_urls_per_domain": 200,
+        "max_crawl_depth": 3,
+        "use_cached_scraping_results": true,
+        "cache_lookback_period_days": 7,
+        "is_shared": false
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_company_ai_visibility_workflow": {
+      "name": "company_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_executive_ai_visibility_workflow": {
+      "name": "executive_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_blog_competitor_content_analysis_workflow": {
+      "name": "blog_competitor_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_orchestrator_workflow": {
+      "name": "orchestrator_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null,
+        "linkedin_profile_url": null,
+        "company_url": null,
+        "blog_start_urls": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
     "blog_content_calendar_entry": {
       "name": "blog_content_calendar_entry",
       "version": null,
@@ -838,7 +956,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "entity_username": null,
         "selected_topic": null,
-        "brief_uuid": null
+        "brief_uuid": null,
+        "initial_status": "draft"
         },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -849,7 +968,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "inputs": {
         "company_name": null,
         "selected_topic": null,
-        "brief_uuid": null
+        "brief_uuid": null,
+        "initial_status": "draft"
         },
       "user_documents_config_variables": {},
       "template_specific": false
