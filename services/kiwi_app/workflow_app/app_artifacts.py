@@ -767,7 +767,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "max_crawl_depth": 3,
         "use_cached_scraping_results": true,
         "cache_lookback_period_days": 7,
-        "is_shared": false
+        "is_shared": false,
+        "include_only_paths": null
       },
       "user_documents_config_variables": {},
       "template_specific": false
@@ -813,13 +814,14 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "run_linkedin_exec": null,
         "linkedin_profile_url": null,
         "company_url": null,
-        "blog_start_urls": null
+        "blog_start_urls": null,
+        "include_only_paths": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
     },
     "LITE_linkedin_linkedin_scraping_workflow": {
-      "name": "linkedin_linkedin_scraping_workflow",
+      "name": "LITE_linkedin_linkedin_scraping_workflow",
       "version": null,
       "inputs": {
         "entity_username": null,
@@ -830,7 +832,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_linkedin_linkedin_content_analysis_workflow": {
-      "name": "linkedin_linkedin_content_analysis_workflow",
+      "name": "LITE_linkedin_linkedin_content_analysis_workflow",
       "version": null,
       "inputs": {
         "entity_username": null
@@ -840,7 +842,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_linkedin_content_playbook_workflow": {
-      "name": "linkedin_content_playbook_workflow",
+      "name": "LITE_linkedin_content_playbook_workflow",
       "version": null,
       "inputs": {
         "entity_username": null
@@ -849,7 +851,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_deep_research_workflow": {
-      "name": "deep_research_workflow",
+      "name": "LITE_deep_research_workflow",
       "version": null,
       "inputs": {
         "company_name": null,
@@ -861,7 +863,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_blog_content_analysis_workflow": {
-      "name": "blog_content_analysis_workflow",
+      "name": "LITE_blog_content_analysis_workflow",
       "version": null,
       "inputs": {
         "company_name": null,
@@ -878,13 +880,14 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "max_crawl_depth": 3,
         "use_cached_scraping_results": true,
         "cache_lookback_period_days": 7,
-        "is_shared": false
+        "is_shared": false,
+        "include_only_paths": null
       },
       "user_documents_config_variables": {},
       "template_specific": false
     },
     "LITE_company_ai_visibility_workflow": {
-      "name": "company_ai_visibility_workflow",
+      "name": "LITE_company_ai_visibility_workflow",
       "version": null,
       "inputs": {
         "company_name": null,
@@ -895,7 +898,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_executive_ai_visibility_workflow": {
-      "name": "executive_ai_visibility_workflow",
+      "name": "LITE_executive_ai_visibility_workflow",
       "version": null,
       "inputs": {
         "entity_username": null,
@@ -906,7 +909,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_blog_competitor_content_analysis_workflow": {
-      "name": "blog_competitor_content_analysis_workflow",
+      "name": "LITE_blog_competitor_content_analysis_workflow",
       "version": null,
       "inputs": {
         "company_name": null
@@ -915,7 +918,7 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
       "template_specific": false
     },
     "LITE_orchestrator_workflow": {
-      "name": "orchestrator_workflow",
+      "name": "LITE_orchestrator_workflow",
       "version": null,
       "inputs": {
         "company_name": null,
@@ -924,7 +927,8 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "run_linkedin_exec": null,
         "linkedin_profile_url": null,
         "company_url": null,
-        "blog_start_urls": null
+        "blog_start_urls": null,
+        "include_only_paths": null
         },
       "user_documents_config_variables": {},
       "template_specific": false
