@@ -146,8 +146,8 @@ async def handle_flow_crash(flow: Flow, flow_run: FlowRun, state: State, crashed
     # persist_result=False,
     # # TODO: persist_result and result_storage configs!
     timeout_seconds=settings.WORKFLOW_TIMEOUT_SECONDS,
-    on_crashed=partial(handle_flow_crash, crashed=True),
-    on_cancellation=partial(handle_flow_crash, crashed=False),
+    on_crashed=[partial(handle_flow_crash, crashed=True)],
+    on_cancellation=[partial(handle_flow_crash, crashed=False)],
 )
 async def workflow_execution_flow(
     run_job: wf_schemas.WorkflowRunJobCreate
