@@ -729,7 +729,7 @@ class BaseProcessor:
         self.perform_technical_seo = kwargs.get('perform_technical_seo')
         self.disable_html_dump_in_data = kwargs.get('disable_html_dump_in_data')
         # Path filtering configurations
-        self.include_paths = kwargs.get('include_paths', None)  # List of path patterns to include
+        self.include_only_paths = kwargs.get('include_only_paths', None)  # List of path patterns to include
         self.exclude_paths = kwargs.get('exclude_paths', None)  # List of path patterns to exclude
     
     def _is_homepage_url(self, url: str) -> bool:
@@ -827,9 +827,9 @@ class BaseProcessor:
                 # Even homepages are filtered if explicitly excluded
                 return True
         
-        # If include_paths are specified, URL must match to be allowed
-        if self.include_paths:
-            is_included = self._matches_path_pattern(url, self.include_paths)
+        # If include_only_paths are specified, URL must match to be allowed
+        if self.include_only_paths:
+            is_included = self._matches_path_pattern(url, self.include_only_paths)
             if not is_included and not is_homepage:
                 # URL doesn't match include patterns and is not a homepage
                 return True
@@ -1073,7 +1073,7 @@ class GenericSpider(Spider):
         processor_init_params['perform_technical_seo'] = self.perform_technical_seo
         processor_init_params['disable_html_dump_in_data'] = self.disable_html_dump_in_data
         # Pass path filtering configurations to processor
-        processor_init_params['include_paths'] = self.job_config.get('include_paths')
+        processor_init_params['include_only_paths'] = self.job_config.get('include_only_paths')
         processor_init_params['exclude_paths'] = self.job_config.get('exclude_paths')
         
         # Initialize processor with parameters

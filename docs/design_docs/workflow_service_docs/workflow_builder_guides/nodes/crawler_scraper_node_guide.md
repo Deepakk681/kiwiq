@@ -95,8 +95,8 @@ Notes:
 
 Control which URL paths are crawled and processed using include/exclude patterns.
 
-- `include_paths` (Optional[List[str]], default `None`): List of URL path patterns to include during crawling. If specified, only URLs matching these patterns will be followed and processed. Supports both wildcard patterns using `*` (e.g., `/blog/*`, `/news/*`) and prefix matching (e.g., `/blog` matches `/blog/post1`, `/blog/category/tech`). Homepage URLs are always included unless explicitly excluded.
-- `exclude_paths` (Optional[List[str]], default `None`): List of URL path patterns to exclude during crawling. URLs matching these patterns will not be followed or processed. Supports both wildcard patterns using `*` (e.g., `/admin/*`, `/api/*`) and prefix matching (e.g., `/admin` excludes `/admin/dashboard`, `/admin/users`). Takes precedence over `include_paths`.
+- `include_only_paths` (Optional[List[str]], default `None`): List of URL path patterns to include during crawling. If specified, only URLs matching these patterns will be followed and processed. Supports both wildcard patterns using `*` (e.g., `/blog/*`, `/news/*`) and prefix matching (e.g., `/blog` matches `/blog/post1`, `/blog/category/tech`). Homepage URLs are always included unless explicitly excluded.
+- `exclude_paths` (Optional[List[str]], default `None`): List of URL path patterns to exclude during crawling. URLs matching these patterns will not be followed or processed. Supports both wildcard patterns using `*` (e.g., `/admin/*`, `/api/*`) and prefix matching (e.g., `/admin` excludes `/admin/dashboard`, `/admin/users`). Takes precedence over `include_only_paths`.
 
 **Pattern Matching Logic**:
 1. **Wildcard matching**: Use `*` for flexible patterns (e.g., `/blog/*` matches `/blog/post1`, `/blog/category/tech`)
@@ -299,7 +299,7 @@ The node provides comprehensive information about the scraping operation and res
 ```json
 {
   "node_config": {
-    "include_paths": ["/blog", "/news", "/articles/*", "/posts/*"]
+    "include_only_paths": ["/blog", "/news", "/articles/*", "/posts/*"]
   },
   "input": {
     "start_urls": ["https://example.com"],
@@ -340,7 +340,7 @@ This will crawl everything except:
 ```json
 {
   "node_config": {
-    "include_paths": ["/docs", "/help", "/support"],
+    "include_only_paths": ["/docs", "/help", "/support"],
     "exclude_paths": ["/docs/internal", "/help/admin"]
   },
   "input": {
@@ -364,7 +364,7 @@ But will skip:
 ```json
 {
   "node_config": {
-    "include_paths": ["/blog"],
+    "include_only_paths": ["/blog"],
     "exclude_paths": ["/", "/index.html"]
   },
   "input": {
@@ -556,7 +556,7 @@ The node returns a filtered preview of each document with safe, high-signal fiel
 - **Note**: Browser pool settings are system-wide, not per-job configurable 
  
 ### Path Filtering Issues
-- **Too few results with include_paths**: Check if patterns are too restrictive or don't match actual URL structure
+- **Too few results with include_only_paths**: Check if patterns are too restrictive or don't match actual URL structure
 - **Patterns not working**: Verify URL paths start with `/` and patterns use correct syntax
 - **Homepage blocked unexpectedly**: Check if homepage is explicitly listed in `exclude_paths`
 - **Debug path matching**: Enable debug logging to see which URLs are blocked by path filtering

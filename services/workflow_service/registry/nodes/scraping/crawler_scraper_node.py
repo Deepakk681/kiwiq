@@ -279,7 +279,7 @@ class CrawlerScraperConfig(BaseNodeConfig):
     )
 
     # Path filtering
-    include_paths: Optional[List[str]] = Field(
+    include_only_paths: Optional[List[str]] = Field(
         default=None,
         description=(
             "List of URL path patterns to include during crawling. "
@@ -294,7 +294,7 @@ class CrawlerScraperConfig(BaseNodeConfig):
             "List of URL path patterns to exclude during crawling. "
             "URLs matching these patterns will not be followed or processed. "
             "Supports wildcard patterns using * (e.g., '/admin/*', '/api/*'). "
-            "Takes precedence over include_paths."
+            "Takes precedence over include_only_paths."
         ),
     )
 
@@ -907,7 +907,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             'blog_classifier_max_length': self.config.blog_classifier_max_length,
 
             # Path filtering configuration
-            'include_paths': self.config.include_paths,
+            'include_only_paths': self.config.include_only_paths,
             'exclude_paths': self.config.exclude_paths,
 
             # MongoDB pipeline - CRITICAL: Set these for the pipeline to work
