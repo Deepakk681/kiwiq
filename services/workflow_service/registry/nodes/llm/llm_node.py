@@ -197,6 +197,7 @@ class ToolCall(BaseSchema):
 
 class Citation(BaseSchema):
     """Represents a citation from web search results."""
+    citation_number: Optional[str] = Field(None, description="Citation number (referenced as [CITATION_NUMBER])")
     url: Optional[str] = Field(None, description="URL of the source")
     title: Optional[str] = Field(None, description="Title of the source")
     snippet: Optional[str] = Field(None, description="Relevant snippet from the source")
@@ -2233,9 +2234,10 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # Perplexity new format!
         elif 'search_results' in additional_kwargs:
             search_results = additional_kwargs.get('search_results', [])
-            for search_result in search_results:
+            for idx, search_result in enumerate(search_results):
                 citations.append(
                     Citation(
+                        citation_number=f"[{idx + 1}]",
                         url=search_result.get('url', None),
                         title=search_result.get('title', None),
                         snippet=search_result.get('snippet', None),
