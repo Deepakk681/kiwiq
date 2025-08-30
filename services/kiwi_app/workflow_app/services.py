@@ -428,7 +428,7 @@ class WorkflowService:
                 streaming_mode=run_submit.streaming_mode,
                 # is_subflow=run_submit.parent_run_id is not None,
                 parent_run_id=run_submit.parent_run_id,
-                retry_count=run_submit.retry_count or 0,
+                retry_count=workflow_run.retry_count or 0,
             )
             workflow_run = await self.workflow_run_dao.update(
                 db,
