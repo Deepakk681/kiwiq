@@ -1258,7 +1258,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
             logger=self,
         )
         if not resolved_path:
-            self.error(f"Could not resolve target path for item from input '{store_cfg.input_field_path}' (index: {item_index}). Skipping store.")
+            error_msg = f"Could not resolve target path for item from input '{store_cfg.input_field_path}' (index: {item_index}). Skipping store."
+            self.error(error_msg)
+            raise Exception(error_msg)
             return False, None, None # Return None for modified_doc_data on failure
         namespace, docname = resolved_path
 
@@ -1274,13 +1276,17 @@ class StoreCustomerDataNode(BaseDynamicNode):
             try:
                 on_behalf_of_user_id_uuid = uuid.UUID(on_behalf_id_str)
             except ValueError:
-                self.error(f"Invalid UUID format for on_behalf_of_user_id: '{on_behalf_id_str}' for doc '{namespace}/{docname}'. Skipping store.")
+                error_msg = f"Invalid UUID format for on_behalf_of_user_id: '{on_behalf_id_str}' for doc '{namespace}/{docname}'. Skipping store."
+                self.error(error_msg)
+                raise Exception(error_msg)
                 return False, None, None 
         # --- --- ---
 
         # --- Superuser Check --- #
         if on_behalf_of_user_id_uuid and not user.is_superuser:
-            self.error(f"User '{user.id}' is not a superuser and cannot use 'on_behalf_of_user_id'='{on_behalf_id_str}'. Skipping store for output field '{namespace}/{docname}'.")
+            error_msg = f"User '{user.id}' is not a superuser and cannot use 'on_behalf_of_user_id'='{on_behalf_id_str}'. Skipping store for output field '{namespace}/{docname}'."
+            self.error(error_msg)
+            raise Exception(error_msg)
             return False, None, None 
         # --- End Superuser Check --- #
 
@@ -1330,7 +1336,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
                     else:
                         self.info(f"Updated unversioned doc '{namespace}/{docname}'.")
                 else:
-                    self.error(f"Invalid operation '{versioning.operation.value}' for unversioned document '{namespace}/{docname}'.")
+                    error_msg = f"Invalid operation '{versioning.operation.value}' for unversioned document '{namespace}/{docname}'."
+                    self.error(error_msg)
+                    raise Exception(error_msg)
                     return False, None, None
 
             else:
@@ -1353,7 +1361,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
                         operation_str = f"initialize_versioned_{versioning.version or 'default'}"
                         self.info(f"Initialized versioned doc '{namespace}/{docname}' with version '{versioning.version or 'default'}'.")
                     else:
-                        self.error(f"Failed to initialize versioned doc '{namespace}/{docname}'. Check permissions (e.g., superuser for on_behalf_of) or if it already exists.")
+                        error_msg = f"Failed to initialize versioned doc '{namespace}/{docname}'. Check permissions (e.g., superuser for on_behalf_of) or if it already exists."
+                        self.error(error_msg)
+                        raise Exception(error_msg)
                         return False, None, None 
 
                 elif versioning.operation == StoreOperation.UPDATE:
@@ -1378,7 +1388,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
                         operation_str = f"update_versioned_{target_version or 'active'}"
                         self.info(f"Updated versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}).")
                     else:
-                        self.error(f"Failed to update versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}). Check permissions, if doc/version exists, or if superuser is required for on_behalf_of.")
+                        error_msg = f"Failed to update versioned doc '{namespace}/{docname}' (version: {target_version or 'active'}). Check permissions, if doc/version exists, or if superuser is required for on_behalf_of."
+                        self.error(error_msg)
+                        raise Exception(error_msg)
                         return False, None, None 
 
                 elif versioning.operation == StoreOperation.UPSERT_VERSIONED:
@@ -1409,7 +1421,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
                         operation_str = op_performed 
                         self.info(f"Upsert_versioned operation successful for doc '{namespace}/{docname}'. Action: {operation_str}")
                     except Exception as upsert_err:
-                        self.error(f"Upsert_versioned operation failed for doc '{namespace}/{docname}': {upsert_err}", exc_info=True)
+                        error_msg = f"Upsert_versioned operation failed for doc '{namespace}/{docname}': {upsert_err}"
+                        self.error(error_msg, exc_info=True)
+                        raise upsert_err
                         return False, None, None 
 
                 elif versioning.operation == StoreOperation.CREATE_VERSION:
@@ -1445,13 +1459,19 @@ class StoreCustomerDataNode(BaseDynamicNode):
                             operation_str = f"create_version_{new_version_name}"
                             self.info(f"Created and updated new version '{new_version_name}' for doc '{namespace}/{docname}'.")
                         else:
-                            self.error(f"Created new version '{new_version_name}' for doc '{namespace}/{docname}', but failed to update it with data. The version entry exists but is empty/incomplete. Check permissions.")
+                            error_msg = f"Created new version '{new_version_name}' for doc '{namespace}/{docname}', but failed to update it with data. The version entry exists but is empty/incomplete. Check permissions."
+                            self.error(error_msg)
+                            raise Exception(error_msg)
                             return False, None, None 
                     else:
-                        self.error(f"Failed to create new version entry '{new_version_name}' for doc '{namespace}/{docname}'. Does the document exist? Does the 'from_version' exist? Check permissions (e.g., superuser for on_behalf_of).")
+                        error_msg = f"Failed to create new version entry '{new_version_name}' for doc '{namespace}/{docname}'. Does the document exist? Does the 'from_version' exist? Check permissions (e.g., superuser for on_behalf_of)."
+                        self.error(error_msg)
+                        raise Exception(error_msg)
                         return False, None, None 
                 else:
-                    self.error(f"Unsupported operation '{versioning.operation.value}' for versioned document.")
+                    error_msg = f"Unsupported operation '{versioning.operation.value}' for versioned document."
+                    self.error(error_msg)
+                    raise Exception(error_msg)
                     return False, None, None
             
             if success_flag:
@@ -1477,10 +1497,12 @@ class StoreCustomerDataNode(BaseDynamicNode):
                 return True, (namespace, docname, operation_str, operation_params), processed_doc_data
             else:
                 # This path should ideally not be reached if specific failures return (False, None, None)
-                self.error(f"Reached end of storage logic without success for '{namespace}/{docname}' operation '{versioning.operation.value if versioning else 'unknown'}': {e}"
+                error_msg = (f"Reached end of storage logic without success for '{namespace}/{docname}' operation '{versioning.operation.value if versioning else 'unknown'}': {e}"
                                     f" (Permission denied - check superuser privileges if using on_behalf_of_user_id)"
                                     if hasattr(e, 'status_code') and e.status_code == 403 else
                                     f"This indicates an unexpected control flow issue or prior logged failure.")
+                self.error(error_msg)
+                raise Exception(error_msg)
                 return False, None, None
 
         except Exception as e:
@@ -1488,6 +1510,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
             if hasattr(e, 'status_code') and e.status_code == 403:
                 error_msg += " (Permission denied - check superuser privileges if using on_behalf_of_user_id)"
             self.error(error_msg, exc_info=True)
+            raise e
             return False, None, None
 
     async def process(
@@ -1544,7 +1567,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
             self.info(f"Attempting to load store configurations dynamically from input path: {self.config.store_configs_input_path}")
             config_data, found = _get_nested_obj(input_dict, self.config.store_configs_input_path)
             if not found:
-                self.error(f"Input path '{self.config.store_configs_input_path}' for store configs not found in input data. Cannot store any documents.")
+                error_msg = f"Input path '{self.config.store_configs_input_path}' for store configs not found in input data. Cannot store any documents."
+                self.error(error_msg)
+                raise Exception(error_msg)
                 any_failures = True # Mark failure but continue (maybe other static configs exist? No, validator prevents this)
                 # Need to decide whether to completely fail or just skip this dynamic part.
                 # For consistency with Load, let's return early.
@@ -1591,7 +1616,9 @@ class StoreCustomerDataNode(BaseDynamicNode):
             data_to_store, found = _get_nested_obj(input_dict, store_cfg.input_field_path)
 
             if not found:
-                self.warning(f"Input field '{store_cfg.input_field_path}' not found. Skipping store configuration.")
+                error_msg = f"Input field '{store_cfg.input_field_path}' not found. Skipping store configuration."
+                self.error(error_msg) 
+                raise Exception(error_msg)
                 any_failures = True
                 continue
 
@@ -1637,6 +1664,7 @@ class StoreCustomerDataNode(BaseDynamicNode):
                 elif not success:
                     # Log implicitly handled by _store_single_document
                     any_failures = True # Mark that at least one operation failed
+                    # raise Exception(f"Failed to store document at path '{path_info}' with final_doc_data_stored: {final_doc_data_stored}")
 
 
         if any_failures:
