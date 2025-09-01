@@ -134,6 +134,230 @@ class GraphOverridePayload(BaseModel):
             ]
         }
     }
+
+    # Payload for specific user / org; across all workflows (global override):
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "openai",
+                                        "model": "gpt-4.1-nano"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "openai",
+                                        "model": "gpt-4.1-nano"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+
+
+
+
+
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_id": "google_research_llm",
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "perplexity",
+                                        "model": "sonar-pro"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_id": "reddit_research_llm",
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "perplexity",
+                                        "model": "sonar-pro"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_id": "research_llm",
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "perplexity",
+                                        "model": "sonar-pro"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "workflow_name": "blog_content_calendar_entry",
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_id": "content_gap_finder_llm",
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "perplexity",
+                                        "model": "sonar-pro"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "workflow_name": "blog_content_optimisation_workflow",
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+
+
+
+
+    # TOOL calling for backup
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "openai",
+                                        "model": "gpt-4.1-nano"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "workflow_name": "blog_content_playbook_workflow",
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+    {
+        "override_graph_schema": {
+            "node_configs": [
+                        {
+                            "node_name": "llm",
+                            "node_config": {
+                                "llm_config": {
+                                    "model_spec": {
+                                        "provider": "openai",
+                                        "model": "gpt-4.1-nano"
+                                    }
+                                }
+                            }
+                        }]
+        },
+        "workflow_name": "linkedin_content_playbook_workflow",
+        "is_system_entity": false,
+        "user_id": "69bb8628-b83d-411e-a970-7d25a7cfaca9",
+        "org_id": "0b5e5a20-a7bd-44ea-aab1-a23325a9eed0",
+        "is_active": true,
+        "description": "frontend testing override to reduce workflow latency"
+    }
+
+
+    Web search:
+        workflow id: blog_brief_from_calendar_topic
+        node id:
+        google_research_llm
+        reddit_research_llm
+
+        workflow id: blog_content_calendar_entry
+        node id:
+        research_llm
+
+        workflow id : blog_content_optimisation_workflow
+        node id:
+        content_gap_finder_llm
+
+        workflow id: blog_user_input_to_brief_workflow
+        node id:
+        google_research_llm
+        reddit_research_llm
+
+    Tool calling workflows
+        blog_content_playbook_workflow
+        linkedin_content_playbook_workflow
+
     """
     node_configs: Optional[List[NodeOverrideCriteria]] = Field(None, description="List of specific node configurations to override.")
     

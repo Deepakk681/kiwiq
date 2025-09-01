@@ -968,7 +968,7 @@ async def delete_workflow(
     dependencies=[Depends(wf_deps.RequireWorkflowReadActiveOrg)] # Ensures user has read access to the base workflow
 )
 async def get_workflow_effective_config(
-    query_params: schemas.WorkflowEffectiveConfigQuery,
+    query_params: Annotated[schemas.WorkflowEffectiveConfigQuery, Query(...)],
     workflow_id: uuid.UUID = Path(..., description="The ID of the workflow"),
     active_org_id: uuid.UUID = Depends(get_active_org_id),
     current_user: User = Depends(get_current_active_verified_user), # get_current_active_verified_user instead of RequireWorkflowReadActiveOrg for current_user

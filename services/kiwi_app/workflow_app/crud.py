@@ -1858,7 +1858,22 @@ class WorkflowConfigOverrideDAO(BaseDAO[models.WorkflowConfigOverride, PydanticB
             # First priority: overrides with requested tags
             is_requested_tag = include_tags and override.tag in include_tags
 
-            is_global_override = not (override.workflow_id or override.workflow_name)
+            is_workflow_specified = (override.workflow_id or override.workflow_name)
+
+            # is_global_override = not is_workflow_specified
+
+            override_graph_schema = override.override_graph_schema
+            node_id = None
+            node_name = None
+            if "node_configs" in override_graph_schema:
+                node_configs = override_graph_schema["node_configs"]
+                for node_config in node_configs:
+                    if "node_id" in node_config:
+                        node_id = node_config["node_id"] or node_id
+                    if "node_name" in node_config:
+                        node_name = node_config["node_name"] or node_name
+            
+                    
             
             # Second priority: scope specificity
             if override.is_system_entity:
@@ -1873,10 +1888,27 @@ class WorkflowConfigOverrideDAO(BaseDAO[models.WorkflowConfigOverride, PydanticB
                 scope_priority = -2  # Fallback, shouldn't happen
             
             
-            scope_priority -= 1 if is_global_override else 0
+            # 3rd priority: global or workflow specific or node specific priorities
+            #     priority order ascending! below
+            # node name 2  
+            # node id 3
+            # workflow 5
+            # node name & node id
+            # workflow & node name
+            # workflow & node id
+            # workflow & node name & node id
+
+            # scope_priority -= 1 if is_global_override else 0
+            config_scope_priority = 0
+            if is_workflow_specified:
+                config_scope_priority += 5
+            if node_id:
+                config_scope_priority += 3
+            if node_name:
+                config_scope_priority += 2
                 
             # Return tuple for sorting (higher values have higher priority)
-            return (1 if is_requested_tag else 0, scope_priority, override.updated_at)
+            return (1 if is_requested_tag else 0, scope_priority, config_scope_priority, override.updated_at)
         
         # Sort the overrides by priority
         sorted_overrides = sorted(overrides, key=override_priority, reverse=True)
