@@ -128,7 +128,7 @@ def get_pool() -> Generator[ConnectionPool, None, None]:
     pool = ConnectionPool(
         conninfo=global_settings.LANGGRAPH_DATABASE_URL, # Raw URL is fine for psycopg directly
         min_size=WORKER_POOL_SIZE,
-        max_size=WORKER_POOL_MAX_SIZE,
+        max_size=max(WORKER_POOL_SIZE, WORKER_POOL_MAX_SIZE),
         kwargs=pool_connection_kwargs,
     )
     try:
@@ -152,8 +152,8 @@ async def get_shared_async_pool() -> AsyncConnectionPool:
             if _async_psycopg_pool is None:
                 _async_psycopg_pool = AsyncConnectionPool(
                     conninfo=global_settings.LANGGRAPH_DATABASE_URL,
-                    min_size=POOL_SIZE,  # Smaller for workers
-                    max_size=WORKER_POOL_MAX_SIZE,
+                    min_size=WORKER_POOL_SIZE,  # Smaller for workers
+                    max_size=max(WORKER_POOL_SIZE, WORKER_POOL_MAX_SIZE),
                     kwargs=pool_connection_kwargs,
                 )
                 await _async_psycopg_pool.open()
@@ -181,8 +181,8 @@ async def get_async_pool() -> AsyncGenerator[AsyncConnectionPool, None]:
     """
     pool = AsyncConnectionPool(
         conninfo=global_settings.LANGGRAPH_DATABASE_URL, # Raw URL is fine for psycopg directly
-        min_size=POOL_SIZE,
-        max_size=WORKER_POOL_MAX_SIZE,
+        min_size=WORKER_POOL_SIZE,
+        max_size=max(WORKER_POOL_SIZE, WORKER_POOL_MAX_SIZE),
         kwargs=pool_connection_kwargs,
     )
     try:
