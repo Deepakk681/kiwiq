@@ -527,10 +527,22 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
     "blog_post": {
       "docname_template": "blog_post_draft_{_uuid_}",
       "namespace_template": "blog_posts_draft_namespace_{company_name}",
-      "docname_template_vars": {"company_name": null},
+      "docname_template_vars": {"_uuid_": null},
       "namespace_template_vars": {"company_name": null},
       "is_shared": false,
       "is_versioned": true,
+      "initial_version": null,
+      "schema_template_name": null,
+      "schema_template_version": null,
+      "is_system_entity": false
+    },
+    "blog_company_analysis_doc": {
+      "docname_template": "blog_company_analysis_doc",
+      "namespace_template": "blog_analysis_{company_name}",
+      "docname_template_vars": {},
+      "namespace_template_vars": {"company_name": null},
+      "is_shared": false,
+      "is_versioned": false,
       "initial_version": null,
       "schema_template_name": null,
       "schema_template_version": null,
@@ -550,7 +562,7 @@ USER_DOCUMENTS_CONFIG_JSON_STR = """
     },
     "blog_playbook_system_document": {
       "docname_template": "",
-      "namespace_template": "blog_playbook_system_document",
+      "namespace_template": "blog_playbook_sys",
       "docname_template_vars": {},
       "namespace_template_vars": {},
       "is_shared": true,
@@ -974,6 +986,28 @@ ALL_WORKFLOWS_CONFIG_JSON_STR = """
         "selected_topic": null,
         "brief_uuid": null,
         "initial_status": "draft"
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_company_analysis_workflow": {
+      "name": "blog_company_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "scraped_data": null,
+        "has_insufficient_blog_and_page_count": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "company_ai_visibility_edge_case_workflow": {
+      "name": "company_ai_visibility_edge_case_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
         },
       "user_documents_config_variables": {},
       "template_specific": false
