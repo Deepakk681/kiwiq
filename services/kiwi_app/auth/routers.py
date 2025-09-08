@@ -537,6 +537,7 @@ async def change_password_endpoint(
     """
     try:
         user_acting_on_behalf_of_other_user = False
+        user = current_user
         if password_data.on_behalf_of_user_id:
             if not current_user.is_superuser:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You must be a superuser to act on behalf of another user")
@@ -545,8 +546,6 @@ async def change_password_endpoint(
                 user_acting_on_behalf_of_other_user = True
                 if not user:
                     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        else:
-            user = current_user
         
         success = await auth_service.change_password(
             db=db,
