@@ -67,7 +67,13 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
     "dynamic_input_schema": null, // Usually inferred, see Section 7
     "dynamic_output_schema": null, // Usually inferred, see Section 7
     "enable_node_fan_in": false, // Default: Node runs once per trigger (See advanced docs)
-    "defer_node": false  
+    "defer_node": false,
+    // --- Private Mode Passthrough Data Settings (See Section 9.1) ---
+    "private_output_passthrough_data_to_central_state_keys": [], // Keys to pass from private output to central state
+    "private_output_to_central_state_node_output_key": "output", // Key for node output in central state when using passthrough
+    "output_private_output_to_central_state": false, // Send private output to central state for debugging
+    "read_private_input_passthrough_data_to_input_field_mappings": null, // Map passthrough data to input fields (supports dot notation)
+    "write_to_private_output_passthrough_data_from_output_mappings": null // Map output fields to passthrough data (supports dot notation)  
   },
   "summarize_profile": { /* ... another node definition ... */ }
   // ... more nodes
@@ -90,6 +96,13 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
     *   A `merge_aggregate` node needs `operations`. Each operation defines `select_paths` (data sources), an `output_field_name`, and a `merge_strategy` (containing `map_phase`, `reduce_phase`, and optional `post_merge_transformations`) to intelligently combine objects. Supports sequential transformations on non-dictionary results. See its guide for details on strategies and reducers.
     *   *Deprecated:* `load_prompt_templates` node (use `prompt_constructor` with `template_load_config` instead).
 -   **`private_input_mode` / `private_output_mode` (Boolean, Optional):** Advanced settings primarily used with `map_list_router_node` for parallel processing. See Section 9.
+-   **Private Mode Passthrough Settings (Optional):** Advanced configurations for controlling data flow in private modes:
+    -   **`private_output_passthrough_data_to_central_state_keys` (List[String]):** Keys from the current node's private input state to pass through to the central state when the node completes. This serves a dual purpose: (1) It preserves context data (like unique IDs, metadata) from parallel processing branches in the central state for aggregation, and (2) It makes this data available as passthrough data for subsequent private input mode nodes in the processing chain. **Key insight:** This field specifies which keys from the node's *input state* (not output) should be carried forward. **Most common pattern from real workflows:** `["id", "name"]` to preserve item identifiers and descriptive names through parallel processing for result tracking and validation.
+    -   **`private_output_to_central_state_node_output_key` (String):** Key name for node output when writing to central state (default: "output").
+    -   **`output_private_output_to_central_state` (Boolean):** Whether to send private output to central state for debugging.
+    -   **`read_private_input_passthrough_data_to_input_field_mappings` (Object):** Maps passthrough data keys to input field names. Supports dot notation for nested paths (e.g., `{"user.profile.name": "display_name"}`).
+    -   **`write_to_private_output_passthrough_data_from_output_mappings` (Object):** Maps output field names to passthrough data keys. Supports dot notation for nested paths (e.g., `{"result.user_id": "context.user.id"}`).
+    See Section 9.1 for detailed usage.
 -   **`dynamic_input_schema` / `dynamic_output_schema` (Object, Optional):** Advanced settings for explicitly defining expected data structures, often used by dynamic nodes like `InputNode`, `OutputNode`, `HITLNode`, `PromptConstructorNode`. Defining these is highly recommended for dynamic nodes. See Section 7.
 
 ## 4. Connecting Nodes with Edges: Defining the Flow
@@ -369,6 +382,219 @@ To process each item in a list independently (and potentially in parallel), use 
 4.  **Convergence / Aggregation:** By default, branches running in private mode don't automatically write their final results back to the *main* shared central state when they finish (they operate in isolated sub-states). However, you *can* explicitly write data back to the central state (`"$graph_state"`) from nodes within these parallel branches. To combine results from multiple parallel runs (e.g., collecting all generated items into a single list), you **must** configure appropriate **reducers** in the `GraphSchema.metadata`. For instance, using an `append_list` reducer on a specific key in `"$graph_state"` allows each parallel branch to add its result to that list, effectively aggregating the output in the central state. Without such reducers, concurrent writes to the same key would likely overwrite each other (default `replace` behavior).
 
 *(See the `MapListRouterNode` guide for a detailed example.)*
+
+### 9.1. Advanced Pattern: Private Mode Passthrough Data
+
+When using private input/output modes (typically with `MapListRouterNode` for parallel processing), you often need to pass additional context data between nodes that isn't part of the main data flow. The passthrough data system provides flexible mechanisms for this.
+
+**Understanding the Dual Nature of `private_output_passthrough_data_to_central_state_keys`:**
+
+This configuration serves two critical functions:
+1. **Central State Preservation**: When a node completes, specified keys from its input state are preserved in the central state. This is essential for collecting metadata, IDs, or context from parallel processing branches.
+2. **Passthrough Data Chain**: The same data becomes available to subsequent private input mode nodes as passthrough data, creating a data pipeline that flows alongside the main processing chain.
+
+**Key Configurations:**
+
+1. **`private_output_passthrough_data_to_central_state_keys`**: A list of keys from the node's **input state** (not output) that should be carried forward. When the node completes, these keys are:
+   - Added to the central state (if edges to `$graph_state` exist)
+   - Made available as passthrough data to downstream private input mode nodes
+   
+   **Critical insight**: This preserves data from the node's *input* (what it received), not its *output* (what it produced). This is perfect for preserving context like item IDs, batch metadata, or processing timestamps that need to flow through multiple processing steps.
+
+2. **`private_output_to_central_state_node_output_key`**: The key name used for the main node output when writing to central state in cases where there's extra passthrough data (default: "output").
+
+3. **`output_private_output_to_central_state`**: Whether to send private output to central state for debugging purposes.
+
+4. **`read_private_input_passthrough_data_to_input_field_mappings`**: Maps passthrough data keys to input field names when `private_input_mode` is True. Supports dot notation for nested paths.
+
+5. **`write_to_private_output_passthrough_data_from_output_mappings`**: Maps output field names to passthrough data keys when `private_output_mode` is True. Supports dot notation for nested paths.
+
+**Dot Notation Support:**
+
+Both read and write mappings support dot notation for accessing nested data:
+
+```json
+{
+  "read_private_input_passthrough_data_to_input_field_mappings": {
+    "user.profile.name": "display_name",           // Read user.profile.name → input.display_name
+    "metadata.request_id": "tracking.info.id"     // Read metadata.request_id → input.tracking.info.id
+  },
+  "write_to_private_output_passthrough_data_from_output_mappings": {
+    "result.user_id": "context.user.id",          // Write output.result.user_id → passthrough.context.user.id
+    "processed_data.count": "stats.total"         // Write output.processed_data.count → passthrough.stats.total
+  }
+}
+```
+
+**Example Use Case: Processing Item List with ID/Metadata Preservation (Based on Real Workflow)**
+
+This example demonstrates the most common usage pattern from actual workflows - preserving item IDs and metadata through parallel processing:
+
+```json
+{
+  "nodes": {
+    "input_node": {
+      "node_id": "input_node",
+      "node_name": "input_node",
+      "node_config": {},
+      "dynamic_output_schema": {
+        "fields": {
+          "items_to_process": {
+            "type": "list",
+            "default": [
+              { "id": "item_1", "name": "Python Data Science", "user_prompt": "What are Python's advantages for data science?" },
+              { "id": "item_2", "name": "Machine Learning Basics", "user_prompt": "Explain machine learning concepts." }
+            ]
+          }
+        }
+      }
+    },
+    "route_items": {
+      "node_id": "route_items",
+      "node_name": "map_list_router_node",
+      "node_config": {
+        "choices": ["process_individual_item"],
+        "map_targets": [{
+          "source_path": "items_to_process",
+          "destinations": ["process_individual_item"],
+          "batch_size": 1
+        }]
+      }
+    },
+    "process_individual_item": {
+      "node_id": "process_individual_item",
+      "node_name": "llm",
+      "private_input_mode": true,  // Receive data directly from router
+      "output_private_output_to_central_state": true,  // Send results to central state
+      // CRITICAL: These keys from INPUT are preserved in central state
+      "private_output_passthrough_data_to_central_state_keys": ["id", "name"],
+      "private_output_to_central_state_node_output_key": "output",  // LLM result goes under "output" key
+      "node_config": {
+        "llm_config": {
+          "model_spec": {"provider": "openai", "model": "gpt-4o-mini"},
+          "temperature": 0.7,
+          "max_tokens": 1000
+        },
+        "default_system_prompt": "You are a helpful AI assistant..."
+      }
+    }
+  },
+  "edges": [
+    // Input to router
+    { "src_node_id": "input_node", "dst_node_id": "route_items", "mappings": [
+      { "src_field": "items_to_process", "dst_field": "items_to_process" }
+    ]},
+    // Router to LLM (private mode - no explicit mappings needed)
+    { "src_node_id": "route_items", "dst_node_id": "process_individual_item", "mappings": [] },
+    // LLM to central state (collect results with preserved metadata)
+    { "src_node_id": "process_individual_item", "dst_node_id": "$graph_state", "mappings": [
+      { "src_field": "text_content", "dst_field": "all_processed_items" }
+    ]}
+  ],
+  "metadata": {
+    "$graph_state": {
+      "reducer": {
+        "all_processed_items": "collect_values"  // Aggregates: [{output: "LLM response", id: "item_1", name: "Python Data Science"}, ...]
+      }
+    }
+  }
+}
+```
+
+**Data Flow Explanation:**
+
+1. **Input Setup**: Input node provides list of items, each with `id`, `name`, and `user_prompt` fields.
+
+2. **Parallel Distribution**: `route_items` (`map_list_router_node`) distributes individual items to the LLM processing node. Each item becomes a separate parallel execution branch.
+
+3. **Individual Processing**: `process_individual_item` node:
+   - **Receives**: Individual item data (id, name, user_prompt) directly from router via private input mode
+   - **Processes**: LLM generates response to the user_prompt
+   - **Preserves via passthrough**: `id` and `name` fields from its INPUT state using `private_output_passthrough_data_to_central_state_keys`
+   - **Outputs to Central State**: LLM response under "output" key + preserved metadata
+
+4. **Result Aggregation**: Central state collects all results using `collect_values` reducer, producing:
+   ```json
+   [
+     { "output": "LLM response to item 1", "id": "item_1", "name": "Python Data Science" },
+     { "output": "LLM response to item 2", "id": "item_2", "name": "Machine Learning Basics" }
+   ]
+   ```
+
+**Key Benefits from Real Workflow Patterns:**
+- **Simple ID Preservation**: Most common use case - preserve item IDs for result tracking
+- **Metadata Continuity**: Keep descriptive names/titles through processing pipeline  
+- **Clean Aggregation**: Central state receives both processing results and original context
+- **Validation Support**: Easy to verify all items were processed by checking IDs
+
+**Advanced Pattern: Multi-Stage Pipeline with Progressive Context (Based on Lead Scoring Workflow)**
+
+For complex workflows requiring multiple sequential processing steps, each stage can preserve previous context AND add new results:
+
+```json
+{
+  "nodes": {
+    "step1_qualification": {
+      "node_id": "step1_qualification",
+      "node_name": "llm",
+      "private_input_mode": true,
+      "output_private_output_to_central_state": true,
+      // Preserve original lead data through the pipeline
+      "private_output_passthrough_data_to_central_state_keys": ["linkedinUrl", "Company", "firstName", "lastName", "emailId", "jobTitle"],
+      "write_to_private_output_passthrough_data_from_output_mappings": {
+        "structured_output": "qualification_result",  // Add qualification results to passthrough
+        "web_search_result": "qualification_citations"
+      }
+    },
+    "step2_content_scoring": {
+      "node_id": "step2_content_scoring", 
+      "node_name": "llm",
+      "private_input_mode": true,
+      "private_output_mode": true,
+      // Preserve original data + Step 1 results
+      "private_output_passthrough_data_to_central_state_keys": [
+        "linkedinUrl", "Company", "firstName", "lastName", "emailId", "jobTitle",
+        "qualification_result", "qualification_citations"
+      ],
+      "write_to_private_output_passthrough_data_from_output_mappings": {
+        "text_content": "contentq_analysis",  // Add content analysis to passthrough
+        "web_search_result": "contentq_citations"
+      }
+    },
+    "step3_talking_points": {
+      "node_id": "step3_talking_points",
+      "node_name": "llm", 
+      "private_input_mode": true,
+      "output_private_output_to_central_state": true,
+      // Preserve all previous context through final step
+      "private_output_passthrough_data_to_central_state_keys": [
+        "linkedinUrl", "Company", "firstName", "lastName", "emailId", "jobTitle",
+        "qualification_result", "qualification_citations",
+        "contentq_analysis", "contentq_citations"
+      ],
+      "private_output_to_central_state_node_output_key": "final_talking_points"
+    }
+  }
+}
+```
+
+**Progressive Context Flow:**
+- **Step 1**: Preserves original lead data, adds qualification results
+- **Step 2**: Preserves lead data + qualification results, adds content analysis  
+- **Step 3**: Preserves all previous context, produces final output with complete history
+
+**Final Result Structure:**
+```json
+{
+  "final_talking_points": "Generated talking points...",
+  "linkedinUrl": "https://linkedin.com/in/...",
+  "Company": "Example Corp",
+  "firstName": "John",
+  "qualification_result": {...},
+  "contentq_analysis": "...",
+  // All context preserved through entire pipeline
+}
+```
 
 ## 10. Example Workflow: Customer Support Ticket Routing
 

@@ -48,6 +48,8 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_COMPETITOR_CONTENT_ANALYSIS_NAMESPACE_TEMPLATE,
     BLOG_COMPANY_DOCNAME,
     BLOG_COMPANY_NAMESPACE_TEMPLATE,
+    BLOG_COMPANY_ANALYSIS_DOCNAME,
+    BLOG_COMPANY_ANALYSIS_NAMESPACE_TEMPLATE,
     # Final diagnostic reports
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_DOCNAME,
     LINKEDIN_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE,
@@ -81,6 +83,11 @@ from kiwi_client.workflows.active.content_diagnostics.llm_inputs.orchestrator_fi
     BLOG_EXECUTIVE_SUMMARY_SYSTEM_PROMPT,
     LINKEDIN_EXECUTIVE_SUMMARY_USER_PROMPT,
     LINKEDIN_EXECUTIVE_SUMMARY_SYSTEM_PROMPT,
+    # No-Blog Content Scenario Prompts
+    BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_USER_PROMPT,
+    BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_SYSTEM_PROMPT,
+    BLOG_EXECUTIVE_SUMMARY_NO_BLOG_USER_PROMPT,
+    BLOG_EXECUTIVE_SUMMARY_NO_BLOG_SYSTEM_PROMPT,
     # Schemas
     LINKEDIN_COMPETITIVE_INTELLIGENCE_SCHEMA,
     LINKEDIN_CONTENT_PERFORMANCE_ANALYSIS_SCHEMA,
@@ -103,6 +110,8 @@ DEEP_RESEARCH_WORKFLOW_NAME = "deep_research_workflow"
 BLOG_CONTENT_ANALYSIS_WORKFLOW_NAME = "blog_content_analysis_workflow"
 EXECUTIVE_AI_VISIBILITY_WORKFLOW_NAME = "executive_ai_visibility_workflow"
 COMPANY_AI_VISIBILITY_WORKFLOW_NAME = "company_ai_visibility_workflow"
+NO_BLOG_POST_COMPANY_AI_VISIBILITY_WORKFLOW_NAME = "company_ai_visibility_edge_case_workflow"
+COMPANY_ANALYSIS_WORKFLOW_NAME = "blog_company_analysis_workflow"
 BLOG_COMPETITOR_CONTENT_ANALYSIS_WORKFLOW_NAME = "blog_competitor_content_analysis_workflow"
 LINKEDIN_SCRAPING_WORKFLOW_NAME = "linkedin_linkedin_scraping_workflow"
 LINKEDIN_ANALYSIS_WORKFLOW_NAME = "linkedin_linkedin_content_analysis_workflow"
@@ -220,11 +229,18 @@ workflow_graph_schema = {
                         "items_type": "str",
                         "required": False,
                         "description": "Optional list of paths to include in the analysis"
+                    },
+                    "exclude_paths": {
+                        "type": "list",
+                        "items_type": "str",
+                        "required": False,
+                        "description": "Optional list of paths to exclude from the analysis"
                     }
                 }
             }
         },
         
+        # --- 2. Data Collection Router ---
         "data_collection_router": {
             "node_id": "data_collection_router",
             "node_name": "router_node",
@@ -243,7 +259,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 2a. Run LinkedIn Scraping Workflow ---
+        # --- 3a. Run LinkedIn Scraping Workflow ---
         "run_linkedin_scraping": {
             "node_id": "run_linkedin_scraping",
             "node_name": "workflow_runner",
@@ -254,7 +270,7 @@ workflow_graph_schema = {
                 }
         },
 
-        # --- 2b. Blog Crawler Node ---
+        # --- 3b. Blog Crawler Node ---
         "run_blog_crawler": {
             "node_id": "run_blog_crawler",
             "node_name": "crawler_scraper",
@@ -263,7 +279,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 3. Initial Router - Routes to appropriate workflow groups ---
+        # --- 4. Initial Router - Routes to appropriate workflow groups ---
         "initial_router": {
             "node_id": "initial_router",
             "node_name": "router_node",
@@ -274,16 +290,28 @@ workflow_graph_schema = {
                     "run_deep_research",
                     "run_executive_ai_visibility",
                     "run_company_ai_visibility",
+                    "run_no_blog_post_company_ai_visibility",
+                    "run_company_analysis",
                     "run_competitor_content_analysis",
                     "run_linkedin_analysis"
                 ],
                 "allow_multiple": True,
                 "default_choice": None,
                 "choices_with_conditions": [
-                    # Conditionally run Blog Content Analysis only when company workflows are enabled
-                    {"choice_id": "run_blog_content_analysis", "input_path": "run_blog_analysis", "target_value": True},
-                    # Conditionally run Blog Content Analysis only when company workflows are enabled
-                    {"choice_id": "run_competitor_content_analysis", "input_path": "run_blog_analysis", "target_value": True},
+                    # Simple routing conditions - complex logic will need if_else_condition nodes
+                    {"choice_id": "run_blog_content_analysis", "input_path": "has_insufficient_blog_and_page_count", "target_value": False},
+                    {"choice_id": "run_company_ai_visibility", "input_path": "has_insufficient_blog_and_page_count", "target_value": False},
+                    {"choice_id": "run_no_blog_post_company_ai_visibility", "input_path": "has_insufficient_blog_and_page_count", "target_value": True},
+                    
+                    # Run Company Analysis when blog analysis is enabled BUT has insufficient content
+                    {
+                        "choice_id": "run_company_analysis", "input_path": "run_blog_analysis", "target_value": True
+                    },
+                    
+                    # Run Competitor Content Analysis only when blog analysis is enabled AND has sufficient content
+                    {
+                        "choice_id": "run_competitor_content_analysis", "input_path": "run_blog_analysis", "target_value": True
+                    },
 
                     # Conditionally route to LinkedIn workflows
                     {"choice_id": "run_deep_research", "input_path": "run_linkedin_exec", "target_value": True},
@@ -292,15 +320,13 @@ workflow_graph_schema = {
 
                     # Conditionally run Executive AI Visibility when LinkedIn exec is enabled
                     {"choice_id": "run_executive_ai_visibility", "input_path": "run_linkedin_exec", "target_value": True},
-                    # Conditionally run Company AI Visibility when blog analysis is enabled
-                    {"choice_id": "run_company_ai_visibility", "input_path": "run_blog_analysis", "target_value": True},
 
                     {"choice_id": "run_linkedin_analysis", "input_path": "run_linkedin_exec", "target_value": True}
                 ]
             }
         },
 
-        # --- 3. Deep Research Workflow ---
+        # --- 5. Deep Research Workflow ---
         "run_deep_research": {
             "node_id": "run_deep_research",
             "node_name": "workflow_runner",
@@ -311,7 +337,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 4. Blog Content Analysis Workflow ---
+        # --- 6. Blog Content Analysis Workflow ---
         "run_blog_content_analysis": {
             "node_id": "run_blog_content_analysis",
             "node_name": "workflow_runner",
@@ -322,7 +348,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 5. Executive AI Visibility Workflow ---
+        # --- 7. Executive AI Visibility Workflow ---
         "run_executive_ai_visibility": {
             "node_id": "run_executive_ai_visibility",
             "node_name": "workflow_runner",
@@ -334,7 +360,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 5b. Company AI Visibility Workflow ---
+        # --- 8. Company AI Visibility Workflow ---
         "run_company_ai_visibility": {
             "node_id": "run_company_ai_visibility",
             "node_name": "workflow_runner",
@@ -346,7 +372,31 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 8. Run LinkedIn Content Analysis Workflow ---
+        # --- 9. No Blog Post Company AI Visibility Workflow ---
+        "run_no_blog_post_company_ai_visibility": {
+            "node_id": "run_no_blog_post_company_ai_visibility",
+            "node_name": "workflow_runner",
+            "node_config": {
+                "workflow_name": NO_BLOG_POST_COMPANY_AI_VISIBILITY_WORKFLOW_NAME,
+                "timeout_seconds": AI_VISIBILITY_TIMEOUT,
+                "check_error_free_logs": False,
+                "enable_workflow_cache": CACHE_ENABLED
+            }
+        },
+
+        # --- 10. Company Analysis Workflow ---
+        "run_company_analysis": {
+            "node_id": "run_company_analysis",
+            "node_name": "workflow_runner",
+            "node_config": {
+                "workflow_name": COMPANY_ANALYSIS_WORKFLOW_NAME,
+                "timeout_seconds": ANALYSIS_TIMEOUT,
+                "check_error_free_logs": False,
+                "enable_workflow_cache": CACHE_ENABLED
+            }
+        },
+
+        # --- 11. Run LinkedIn Content Analysis Workflow ---
         "run_linkedin_analysis": {
             "node_id": "run_linkedin_analysis",
             "node_name": "workflow_runner",
@@ -357,7 +407,7 @@ workflow_graph_schema = {
                 }
         },
 
-        # 10b. Run Competitor Content Analysis Workflow
+        # --- 12. Run Competitor Content Analysis Workflow ---
         "run_competitor_content_analysis": {
             "node_id": "run_competitor_content_analysis",
             "node_name": "workflow_runner",
@@ -368,7 +418,7 @@ workflow_graph_schema = {
                 }
         },
 
-        # --- 11. Wait for Core Workflows - Synchronization point ---
+        # --- 13. Wait for Core Workflows - Synchronization point ---
         "wait_for_core_workflows": {
             "node_id": "wait_for_core_workflows",
             "node_name": "transform_data",
@@ -383,7 +433,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- 12. Load Document Router - Routes to document loading nodes ---
+        # --- 14. Load Document Router - Routes to document loading nodes ---
         "load_document_router": {
             "node_id": "load_document_router",
             "node_name": "router_node",
@@ -403,7 +453,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- 13. Load LinkedIn-related documents ---
+        # --- 15. Load LinkedIn-related documents ---
         "load_linkedin_documents": {
             "node_id": "load_linkedin_documents",
             "node_name": "load_customer_data",
@@ -456,7 +506,7 @@ workflow_graph_schema = {
             },
         },
 
-        # # Load Company/Blog-related documents
+        # --- 16. Load Company/Blog-related documents ---
         "load_company_documents": {
             "node_id": "load_company_documents",
             "node_name": "load_customer_data",
@@ -517,6 +567,14 @@ workflow_graph_schema = {
                             "static_docname": BLOG_COMPANY_DOCNAME
                         },
                         "output_field_name": "company_context_doc"
+                    },
+                    {
+                        "filename_config": {
+                            "input_namespace_field_pattern": BLOG_COMPANY_ANALYSIS_NAMESPACE_TEMPLATE,
+                            "input_namespace_field": "company_name",
+                            "static_docname": BLOG_COMPANY_ANALYSIS_DOCNAME
+                        },
+                        "output_field_name": "company_analysis_doc"
                     }
                 ],
                 "global_is_shared": False,
@@ -525,7 +583,7 @@ workflow_graph_schema = {
             },
         },
 
-        # # Load Multiple Competitor Content Analysis documents (list)
+        # --- 17. Load Multiple Competitor Content Analysis documents (list) ---
         "load_competitor_content_docs": {
             "node_id": "load_competitor_content_docs",
             "node_name": "load_multiple_customer_data",
@@ -544,7 +602,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- Wait for All Documents ---
+        # --- 18. Wait for All Documents ---
         "wait_for_documents": {
             "node_id": "wait_for_documents",
             "node_name": "transform_data",
@@ -559,7 +617,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- Report Generation Router ---
+        # --- 19. Report Generation Router ---
         "report_generation_router": {
             "node_id": "report_generation_router",
             "node_name": "router_node",
@@ -577,7 +635,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- Executive Reports Router ---
+        # --- 20. Executive Reports Router ---
         "generate_executive_reports_router": {
             "node_id": "generate_executive_reports_router",
             "node_name": "router_node",
@@ -597,7 +655,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- Company Reports Router ---
+        # --- 21. Company Reports Router ---
         "generate_company_reports_router": {
             "node_id": "generate_company_reports_router",
             "node_name": "router_node",
@@ -613,15 +671,15 @@ workflow_graph_schema = {
                 "choices_with_conditions": [
                     {"choice_id": "construct_ai_visibility_report_prompt", "input_path": "run_blog_analysis", "target_value": True},
                     {"choice_id": "construct_competitive_intelligence_report_prompt", "input_path": "run_blog_analysis", "target_value": True},
-                    {"choice_id": "construct_blog_performance_report_prompt", "input_path": "run_blog_analysis", "target_value": True},
-                    {"choice_id": "construct_gap_analysis_validation_prompt", "input_path": "run_blog_analysis", "target_value": True}
+                    {"choice_id": "construct_blog_performance_report_prompt", "input_path": "has_insufficient_blog_and_page_count", "target_value": False},
+                    {"choice_id": "construct_gap_analysis_validation_prompt", "input_path": "has_insufficient_blog_and_page_count", "target_value": False}
                 ]
             }
         },
 
-        # # --- EXECUTIVE REPORT GENERATION NODES ---
+        # --- EXECUTIVE REPORT GENERATION NODES ---
         
-        # # 1. LinkedIn Competitive Intelligence Prompt Constructor
+        # --- 22. LinkedIn Competitive Intelligence Prompt Constructor ---
         "construct_linkedin_competitive_intelligence_prompt": {
             "node_id": "construct_linkedin_competitive_intelligence_prompt",
             "node_name": "prompt_constructor",
@@ -649,7 +707,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # LinkedIn Competitive Intelligence Report
+        # --- 23. LinkedIn Competitive Intelligence Report ---
         "generate_linkedin_competitive_intelligence": {
             "node_id": "generate_linkedin_competitive_intelligence",
             "node_name": "llm",
@@ -663,7 +721,7 @@ workflow_graph_schema = {
             }
         },
  
-        # # 2. Content Performance Analysis Prompt Constructor
+        # --- 24. Content Performance Analysis Prompt Constructor ---
         "construct_content_performance_analysis_prompt": {
             "node_id": "construct_content_performance_analysis_prompt",
             "node_name": "prompt_constructor",
@@ -691,7 +749,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # Content Performance Analysis Report
+        # --- 25. Content Performance Analysis Report ---
         "generate_content_performance_analysis": {
             "node_id": "generate_content_performance_analysis",
             "node_name": "llm",
@@ -705,7 +763,7 @@ workflow_graph_schema = {
             }
         },
  
-        # # 3. Content Strategy Gaps Prompt Constructor
+        # --- 26. Content Strategy Gaps Prompt Constructor ---
         "construct_content_strategy_gaps_prompt": {
             "node_id": "construct_content_strategy_gaps_prompt",
             "node_name": "prompt_constructor",
@@ -735,7 +793,7 @@ workflow_graph_schema = {
             }
         },
 
-        # Content Strategy Gaps Report
+        # --- 27. Content Strategy Gaps Report ---
         "generate_content_strategy_gaps": {
             "node_id": "generate_content_strategy_gaps",
             "node_name": "llm",
@@ -749,7 +807,7 @@ workflow_graph_schema = {
             }
         },
  
-        # # 4. Strategic LinkedIn Recommendations Prompt Constructor  
+        # --- 28. Strategic LinkedIn Recommendations Prompt Constructor ---
         "construct_strategic_linkedin_recommendations_prompt": {
             "node_id": "construct_strategic_linkedin_recommendations_prompt",
             "node_name": "prompt_constructor",
@@ -784,7 +842,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # Strategic LinkedIn Recommendations Report
+        # --- 29. Strategic LinkedIn Recommendations Report ---
         "generate_strategic_linkedin_recommendations": {
             "node_id": "generate_strategic_linkedin_recommendations",
             "node_name": "llm",
@@ -799,7 +857,7 @@ workflow_graph_schema = {
             }
         },
 
-                # # 4. Strategic LinkedIn Recommendations Prompt Constructor  
+        # --- 30. LinkedIn Executive Summary Prompt Constructor ---
         "construct_linkedin_executive_summary_prompt": {
             "node_id": "construct_linkedin_executive_summary_prompt",
             "node_name": "prompt_constructor",
@@ -834,7 +892,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # Strategic LinkedIn Recommendations Report
+        # --- 31. LinkedIn Executive Summary Report ---
         "generate_linkedin_executive_summary": {
             "node_id": "generate_linkedin_executive_summary",
             "node_name": "llm",
@@ -849,7 +907,7 @@ workflow_graph_schema = {
             }
         },
 
-        # Executive Reports Aggregator
+        # --- 32. Executive Reports Aggregator ---
         "aggregate_executive_reports": {
             "node_id": "aggregate_executive_reports",
             "node_name": "transform_data",
@@ -884,8 +942,9 @@ workflow_graph_schema = {
             }
         },
 
-        # # --- COMPANY REPORT GENERATION NODES ---
-        # # 1. AI Visibility Report Prompt Constructor
+        # --- COMPANY REPORT GENERATION NODES ---
+        
+        # --- 33. AI Visibility Report Prompt Constructor ---
         "construct_ai_visibility_report_prompt": {
             "node_id": "construct_ai_visibility_report_prompt",
             "node_name": "prompt_constructor",
@@ -915,7 +974,21 @@ workflow_graph_schema = {
             }
         },
 
-        # # 2. Competitive Intelligence Report Prompt Constructor
+        # --- 34. AI Visibility Report ---
+        "generate_ai_visibility_report": {
+            "node_id": "generate_ai_visibility_report",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS
+                },
+                "output_schema": {"schema_definition": BLOG_AI_VISIBILITY_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+            }
+        },
+
+        # --- 35. Competitive Intelligence Report Prompt Constructor ---
         "construct_competitive_intelligence_report_prompt": {
             "node_id": "construct_competitive_intelligence_report_prompt",
             "node_name": "prompt_constructor",
@@ -945,9 +1018,21 @@ workflow_graph_schema = {
             }
         },
 
+        # --- 36. Competitive Intelligence Report ---
+        "generate_competitive_intelligence_report": {
+            "node_id": "generate_competitive_intelligence_report",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS
+                },
+                "output_schema": {"schema_definition": BLOG_COMPETITIVE_INTELLIGENCE_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+            }
+        },
 
-
-        # # 4. Blog Performance Report Prompt Constructor
+        # --- 37. Blog Performance Report Prompt Constructor ---
         "construct_blog_performance_report_prompt": {
             "node_id": "construct_blog_performance_report_prompt",
             "node_name": "prompt_constructor",
@@ -975,7 +1060,21 @@ workflow_graph_schema = {
             }
         },
 
-        # # 5. Gap Analysis and Validation Prompt Constructor
+        # --- 38. Blog Performance Report ---
+        "generate_blog_performance_report": {
+            "node_id": "generate_blog_performance_report",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS
+                },
+                "output_schema": {"schema_definition": BLOG_PERFORMANCE_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+            }
+        },
+
+        # --- 39. Gap Analysis and Validation Prompt Constructor ---
         "construct_gap_analysis_validation_prompt": {
             "node_id": "construct_gap_analysis_validation_prompt",
             "node_name": "prompt_constructor",
@@ -1007,7 +1106,75 @@ workflow_graph_schema = {
             }
         },
 
-        # # 6. Strategic Recommendations & Action Plan Prompt Constructor
+        # --- 40. Gap Analysis and Validation Report ---
+        "generate_gap_analysis_validation": {
+            "node_id": "generate_gap_analysis_validation",
+            "node_name": "llm",
+            "node_config": {
+                "llm_config": {
+                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
+                    "temperature": LLM_TEMPERATURE,
+                    "max_tokens": LLM_MAX_TOKENS
+                },
+                "output_schema": {"schema_definition": BLOG_GAP_ANALYSIS_VALIDATION_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+            }
+        },
+
+        # --- 41. Wait for Company Reports ---
+        "wait_for_company_reports": {
+            "node_id": "wait_for_company_reports",
+            "node_name": "transform_data",
+            "defer_node": True,
+            "node_config": {
+                "mappings": [
+                    {
+                        "source_path": "company_name",
+                        "destination_path": "company_name"
+                    }
+                ]
+            }
+        },
+
+        # --- 42. Blog Content Availability Router ---
+        "blog_content_availability_router": {
+            "node_id": "blog_content_availability_router",
+            "node_name": "router_node",
+            # "defer_node": True,
+            "node_config": {
+                "choices": [
+                    "construct_blog_executive_summary_prompt",
+                    "construct_strategic_recommendations_prompt", 
+                    "construct_blog_executive_summary_no_blog_prompt",
+                    "construct_strategic_recommendations_no_blog_prompt"
+                ],
+                "allow_multiple": True,
+                "default_choice": None,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "construct_blog_executive_summary_prompt",
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": False
+                    },
+                    {
+                        "choice_id": "construct_strategic_recommendations_prompt", 
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": False
+                    },
+                    {
+                        "choice_id": "construct_blog_executive_summary_no_blog_prompt",
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "construct_strategic_recommendations_no_blog_prompt",
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": True
+                    }
+                ]
+            }
+        },
+
+        # --- 43. Strategic Recommendations Prompt Constructor ---
         "construct_strategic_recommendations_prompt": {
             "node_id": "construct_strategic_recommendations_prompt",
             "node_name": "prompt_constructor",
@@ -1022,14 +1189,16 @@ workflow_graph_schema = {
                             "competitive_intelligence_report": None,
                             "blog_performance_report": None,
                             "gap_analysis_validation": None,
-                            "technical_seo_report": None
+                            "technical_seo_report": None,
+                            "company_analysis_doc": None
                         },
                         "construct_options": {
                             "ai_visibility_report": "ai_visibility_report",
                             "competitive_intelligence_report": "competitive_intelligence_report",
                             "blog_performance_report": "blog_performance_report",
                             "gap_analysis_validation": "gap_analysis_validation",
-                            "technical_seo_report": "technical_seo_report"
+                            "technical_seo_report": "technical_seo_report",
+                            "company_analysis_doc": "company_analysis_doc"
                         }
                     },
                     "system_prompt": {
@@ -1042,6 +1211,7 @@ workflow_graph_schema = {
             }
         },
 
+        # --- 44. Blog Executive Summary Prompt Constructor ---
         "construct_blog_executive_summary_prompt": {
             "node_id": "construct_blog_executive_summary_prompt",
             "node_name": "prompt_constructor",
@@ -1056,14 +1226,16 @@ workflow_graph_schema = {
                             "competitive_intelligence_report": None,
                             "blog_performance_report": None,
                             "gap_analysis_validation": None,
-                            "technical_seo_report": None
+                            "technical_seo_report": None,
+                            "company_analysis_doc": None
                         },
                         "construct_options": {
                             "ai_visibility_report": "ai_visibility_report",
                             "competitive_intelligence_report": "competitive_intelligence_report",
                             "blog_performance_report": "blog_performance_report",
                             "gap_analysis_validation": "gap_analysis_validation",
-                            "technical_seo_report": "technical_seo_report"
+                            "technical_seo_report": "technical_seo_report",
+                            "company_analysis_doc": "company_analysis_doc"
                         }
                     },
                     "system_prompt": {
@@ -1076,65 +1248,69 @@ workflow_graph_schema = {
             }
         },
 
-        # # 1. AI Visibility Report
-        "generate_ai_visibility_report": {
-            "node_id": "generate_ai_visibility_report",
-            "node_name": "llm",
+        # --- 45. No Blog Content Executive Summary Prompt Constructor ---
+        "construct_blog_executive_summary_no_blog_prompt": {
+            "node_id": "construct_blog_executive_summary_no_blog_prompt",
+            "node_name": "prompt_constructor",
+            "enable_node_fan_in": True,
             "node_config": {
-                "llm_config": {
-                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
-                    "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS
-                },
-                "output_schema": {"schema_definition": BLOG_AI_VISIBILITY_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+                "prompt_templates": {
+                    "user_prompt": {
+                        "id": "user_prompt",
+                        "template": BLOG_EXECUTIVE_SUMMARY_NO_BLOG_USER_PROMPT,
+                        "variables": {
+                            "ai_visibility_report": None,
+                            "competitive_intelligence_report": None,
+                            "company_analysis_doc": None
+                        },
+                        "construct_options": {
+                            "ai_visibility_report": "ai_visibility_report",
+                            "competitive_intelligence_report": "competitive_intelligence_report",
+                            "company_analysis_doc": "company_analysis_doc"
+                        }
+                    },
+                    "system_prompt": {
+                        "id": "system_prompt",
+                        "template": BLOG_EXECUTIVE_SUMMARY_NO_BLOG_SYSTEM_PROMPT,
+                        "variables": {},
+                        "construct_options": {}
+                    }
+                }
             }
         },
 
-        # # 2. Competitive Intelligence Report
-        "generate_competitive_intelligence_report": {
-            "node_id": "generate_competitive_intelligence_report",
-            "node_name": "llm",
+        # --- 46. No Blog Content Strategic Recommendations Prompt Constructor ---
+        "construct_strategic_recommendations_no_blog_prompt": {
+            "node_id": "construct_strategic_recommendations_no_blog_prompt",
+            "node_name": "prompt_constructor",
+            "enable_node_fan_in": True,
             "node_config": {
-                "llm_config": {
-                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
-                    "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS
-                },
-                "output_schema": {"schema_definition": BLOG_COMPETITIVE_INTELLIGENCE_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
+                "prompt_templates": {
+                    "user_prompt": {
+                        "id": "user_prompt",
+                        "template": BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_USER_PROMPT,
+                        "variables": {
+                            "ai_visibility_report": None,
+                            "competitive_intelligence_report": None,
+                            "company_analysis_doc": None
+                        },
+                        "construct_options": {
+                            "ai_visibility_report": "ai_visibility_report",
+                            "competitive_intelligence_report": "competitive_intelligence_report",
+                            "company_analysis_doc": "company_analysis_doc"
+                        }
+                    },
+                    "system_prompt": {
+                        "id": "system_prompt",
+                        "template": BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_SYSTEM_PROMPT,
+                        "variables": {},
+                        "construct_options": {}
+                    }
+                }
             }
         },
 
-
-
-        # # 4. Blog Performance Report
-        "generate_blog_performance_report": {
-            "node_id": "generate_blog_performance_report",
-            "node_name": "llm",
-            "node_config": {
-                "llm_config": {
-                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
-                    "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS
-                },
-                "output_schema": {"schema_definition": BLOG_PERFORMANCE_REPORT_SCHEMA, "convert_loaded_schema_to_pydantic": False}
-            }
-        },
-
-        # # 5. Gap Analysis and Validation Report
-        "generate_gap_analysis_validation": {
-            "node_id": "generate_gap_analysis_validation",
-            "node_name": "llm",
-            "node_config": {
-                "llm_config": {
-                    "model_spec": {"provider": LLM_PROVIDER, "model": LLM_MODEL},
-                    "temperature": LLM_TEMPERATURE,
-                    "max_tokens": LLM_MAX_TOKENS
-                },
-                "output_schema": {"schema_definition": BLOG_GAP_ANALYSIS_VALIDATION_SCHEMA, "convert_loaded_schema_to_pydantic": False}
-            }
-        },
-
-        # # 6. Strategic Recommendations & Action Plan Report (depends on other reports)
+        # --- 47. Strategic Recommendations & Action Plan Report ---
         "generate_strategic_recommendations": {
             "node_id": "generate_strategic_recommendations",
             "node_name": "llm",
@@ -1149,6 +1325,7 @@ workflow_graph_schema = {
             }
         },
 
+        # --- 48. Blog Executive Summary ---
         "generate_blog_executive_summary": {
             "node_id": "generate_blog_executive_summary",
             "node_name": "llm",
@@ -1163,7 +1340,7 @@ workflow_graph_schema = {
             }
         },
 
-        # # Company Reports Aggregator
+        # --- 49. Company Reports Aggregator ---
         "aggregate_company_reports": {
             "node_id": "aggregate_company_reports",
             "node_name": "transform_data",
@@ -1197,12 +1374,16 @@ workflow_graph_schema = {
                     {
                         "source_path": "blog_executive_summary",
                         "destination_path": "company_reports.executive_summary"
+                    },
+                    {
+                        "source_path": "company_analysis_doc",
+                        "destination_path": "company_reports.company_analysis"
                     }
                 ]
             }
         },
 
-        # --- Store Executive Reports ---
+        # --- 50. Store Executive Reports ---
         "store_executive_diagnostic_report": {
             "node_id": "store_executive_diagnostic_report",
             "node_name": "store_customer_data",
@@ -1224,7 +1405,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- Store Company Reports ---
+        # --- 51. Store Company Reports ---
         "store_company_diagnostic_report": {
             "node_id": "store_company_diagnostic_report",
             "node_name": "store_customer_data",
@@ -1240,20 +1421,27 @@ workflow_graph_schema = {
                                 "input_namespace_field": "company_name",
                                 "static_docname": BLOG_CONTENT_DIAGNOSTIC_REPORT_DOCNAME
                             }
-                        }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "has_insufficient_blog_and_page_count",
+                                "dst_path": "has_insufficient_blog_and_page_count"
+                            }
+                        ]
                     }
                 ]
             }
         },
 
-        # --- 12. Output Node ---
+        # --- 52. Output Node ---
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
-            "defer_node": True,
+            "enable_node_fan_in": True,
             "node_config": {}
         }
     },
+    
     # --- Edges Defining Data Flow ---
     "edges": [
         # Store essential data in graph state
@@ -1275,7 +1463,8 @@ workflow_graph_schema = {
                 {"src_field": "use_cached_scraping_results", "dst_field": "use_cached_scraping_results"},
                 {"src_field": "cache_lookback_period_days", "dst_field": "cache_lookback_period_days"},
                 {"src_field": "is_shared", "dst_field": "is_shared"},
-                {"src_field": "include_only_paths", "dst_field": "include_only_paths"}
+                {"src_field": "include_only_paths", "dst_field": "include_only_paths"},
+                {"src_field": "exclude_paths", "dst_field": "exclude_paths"},
             ]
         },
 
@@ -1327,20 +1516,22 @@ workflow_graph_schema = {
                 {"src_field": "use_cached_scraping_results", "dst_field": "use_cached_scraping_results"},
                 {"src_field": "cache_lookback_period_days", "dst_field": "cache_lookback_period_days"},
                 {"src_field": "is_shared", "dst_field": "is_shared"},
-                {"src_field": "include_only_paths", "dst_field": "include_only_paths"}
+                {"src_field": "include_only_paths", "dst_field": "include_only_paths"},
+                {"src_field": "exclude_paths", "dst_field": "exclude_paths"},
             ]
         },
 
         # # Store blog crawler results in graph state
-        # {
-        #     "src_node_id": "run_blog_crawler",
-        #     "dst_node_id": "$graph_state",
-        #     "mappings": [
-        #         {"src_field": "scraped_data", "dst_field": "blog_scraped_data"},
-        #         {"src_field": "technical_seo_summary", "dst_field": "blog_technical_seo_summary"},
-        #         {"src_field": "robots_analysis", "dst_field": "blog_robots_analysis"}
-        #     ]
-        # },
+        {
+            "src_node_id": "run_blog_crawler",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "scraped_data", "dst_field": "blog_scraped_data"},
+                {"src_field": "technical_seo_summary", "dst_field": "blog_technical_seo_summary"},
+                {"src_field": "robots_analysis", "dst_field": "blog_robots_analysis"},
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
+            ]
+        },
 
         # Scraping nodes -> Initial Router (for defer_node synchronization)
         {
@@ -1360,7 +1551,8 @@ workflow_graph_schema = {
             "dst_node_id": "initial_router",
             "mappings": [
                 {"src_field": "run_linkedin_exec", "dst_field": "run_linkedin_exec"},
-                {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"}
+                {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"},
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
             ]
         },
 
@@ -1404,7 +1596,8 @@ workflow_graph_schema = {
                 {"src_field": "use_cached_scraping_results", "dst_field": "use_cached_scraping_results"},
                 {"src_field": "cache_lookback_period_days", "dst_field": "cache_lookback_period_days"},
                 {"src_field": "is_shared", "dst_field": "is_shared"},
-                {"src_field": "include_only_paths", "dst_field": "include_only_paths"}
+                {"src_field": "include_only_paths", "dst_field": "include_only_paths"},
+                {"src_field": "exclude_paths", "dst_field": "exclude_paths"},
             ]
         },
 
@@ -1437,6 +1630,38 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"}
+            ]
+        },
+
+        # Initial Router -> No Blog Post Company AI Visibility (control flow)
+        {
+            "src_node_id": "initial_router",
+            "dst_node_id": "run_no_blog_post_company_ai_visibility",
+            "mappings": []
+        },
+        # Pass required inputs to No Blog Post Company AI Visibility
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "run_no_blog_post_company_ai_visibility",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+
+        # Initial Router -> Company Analysis (control flow)
+        {
+            "src_node_id": "initial_router",
+            "dst_node_id": "run_company_analysis",
+            "mappings": []
+        },
+        # Pass required inputs to Company Analysis (company_name, scraped_data, and has_insufficient_blog_and_page_count)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "run_company_analysis",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "blog_scraped_data", "dst_field": "scraped_data"},
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
             ]
         },
 
@@ -1488,6 +1713,16 @@ workflow_graph_schema = {
         },
         {
             "src_node_id": "run_company_ai_visibility",
+            "dst_node_id": "wait_for_core_workflows",
+            "mappings": []
+        },
+        {
+            "src_node_id": "run_no_blog_post_company_ai_visibility",
+            "dst_node_id": "wait_for_core_workflows",
+            "mappings": []
+        },
+        {
+            "src_node_id": "run_company_analysis",
             "dst_node_id": "wait_for_core_workflows",
             "mappings": []
         },
@@ -1600,7 +1835,9 @@ workflow_graph_schema = {
                 {"src_field": "company_ai_visibility_doc", "dst_field": "company_ai_visibility_doc"},
                 {"src_field": "technical_seo_doc", "dst_field": "technical_seo_doc"},
                 {"src_field": "deep_research_doc", "dst_field": "deep_research_doc"},
-                {"src_field": "company_context_doc", "dst_field": "company_context_doc"}            ]
+                {"src_field": "company_context_doc", "dst_field": "company_context_doc"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
+            ]
         },
         {
             "src_node_id": "load_competitor_content_docs",
@@ -1892,7 +2129,8 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "generate_company_reports_router",
             "mappings": [
-                {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"}
+                {"src_field": "run_blog_analysis", "dst_field": "run_blog_analysis"},
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
             ]
         },
         
@@ -1995,6 +2233,19 @@ workflow_graph_schema = {
         },
         
         # 6. Strategic Recommendations & Action Plan Report (depends on other reports)
+        # Now routed through blog_content_availability_router
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_strategic_recommendations_prompt",
+            "mappings": [
+                {"src_field": "ai_visibility_report", "dst_field": "ai_visibility_report"},
+                {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
+                {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
+                {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
+                {"src_field": "technical_seo_doc", "dst_field": "technical_seo_report"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
+            ]
+        },
         {
             "src_node_id": "generate_ai_visibility_report",
             "dst_node_id": "construct_strategic_recommendations_prompt",
@@ -2016,18 +2267,16 @@ workflow_graph_schema = {
             "mappings": []
         },
         {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "construct_strategic_recommendations_prompt",
+            "src_node_id": "construct_strategic_recommendations_prompt",
+            "dst_node_id": "generate_strategic_recommendations",
             "mappings": [
-                {"src_field": "ai_visibility_report", "dst_field": "ai_visibility_report"},
-                {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
-                {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
-                {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
-                {"src_field": "technical_seo_doc", "dst_field": "technical_seo_report"}
+                {"src_field": "user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "system_prompt", "dst_field": "system_prompt"}
             ]
         },
+        # No-Blog Strategic Recommendations: constructor -> LLM
         {
-            "src_node_id": "construct_strategic_recommendations_prompt",
+            "src_node_id": "construct_strategic_recommendations_no_blog_prompt",
             "dst_node_id": "generate_strategic_recommendations",
             "mappings": [
                 {"src_field": "user_prompt", "dst_field": "user_prompt"},
@@ -2081,11 +2330,7 @@ workflow_graph_schema = {
         # },
 
         # Blog Executive Summary: dependencies -> constructor
-        {
-            "src_node_id": "generate_gap_analysis_validation",
-            "dst_node_id": "construct_blog_executive_summary_prompt",
-            "mappings": []
-        },
+        # Now routed through blog_content_availability_router
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_blog_executive_summary_prompt",
@@ -2094,12 +2339,42 @@ workflow_graph_schema = {
                 {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
                 {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
                 {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
-                {"src_field": "technical_seo_doc", "dst_field": "technical_seo_report"}
+                {"src_field": "technical_seo_doc", "dst_field": "technical_seo_report"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
             ]
         },
         # Blog Executive Summary: constructor -> LLM
         {
             "src_node_id": "construct_blog_executive_summary_prompt",
+            "dst_node_id": "generate_blog_executive_summary",
+            "mappings": [
+                {"src_field": "user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        {
+            "src_node_id": "generate_ai_visibility_report",
+            "dst_node_id": "construct_blog_executive_summary_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "generate_competitive_intelligence_report",
+            "dst_node_id": "construct_blog_executive_summary_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "generate_blog_performance_report",
+            "dst_node_id": "construct_blog_executive_summary_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "generate_gap_analysis_validation",
+            "dst_node_id": "construct_blog_executive_summary_prompt",
+            "mappings": []
+        },
+        # No-Blog Executive Summary: constructor -> LLM
+        {
+            "src_node_id": "construct_blog_executive_summary_no_blog_prompt",
             "dst_node_id": "generate_blog_executive_summary",
             "mappings": [
                 {"src_field": "user_prompt", "dst_field": "user_prompt"},
@@ -2116,27 +2391,7 @@ workflow_graph_schema = {
         },
 
     #     # All company reports -> Company Action Plan
-        # Wait for all company reports to complete before constructing action plan
-        {
-            "src_node_id": "generate_ai_visibility_report",
-            "dst_node_id": "aggregate_company_reports",
-            "mappings": []
-        },
-        {
-            "src_node_id": "generate_competitive_intelligence_report",
-            "dst_node_id": "aggregate_company_reports",
-            "mappings": []
-        },
-        {
-            "src_node_id": "generate_blog_performance_report",
-            "dst_node_id": "aggregate_company_reports",
-            "mappings": []
-        },
-        {
-            "src_node_id": "generate_gap_analysis_validation",
-            "dst_node_id": "aggregate_company_reports",
-            "mappings": []
-        },
+        # Wait for all company reports to complete before aggregating
         {
             "src_node_id": "generate_strategic_recommendations",
             "dst_node_id": "aggregate_company_reports",
@@ -2160,7 +2415,8 @@ workflow_graph_schema = {
                 {"src_field": "blog_performance_report", "dst_field": "blog_performance_report"},
                 {"src_field": "gap_analysis_validation", "dst_field": "gap_analysis_validation"},
                 {"src_field": "strategic_recommendations", "dst_field": "strategic_recommendations"},
-                {"src_field": "blog_executive_summary", "dst_field": "blog_executive_summary"}
+                {"src_field": "blog_executive_summary", "dst_field": "blog_executive_summary"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
             ]
         },
         {
@@ -2197,7 +2453,8 @@ workflow_graph_schema = {
             "dst_node_id": "store_company_diagnostic_report",
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
-                {"src_field": "company_reports", "dst_field": "company_reports"}
+                {"src_field": "company_reports", "dst_field": "company_reports"},
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
             ]
         },
 
@@ -2205,15 +2462,129 @@ workflow_graph_schema = {
         {
             "src_node_id": "store_executive_diagnostic_report",
             "dst_node_id": "output_node",
-            "mappings": []
+            "mappings": [
+                {"src_field": "paths_processed", "dst_field": "paths_processed"}
+            ]
         },
         {
             "src_node_id": "store_company_diagnostic_report",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "passthrough_data", "dst_field": "passthrough_data"}
+                {"src_field": "paths_processed", "dst_field": "paths_processed"}
             ]
-        }
+        },
+
+        # All company reports -> Wait for Company Reports (synchronization point)
+        # Only include reports that will always execute regardless of blog content availability
+        {
+            "src_node_id": "generate_ai_visibility_report",
+            "dst_node_id": "wait_for_company_reports",
+            "mappings": []
+        },
+        {
+            "src_node_id": "generate_competitive_intelligence_report",
+            "dst_node_id": "wait_for_company_reports",
+            "mappings": []
+        },
+
+        # Pass company_name from graph state to wait node
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "wait_for_company_reports",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+
+        # --- Blog Content Availability Router ---
+        {
+            "src_node_id": "wait_for_company_reports",
+            "dst_node_id": "blog_content_availability_router",
+            "mappings": []
+        },
+
+        # # Optional blog reports -> Blog Content Availability Router (when they execute)
+        {
+            "src_node_id": "generate_blog_performance_report",
+            "dst_node_id": "blog_content_availability_router",
+            "mappings": []
+        },
+        {
+            "src_node_id": "generate_gap_analysis_validation",
+            "dst_node_id": "blog_content_availability_router",
+            "mappings": []
+        },
+
+        # --- Blog Content Availability Router ---
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "blog_content_availability_router",
+            "mappings": [
+                {"src_field": "has_insufficient_blog_and_page_count", "dst_field": "has_insufficient_blog_and_page_count"}
+            ]
+        },
+
+        # --- Blog Content Availability Router Edges ---
+        {
+            "src_node_id": "blog_content_availability_router",
+            "dst_node_id": "construct_blog_executive_summary_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "blog_content_availability_router",
+            "dst_node_id": "construct_strategic_recommendations_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "blog_content_availability_router",
+            "dst_node_id": "construct_blog_executive_summary_no_blog_prompt",
+            "mappings": []
+        },
+        {
+            "src_node_id": "blog_content_availability_router",
+            "dst_node_id": "construct_strategic_recommendations_no_blog_prompt",
+            "mappings": []
+        },
+
+        # Graph state mappings for no-blog prompt constructors
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_blog_executive_summary_no_blog_prompt",
+            "mappings": [
+                {"src_field": "ai_visibility_report", "dst_field": "ai_visibility_report"},
+                {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
+            ]
+        },
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_strategic_recommendations_no_blog_prompt",
+            "mappings": [
+                {"src_field": "ai_visibility_report", "dst_field": "ai_visibility_report"},
+                {"src_field": "competitive_intelligence_report", "dst_field": "competitive_intelligence_report"},
+                {"src_field": "company_analysis_doc", "dst_field": "company_analysis_doc"}
+            ]
+        },
+        # {
+        #     "src_node_id": "generate_ai_visibility_report",
+        #     "dst_node_id": "construct_blog_executive_summary_no_blog_prompt",
+        #     "mappings": []
+        # },
+        # {
+        #     "src_node_id": "generate_competitive_intelligence_report",
+        #     "dst_node_id": "construct_blog_executive_summary_no_blog_prompt",
+        #     "mappings": []
+        # },
+        # {
+        #     "src_node_id": "generate_ai_visibility_report",
+        #     "dst_node_id": "construct_strategic_recommendations_no_blog_prompt",
+        #     "mappings": []
+        # },
+        # {
+        #     "src_node_id": "generate_competitive_intelligence_report",
+        #     "dst_node_id": "construct_strategic_recommendations_no_blog_prompt",
+        #     "mappings": []
+        # }
     ],
     
     # --- State Reducer Configuration ---
@@ -2227,6 +2598,7 @@ workflow_graph_schema = {
                 "linkedin_profile_url": "replace",
                 "company_url": "replace",
                 "blog_start_urls": "replace",
+                "has_insufficient_blog_and_page_count": "replace",
                 "deep_research_result": "replace",
                 "blog_analysis_result": "replace",
                 "executive_ai_visibility_result": "replace",
@@ -2272,7 +2644,8 @@ workflow_graph_schema = {
                 "competitor_content_docs": "replace",
                 "blog_scraped_data": "replace",
                 "blog_technical_seo_summary": "replace",
-                "blog_robots_analysis": "replace"
+                "blog_robots_analysis": "replace",
+                "company_analysis_doc": "replace"
             }
         }
     },
@@ -2378,15 +2751,17 @@ async def main_test_orchestrator():
     """
     Tests the Content Orchestrator Workflow using the run_workflow_test helper function.
     """
+
+    
     # --- Test Inputs ---
     TEST_INPUTS = {
-        "entity_username": "chuckwhiteman",
-    "company_name": "lamatic",
+        "entity_username": "test_run_example-user",
+    "company_name": "test_run_kiwiq",
     "run_linkedin_exec": True,
     "run_blog_analysis": True,
-    "linkedin_profile_url": "https://www.linkedin.com/in/chuckwhiteman/",
-    "company_url": "https://blog.lamatic.ai",
-        "blog_start_urls": ["https://blog.lamatic.ai"] # Example blog start URL
+    "linkedin_profile_url": "https://www.linkedin.com/in/example-user/",
+    "company_url": "https://kiwiq.ai",
+        "blog_start_urls": ["https://kiwiq.ai"] # Example blog start URL
     }
     
     test_name = "Content Orchestrator Workflow Test"

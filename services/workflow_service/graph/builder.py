@@ -505,8 +505,12 @@ class GraphBuilder:
                 node_id=node_id,
                 config=node_config.node_config,
                 private_input_mode=node_config.private_input_mode,
+                private_output_passthrough_data_to_central_state_keys=node_config.private_output_passthrough_data_to_central_state_keys,
+                private_output_to_central_state_node_output_key=node_config.private_output_to_central_state_node_output_key,
                 private_output_mode=node_config.private_output_mode,
                 output_private_output_to_central_state=node_config.output_private_output_to_central_state,
+                read_private_input_passthrough_data_to_input_field_mappings=node_config.read_private_input_passthrough_data_to_input_field_mappings,
+                write_to_private_output_passthrough_data_from_output_mappings=node_config.write_to_private_output_passthrough_data_from_output_mappings,
                 allow_non_user_editable_fields_in_config=allow_non_user_editable_fields
             )
         
@@ -569,8 +573,12 @@ class GraphBuilder:
                 node_instances[node_id] = node_cls(node_id=node_id, 
                                                    config=node_config.node_config, 
                                                    private_input_mode=node_config.private_input_mode, 
-                                                   private_output_mode=node_config.private_output_mode, 
+                                                   private_output_mode=node_config.private_output_mode,
+                                                   private_output_passthrough_data_to_central_state_keys=node_config.private_output_passthrough_data_to_central_state_keys,
+                                                   private_output_to_central_state_node_output_key=node_config.private_output_to_central_state_node_output_key,
                                                    output_private_output_to_central_state=node_config.output_private_output_to_central_state,
+                                                   read_private_input_passthrough_data_to_input_field_mappings=node_config.read_private_input_passthrough_data_to_input_field_mappings,
+                                                   write_to_private_output_passthrough_data_from_output_mappings=node_config.write_to_private_output_passthrough_data_from_output_mappings,
                                                    allow_non_user_editable_fields_in_config=allow_non_user_editable_fields)
         
         return node_instances

@@ -3,7 +3,7 @@ import asyncio
 from logging import Logger
 import random
 import re
-from typing import Any, Callable, ClassVar, Dict, Generic, Optional, Type, TypeVar, Union, get_type_hints
+from typing import Any, Callable, ClassVar, Dict, Generic, Optional, Type, TypeVar, Union, get_type_hints, List, Tuple
 import inspect
 from abc import ABC, abstractmethod
 
@@ -42,6 +42,118 @@ if TYPE_CHECKING:
 
 
 from global_config.logger import get_prefect_or_regular_python_logger
+
+
+def _get_nested_obj(data: Any, field_path: str) -> Tuple[Any, bool]:
+    """
+    Retrieves a nested object or value at the specified path.
+
+    Handles navigation through dictionaries and lists using dot notation.
+    Adapted from customer_data.py for use in BaseNode passthrough data mappings.
+
+    Args:
+        data: The data structure (dict or list) to navigate.
+        field_path: Dot-notation path (e.g., 'a.b.0.c').
+
+    Returns:
+        Tuple[Any, bool]: The retrieved object/value and a boolean indicating if the path was found.
+                         Returns (None, False) if the path is invalid or not found.
+    """
+    current = data
+    if isinstance(current, BaseSchema):
+        current = current.model_dump()
+    parts = field_path.split('.') if field_path else []
+
+    if not field_path:
+        return data, True  # Return the whole data if path is empty
+
+    for part in parts:
+        if isinstance(current, dict):
+            if part in current:
+                current = current[part]
+            else:
+                return None, False  # Key not found in dict
+        elif isinstance(current, list):
+            try:
+                idx = int(part)
+                # Check bounds for list index
+                if 0 <= idx < len(current):
+                    current = current[idx]
+                else:
+                    return None, False  # Index out of bounds
+            except (ValueError, TypeError):
+                # Invalid index format for list
+                return None, False
+        else:
+            # Cannot navigate further (e.g., encountered a primitive type)
+            return None, False
+
+    return current, True
+
+
+def _set_nested_obj(data: Dict[str, Any], field_path: str, value: Any, logger: Optional[Logger] = None) -> bool:
+    """
+    Sets a value in a nested dictionary or list structure.
+
+    Creates necessary dictionaries if intermediate path segments for dictionaries do not exist.
+    Assumes lists and their indices exist up to the point of setting the value for list elements.
+    Adapted from customer_data.py for use in BaseNode passthrough data mappings.
+
+    Args:
+        data: The dictionary to modify.
+        field_path: Dot-notation path (e.g., 'a.b.0.c') where the value should be set.
+        value: The value to set at the specified path.
+        logger: Optional logger instance for error reporting.
+
+    Returns:
+        bool: True if the value was successfully set, False otherwise (e.g., path is invalid).
+    """
+    logger = logger or get_prefect_or_regular_python_logger(f"{__name__}._set_nested_obj")
+    parts = field_path.split('.')
+    current_obj = data
+    
+    # Navigate to the parent object of the target key/index
+    for i, part in enumerate(parts[:-1]):
+        if isinstance(current_obj, dict):
+            if part not in current_obj or not isinstance(current_obj[part], (dict, list)):
+                # Create necessary dictionaries if intermediate path segments do not exist
+                current_obj[part] = {}  # Default to creating a dictionary
+            current_obj = current_obj[part]
+        elif isinstance(current_obj, list):
+            try:
+                idx = int(part)
+                if 0 <= idx < len(current_obj):
+                    current_obj = current_obj[idx]
+                else:
+                    logger.error(f"Index {idx} out of bounds for path segment '{part}' in path '{field_path}'. Current list length: {len(current_obj)}.")
+                    return False  # Index out of bounds
+            except (ValueError, TypeError):
+                logger.error(f"Invalid list index '{part}' in path '{field_path}'.")
+                return False  # Invalid index format for list
+        else:
+            logger.error(f"Cannot traverse path '{field_path}': segment '{part}' leads to a non-container type ({type(current_obj)}).")
+            return False  # Path leads to a non-container type
+
+    # Set the value at the final key/index
+    last_part = parts[-1]
+    if isinstance(current_obj, dict):
+        current_obj[last_part] = value
+        return True
+    elif isinstance(current_obj, list):
+        try:
+            idx = int(last_part)
+            if 0 <= idx < len(current_obj):
+                current_obj[idx] = value
+                return True
+            else:
+                logger.error(f"Final index {idx} out of bounds for list at path '{'.'.join(parts[:-1])}' in path '{field_path}'. List length: {len(current_obj)}.")
+                return False  # Index out of bounds for setting
+        except (ValueError, TypeError):
+            logger.error(f"Final path segment '{last_part}' is not a valid list index for path '{field_path}'.")
+            return False  # last_part is not a valid index for a list
+    else:
+        logger.error(f"Cannot set value: parent for '{last_part}' in path '{field_path}' is not a dict or list, but {type(current_obj)}.")
+        return False
 
 
 class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], ABC):
@@ -112,7 +224,14 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     #   Useful for map/reduce or branching patterns or maintaining private states
     private_input_mode: bool = False
     private_output_mode: bool = False
+    private_output_passthrough_data_to_central_state_keys: Optional[List[str]] = []  # These keys are passed through the private output data to the central state directly (if an edge from private node to central state exists!), also this data becomes passthrough data too and gets passed on to next private input node (if this is private output node)! eg usecase: while using map list router node, preserve unique IDs of each element as passthrough data that gets collected in items collected in central state
+    private_output_to_central_state_node_output_key: Optional[str] = "output"  # This key is used to send the central state output to from the node output (for each mapped edge to central state) in cases when there's extra private_output_passthrough_data ...
     output_private_output_to_central_state: bool = False
+    
+    # Optional mappings for reading from and writing to passthrough data
+    # Only used when private_input_mode and private_output_mode are True, respectively
+    read_private_input_passthrough_data_to_input_field_mappings: Optional[Dict[str, str]] = None  # Maps passthrough data keys to input field names. Supports dot notation for nested paths: {"passthrough.nested.key": "input_field_name"} or {"passthrough_key": "nested.input.field"}
+    write_to_private_output_passthrough_data_from_output_mappings: Optional[Dict[str, str]] = None  # Maps output field names to passthrough data keys. Supports dot notation for nested paths: {"output.nested.field": "passthrough_key"} or {"output_field_name": "nested.passthrough.key"}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow non-pydantic types like clients, etc!
 
@@ -292,13 +411,22 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         # print("\n\n\n\n#### input_dict (in build input state)", input_obj.model_dump_json(indent=4), "\n\n\n\n")
         return input_obj
 
-    def build_output_state_update(self, output_data: OutputSchemaT, config: Dict[str, Any]) -> Dict[str, Any]:
+    def build_output_state_update(self, output_data: OutputSchemaT, config: Dict[str, Any], state_private_output_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Build the state update for the node.
         """
         configurable = config.get("configurable", {})
         state_update = {}
         output_schema = self.__class__.output_schema_cls
+
+        # state_private_output_data = {}
+        # if self.private_input_mode and self.private_output_passthrough_data_to_central_state_keys and state:
+        #     # NOTE: this is to pass the private output data to the central state!
+        #     for key in self.private_output_passthrough_data_to_central_state_keys:
+        #         _data = state.get(key, None)
+        #         # if _data:
+        #         state_private_output_data[key] = _data
+
         if output_schema and isinstance(output_data, output_schema):
             # We will let node outputs be outputed even in private input mode for debugging purpsoes by adding collect values reducer for node output keys!
             if (not self.private_input_mode) or self.output_private_output_to_central_state:
@@ -315,6 +443,13 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 for output_field_name, central_state_field_name in central_state_output_field_mapping.items():
                     central_state_output_field_name = get_central_state_field_key(central_state_field_name)
                     central_state_output[central_state_output_field_name] = getattr(output_data, output_field_name)
+                    if state_private_output_data:
+                        _output = {
+                            self.private_output_to_central_state_node_output_key: central_state_output[central_state_output_field_name]
+                        }
+                        if self.private_output_to_central_state_node_output_key in state_private_output_data:
+                            self.warning(f"Passthrough data to central state being overwritten by node output key: `{self.private_output_to_central_state_node_output_key}`")
+                        central_state_output[central_state_output_field_name] = dict(state_private_output_data) | _output
                 state_update.update(central_state_output)
         else:
             # NOTE: may wanna copy this potentially!
@@ -322,6 +457,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
 
         # Add node execution order to state update
         state_update[get_central_state_field_key(NODE_EXECUTION_ORDER_KEY)] = [self.node_id]
+
+        
 
         return state_update
     
@@ -366,6 +503,31 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 # assume the received input is entire input!
                 #   for conflicting keys, overwrite central state values with private values!
                 input_data_dict.update(state)
+                
+                # Apply passthrough data mappings if configured
+                if self.read_private_input_passthrough_data_to_input_field_mappings:
+                    for passthrough_key, input_field in self.read_private_input_passthrough_data_to_input_field_mappings.items():
+                        # Get passthrough value using dot notation
+                        passthrough_value, found = _get_nested_obj(state, passthrough_key)
+                        if found:
+                            # Check if target field already exists (for simple fields only, nested paths may create new structure)
+                            if '.' not in input_field and input_field in input_data_dict:
+                                self.warning(f"Input field '{input_field}' already exists in input data dict! Overwriting with passthrough data!")
+                            
+                            # Set the value using dot notation support
+                            if '.' in input_field:
+                                # For nested paths, use _set_nested_obj
+                                if not _set_nested_obj(input_data_dict, input_field, passthrough_value, self):
+                                    self.warning(f"Failed to set nested input field '{input_field}' from passthrough data key '{passthrough_key}'")
+                                else:
+                                    self.debug(f"Mapped passthrough data key '{passthrough_key}' to nested input field '{input_field}' with value: {passthrough_value}")
+                            else:
+                                # For simple fields, set directly
+                                input_data_dict[input_field] = passthrough_value
+                                self.debug(f"Mapped passthrough data key '{passthrough_key}' to input field '{input_field}' with value: {passthrough_value}")
+                        else:
+                            self.debug(f"Passthrough data key '{passthrough_key}' not found in state, skipping mapping to input field '{input_field}'")
+                
                 # TODO: Potentially use model_validate(...)?
                 input_data = input_data_dict
                 # NOTE: TODO: FIXME: We don't initialize the input schema in private input mode! Be careful and handle this behaviour more gracefully!
@@ -465,6 +627,34 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                         i += 1
                         await asyncio.sleep(retry_delay_seconds * (1 + random.random() * retry_jitter_factor))
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
+
+            private_mode_passthrough_data = {}
+            if self.private_input_mode or self.private_output_mode:
+                if self.private_output_passthrough_data_to_central_state_keys:
+                    private_mode_passthrough_data = {key: state.get(key, None) for key in self.private_output_passthrough_data_to_central_state_keys if key in state}
+                
+                # Add mappings from output fields to passthrough data if configured
+                if self.write_to_private_output_passthrough_data_from_output_mappings:
+                    for output_field, passthrough_key in self.write_to_private_output_passthrough_data_from_output_mappings.items():
+                        # Get value from output_data using dot notation
+                        # output_value = None
+                        output_value, found = _get_nested_obj(output_data, output_field)
+
+                        
+                        if output_value is not None:
+                            # Set the passthrough value using dot notation support
+                            if '.' in passthrough_key:
+                                # For nested passthrough keys, ensure we have a dict structure
+                                if not _set_nested_obj(private_mode_passthrough_data, passthrough_key, output_value, self.logger):
+                                    self.warning(f"Failed to set nested passthrough data key '{passthrough_key}' from output field '{output_field}'")
+                                else:
+                                    self.debug(f"Mapped output field '{output_field}' to nested passthrough data key '{passthrough_key}' with value: {output_value}")
+                            else:
+                                # Simple key assignment
+                                private_mode_passthrough_data[passthrough_key] = output_value
+                                self.debug(f"Mapped output field '{output_field}' to passthrough data key '{passthrough_key}' with value: {output_value}")
+                        else:
+                            self.debug(f"Output field '{output_field}' not found or is None, skipping mapping to passthrough data key '{passthrough_key}'")
             
             # Convert output to dict and return as state update
             # NOTE: in case a Command / Send is generated in the process(...) method, this method to build state update should be called from there directly since otehrwise
@@ -473,7 +663,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             if isinstance(output_data, (Command, Send, Interrupt)):
                 state_update = output_data
             else:
-                state_update = self.build_output_state_update(output_data, config)
+                state_update = self.build_output_state_update(output_data, config, private_mode_passthrough_data, )
             # print(f"\n\n\n\n#### state_update (in run) --> {state_update.__class__}", state_update, "\n\n\n\n")
             # if self.node_id == "join":
             #     import ipdb; ipdb.set_trace()
@@ -494,6 +684,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 # }
                 if self.private_output_mode:
                     # update central state with private output!
+                    
                     output_to_nodes = {}
                     for out_node_id, out_node_edge in configurable.get("outgoing_edges", {}).get(self.node_id, {}).items():
                         output_to_node = {}
@@ -514,6 +705,13 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                             self.warning(f"Output to node is not a dict in {self.node_id}. Creating a dict with 'data' key to wrap object and adding central state data directly.")
                             output_to_node = {"data": output_to_node}
                         output_to_node.update(central_state_data)
+                        
+                        for key, value in private_mode_passthrough_data.items():
+                            if key in output_to_node:
+                                self.warning(f"Passthrough data to central state being overwritten by node output key: `{key}`")
+                            else:
+                                output_to_node[key] = value
+                        # output_to_node.update(private_mode_passthrough_data)
 
                         output_to_nodes[out_node_id] = output_to_node
                     # Ignore any other state update apart from a dictionary, potentialy ignore Command / Send / Interrupt!

@@ -72,6 +72,14 @@ class NodeConfig(BaseModel):
     private_input_mode: Optional[bool] = Field(False, description="Enable private input mode for the node which means the node will receive direct inputs instead of whole graph state, this is useful for map/reduce or branching patterns or maintaining private states.")
     private_output_mode: Optional[bool] = Field(False, description="Enable private output mode for the node which means the node will send direct outputs to connected nodes, this is useful for map/reduce or branching patterns or maintaining private states. NOTE: the branches will converge to the next node where this is unset and they are collapsing to it, and that node will receive the full graph state. For reducing, you have to use the central state field with the correct reducer!")
     output_private_output_to_central_state: Optional[bool] = Field(False, description="Enable output private output to central state for the node which means the node will send direct outputs to the central state too for debugging purposes.")
+    private_output_passthrough_data_to_central_state_keys: Optional[List[str]] = Field(None, description="These keys are passed through the private output data to the central state directly! eg usecase: while using map list router node, preserve unique IDs of each element as passthrough data that gets collected in items collected in central state")
+    private_output_to_central_state_node_output_key: Optional[str] = Field("output", description="This key is used to send the central state output to from the node output (for each mapped edge to central state) in cases when there's extra private_output_passthrough_data ...")
+    
+    # Optional mappings for reading from and writing to passthrough data
+    # Only used when private_input_mode and private_output_mode are True, respectively
+    read_private_input_passthrough_data_to_input_field_mappings: Optional[Dict[str, str]] = Field(None, description="Maps passthrough data keys to input field names when private_input_mode is True. Supports dot notation for nested paths. Format: {'passthrough.nested.key': 'input_field_name'} or {'passthrough_key': 'nested.input.field'}")
+    write_to_private_output_passthrough_data_from_output_mappings: Optional[Dict[str, str]] = Field(None, description="Maps output field names to passthrough data keys when private_output_mode is True. Supports dot notation for nested paths. Format: {'output.nested.field': 'passthrough_key'} or {'output_field_name': 'nested.passthrough.key'}")
+    
     # TODO: implement support for JSON Schema which can be converted to Pydantic models using: https://github.com/koxudaxi/datamodel-code-generator
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/
     #     https://koxudaxi.github.io/datamodel-code-generator/using_as_module/

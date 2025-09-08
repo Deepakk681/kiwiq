@@ -477,7 +477,8 @@ class InteractiveWorkflowRunClient:
                 inputs=inputs,
                 on_behalf_of_user_id=on_behalf_of_user_id,
                 thread_id=thread_id,
-                tag=tag
+                tag=tag,
+                streaming_mode=stream_intermediate_results,
             )
             if not submitted_run:
                 logger.error(f"Failed to submit initial workflow run for workflow {workflow_id_to_run}.")

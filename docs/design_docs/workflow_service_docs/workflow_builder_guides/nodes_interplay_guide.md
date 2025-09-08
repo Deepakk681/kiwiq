@@ -34,6 +34,19 @@ Each node in your workflow needs to be defined within the `GraphSchema`'s `nodes
 -   **`node_name`**: This tells the system *what kind* of node it is. It corresponds to a registered node type. You must use the correct `node_name` for the node to function as intended.
 -   **`node_config`**: This dictionary holds the specific settings required by that particular `node_name`. For example, an `llm` node needs model details, a `filter_data` node needs filter conditions, etc. Refer to the specific node's guide for its configuration options.
 
+**Advanced Node Configuration Options:**
+
+All nodes also support these optional advanced settings for controlling execution behavior:
+
+-   **`private_input_mode` / `private_output_mode` (Boolean)**: Enable private data modes for parallel processing with `map_list_router_node`. When enabled, nodes receive/send data directly rather than through the shared central state.
+-   **`private_output_passthrough_data_to_central_state_keys` (List[String])**: Keys from the node's **input state** to preserve in central state and pass to subsequent private mode nodes. This serves dual purposes: (1) preserving context data (like unique IDs, batch metadata) in central state for aggregation, and (2) creating a passthrough data chain that flows alongside main processing. **Critical insight**: This preserves data from the node's *input* (what it received), not its *output* (what it produced).
+-   **`private_output_to_central_state_node_output_key` (String)**: Key name for node output when writing to central state with passthrough data (default: "output").
+-   **`output_private_output_to_central_state` (Boolean)**: Send private output to central state for debugging purposes.
+-   **`read_private_input_passthrough_data_to_input_field_mappings` (Object)**: Maps passthrough data keys to input field names. Supports dot notation for nested paths (e.g., `{"user.profile.name": "display_name"}`).
+-   **`write_to_private_output_passthrough_data_from_output_mappings` (Object)**: Maps output field names to passthrough data keys. Supports dot notation for nested paths (e.g., `{"result.user_id": "context.user.id"}`).
+-   **`dynamic_input_schema` / `dynamic_output_schema` (Object)**: Explicit schema definitions for dynamic nodes.
+-   **`enable_node_fan_in` / `defer_node` (Boolean)**: Advanced execution control settings.
+
 **Available Node Types (`node_name`)**
 
 Here are the core node types available for building workflows (refer to their individual guides for detailed configuration):
@@ -225,6 +238,67 @@ Here are examples of how nodes work together:
     *   Crucially, edges from `MapListRouterNode` to `ProcessItemNode` and `LogItemNode` define how *each item* is mapped (e.g., sending `item.id` and `item.price` to `ProcessItemNode`).
     *   `ProcessItemNode` and `LogItemNode` likely run with `private_input_mode: true` to handle items/batches independently/in parallel.
 
+-   **Processing List Items with ID/Metadata Preservation (Most Common Pattern):**
+    `InputNode` -> `MapListRouterNode` -> `LLMProcessingNode` (with passthrough data)
+    
+    **Real-World Usage Pattern from Example Workflows:**
+    
+    1. **Input Setup**: Input node provides list of items with `id`, `name`, and content fields.
+    
+    2. **Parallel Distribution**: `MapListRouterNode` distributes individual items to processing nodes.
+    
+    3. **Individual Processing**: Processing node configuration:
+        ```json
+        {
+          "node_name": "llm",
+          "private_input_mode": true,  // Receive data directly from router
+          "output_private_output_to_central_state": true,  // Send results to central state
+          "private_output_passthrough_data_to_central_state_keys": ["id", "name"],  // Preserve item metadata
+          "private_output_to_central_state_node_output_key": "output",  // LLM result key
+          "node_config": {
+            "llm_config": {"model_spec": {"provider": "openai", "model": "gpt-4o-mini"}},
+            "default_system_prompt": "Process the user prompt..."
+          }
+        }
+        ```
+        - **Receives**: Individual item data (id, name, user_prompt) from router
+        - **Processes**: LLM generates response to the content
+        - **Preserves**: `id` and `name` from INPUT state for result tracking
+        - **Outputs**: `{output: "LLM response", id: "item_1", name: "Item Title"}`
+    
+    4. **Central State Collection**: Results aggregated with preserved metadata:
+        ```json
+        [
+          {"output": "LLM response 1", "id": "item_1", "name": "Python Tutorial"},
+          {"output": "LLM response 2", "id": "item_2", "name": "ML Basics"}
+        ]
+        ```
+    
+    **Multi-Stage Pipeline Pattern (Lead Scoring Example):**
+    
+    For sequential processing steps, each stage preserves previous context:
+    
+    ```json
+    {
+      "step1_node": {
+        "private_output_passthrough_data_to_central_state_keys": ["Company", "firstName", "lastName", "emailId"],
+        "write_to_private_output_passthrough_data_from_output_mappings": {
+          "structured_output": "qualification_result"
+        }
+      },
+      "step2_node": {
+        "private_output_passthrough_data_to_central_state_keys": [
+          "Company", "firstName", "lastName", "emailId", "qualification_result"  // Preserve previous context
+        ],
+        "write_to_private_output_passthrough_data_from_output_mappings": {
+          "text_content": "content_analysis"  // Add new results
+        }
+      }
+    }
+    ```
+    
+    **Key Benefits**: Simple ID tracking, metadata preservation, clean aggregation, validation support.
+
 -   **Merging Multiple Data Sources:**
     (`SourceANode` & `SourceBNode`) -> `MergeAggregateNode` -> `OutputNode`
     *   `SourceANode` and `SourceBNode` produce data objects (e.g., `crm_data`, `activity_data`).
@@ -242,6 +316,12 @@ Here are examples of how nodes work together:
 -   **Start Simple, Iterate:** Build a basic version of your workflow first, test it, and then add complexity.
 -   **Use `PromptConstructorNode` for Prompts:** Prefer using the `PromptConstructorNode` for defining static prompts, loading/constructing dynamic prompts, and sourcing variables from various inputs.
 -   **Understand Dynamic Nodes:** Remember that for Input, Output, HITL, and PromptConstructor nodes, the connected edges and explicit schema definitions (`dynamic_input_schema`, `dynamic_output_schema`) are crucial for defining their data requirements and outputs.
+-   **Leverage Passthrough Data for Context:** When using `MapListRouterNode` and private modes, use passthrough data mappings to preserve context like batch IDs, processing timestamps, or configuration settings that need to flow through parallel branches.
+-   **Understand the Dual Nature of `private_output_passthrough_data_to_central_state_keys`:** This field creates both central state preservation AND a passthrough data chain. It preserves keys from the node's *input state* (not output), making them available to subsequent private input mode nodes. **Most common use case**: Preserve item IDs and names for result tracking in parallel processing (e.g., `["id", "name"]`).
+-   **Use Simple Patterns First:** Start with basic ID/metadata preservation patterns like the example workflows. Most real workflows just need `["id", "name"]` or similar simple field lists to track items through processing.
+-   **Progressive Context Building:** For multi-stage pipelines, each step can preserve all previous context plus add new results. Pattern: `["original_fields", "step1_results", "step2_results"]` with `write_to_private_output_passthrough_data_from_output_mappings` to add new data.
+-   **Use Dot Notation for Complex Data:** Take advantage of dot notation support in passthrough mappings to access and set nested data structures (e.g., `"user.profile.settings.theme"` or `"results.0.score"`).
+-   **Debug with Central State Output:** Enable `output_private_output_to_central_state: true` on nodes in private mode to see their outputs in the central state for debugging purposes without affecting the main data flow.
 -   **Test with Examples:** Run your workflow with different kinds of input data to ensure it handles various scenarios correctly.
 
 By understanding how nodes, edges, mappings, and schemas work together within the `GraphSchema`, you can build powerful and flexible automated workflows. Remember to consult the individual node guides for specific configuration details.
