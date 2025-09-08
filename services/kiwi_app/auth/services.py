@@ -133,6 +133,8 @@ class AuthService:
         db: AsyncSession, 
         *, 
         user: models.User, 
+        current_user_is_admin: bool,
+        user_acting_on_behalf_of_other_user: bool,
         current_password: str, 
         new_password: str
     ) -> bool:
@@ -142,6 +144,8 @@ class AuthService:
         Args:
             db: Database session
             user: The user model whose password is being changed
+            current_user_is_admin: Whether the current user is an admin
+            user_acting_on_behalf_of_other_user: Whether the current user is acting on behalf of another user
             current_password: The user's current password for verification
             new_password: The new password to set
             
@@ -153,8 +157,9 @@ class AuthService:
             HTTPException: If database update fails
         """
         # 1. Verify the current password
-        if user.is_verified and not security.verify_password(current_password, user.hashed_password):
-            raise CredentialsException(detail="Current password is incorrect")
+        if not (current_user_is_admin and user_acting_on_behalf_of_other_user):
+            if user.is_verified and not security.verify_password(current_password, user.hashed_password):
+                raise CredentialsException(detail="Current password is incorrect")
         
         # 2. Hash the new password
         hashed_password = security.get_password_hash(new_password)

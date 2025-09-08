@@ -528,19 +528,35 @@ async def change_password_endpoint(
     db: AsyncSession = Depends(get_async_db_dependency),
     # Requires an active, logged-in user
     current_user: models.User = Depends(dependencies.get_current_active_user),
-    auth_service: services.AuthService = Depends(dependencies.get_auth_service)
+    auth_service: services.AuthService = Depends(dependencies.get_auth_service),
+    user_dao: crud.UserDAO = Depends(dependencies.get_user_dao)
 ):
     """
     Allows an authenticated user to change their own password.
     Requires the user's current password for verification.
     """
     try:
+        user_acting_on_behalf_of_other_user = False
+        if password_data.on_behalf_of_user_id:
+            if not current_user.is_superuser:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You must be a superuser to act on behalf of another user")
+            if password_data.on_behalf_of_user_id != current_user.id:
+                user = await user_dao.get(db, id=password_data.on_behalf_of_user_id)
+                user_acting_on_behalf_of_other_user = True
+                if not user:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        else:
+            user = current_user
+        
         success = await auth_service.change_password(
             db=db,
-            user=current_user,
+            user=user,
+            current_user_is_admin=current_user.is_superuser,
+            user_acting_on_behalf_of_other_user=user_acting_on_behalf_of_other_user,
             current_password=password_data.current_password,
             new_password=password_data.new_password
         )
+
         if success:
             # Consider what to return. 204 No Content is typical for successful updates
             # with no body. We might also force a re-login by not returning new tokens.

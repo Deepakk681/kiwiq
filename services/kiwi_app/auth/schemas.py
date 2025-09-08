@@ -271,6 +271,7 @@ class UserChangePassword(BaseModel):
     """Schema for authenticated users changing their own password."""
     current_password: str
     new_password: str = Field(..., min_length=8)
+    on_behalf_of_user_id: Optional[uuid.UUID] = None
 
 class RequestPasswordReset(BaseModel):
     """Schema for requesting a password reset email."""
