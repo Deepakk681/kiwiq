@@ -27,7 +27,7 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE
 )
 
-from kiwi_client.workflows.active.content_diagnostics.llm_inputs.company_ai_visibility import (
+from kiwi_client.workflows.active.content_diagnostics.llm_inputs.company_ai_visibility_edge_case import (
     COMPETITIVE_ANALYSIS_SYSTEM_PROMPT,
     COMPETITIVE_ANALYSIS_USER_PROMPT_TEMPLATE,
     COMPETITIVE_ANALYSIS_SCHEMA,
@@ -172,7 +172,9 @@ workflow_graph_schema = {
                     "user_prompt": {
                         "id": "user_prompt",
                         "template": COMPANY_COMP_USER_PROMPT_TEMPLATE,
-                        "variables": {"blog_company_data": None, "competitive_analysis": None},
+                        "variables": {"blog_company_data": None, "competitive_analysis": None,
+                                      "current_date": "$current_date"
+                        },
                         "construct_options": {
                             "blog_company_data": "blog_company_doc",
                             "competitive_analysis": "competitive_analysis",
@@ -323,6 +325,7 @@ workflow_graph_schema = {
                 }
             },
         },
+
         "generate_company_comp_report": {
             "node_id": "generate_company_comp_report",
             "node_name": "llm",
@@ -551,7 +554,7 @@ async def main_test_ai_visibility_workflow():
     test_name = "AI Visibility Full Workflow Test"
     print(f"--- Starting {test_name} ---")
 
-    test_company_name = "momentum"
+    test_company_name = "test_for_kiwiq"
     
     test_inputs = {
         "company_name": test_company_name,
@@ -566,20 +569,36 @@ async def main_test_ai_visibility_workflow():
             'namespace': BLOG_COMPANY_NAMESPACE_TEMPLATE.format(item=test_company_name),
             'docname': BLOG_COMPANY_DOCNAME,
             'initial_data': {
-                "company_name": test_company_name,
-                "industry": "AI Revenue Orchestration Platform",
-                "primary_products": [
-                    "Deal Execution Agent",
-                    "Customer Retention Agent",
-                    "Coaching Agent",
-                    "AI CRO"
+                "name": "KiwiQ",
+                "website_url": "https://www.kiwiq.ai",
+                "value_proposition": "AI-powered content generation platform specifically designed for B2B SaaS companies. Our platform leverages GPT-5 and proprietary algorithms to create high-quality blog posts, whitepapers, and marketing content that resonates with technical B2B audiences.",
+                "company_goals": [
+                    "Become the leading AI-powered content creation platform for B2B SaaS companies",
+                    "Achieve 10,000 active users by end of 2025", 
+                    "Expand into enterprise market with custom solutions",
+                    "Build strategic partnerships with major marketing agencies",
+                    "Establish thought leadership in AI content generation space"
                 ],
-                "target_market": "B2B GTM teams (Sales, CS, RevOps)",
-                "competitors": ["Gong", "Clari", "Salesforce Einstein", "People.ai"],
-                "unique_value_proposition": "Capture structured data from every customer interaction, update CRM, route insights, and automate GTM workflows",
-                "blog_topics": ["AI for Revenue Ops", "Deal Execution", "Churn Prevention", "AI Coaching"],
-                "key_differentiators": ["AI Signals + Alerts", "MEDDIC Autopilot", "Executive Briefs", "Slack-first orchestration"],
-            },
+                "target_metrics": {
+                    "user_growth": "50% MoM",
+                    "revenue_target": "10M ARR by 2025",
+                    "customer_satisfaction": "NPS > 50"
+                },
+  "competitors": [
+    {
+      "name": "Frase",
+      "website_url": "https://www.frase.io"
+    },
+    {
+      "name": "Writesonic",
+      "website_url": "https://writesonic.com"
+    },
+    {
+      "name": "Rytr",
+      "website_url": "https://rytr.me"
+    }
+  ]
+},
             'is_versioned': False,
             'is_shared': False
         },

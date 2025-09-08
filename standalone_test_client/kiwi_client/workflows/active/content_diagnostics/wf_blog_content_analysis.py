@@ -140,13 +140,13 @@ workflow_graph_schema = {
                     "max_urls_per_domain": {
                         "type": "int",
                         "required": False,
-                        "default": 10,
+                        "default": 250,
                         "description": "Maximum URLs to discover per domain"
                     },
                     "max_processed_urls_per_domain": {
                         "type": "int",
                         "required": False,
-                        "default": 10,
+                        "default": 200,
                         "description": "Maximum URLs to actually scrape per domain"
                     },
                     "max_crawl_depth": {

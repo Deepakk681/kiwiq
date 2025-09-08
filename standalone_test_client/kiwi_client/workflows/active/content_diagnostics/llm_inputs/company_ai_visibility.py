@@ -1,326 +1,3 @@
-# import json
-# from pydantic import BaseModel, Field
-# from typing import List, Dict, Any, Optional
-
-# # --- 3. Competitive Analysis ("Perplexity Analysis") ---
-# COMPETITIVE_ANALYSIS_SYSTEM_PROMPT = (
-#     "You are a business intelligence analyst tasked with creating comprehensive competitive "
-#     "landscape analysis using ONLY the provided company documentation.\n\n"
-#     "Guidelines:\n"
-#     "- Be factual and neutral. Do not speculate beyond the provided data.\n"
-#     "- If a required detail is missing, write 'Not specified'. Do not hallucinate.\n"
-#     "- Keep each section concise, actionable, and free of marketing language.\n"
-#     "- Use consistent terminology for entities across the output.\n"
-#     "- Structure the output to exactly match the JSON schema provided.\n"
-#     "- Prefer short sentences and bullet-style phrasing.\n\n"
-#     "Deliverables:\n"
-#     "- A structured analysis for the company and exactly three competitors covering overview, key offerings, and value propositions."
-# )
-
-# COMPETITIVE_ANALYSIS_USER_PROMPT_TEMPLATE = (
-#     "Based on the provided company documentation, create a comprehensive competitive analysis following this structure:\n\n"
-#     "1) Company Analysis (target entity):\n"
-#     "   - Overview: Brief description, mission (if present), and market position\n"
-#     "   - Key Offerings: Primary products/services and their main features\n"
-#     "   - Value Proposition: Unique benefits and competitive advantages\n\n"
-#     "2) Competitor Analysis (Top 3): For each competitor, provide the same three sections as above.\n\n"
-#     "Rules:\n"
-#     "- Use only evidence present in the documentation. Cite names consistently.\n"
-#     "- If information is absent, write 'Not specified'.\n"
-#     "- Keep each bullet 1–2 lines.\n\n"
-#     "Company Document Data (verbatim JSON):\n{blog_company_data}"
-# )
-
-# # Simplified JSON schema (as Pydantic BaseModels) for competitive analysis output
-# class EntityAnalysis(BaseModel):
-#     """Structured analysis for a single entity (company or competitor)."""
-#     overview: str = Field(description="Brief description and market position")
-#     key_offerings: str = Field(description="Primary products/services and main features")
-#     value_proposition: str = Field(description="Unique benefits and competitive advantages")
-
-
-# class CompetitiveAnalysis(BaseModel):
-#     """Competitive analysis for the company and top 3 competitors."""
-#     company: EntityAnalysis
-#     competitor_1: EntityAnalysis
-#     competitor_2: EntityAnalysis
-#     competitor_3: EntityAnalysis
-
-
-# COMPETITIVE_ANALYSIS_SCHEMA = CompetitiveAnalysis.model_json_schema()
-
-
-# # --- 4. Query Generation ---
-# # 4.1 Blog Posts Coverage
-# BLOG_COVERAGE_SYSTEM_PROMPT = (
-#     "You are a content strategy analyst specializing in industry blog visibility analysis.\n\n"
-#     "Objective:\n"
-#     "- Generate search queries that real users would issue when seeking informational, educational, and thought-leadership content likely to surface blog posts.\n\n"
-#     "Guidelines:\n"
-#     "- Prioritize informational, how-to, best-practices, and comparison queries.\n"
-#     "- Avoid brand-only navigational queries unless relevant to learning (e.g., '(brand) best practices' is acceptable).\n"
-#     "- Avoid near-duplicates; ensure coverage diversity across subtopics and intents.\n"
-#     "- Phrase queries naturally (questions or short statements).\n"
-#     "- Keep each query 4–12 words; avoid punctuation unless needed.\n"
-#     "- Use only details from the provided data; no hallucinations."
-# )
-
-# BLOG_COVERAGE_USER_PROMPT_TEMPLATE = (
-#     "Based on the company documentation and competitive analysis provided, generate EXACTLY 15 search queries in total — not 14, not 16. "
-#     "Do not exceed or fall short; if your draft has more or fewer, adjust to output exactly 15.\n\n"
-#     "Coverage Requirements:\n"
-#     "- Include a balance of: industry trends, best practices/how-to, problem-solving/solutions, comparisons/evaluations, and educational/informational.\n"
-#     "- Avoid repeating the same core phrasing with minor token changes.\n"
-#     "- Ensure queries plausibly return blog articles or thought leadership pages.\n\n"
-#     "Output Format (JSON only, no commentary):\n"
-#     "- Conform to the BlogCoverageQueries schema fields: industry_trends, best_practices, solution_oriented, educational_content.\n"
-#     "- The sum of all list lengths MUST equal 15.\n\n"
-#     "Company Document Data (verbatim JSON):\n{blog_company_data}\n\n"
-#     "Competitive Analysis (verbatim JSON):\n{competitive_analysis}"
-# )
-
-# # For scraper compatibility, represent each segment as a list[str]
-# class BlogCoverageQueries(BaseModel):
-#     """Query templates grouped by searcher intent for blog coverage analysis."""
-#     industry_trends: List[str] = Field(description="Queries about industry trends and insights")
-#     best_practices: List[str] = Field(description="Queries about best practices and how-to content")
-#     solution_oriented: List[str] = Field(description="Queries about solutions to problems")
-#     educational_content: List[str] = Field(description="Queries about educational/informational topics")
-
-
-# BLOG_COVERAGE_QUERIES_SCHEMA = BlogCoverageQueries.model_json_schema()
-
-# # 4.2 Company and Competitor Analysis
-# COMPANY_COMP_SYSTEM_PROMPT = (
-#     "You are a competitive intelligence analyst tasked with generating buyer-research queries that reflect how evaluators compare vendors, "
-#     "understand offerings, assess social proof, and plan implementations.\n\n"
-#     "Guidelines:\n"
-#     "- Use natural, realistic buyer phrasing.\n"
-#     "- Ensure coverage of: overview, products/services, competitive comparisons, customer reviews, and technical integration.\n"
-#     "- Avoid near-duplicates and salesy language.\n"
-#     "- When referencing entities, use the exact names from the documentation.\n"
-#     "- Use only supported facts from the input."
-# )
-
-# COMPANY_COMP_USER_PROMPT_TEMPLATE = (
-#     "Using the competitive analysis and company documentation provided, generate EXACTLY 15 specific search queries — not 14, not 16 — organized into logical segments based on these reference templates:\n\n"
-#     "Reference Query Templates (examples, adapt to entities):\n"
-#     "- Company Overview: 'What is (entity_name)?', 'Tell me about (entity_name)'\n"
-#     "- Products/Services: 'What products does (entity_name) offer?', '(entity_name) features and capabilities'\n"
-#     "- Competitive Analysis: '(entity_name) vs competitors', 'What are alternatives to (entity_name)?'\n"
-#     "- Customer Reviews: '(entity_name) customer reviews', 'What do users say about (entity_name)?'\n"
-#     "- Technical Integration: '(entity_name) integrations', 'How to implement (entity_name)'\n\n"
-#     "Organization Requirements:\n"
-#     "- EXACTLY 5 segments with EXACTLY 3 queries each (total 15).\n"
-#     "- Map segments to schema fields in order: company_overview, products_services, competitive_analysis, customer_reviews, technical_integration.\n"
-#     "- Replace (entity_name) with the client company or named competitors as appropriate.\n"
-#     "- Avoid duplicates across segments.\n\n"
-#     "Output as JSON only, conforming to CompanyCompetitorQueries.\n\n"
-#     "Company Document Data (verbatim JSON):\n{blog_company_data}\n\n"
-#     "Competitive Analysis (verbatim JSON):\n{competitive_analysis}"
-# )
-
-# class CompanyCompetitorQueries(BaseModel):
-#     """Query templates grouped by buyer research categories."""
-#     company_overview: List[str] = Field(description="Overview-oriented queries about the entity")
-#     products_services: List[str] = Field(description="Queries about products/services and capabilities")
-#     competitive_analysis: List[str] = Field(description="Queries comparing with competitors / alternatives")
-#     customer_reviews: List[str] = Field(description="Queries about customer reviews and feedback")
-#     technical_integration: List[str] = Field(description="Queries about integrations and implementation")
-
-
-# COMPANY_COMP_QUERIES_SCHEMA = CompanyCompetitorQueries.model_json_schema()
-
-# # --- 6. Report Generation ---
-# BLOG_COVERAGE_REPORT_SYSTEM_PROMPT = (
-#     "You are a content intelligence analyst specializing in blog visibility and thought leadership analysis across answer engines. "
-#     "Analyze query results from Perplexity, Google, and OpenAI to identify content visibility patterns, assess competitor performance, "
-#     "identify gaps and opportunities, and provide quantitative metrics. Provide both an overall analysis and provider-specific analysis "
-#     "for each of the three providers.\n\n"
-#     "Methodology Constraints:\n"
-#     "- Use only the provided results. Do not infer ranks or sources not present.\n"
-#     "- When counting appearances, deduplicate by canonical domain where applicable.\n"
-#     "- Explain scoring or estimation logic succinctly when reporting metrics (e.g., share of voice).\n"
-#     "- If data is insufficient for a metric, state 'Insufficient data'.\n"
-#     "- Keep recommendations specific and prioritized."
-# )
-# BLOG_COVERAGE_REPORT_USER_PROMPT_TEMPLATE = (
-#     "Analyze the collected search results from blog coverage queries and generate a comprehensive Blog Coverage Report.\n\n"
-#     "Inputs Provided (verbatim JSON):\n{loaded_query_results}\n\n"
-#     "Your report MUST include: (1) an overall analysis aggregating across all providers, and (2) provider-specific analyses for EXACTLY these three providers: \n"
-#     "- perplexity\n- google\n- openai\n\n"
-#     "Requirements:\n"
-#     "- Output JSON only that conforms to BlogCoverageReport.\n"
-#     "- In 'query_level_analysis', include top_sources as normalized source labels (e.g., domains or publishers).\n"
-#     "- Quantitative metrics must include num_queries, client_appearances, competitor_appearances, and avg_rank (if available).\n"
-#     "- Provide 5–8 prioritized recommendations, each actionable.\n"
-#     "- Provider names must match exactly: 'perplexity', 'google', 'openai'."
-# )
-
-# # Use explicit models made of simple fields for the report
-# class AnalysisSummary(BaseModel):
-#     summary_text: str = Field(description="Concise overview of findings")
-#     key_findings: List[str] = Field(description="Bulleted key insights")
-#     overall_visibility_score: float = Field(description="Overall visibility score (0-100)")
-
-
-# class QueryLevelAnalysisItem(BaseModel):
-#     query: str = Field(description="The query analyzed")
-#     top_sources: List[str] = Field(description="Top sources returned for the query")
-#     client_presence: str = Field(description="How the client appears for this query")
-#     competitor_mentions: List[str] = Field(description="Competitors mentioned in top results")
-
-
-# class CompetitorPresenceItem(BaseModel):
-#     competitor_name: str = Field(description="Name of the competitor")
-#     presence_score: float = Field(description="Score of competitor presence (0-100)")
-#     notable_queries: List[str] = Field(description="Queries where competitor appears prominently")
-
-
-# class ContentOpportunityItem(BaseModel):
-#     opportunity: str = Field(description="Content opportunity identified")
-#     rationale: str = Field(description="Why this opportunity matters")
-#     priority: str = Field(description="Priority level, e.g., High/Medium/Low")
-
-
-# class VisibilityGapItem(BaseModel):
-#     gap: str = Field(description="Identified gap in visibility or coverage")
-#     impact: str = Field(description="Business or visibility impact")
-#     suggested_action: str = Field(description="Action to address the gap")
-
-
-# class QuantitativeMetrics(BaseModel):
-#     num_queries: int = Field(description="Total number of queries analyzed")
-#     client_appearances: int = Field(description="Count of times client appears in results")
-#     competitor_appearances: int = Field(description="Count of times competitors appear in results")
-#     avg_rank: float = Field(description="Average rank/position of client when present")
-
-
-# class ProviderBlogCoverageAnalysis(BaseModel):
-#     provider_name: str = Field(description="Name of the provider. One of: perplexity, google, openai")
-#     analysis_summary: AnalysisSummary
-#     query_level_analysis: List[QueryLevelAnalysisItem]
-#     competitor_presence: List[CompetitorPresenceItem]
-#     content_opportunities: List[ContentOpportunityItem]
-#     visibility_gaps: List[VisibilityGapItem]
-#     quantitative_metrics: QuantitativeMetrics
-#     recommendations: List[str]
-
-
-# class BlogCoverageReport(BaseModel):
-#     analysis_summary: AnalysisSummary
-#     query_level_analysis: List[QueryLevelAnalysisItem]
-#     competitor_presence: List[CompetitorPresenceItem]
-#     content_opportunities: List[ContentOpportunityItem]
-#     visibility_gaps: List[VisibilityGapItem]
-#     quantitative_metrics: QuantitativeMetrics
-#     recommendations: List[str]
-#     provider_specific_analysis: List[ProviderBlogCoverageAnalysis]
-
-
-# BLOG_COVERAGE_REPORT_SCHEMA = BlogCoverageReport.model_json_schema()
-
-# COMPANY_COMP_REPORT_SYSTEM_PROMPT = (
-#     "You are a competitive intelligence analyst specializing in digital presence and market positioning analysis across answer engines. "
-#     "Analyze buyer intent patterns, competitive positioning, gaps, and provide strategic recommendations using results from Perplexity, Google, and OpenAI. "
-#     "Provide both an overall analysis and provider-specific analysis for each of the three providers.\n\n"
-#     "Methodology Constraints:\n"
-#     "- Use only the provided results and entities.\n"
-#     "- Clearly distinguish client vs competitor presence and positioning.\n"
-#     "- Quantify where possible (counts, estimated share of voice), and explain estimation briefly.\n"
-#     "- If evidence is lacking, mark items as 'Insufficient data' rather than guessing."
-# )
-# COMPANY_COMP_REPORT_USER_PROMPT_TEMPLATE = (
-#     "Analyze the collected search results from company and competitor queries to generate a comprehensive Company & Competitor Analysis Report.\n\n"
-#     "Inputs Provided (verbatim JSON):\n{loaded_query_results}\n\n"
-#     "Your report MUST include: (1) an overall analysis aggregating across all providers, and (2) provider-specific analyses for EXACTLY these three providers: \n"
-#     "- perplexity\n- google\n- openai\n\n"
-#     "Requirements:\n"
-#     "- Output JSON only that conforms to CompanyCompetitorReport.\n"
-#     "- Populate buyer_intent_analysis with clear patterns and representative queries.\n"
-#     "- In client_positioning_analysis and competitor_analysis, list strengths/weaknesses as short bullets tied to observed evidence.\n"
-#     "- Provide 5–8 prioritized recommendations that are specific and feasible.\n"
-#     "- Provider names must match exactly: 'perplexity', 'google', 'openai'."
-# )
-
-# class CompanyAnalysisSummary(BaseModel):
-#     summary_text: str = Field(description="Concise overview of findings")
-#     key_findings: List[str] = Field(description="Bulleted key insights")
-
-
-# class ClientPositioningAnalysis(BaseModel):
-#     positioning_summary: str = Field(description="Summary of client's market positioning")
-#     strengths: List[str] = Field(description="Client strengths")
-#     weaknesses: List[str] = Field(description="Client weaknesses")
-
-
-# class CompetitorAnalysisItem(BaseModel):
-#     name: str = Field(description="Competitor name")
-#     positioning: str = Field(description="How the competitor is positioned")
-#     strengths: List[str] = Field(description="Competitor strengths")
-#     weaknesses: List[str] = Field(description="Competitor weaknesses")
-
-
-# class BuyerIntentItem(BaseModel):
-#     pattern: str = Field(description="Observed buyer intent pattern")
-#     representative_queries: List[str] = Field(description="Queries representing the pattern")
-#     implications: str = Field(description="Implications for the buyer journey")
-
-
-# class CompetitiveGapItem(BaseModel):
-#     gap: str = Field(description="Competitive gap identified")
-#     risk: str = Field(description="Risk associated with the gap")
-#     opportunity: str = Field(description="Opportunity associated with the gap")
-
-
-# class MarketPerceptionInsights(BaseModel):
-#     perception_summary: str = Field(description="Summary of market perception")
-#     sentiment: str = Field(description="Overall sentiment descriptor")
-#     common_themes: List[str] = Field(description="Common themes observed")
-
-
-# class PositioningOpportunityItem(BaseModel):
-#     opportunity: str = Field(description="Positioning opportunity")
-#     expected_impact: str = Field(description="Expected impact of seizing the opportunity")
-#     suggested_actions: List[str] = Field(description="Actions to seize the opportunity")
-
-
-# class QueryPerformanceMetrics(BaseModel):
-#     num_queries: int = Field(description="Total number of queries analyzed")
-#     client_appearances: int = Field(description="Count of times client appears in results")
-#     avg_rank: float = Field(description="Average rank/position of client when present")
-#     share_of_voice_pct: float = Field(description="Estimated share of voice percentage (0-100)")
-
-
-# class ProviderCompanyCompetitorAnalysis(BaseModel):
-#     provider_name: str = Field(description="Name of the provider. One of: perplexity, google, openai")
-#     analysis_summary: CompanyAnalysisSummary
-#     client_positioning_analysis: ClientPositioningAnalysis
-#     competitor_analysis: List[CompetitorAnalysisItem]
-#     buyer_intent_analysis: List[BuyerIntentItem]
-#     competitive_gaps: List[CompetitiveGapItem]
-#     market_perception_insights: MarketPerceptionInsights
-#     positioning_opportunities: List[PositioningOpportunityItem]
-#     query_performance_metrics: QueryPerformanceMetrics
-#     recommendations: List[str]
-
-
-# class CompanyCompetitorReport(BaseModel):
-#     analysis_summary: CompanyAnalysisSummary
-#     client_positioning_analysis: ClientPositioningAnalysis
-#     competitor_analysis: List[CompetitorAnalysisItem]
-#     buyer_intent_analysis: List[BuyerIntentItem]
-#     competitive_gaps: List[CompetitiveGapItem]
-#     market_perception_insights: MarketPerceptionInsights
-#     positioning_opportunities: List[PositioningOpportunityItem]
-#     query_performance_metrics: QueryPerformanceMetrics
-#     recommendations: List[str]
-#     provider_specific_analysis: List[ProviderCompanyCompetitorAnalysis]
-
-
-# COMPANY_COMP_REPORT_SCHEMA = CompanyCompetitorReport.model_json_schema() 
-
-
 import json
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
@@ -332,27 +9,13 @@ from datetime import datetime
 
 class DetailedEvidence(BaseModel):
     """Comprehensive evidence tracking for all claims and findings."""
-    platform: str = Field(description="AI platform source (perplexity/google/openai/anthropic)")
+    platform: str = Field(description="AI platform source (perplexity/google/openai)")
     query_text: str = Field(description="Exact query that generated this information")
     result_position: int = Field(description="Position in search results (1-based)")
     source_domain: Optional[str] = Field(description="Original source domain if available")
     source_url: Optional[str] = Field(description="Direct URL to source if provided")
-    excerpt: str = Field(description="Verbatim quote from the result (max 500 chars)")
     full_context: str = Field(description="Extended context around the excerpt for clarity")
-    timestamp: str = Field(description="When this result was retrieved (ISO format)")
     confidence_score: float = Field(description="Confidence in this evidence (0-100)")
-    verification_status: str = Field(description="verified/unverified/disputed/corroborated")
-    supporting_queries: List[str] = Field(description="Additional queries that support this evidence")
-
-class CitationReason(BaseModel):
-    """Citation with reasoning for findings."""
-    finding_statement: str = Field(description="The specific finding or claim being made")
-    supporting_queries: List[str] = Field(description="Exact queries that led to this finding")
-    reasoning: str = Field(description="Why this evidence supports the finding")
-    confidence_level: str = Field(description="high/medium/low confidence in this reasoning")
-    cross_validation: bool = Field(description="Whether finding is validated across multiple queries/platforms")
-    evidence_strength: str = Field(description="strong/moderate/weak evidence strength")
-
 # ============================================
 # SUPPORTING DATA MODELS
 # ============================================
@@ -397,9 +60,7 @@ class ContentOpportunity(BaseModel):
     target_queries: List[str] = Field(description="Queries this opportunity would target")
     expected_impact: str = Field(description="Expected impact: high/medium/low")
     implementation_effort: str = Field(description="Implementation effort: high/medium/low")
-    priority_score: int = Field(description="Priority score (1-100)")
     source_queries: List[str] = Field(description="Original queries that revealed this opportunity")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this opportunity")
 
 class ContentPerformance(BaseModel):
     """Content performance metrics."""
@@ -416,7 +77,6 @@ class ReputationRisk(BaseModel):
     mitigation_strategies: List[str] = Field(description="Strategies to mitigate risk")
     monitoring_indicators: List[str] = Field(description="Key indicators to monitor")
     source_queries: List[str] = Field(description="Queries that revealed this risk")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this risk assessment")
 
 class CompetitiveRisk(BaseModel):
     """Competitive risk assessment."""
@@ -426,8 +86,6 @@ class CompetitiveRisk(BaseModel):
     impact_areas: List[str] = Field(description="Business areas that could be impacted")
     response_strategies: List[str] = Field(description="Strategies to respond to threat")
     source_queries: List[str] = Field(description="Queries that revealed this competitive risk")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this risk assessment")
-
 # ============================================
 # 3. COMPETITIVE ANALYSIS - ENHANCED
 # ============================================
@@ -500,8 +158,6 @@ class CompetitiveIntelligence(BaseModel):
     )
     target_segments: List[str] = Field(description="Primary customer segments")
     
-    source_queries: List[str] = Field(description="Queries used to gather this intelligence")
-    citation_reasoning: List[CitationReason] = Field(description="Citations and reasoning for key findings")
     
 
 class EnhancedCompetitiveAnalysis(BaseModel):
@@ -548,10 +204,10 @@ BLOG_COVERAGE_USER_PROMPT_TEMPLATE = (
     "Generate EXACTLY 15 search queries for blog visibility analysis based on the company and competitive data.\n\n"
     "Current Date: {current_date}\n\n"
     "Query Distribution Requirements:\n"
-    "- industry_insights (3-4): Trends, market analysis, future predictions\n"
+    "- industry_insights (3-4): Trends, market analysis, future predictions\n" #not sure about type of queries generated here
     "- educational_guides (3-4): How-to, tutorials, best practices, frameworks\n"
     "- problem_solutions (3-4): Challenge-focused, troubleshooting, optimization\n"
-    "- thought_leadership (2-3): Opinion pieces, strategic perspectives, innovation\n"
+    "- thought_leadership (2-3): Opinion pieces, strategic perspectives, innovation\n" #not sure about type of queries generated here
     "- comparative_analysis (1-2): Versus content, alternatives, decision criteria\n\n"
     "Query Construction Rules:\n"
     "1. Mix query formats:\n"
@@ -748,6 +404,25 @@ BLOG_COVERAGE_REPORT_USER_PROMPT_TEMPLATE = (
 
 # Enhanced Report Schema Classes
 
+class AuthorityBacklinkAnalysis(BaseModel):
+    """Analysis of competitor authority site citations and PR strategy."""
+    authority_sites_found: List[str] = Field(
+        description="High authority domains where competitors are cited (e.g., techcrunch.com, forbes.com)",
+        max_items=8
+    )
+    competitor_citation_patterns: List[str] = Field(
+        description="How competitors are mentioned on authority sites",
+        max_items=6
+    )
+    pr_strategy_insights: List[str] = Field(
+        description="Insights about competitor PR/outreach strategies",
+        max_items=5
+    )
+    missed_opportunities: List[str] = Field(
+        description="Authority sites where client could potentially get coverage",
+        max_items=4
+    )
+
 class VisibilityMetrics(BaseModel):
     """Comprehensive visibility metrics with methodology."""
     visibility_score: float = Field(description="Overall visibility score (0-100)")
@@ -779,7 +454,6 @@ class CompetitorPerformance(BaseModel):
     competitive_threats: List[str] = Field(description="Specific threats posed")
     evidence_samples: List[DetailedEvidence] = Field(description="Supporting evidence")
     analysis_queries: List[str] = Field(description="Queries used to analyze this competitor")
-    citation_reasoning: List[CitationReason] = Field(description="Citations for competitor analysis findings")
 
 class ContentGap(BaseModel):
     """Identified content gap with business impact."""
@@ -790,7 +464,6 @@ class ContentGap(BaseModel):
     recommended_content: List[str] = Field(description="Specific content to create")
     evidence: List[DetailedEvidence] = Field(description="Evidence of the gap")
     source_queries: List[str] = Field(description="Original queries that revealed this gap")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this gap identification")
 
 class StrategicRecommendation(BaseModel):
     """Actionable recommendation with full context."""
@@ -802,7 +475,6 @@ class StrategicRecommendation(BaseModel):
     supporting_evidence: List[DetailedEvidence] = Field(description="Evidence supporting this recommendation")
     example_implementation: str = Field(description="Concrete example of implementation")
     source_queries: List[str] = Field(description="Queries that led to this recommendation")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this recommendation")
 
 class PlatformBlogAnalysis(BaseModel):
     """Platform-specific blog visibility analysis."""
@@ -839,6 +511,7 @@ class EnhancedBlogCoverageReport(BaseModel):
     content_gaps: List[ContentGap] = Field(
         description="Identified content gaps with impact"
     )
+    
     content_opportunities: List[ContentOpportunity] = Field(
         description="Content opportunities identified"
     )
@@ -852,6 +525,11 @@ class EnhancedBlogCoverageReport(BaseModel):
     recommendations: List[StrategicRecommendation] = Field(
         description="Prioritized strategic recommendations",
         min_items=5, max_items=7
+    )
+    
+    # Authority Site Analysis
+    authority_backlink_analysis: AuthorityBacklinkAnalysis = Field(
+        description="Analysis of competitor authority site citations and PR strategy"
     )
     
     # Risk Assessment
@@ -952,11 +630,9 @@ class BuyerJourneyStage(BaseModel):
     client_visibility: str = Field(description="How visible client is at this stage")
     competitor_presence: List[str] = Field(description="Competitors prominent at this stage")
     decision_factors: List[str] = Field(description="Key factors influencing buyers")
-    content_effectiveness: str = Field(description="How well content serves this stage")
     optimization_needs: List[str] = Field(description="What's needed to improve")
     evidence: List[DetailedEvidence] = Field(description="Supporting evidence")
     analysis_queries: List[str] = Field(description="Specific queries used to analyze this stage")
-    citation_reasoning: List[CitationReason] = Field(description="Citations for buyer journey findings")
 
 class CompetitivePositioning(BaseModel):
     """Detailed competitive positioning analysis."""
@@ -969,8 +645,6 @@ class CompetitivePositioning(BaseModel):
     threat_level: str = Field(description="high/medium/low threat assessment")
     counter_strategies: List[str] = Field(description="How to counter this competitor")
     evidence_base: List[DetailedEvidence] = Field(description="Evidence for analysis")
-    positioning_queries: List[str] = Field(description="Queries used to assess competitive positioning")
-    citation_reasoning: List[CitationReason] = Field(description="Citations for positioning analysis")
 
 class MarketPerception(BaseModel):
     """Market perception and sentiment analysis."""
@@ -983,20 +657,14 @@ class MarketPerception(BaseModel):
     perception_gaps: List[str] = Field(description="Gaps between reality and perception")
     narrative_opportunities: List[str] = Field(description="Opportunities to shape narrative")
     perception_queries: List[str] = Field(description="Queries used to assess market perception")
-    citation_reasoning: List[CitationReason] = Field(description="Citations for perception analysis")
 
 class StrategicImperative(BaseModel):
     """High-priority strategic action."""
     imperative: str = Field(description="What must be done")
-    urgency: str = Field(description="critical/high/medium/low")
-    business_case: str = Field(description="Why this matters to business")
-    expected_impact: str = Field(description="Expected business impact")
     implementation_steps: List[str] = Field(description="How to implement")
     success_criteria: List[str] = Field(description="How to measure success")
-    risk_mitigation: str = Field(description="How to mitigate risks")
     evidence_foundation: List[DetailedEvidence] = Field(description="Evidence driving this imperative")
     driving_queries: List[str] = Field(description="Queries that revealed the need for this imperative")
-    citation_reasoning: CitationReason = Field(description="Citation and reasoning for this strategic imperative")
 
 class PlatformCompanyAnalysis(BaseModel):
     """Platform-specific company analysis."""
@@ -1045,6 +713,11 @@ class EnhancedCompanyCompetitorReport(BaseModel):
         min_items=10, max_items=12
     )
     
+    # Authority Site Analysis
+    authority_backlink_analysis: AuthorityBacklinkAnalysis = Field(
+        description="Analysis of competitor authority site citations and PR strategy"
+    )
+    
     # Risk Assessment
     reputation_risks: List[ReputationRisk] = Field(
         description="Identified reputation risks with severity"
@@ -1060,9 +733,5 @@ class EnhancedCompanyCompetitorReport(BaseModel):
     monitoring_triggers: List[str] = Field(
         description="Events requiring immediate action"
     )
-    
-    # Data Quality
-    data_confidence: str = Field(description="Overall confidence in data: high/medium/low")
-    evidence_summary: str = Field(description="Summary of evidence base")
 
 COMPANY_COMP_REPORT_SCHEMA = EnhancedCompanyCompetitorReport.model_json_schema()

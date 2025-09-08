@@ -57,6 +57,10 @@ from kiwi_client.workflows.active.playbook.llm_inputs.blog_content_playbook_gene
     PLAYBOOK_GENERATOR_SYSTEM_PROMPT,
     FEEDBACK_MANAGEMENT_SYSTEM_PROMPT_TEMPLATE,
     
+    # NEW: System prompts for starting from scratch
+    PLAY_SELECTION_SYSTEM_PROMPT_FROM_SCRATCH,
+    PLAYBOOK_GENERATOR_SYSTEM_PROMPT_FROM_SCRATCH,
+    
     # User prompt templates
     PLAY_SELECTION_USER_PROMPT_TEMPLATE,
     PLAY_SELECTION_REVISION_USER_PROMPT_TEMPLATE,
@@ -65,6 +69,10 @@ from kiwi_client.workflows.active.playbook.llm_inputs.blog_content_playbook_gene
     PLAYBOOK_GENERATOR_REVISION_PROMPT_TEMPLATE,
     ENHANCED_FEEDBACK_PROMPT_TEMPLATE,
     ADDITIONAL_FEEDBACK_USER_PROMPT_TEMPLATE,
+    
+    # NEW: User prompt templates for starting from scratch
+    PLAY_SELECTION_USER_PROMPT_TEMPLATE_FROM_SCRATCH,
+    PLAYBOOK_GENERATOR_USER_PROMPT_TEMPLATE_FROM_SCRATCH,
     
     # Output schemas
     PLAY_SELECTION_OUTPUT_SCHEMA,
@@ -781,6 +789,29 @@ workflow_graph_schema = {
             }
         },
         
+        # 2. Route based on starting from scratch status for play selection (simplified)
+        "route_play_selection_prompts": {
+            "node_id": "route_play_selection_prompts",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["construct_play_selection_prompt", "construct_play_selection_prompt_from_scratch"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "construct_play_selection_prompt_from_scratch",
+                        "input_path": "diagnostic_report_doc.has_insufficient_blog_and_page_count",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "construct_play_selection_prompt",
+                        "input_path": "diagnostic_report_doc.has_insufficient_blog_and_page_count",
+                        "target_value": False
+                    }
+                ],
+                "default_choice": "construct_play_selection_prompt"
+            }
+        },
+        
         # 3. Extract Playbooks (from CONFIG) - Filter to play metadata fields
         "extract_playbooks": {
             "node_id": "extract_playbooks",
@@ -816,7 +847,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 3. Play Selection - Prompt Constructor
+        # 3. Play Selection - Prompt Constructor (EXISTING PROMPTS)
         "construct_play_selection_prompt": {
             "node_id": "construct_play_selection_prompt",
             "node_name": "prompt_constructor",
@@ -837,6 +868,38 @@ workflow_graph_schema = {
                     "play_selection_system_prompt": {
                         "id": "play_selection_system_prompt",
                         "template": PLAY_SELECTION_SYSTEM_PROMPT,
+                        "variables": {
+                            "available_playbooks": None
+                        },
+                        "construct_options": {
+                            "available_playbooks": "available_playbooks"
+                        }
+                    }
+                }
+            }
+        },
+        
+        # 3.a Play Selection - Prompt Constructor (FROM SCRATCH PROMPTS)
+        "construct_play_selection_prompt_from_scratch": {
+            "node_id": "construct_play_selection_prompt_from_scratch",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "play_selection_user_prompt": {
+                        "id": "play_selection_user_prompt",
+                        "template": PLAY_SELECTION_USER_PROMPT_TEMPLATE_FROM_SCRATCH,
+                        "variables": {
+                            "company_info": None,
+                            "diagnostic_report_info": None
+                        },
+                        "construct_options": {
+                            "company_info": "company_doc",
+                            "diagnostic_report_info": "diagnostic_report_doc",
+                        }
+                    },
+                    "play_selection_system_prompt": {
+                        "id": "play_selection_system_prompt",
+                        "template": PLAY_SELECTION_SYSTEM_PROMPT_FROM_SCRATCH,
                         "variables": {
                             "available_playbooks": None
                         },
@@ -1197,6 +1260,60 @@ workflow_graph_schema = {
                         "variables": {}
                     }
                 }
+            }
+        },
+        
+        # 15.a Playbook Generator - Prompt Constructor (FROM SCRATCH)
+        "construct_playbook_generator_prompt_from_scratch": {
+            "node_id": "construct_playbook_generator_prompt_from_scratch",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "playbook_generator_user_prompt": {
+                        "id": "playbook_generator_user_prompt",
+                        "template": PLAYBOOK_GENERATOR_USER_PROMPT_TEMPLATE_FROM_SCRATCH,
+                        "variables": {
+                            "fetched_information": None,
+                            "company_info": None,
+                            "diagnostic_report_info": None,
+                            "approved_plays": None
+                        },
+                        "construct_options": {
+                            "fetched_information": "fetched_information",
+                            "company_info": "company_doc",
+                            "diagnostic_report_info": "diagnostic_report_doc",
+                            "approved_plays": "approved_plays"
+                        }
+                    },
+                    "playbook_generator_system_prompt": {
+                        "id": "playbook_generator_system_prompt",
+                        "template": PLAYBOOK_GENERATOR_SYSTEM_PROMPT_FROM_SCRATCH,
+                        "variables": {}
+                    }
+                }
+            }
+        },
+        
+        # 14.a Route to appropriate playbook generator prompt
+        "route_playbook_generator_prompts": {
+            "node_id": "route_playbook_generator_prompts",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["construct_playbook_generator_prompt", "construct_playbook_generator_prompt_from_scratch"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "construct_playbook_generator_prompt_from_scratch",
+                        "input_path": "diagnostic_report_doc.has_insufficient_blog_and_page_count",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "construct_playbook_generator_prompt",
+                        "input_path": "diagnostic_report_doc.has_insufficient_blog_and_page_count",
+                        "target_value": False
+                    }
+                ],
+                "default_choice": "construct_playbook_generator_prompt"
             }
         },
         
@@ -1786,6 +1903,22 @@ workflow_graph_schema = {
             ]
         },
         
+        # Extract Playbooks -> Route Play Selection Prompts (ensure extract happens first)
+        {
+            "src_node_id": "extract_playbooks",
+            "dst_node_id": "route_play_selection_prompts",
+            "mappings": []
+        },
+        
+        # State -> Route Play Selection Prompts (provide diagnostic report for routing decision)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "route_play_selection_prompts",
+            "mappings": [
+                {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
+            ]
+        },
+        
         # Extract Playbooks -> State
         {
             "src_node_id": "extract_playbooks",
@@ -1795,19 +1928,33 @@ workflow_graph_schema = {
             ]
         },
 
+        # Route Play Selection -> construct_play_selection_prompt (control flow only)
         {
-            "src_node_id": "extract_playbooks",
-            "dst_node_id": "construct_play_selection_prompt",
-            "mappings": [
-                {"src_field": "filtered_data", "dst_field": "available_playbooks"}
-            ]
+            "src_node_id": "route_play_selection_prompts",
+            "dst_node_id": "construct_play_selection_prompt"
         },
         
-        # Company Doc -> Play Selection Prompt
+        # Route Play Selection -> construct_play_selection_prompt_from_scratch (control flow only)
         {
-            "src_node_id": "$graph_state",
+            "src_node_id": "route_play_selection_prompts",
+            "dst_node_id": "construct_play_selection_prompt_from_scratch"
+        },
+        
+        # State -> Both Play Selection Prompt Constructors (merged mappings)
+        {
+            "src_node_id": "$graph_state", 
             "dst_node_id": "construct_play_selection_prompt",
             "mappings": [
+                {"src_field": "available_playbooks", "dst_field": "available_playbooks"},
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
+            ]
+        },
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_play_selection_prompt_from_scratch", 
+            "mappings": [
+                {"src_field": "available_playbooks", "dst_field": "available_playbooks"},
                 {"src_field": "company_doc", "dst_field": "company_doc"},
                 {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
             ]
@@ -1816,6 +1963,16 @@ workflow_graph_schema = {
         # Play Selection Prompt -> LLM
         {
             "src_node_id": "construct_play_selection_prompt",
+            "dst_node_id": "play_suggestion_llm",
+            "mappings": [
+                {"src_field": "play_selection_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "play_selection_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # Play Selection Prompt From Scratch -> LLM
+        {
+            "src_node_id": "construct_play_selection_prompt_from_scratch",
             "dst_node_id": "play_suggestion_llm",
             "mappings": [
                 {"src_field": "play_selection_user_prompt", "dst_field": "user_prompt"},
@@ -1990,20 +2147,82 @@ workflow_graph_schema = {
             ]
         },
 
+        # Load Selected Playbooks -> State (store fetched playbook data)
         {
             "src_node_id": "load_selected_playbooks",
-            "dst_node_id": "construct_playbook_generator_prompt",
+            "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "playbook", "dst_field": "fetched_information"}
+                {"src_field": "playbook", "dst_field": "fetched_playbook_information"}
             ]
         },
+
+        # Load Selected Playbooks -> Route Playbook Generator Prompts (control flow only)
+        {
+            "src_node_id": "load_selected_playbooks",
+            "dst_node_id": "route_playbook_generator_prompts",
+            "mappings": []
+        },
+        
+        # State -> Route Playbook Generator Prompts (provide diagnostic report for routing decision)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "route_playbook_generator_prompts",
+            "mappings": [
+                {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
+            ]
+        },
+        
+        # Route Playbook Generator -> construct_playbook_generator_prompt (control flow only)
+        {
+            "src_node_id": "route_playbook_generator_prompts",
+            "dst_node_id": "construct_playbook_generator_prompt"
+        },
+        
+        # Route Playbook Generator -> construct_playbook_generator_prompt_from_scratch (control flow only)
+        {
+            "src_node_id": "route_playbook_generator_prompts",
+            "dst_node_id": "construct_playbook_generator_prompt_from_scratch"
+        },
+        
+        # State -> Both Playbook Generator Prompt Constructors (merged mappings)
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_playbook_generator_prompt",
             "mappings": [
+                {"src_field": "fetched_playbook_information", "dst_field": "fetched_information"},
                 {"src_field": "approved_plays", "dst_field": "approved_plays"},
                 {"src_field": "company_doc", "dst_field": "company_doc"},
                 {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
+            ]
+        },
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_playbook_generator_prompt_from_scratch",
+            "mappings": [
+                {"src_field": "fetched_playbook_information", "dst_field": "fetched_information"},
+                {"src_field": "approved_plays", "dst_field": "approved_plays"},
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "diagnostic_report_doc", "dst_field": "diagnostic_report_doc"}
+            ]
+        },
+        
+        # Playbook Generator Prompt -> Playbook Generator LLM
+        {
+            "src_node_id": "construct_playbook_generator_prompt",
+            "dst_node_id": "playbook_generator_llm",
+            "mappings": [
+                {"src_field": "playbook_generator_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "playbook_generator_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # Playbook Generator Prompt From Scratch -> Playbook Generator LLM
+        {
+            "src_node_id": "construct_playbook_generator_prompt_from_scratch",
+            "dst_node_id": "playbook_generator_llm",
+            "mappings": [
+                {"src_field": "playbook_generator_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "playbook_generator_system_prompt", "dst_field": "system_prompt"}
             ]
         },
         
@@ -2038,16 +2257,6 @@ workflow_graph_schema = {
         },
 
 
-        # Playbook Generator Prompt -> Playbook Generator LLM
-        {
-            "src_node_id": "construct_playbook_generator_prompt",
-            "dst_node_id": "playbook_generator_llm",
-            "mappings": [
-                {"src_field": "playbook_generator_user_prompt", "dst_field": "user_prompt"},
-                {"src_field": "playbook_generator_system_prompt", "dst_field": "system_prompt"}
-            ]
-        },
-        
         # Playbook Generator LLM -> State
         {
             "src_node_id": "playbook_generator_llm",
@@ -2321,12 +2530,13 @@ workflow_graph_schema = {
                 {"src_field": "enhanced_feedback_prompt", "dst_field": "user_prompt"}
             ]
         },
-        # 24.h Load Selected Playbooks for Update
+
+        # Load Selected Playbooks for Update -> State (store additional playbook data)
         {
             "src_node_id": "load_selected_playbooks_for_update",
-            "dst_node_id": "construct_playbook_update_prompt",
+            "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "playbook", "dst_field": "additional_play_data"}
+                {"src_field": "playbook", "dst_field": "additional_playbook_data"}
             ]
         },
         
@@ -2397,7 +2607,8 @@ workflow_graph_schema = {
                 {"src_field": "playbook_generator_output", "dst_field": "current_playbook"},
                 {"src_field": "revision_feedback", "dst_field": "revision_feedback"},
                 {"src_field": "feedback_management_output", "dst_field": "additional_information"},
-                {"src_field": "company_doc", "dst_field": "company_doc"}
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "additional_playbook_data", "dst_field": "additional_play_data"}
             ]
         },
         
@@ -2450,6 +2661,8 @@ workflow_graph_schema = {
                 "selected_plays": "replace",
                 "approved_plays": "replace",
                 "current_user_feedback_on_plays": "replace",
+                "fetched_playbook_information": "replace",
+                "additional_playbook_data": "replace",
                 "document_fetcher_output": "replace",
                 "document_fetcher_tool_calls": "replace",
                 "document_fetcher_messages": "add_messages",
@@ -2538,7 +2751,7 @@ async def main_test_playbook_workflow():
     print(f"--- Starting {test_name} ---")
     
     # Test parameters
-    test_company_name = "test_blog_company"
+    test_company_name = "lamatic"
     
     # Create test company document data
     company_data = {
@@ -2640,7 +2853,8 @@ async def main_test_playbook_workflow():
             "main_competitors": ["Enterprise Corp", "NicheSoft", "BigTech Solutions"],
             "competitive_advantages": ["SMB focus", "Customer support", "Pricing flexibility"],
             "market_opportunities": ["Underserved mid-market", "Industry-specific solutions", "Integration partnerships"]
-        }
+        },
+        "has_insufficient_blog_and_page_count": False  # Set to False to test the normal flow (not starting from scratch)
     }
     
     # Setup test documents
@@ -2694,22 +2908,22 @@ async def main_test_playbook_workflow():
 
 # {
 #   "user_action": "approve_plays",
-#   "feedback": None,
+#   "feedback": null,
 #   "final_selected_plays": [
 #     {
 #       "play_id": "the_david_vs_goliath_playbook",
 #       "play_name": "The David vs Goliath Playbook",
-#       "play_description": "Win by systematically highlighting what incumbents structurally cannot or will not do.",
+#       "play_description": "Win by systematically highlighting what incumbents structurally cannot or will not do."
 #     },
 #     {
 #       "play_id": "the_practitioners_handbook",
 #       "play_name": "The Practitioner's Handbook",
-#       "play_description": "Share tactical, in-the-trenches expertise so deep that it becomes the industry's operational bible.",
+#       "play_description": "Share tactical, in-the-trenches expertise so deep that it becomes the industry's operational bible."
 #     },
 #     {
 #       "play_id": "the_vertical_dominator",
 #       "play_name": "The Vertical Dominator",
-#       "play_description": "Achieve category leadership by becoming the undisputed expert for one specific industry.",
+#       "play_description": "Achieve category leadership by becoming the undisputed expert for one specific industry."
 #     }
 #   ]
 # },
@@ -2718,7 +2932,7 @@ async def main_test_playbook_workflow():
 
 # {"user_action":"provide_clarification","clarification_response":"Add Problem Authority Stack + State of SMB Report, optimize for Lead gen"}
 
-# {"user_action":"approve_playbook","revision_feedback":None,"generated_playbook":{"playbook_title":"TechVenture Solutions Blog Content Playbook: Dominating the SMB Digital Transformation Market","executive_summary":"TechVenture Solutions is positioned to capture significant market share in the SMB digital transformation space through strategic content plays that leverage your unique positioning as \"David vs Goliath,\" establish deep practitioner credibility, and dominate vertical-specific conversations. With a current diagnostic score of 6.8/10, this playbook addresses your core challenges of limited content resources and ROI measurement while capitalizing on your competitive advantages of SMB focus, exceptional customer support, and enterprise-grade features at accessible pricing. The three selected plays will establish thought leadership, generate qualified leads, and create measurable content ROI within 12 weeks of implementation.","content_plays":[{"play_name":"The David vs Goliath Playbook","implementation_strategy":"Position TechVenture Solutions as the scrappy, customer-focused alternative to enterprise giants. Create content that highlights how smaller, agile companies can outmaneuver larger competitors through better customer service, faster implementation, and more flexible pricing. Focus on authentic storytelling that resonates with SMB decision-makers who feel overlooked by enterprise solutions.","content_formats":["Comparison blog posts","Customer success stories","Behind-the-scenes content","Founder/executive thought leadership pieces","Video testimonials","Interactive comparison tools"],"example_topics":["Why SMBs Choose Agile Solutions Over Enterprise Giants","The Real Cost of Enterprise Software for Small Businesses","Customer Support That Actually Cares: Our Story","How We Built Enterprise Features for SMB Budgets","David vs Goliath: 5 Ways Small Companies Win"],"success_metrics":["Brand sentiment score improvement","Share of voice vs competitors","Customer acquisition cost reduction","Content engagement rates","Lead quality scores","Organic traffic growth"],"timeline":"8-10 weeks for full implementation","resource_requirements":"1 content strategist, 1 writer, 1 video producer, executive participation for authenticity"},{"play_name":"The Practitioner's Handbook","implementation_strategy":"Establish TechVenture Solutions as the go-to resource for practical digital transformation guidance. Create in-depth, actionable content that SMB leaders can immediately implement. Focus on tactical advice, step-by-step guides, and real-world applications that demonstrate deep understanding of SMB operational challenges.","content_formats":["Comprehensive how-to guides","Implementation checklists","Template downloads","Video tutorials","Webinar series","Interactive assessments","Podcast series"],"example_topics":["The Complete SMB Digital Transformation Checklist","Security Compliance Made Simple for Small Businesses","Integration Challenges: A Practitioner's Guide","AI Implementation for SMBs: Start Here","Measuring ROI on Digital Transformation"],"success_metrics":["Content download rates","Time spent on page","Return visitor rates","Email list growth","Webinar attendance","Content sharing rates","Lead nurturing progression"],"timeline":"10-12 weeks for comprehensive resource library","resource_requirements":"2 subject matter experts, 1 technical writer, 1 designer for templates, marketing automation setup"},{"play_name":"The Vertical Dominator","implementation_strategy":"Dominate specific industry verticals by creating highly targeted content that addresses unique challenges and opportunities in key SMB sectors. Focus on 2-3 high-potential verticals initially, creating comprehensive content ecosystems that establish TechVenture Solutions as the industry expert for digital transformation in those sectors.","content_formats":["Industry-specific case studies","Vertical market reports","Sector-focused webinars","Industry newsletter","Vertical-specific landing pages","Industry partnership content"],"example_topics":["Digital Transformation in Manufacturing SMBs","Healthcare Practice Management: Technology Solutions","Retail Revolution: SMB Digital Strategies","Professional Services Automation Guide","Construction Industry Tech Adoption"],"success_metrics":["Vertical market share growth","Industry-specific organic rankings","Qualified leads by vertical","Industry event speaking opportunities","Partnership development","Vertical content engagement"],"timeline":"12-16 weeks per vertical (staggered approach)","resource_requirements":"Industry research analyst, vertical-specific writers, industry relationship manager, targeted advertising budget"}],"reasoning_for_recommendations":"These three plays directly address TechVenture Solutions' competitive position and business goals. The David vs Goliath approach leverages your natural positioning against larger competitors while building authentic brand connection. The Practitioner's Handbook establishes the thought leadership you need while providing immediate value to prospects, addressing the content ROI challenge through clear lead generation metrics. The Vertical Dominator creates the industry-specific content you're lacking while allowing focused resource allocation. Together, these plays create a comprehensive content ecosystem that builds brand awareness, generates qualified leads, and establishes measurable thought leadership in the SMB digital transformation space.","overall_recommendations":"Start with The David vs Goliath Playbook for immediate brand differentiation and quick wins, as it requires the least resources and can generate early momentum. Simultaneously begin research for The Practitioner's Handbook to establish your content foundation. Once these are showing results (8-10 weeks), launch The Vertical Dominator focusing on your two highest-opportunity verticals. Implement robust analytics tracking from day one to measure content ROI and optimize resource allocation. Consider partnering with industry experts or freelance specialists to supplement your limited internal resources while maintaining quality and consistency.","next_steps":["Conduct competitive content analysis to identify specific David vs Goliath messaging opportunities","Interview 5-10 existing customers for authentic success stories and testimonials","Set up content performance tracking dashboard with ROI metrics","Identify and recruit subject matter experts for Practitioner's Handbook content","Research and prioritize 2-3 target verticals based on current customer concentration and market opportunity","Establish content calendar with staggered play implementation timeline","Create content templates and brand guidelines for consistency across plays","Set up lead scoring system to measure content-driven lead quality improvement"]}}
+# {"user_action":"approve_playbook","revision_feedback":null,"generated_playbook":{"playbook_title":"TechVent"}}
 
     ]
 
@@ -2729,7 +2943,7 @@ async def main_test_playbook_workflow():
         workflow_graph_schema=workflow_graph_schema,
         initial_inputs=test_inputs,
         expected_final_status=WorkflowRunStatus.COMPLETED,
-        hitl_inputs=predefined_hitl_inputs,
+        # hitl_inputs=predefined_hitl_inputs,
         setup_docs=setup_docs,
         cleanup_docs=cleanup_docs,
         cleanup_docs_created_by_setup=False,

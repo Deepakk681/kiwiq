@@ -307,7 +307,7 @@ class WorkflowService:
                 if not updated_job:
                     # Should not happen if checks above pass, but handle defensively
                     # Log error
-                    logger.error(f"ERROR: Failed to update HITL job response in DAO for job {job.id}")
+                    logger.error(f"ERROR: Failed to update HITL job response in DAO for job {hitl_job.id}")
                     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update HITL job response")
 
                 

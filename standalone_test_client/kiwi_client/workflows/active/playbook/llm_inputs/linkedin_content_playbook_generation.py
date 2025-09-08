@@ -46,7 +46,8 @@ class FeedbackManagementDecision(str, Enum):
 
 class SelectedPlay(BaseModel):
     """Individual selected LinkedIn content play"""
-    reasoning: str = Field(description="Clear explanation of: 1) Which LinkedIn goals or diagnostic gaps this play addresses, 2) How it complements other selected plays, 3) Why it suits this executive's expertise and audience")
+    source_path_of_infomation: str = Field(description="Exact path of the document and section from which the information was extracted that led to selecting this play. Format: 'Document Name > Section > Subsection'. Examples: 'LinkedIn Profile > Business Goals > Content Objectives', 'Diagnostic Report > Content Gaps Analysis > Engagement Deficits'")
+    reasoning_of_selection_of_this_play: str = Field(description="Concise, data-driven explanation citing specific metrics, gaps, or findings that justify this play selection. Must include: 1) Specific data points or findings from the source documents, 2) Clear connection between the data and LinkedIn goals, 3) How this play addresses the identified gap or opportunity. Example: 'Diagnostic Report shows engagement rate at 2.1% vs industry average of 4.5%, while LinkedIn Profile goals emphasize thought leadership building. Current content lacks personal storytelling (LinkedIn Profile > Content Challenges) making this play essential for authentic connection and improved engagement metrics.'")
     play_id: str = Field(description="ID of the content play (must match exactly from available plays)")
 
 class PlaySelectionOutput(BaseModel):
@@ -95,10 +96,12 @@ FEEDBACK_MANAGEMENT_OUTPUT_SCHEMA = FeedbackManagementOutput.model_json_schema()
 class ContentPlay(BaseModel):
     """Individual LinkedIn content play with implementation details"""
     play_name: str = Field(description="Name of the content play")
-    reasoning: str = Field(description="Reasoning for selecting this play for their LinkedIn strategy in 2-3 concise points")
+    reasoning_for_implementation_strategy: str = Field(description="Reasoning for this implementation strategy in 2-3 concise points")
+    source_path_for_implementation_strategy: str = Field(description="Exact path of the document and section used for implementation strategy. Format: 'Document Name > Section > Subsection'. Examples: 'LinkedIn Profile > Target Audience > Decision Makers', 'Diagnostic Report > Competitive Analysis > Content Format Gaps'")
     implementation_strategy: str = Field(description="LinkedIn post implementation strategy - specific topics, posting angles, and narrative approaches to execute this play through LinkedIn text posts. Should align with the recommended posts per week frequency.")
     content_formats: List[str] = Field(description="Detailed types of LinkedIn text posts for this play (e.g., 'Hook-driven story posts (1000-1200 characters): Personal anecdote opening → Challenge faced → Solution discovered → Business lesson → Engagement question', 'Data insight posts (600-800 characters): Surprising statistic hook → Context and analysis → Contrarian take → Actionable insight → Call for perspectives')")
     success_metrics: List[str] = Field(description="LinkedIn post performance metrics to track (engagement rate, comments quality, profile views, connection requests, DM inquiries)")
+    source_path_for_timeline: str = Field(description="Exact path of the document and section used for timeline planning. Format: 'Document Name > Section > Subsection'. Examples: 'LinkedIn Profile > Posting Schedule > Current Capacity', 'Diagnostic Report > Opportunity Areas > Quick Wins Timeline'")
     reasoning_for_timeline: str = Field(description="Reasoning for the posting timeline")
     timeline: List[str] = Field(description="LinkedIn posting timeline for the next 3 months with specific milestones")
     example_topics: Optional[List[str]] = Field(None, description="10-15 specific LinkedIn post topics that implement this play (e.g., 'How we went from 0 to $1M ARR in 18 months', 'The biggest mistake I made as a first-time founder')")
@@ -109,6 +112,7 @@ class PlaybookGenerationOutput(BaseModel):
     playbook_title: str = Field(description="Title of the LinkedIn content playbook")
     executive_summary: str = Field(description="Executive summary of the playbook in 1-2 concise paragraphs without bullet points")
     content_plays: List[ContentPlay] = Field(description="List of LinkedIn content plays with implementation details")
+    source_path_for_recommendations: str = Field(description="Exact path of the document and section used for recommendations. Format: 'Document Name > Section > Subsection'. Examples: 'LinkedIn Profile > Business Goals > Primary Objectives', 'Diagnostic Report > Content Gaps Analysis > Priority Areas'")
     reasoning_for_recommendations: str = Field(description="Reasoning for the LinkedIn strategy recommendations in 2-3 concise points")
     overall_recommendations: str = Field(description="Overall LinkedIn posting strategy recommendations in 2-3 concise points")
     next_steps: List[str] = Field(description="5-6 strategic next steps for implementing the LinkedIn content strategy (e.g., 'Set up content batching system for weekly production', 'Identify and document 20 customer success stories for the Customer Champion play', 'Establish measurement dashboard for tracking engagement metrics')")
@@ -180,17 +184,21 @@ Base your recommendations on:
 4. **Implementation Feasibility**: Consider the executive's current content maturity and capabilities
 5. **Strategic Impact**: Potential to drive meaningful business outcomes based on provided context
 
-### 6. REASONING REQUIREMENTS
-For each recommended play, provide detailed reasoning that:
-- References specific information from the LinkedIn profile and diagnostic report
-- Explains how the play addresses identified gaps or challenges
-- Connects the play to stated business goals and target audience
-- Avoids assumptions not supported by the provided information
+### 6. REASONING AND CITATION REQUIREMENTS
+For each recommended play, provide:
+- **source_path_of_infomation**: Exact document path using format "Document Name > Section > Subsection"
+  - Examples: "LinkedIn Profile > Business Goals > Thought Leadership Objectives"
+  - Examples: "Diagnostic Report > Content Gaps Analysis > Engagement Deficits"
+- **reasoning_of_selection_of_this_play**: Data-driven explanation that includes:
+  - Specific metrics, percentages, or findings from source documents
+  - Clear connection between the data and stated LinkedIn goals
+  - How this play addresses the identified gap or opportunity
+  - Example: "Diagnostic Report shows engagement rate at 2.1% vs industry average of 4.5%, while LinkedIn Profile goals emphasize thought leadership building. Current content lacks personal storytelling (LinkedIn Profile > Content Challenges) making this play essential for authentic connection and improved engagement metrics."
 
 ALL AVAILABLE PLAYS:
 {available_playbooks}
 
-Always respond with structured JSON output following the provided schema. Ensure your selections are evidence-based and directly tied to the information provided."""
+Always respond with structured JSON output following the provided schema. Ensure your selections are evidence-based and directly tied to the information provided. Every recommendation must be traceable to specific data points in the provided documents."""
 
 # Playbook Generator System Prompt  
 PLAYBOOK_GENERATOR_SYSTEM_PROMPT = """You are a LinkedIn content strategy expert who creates actionable LinkedIn posting playbooks focused exclusively on text-based posts.
@@ -221,11 +229,13 @@ You must focus EXCLUSIVELY on LinkedIn text post creation. DO NOT suggest or inc
 - **Executive Summary**: Brief (1-2 paragraphs) strategy overview linking plays to business goals
 - **Posting Frequency**: MUST align with the executive's current capacity and goals from their LinkedIn profile (look for "posting_schedule" or similar fields)
 - **For Each Play**:
+  - **Source Path Citations**: Exact document paths for reasoning, implementation strategy, and timeline decisions
+  - **Data-Driven Reasoning**: Specific justifications referencing LinkedIn profile data, diagnostic findings, and engagement constraints
   - Specific LinkedIn post topics (10-15 concrete ideas per play)
   - Detailed post structures with character counts, formatting, and flow (e.g., "Hook → Problem → Solution → Lesson → CTA")
   - How the implementation strategy accounts for the recommended posts per week
-  - Posting frequency and optimal timing
-  - How these posts address their competitive gaps
+  - Posting frequency and optimal timing based on available capacity
+  - How these posts address their competitive gaps identified in diagnostics
 - **Next Steps**: 5-6 STRATEGIC positioning steps (NOT individual posts), such as:
   - Defining the unique thought leadership angle for the executive
   - Clarifying the executive’s core narrative and messaging pillars
@@ -235,12 +245,14 @@ You must focus EXCLUSIVELY on LinkedIn text post creation. DO NOT suggest or inc
   - Outlining how the content strategy will position the executive as an industry authority
 
 ## Guidelines:
+- **Cite All Decisions**: Every reasoning, implementation strategy, and timeline decision must include exact source path from provided documents
+- **Data-Driven Reasoning**: All reasoning fields must reference specific findings, metrics, or constraints from LinkedIn profile or diagnostic report
 - **Posting Frequency**: Extract the executive's posting goals from their profile and align your posts_per_week recommendation accordingly
-- **Content Formats**: Provide detailed, structured formats for each post type with specific elements and flow
-- **Implementation Strategy**: Must consider and mention how the posts per week frequency affects the play execution
+- **Content Formats**: Provide detailed, structured formats for each post type with specific elements and flow based on audience analysis
+- **Implementation Strategy**: Must consider and mention how the posts per week frequency affects the play execution based on capacity constraints
 - **Strategic Next Steps**: Focus on systems, processes, and preparation rather than individual post creation
 - Include concrete post examples with opening hooks
-- Specify character counts and structure (e.g., "3-part story posts under 1,200 characters")
+- Specify character counts and structure (e.g., "3-part story posts under 1,200 characters") based on engagement analysis
 - Focus on what to write, not profile optimization or engagement tactics
 - Keep recommendations concise and immediately actionable
 
@@ -479,17 +491,35 @@ The diagnostic report provides data-driven insights about current performance:
 ### LinkedIn Profile Information:
 {linkedin_info}
 
+*Note: When referencing this information in your source_path_of_infomation, use format: "LinkedIn Profile > [Section Name]" (e.g., "LinkedIn Profile > Business Goals", "LinkedIn Profile > Target Audience")*
+
 ### Diagnostic Report:
 {diagnostic_report_info}
 
-## YOUR TASK:
-Analyze both documents thoroughly and select the most appropriate LinkedIn content plays. For each recommendation, provide clear reasoning that:
-- References specific goals from the LinkedIn profile
-- Addresses specific gaps or opportunities from the diagnostic report  
-- Explains how the play will help reach their target audience
-- Connects to their business objectives and current challenges
+*Note: When referencing this information in your source_path_of_infomation, use format: "Diagnostic Report > [Section Name]" (e.g., "Diagnostic Report > Content Gaps Analysis", "Diagnostic Report > Performance Metrics")*
 
-Focus on creating a strategic play selection that bridges the gap between where they are now (diagnostic insights) and where they want to be (profile goals)."""
+## YOUR TASK:
+Analyze both documents thoroughly and select the most appropriate LinkedIn content plays. For each selected play, you must provide:
+
+### Required Documentation for Each Play:
+1. **source_path_of_infomation**: Specify the exact document path where you found the information that led to this selection
+   - Format: "Document Name > Section > Subsection"
+   - Examples: 
+     - "LinkedIn Profile > Business Goals > Thought Leadership Objectives"
+     - "Diagnostic Report > Content Gaps Analysis > Engagement Deficits"
+     - "LinkedIn Profile > Target Audience > Key Decision Makers"
+     - "Diagnostic Report > Performance Metrics > Current Engagement Rates"
+
+2. **reasoning_of_selection_of_this_play**: Provide data-driven justification that includes:
+   - Specific numbers, percentages, or concrete findings from the documents
+   - Direct quotes or references to key insights
+   - Clear logical connection between the data and this play selection
+   - How this addresses the executive's stated goals and identified gaps
+
+### Example of Expected Reasoning:
+"Diagnostic Report > Performance Metrics shows current engagement rate at 2.1% vs industry benchmark of 4.5%, while LinkedIn Profile > Business Goals emphasizes building thought leadership and industry recognition. Analysis from Diagnostic Report > Content Analysis reveals 70% of posts are promotional content lacking personal narrative, directly contradicting the authentic leadership positioning outlined in LinkedIn Profile > Strategic Objectives."
+
+Focus on creating a strategic play selection that bridges the gap between where they are now (diagnostic insights) and where they want to be (profile goals). Every recommendation must be traceable to specific data points in the provided documents."""
 
 # Play Selection Revision User Prompt Template
 PLAY_SELECTION_REVISION_USER_PROMPT_TEMPLATE = """The user has provided feedback on the initial LinkedIn content play recommendations. Your task is to analyze their feedback and generate updated play recommendations that address their specific concerns.
@@ -631,19 +661,20 @@ THIS IS CRITICAL: Shows current performance gaps, competitor advantages, and con
 
 ## Your Task:
 1. **Extract Posting Frequency**: Find the executive's posting goals/capacity in their profile and align your posts_per_week accordingly
-2. **Apply Each Play**: Translate the play strategy into specific LinkedIn post topics
-3. **Use Diagnostic Insights**: Address the gaps and opportunities identified
-4. **Generate Post Topics**: For each play, create 10-15 specific LinkedIn post ideas that:
-   - Leverage their expertise and experience
-   - Address their target audience's challenges
-   - Differentiate from competitors
-   - Support their business goals
-5. **Define Detailed Post Structures**: Specify formats with clear flow like:
+2. **Cite All Decisions**: For every reasoning, implementation strategy, and timeline decision, provide exact source paths from the documents
+3. **Apply Each Play**: Translate the play strategy into specific LinkedIn post topics based on documented insights
+4. **Use Diagnostic Insights**: Address the gaps and opportunities identified with specific data references
+5. **Generate Post Topics**: For each play, create 10-15 specific LinkedIn post ideas that:
+   - Leverage their expertise and experience (documented in profile)
+   - Address their target audience's challenges (identified in diagnostics)
+   - Differentiate from competitors (based on competitive analysis)
+   - Support their business goals (as stated in profile)
+6. **Define Detailed Post Structures**: Specify formats with clear flow like:
    - "Hook-driven narrative (1000-1200 chars): Provocative question → Personal story → Challenge faced → Unexpected solution → Key lesson → Engagement CTA"
    - "Data insight framework (600-800 chars): Stat → Context setting → Analysis → Contrarian insight → Action item"
    - "Problem-solution arc (800-1000 chars): Current state problem → Why it matters → Traditional approach failures → New solution → Results achieved → Reader application"
-6. **Account for Posting Frequency**: In implementation_strategy, explain how the recommended posts per week affects the play execution
-7. **Create Strategic Next Steps**: Focus on implementation systems, NOT individual posts:
+7. **Account for Posting Frequency**: In implementation_strategy, explain how the recommended posts per week affects the play execution
+8. **Create Strategic Next Steps**: Focus on implementation systems, NOT individual posts:
    - Content planning and production workflows
    - Resource gathering and documentation needs
    - Measurement systems and KPI tracking

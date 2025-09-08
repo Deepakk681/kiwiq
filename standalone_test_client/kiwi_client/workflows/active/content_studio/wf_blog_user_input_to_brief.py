@@ -260,7 +260,14 @@ workflow_graph_schema = {
                 "web_search_options": {
                     "search_domain_filter": [
                         "reddit.com",
-                        "quora.com"
+                        "quora.com",
+                        "g2.com",
+                        "slashdot.org",
+                        "trustpilot.com",
+                        "trustradius.com",
+                        "capterra.in",
+                        "capterra.com",
+                        "capterra.co.uk"
                     ]
                 },
                 "output_schema": {

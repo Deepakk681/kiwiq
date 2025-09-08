@@ -694,31 +694,46 @@ async def validate_onboarding_output(outputs: Optional[Dict[str, Any]], test_inp
 
 async def main_test_onboarding():
     test_inputs = {
-    "entity_username": "chuckwhiteman",
-    "company_name": "lamatic",
+    "entity_username": "test_run_example-user",
+    "company_name": "test_run_kiwiq",
     "perform_linkedin_onboarding": True,
     "perform_blog_onboarding": True,
-    "linkedin_profile_url": "https://www.linkedin.com/in/chuckwhiteman/",
-    "company_url": "https://blog.lamatic.ai",
+    "linkedin_profile_url": "https://www.linkedin.com/in/example-user/",
+    "company_url": "https://kiwiq.ai",
     "linkedin_additional_context": """
-Primary audience focus:
-- Founders at early-stage companies building AI SaaS products.
-- Secondary: founders of small to mid-sized software development shops (building agentic software development practices).
-- CTOs at small-to-midsize enterprises who need secure, vendor-agnostic AI middleware for multiple teams.
-- Developers seeking the most marketable skills in building agentic systems (PLG focus).
+KiwiQ is an AI-powered ContentOps platform designed to revolutionize how organizations create, optimize, and manage blog content. By leveraging advanced AI models and comprehensive data integration, KiwiQ helps marketing teams systematically improve content performance, identify high-impact opportunities, and automate content workflows.
+    # Example goals for a CEO of a content marketing company starting to create LinkedIn post content:
+    "linkedin_onboarding_goals": [
+        "Establish a strong personal brand and thought leadership presence in the content marketing and AI space.",
+        "Share insights, company milestones, and industry trends to engage and grow a professional network.",
+        "Highlight customer success stories and case studies to build credibility and attract new clients.",
+        "Promote innovative solutions and unique value propositions offered by the company.",
+        "Foster relationships with potential partners, investors, and top talent through authentic and consistent posting.",
+        "Educate the audience on best practices, new technologies, and emerging trends in content marketing.",
+        "Drive traffic to the company website and blog by sharing relevant content and resources.",
+        "Encourage engagement and conversations to build a community around the company's mission and vision."
+    ],
 """,
     "blog_additional_context": """
-Strategic goals for the next 3 months:
-1. Create an army of SaaS Founders adopting Lamatic’s framework for building AI-powered products that iterate quickly to win in hyper-competitive markets (driven by 'Lamatic for Startups' and 'Lamatic for Accelerators').
-2. Create an army of Developers who see Lamatic skills as the most marketable way to transition into the Software 3.0 era (PLG-driven).
-3. Create an army of Dev Shops that recognize Lamatic as the most scalable and profitable platform to build their agentic software development practices (driven by the 'Lamatic Partner Program').
+KiwiQ is an AI-powered ContentOps platform designed to revolutionize how organizations create, optimize, and manage blog content. By leveraging advanced AI models and comprehensive data integration, KiwiQ helps marketing teams systematically improve content performance, identify high-impact opportunities, and automate content workflows.
+    # Example goals for a content marketing AI company starting their blog program:
+    "blog_onboarding_goals": [
+        "Establish a consistent publishing cadence to build topical authority in AI and content marketing.",
+        "Create high-quality, SEO-optimized blog posts targeting relevant industry keywords.",
+        "Increase brand visibility and organic traffic from search engines and AI-powered platforms (e.g., ChatGPT, Perplexity, Gemini).",
+        "Showcase AI-driven solutions and thought leadership to attract potential customers and partners.",
+        "Develop pillar content and supporting articles to improve internal linking and content depth.",
+        "Monitor and improve blog performance using analytics and AI visibility tracking tools.",
+        "Encourage social sharing and engagement to amplify reach and build community.",
+        "Continuously refine content strategy based on performance data and emerging AI trends."
+    ],
 """
 }
 
 
     # approve revise
     # {"blog_user_action": "approve", "linkedin_user_action": "approve", "blog_revision_feedback": "", "linkedin_revision_feedback": ""}
-    # {"blog_user_action": "revise", "linkedin_user_action": "approve", "blog_revision_feedback": "Dify, Vellum, n8n use these as competitors and make icps a list of atleat 3 icps", "linkedin_revision_feedback": ""}
+    # {"blog_user_action": "revise", "linkedin_user_action": "approve", "blog_revision_feedback": "Quiq is not right competitor, and ContentOps is also not right competitor. you can use https://writesonic.com, or https://rytr.me", "linkedin_revision_feedback": ""}
 
     await run_workflow_test(
         test_name="User Onboarding Workflow",

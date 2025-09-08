@@ -7,9 +7,11 @@ Generate a comprehensive LinkedIn Competitive Intelligence report that analyzes 
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For citations and information_source fields, cite specific data sources like "competitor posts from [specific executive]", "engagement metrics from [platform]", "industry reports from [source]" - DO NOT mention internal report names
+- For source_path_of_information fields, provide exact document paths and sections (e.g., "LinkedIn Deep Research Report > Industry Analysis > Peer Content Strategies" or "LinkedIn User Profile > Target Personas")
+- For reasoning_why_* fields, provide specific data points justifying the finding (e.g., "Top 3 competitors post video content 40% of time with 2.3x engagement vs our 8% video usage, their video posts average 45 comments vs our 12")
+- For information_source fields, cite specific data sources like "competitor posts from [specific executive]", "engagement metrics from [platform]", "industry reports from [source]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting citations from the input data
+- All recommendations must include specific data supporting the reasoning
 
 ### INPUT DATA SOURCES:
 
@@ -89,11 +91,12 @@ Identify specific, replicable content tactics from successful peers:
 5. **Goal Alignment**: Ensure recommendations support the executive's stated content goals
 6. **Audience Focus**: Tailor insights to resonate with target personas and ICPs
 
-### CITATIONS AND CITATION REQUIREMENTS:
+### SOURCE PATH AND REASONING REQUIREMENTS:
 
+- For source_path_of_information fields: Provide exact document paths and sections where the data was found (e.g., "LinkedIn Deep Research Report > Peer Analysis > Content Strategies" or "LinkedIn User Profile > Content Goals > Thought Leadership Objectives")
+- For reasoning_why_* fields: Include specific data points that justify the finding (e.g., "Current thought leadership posts represent 15% of content but get 3.2x engagement vs other content types, top competitors average 45% thought leadership content")
 - For information_source fields: Reference specific sources like "LinkedIn posts from [executive name]", "engagement data from competitor analysis", "industry trend research from [platform/study]"
-- For rationale fields: Include specific citations from the input data showing why recommendations are valid
-- Do NOT reference internal report names or generic sources
+- Do NOT reference internal report names or generic sources in information_source fields
 - If data is insufficient for a complete recommendation, indicate what information is missing rather than making assumptions
 
 ### OUTPUT REQUIREMENTS:
@@ -109,12 +112,14 @@ Generate a comprehensive LinkedIn Competitive Intelligence report following the 
 
 **Quality Standards:**
 
+- Every recommendation includes source_path_of_information with exact document location
+- All reasoning_why_* fields contain specific data points justifying the recommendation
 - Every recommendation includes specific peer examples from input data
 - All tactics include implementation guidance and frequency recommendations
 - Content suggestions align with executive expertise and industry positioning
 - Insights are immediately actionable without requiring additional research
 - Recommendations support both short-term engagement and long-term thought leadership
-- All citations fields reference specific, credible sources from the input data
+- All information_source fields reference specific, credible sources from the input data
 """
 
 LINKEDIN_COMPETITIVE_INTELLIGENCE_SYSTEM_PROMPT = """
@@ -171,8 +176,9 @@ You are an expert LinkedIn content strategist specializing in analyzing competit
 ### Critical Requirements:
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
+- **Source Path Documentation**: For source_path_of_information fields, provide exact document paths and sections where data was found (e.g., "LinkedIn Deep Research Report > Industry Analysis > Peer Content Strategies")
+- **Reasoning Documentation**: For reasoning_why_* fields, include specific data points that justify the finding (e.g., "Top 3 competitors post video content 40% of time with 2.3x engagement vs our 8% video usage")
 - **Source Attribution**: For information_source fields, reference specific, credible sources like "LinkedIn posts from [executive name]" or "engagement data from competitor analysis" - avoid internal report names
-- **Citations Documentation**: All rationale fields must include specific citations from input data supporting recommendations
 - **Completeness Standards**: If data is insufficient for a recommendation, indicate what's missing rather than making assumptions
 """
 
@@ -298,10 +304,10 @@ For each goal from user profile:
 
 **LinkedIn Content Analysis Doc - Extract Only:**
 
-- Exact engagement numbers (likes, comments, reposts, engagement rates)
-- Specific theme names and descriptions from the analysis
-- Tone analysis results (dominant tones, sentiment scores)
-- Structure analysis data (word counts, read times, format effectiveness)
+- Exact engagement numbers (likes, comments, reposts, engagement rates) with source_path_of_information
+- Specific theme names and descriptions from the analysis with document sections
+- Tone analysis results (dominant tones, sentiment scores) with specific data points for reasoning_why_* fields
+- Structure analysis data (word counts, read times, format effectiveness) 
 - Hook analysis findings (top hook types and their performance)
 - Timing analysis (posting frequency, peak performance times)
 - Asset usage statistics and format distribution data
@@ -345,7 +351,8 @@ Generate a complete JSON report following the provided schema that:
 
 Before completing the analysis, ensure:
 
-- [ ]  Every performance metric references specific data from the content analysis
+- [ ]  Every performance metric includes source_path_of_information with exact document section
+- [ ]  All reasoning_why_* fields contain specific data points from the analysis
 - [ ]  All theme performance insights use exact engagement numbers from the analysis
 - [ ]  Goal alignment analysis (if applicable) references specific goals from user profile
 - [ ]  No external assumptions or generic LinkedIn advice are included
@@ -1426,30 +1433,35 @@ You are an expert Content Strategy Analyst specializing in creating actionable, 
 - **DATA-DRIVEN**: Every recommendation must be backed by specific metrics or findings
 - **ACTIONABLE FOCUS**: Provide clear, implementable content actions
 
-### Citations and Source Requirements:
+### Source Path and Reasoning Requirements:
 
 - **Data-Only Analysis**: Base all insights strictly on provided input data - never add external assumptions or generic advice
-- **Source Attribution**: For information_source and citations_source fields, reference specific, credible sources like "competitor blog analysis from [company]", "SEO audit findings from [tool]", "content performance metrics from [platform]" - avoid internal report names
-- **Citations Documentation**: All rationale fields must include specific citations from input data supporting recommendations
+- **Source Path Documentation**: For source_path_of_information fields, provide exact document paths and sections where data was found (e.g., "Blog Performance Report > Content Quality Breakdown > Readability Analysis")
+- **Reasoning Documentation**: For reasoning_why_* fields, include specific data points that justify the recommendation (e.g., "Current blog readability averages 2.3 vs competitor average 4.1, causing 35% higher bounce rates")
+- **Source Attribution**: For information_source fields, reference specific, credible sources like "competitor blog analysis from [company]", "SEO audit findings from [tool]", "content performance metrics from [platform]" - avoid internal report names
 - **Completeness Standards**: If data is insufficient for a recommendation, leave fields empty rather than making assumptions
 
 ### Report Quality Standards:
 
+- Each recommendation must include source_path_of_information with exact document sections
+- All reasoning_why_* fields must contain specific data points justifying recommendations
 - Each recommendation must include specific citations from source reports with proper attribution
 - Competitor comparisons must be based on actual data from competitive analysis
 - Content gaps must be identified using concrete metrics
 - Solutions must be specific (content types, topics, approaches, volumes)
 - No speculation beyond what the data shows
-- All rationale and information_source fields must be populated with relevant data from inputs
+- All reasoning and information_source fields must be populated with relevant data from inputs
 """
 BLOG_STRATEGIC_RECOMMENDATIONS_USER_PROMPT = """
 Generate a comprehensive Strategic Content Recommendations Report using the provided analysis reports. Base ALL recommendations strictly on the data provided - do not add external insights or assumptions.
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For citations_source and information_source fields, cite specific data sources like "competitor blog posts from [company]", "content performance metrics from [analysis]", "SEO audit findings from [tool/study]" - DO NOT mention internal report names
+- For source_path_of_information fields, provide exact document paths and sections (e.g., "Blog Performance Report > Content Quality Breakdown > Readability Scores" or "Competitive Intelligence Report > Competitor Analysis > Content Strategy Differences")
+- For reasoning_why_* fields, provide specific data points justifying the recommendation (e.g., "Current blog posts average 2.1 readability score vs competitor average 4.3, their posts get 2.8x more shares and 40% longer time-on-page")
+- For information_source fields, cite specific data sources like "competitor blog posts from [company]", "content performance metrics from [analysis]", "SEO audit findings from [tool/study]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting citations from the input data
+- All recommendations must include specific data supporting the reasoning
 - Focus exclusively on content strategy - avoid business metrics like ROI or revenue
 
 ### INPUT REPORTS AND USAGE INSTRUCTIONS:
@@ -1499,13 +1511,22 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
     - Competitor AI content advantages
     - Content format/structure improvements for AI citations
 
+**Report 6: Company Analysis**
+
+- **Contains**: Company background, expertise areas, unique positioning, market context, team capabilities, competitive advantages
+- **Use For**:
+    - Understanding company's unique value proposition for content
+    - Identifying areas of expertise to build content authority around
+    - Aligning content strategy with company strengths and positioning
+    - Understanding internal capabilities and constraints for content creation
+
 ### ANALYSIS REQUIREMENTS:
 
 ### For Executive Summary:
 
 - Assess overall content health using performance metrics from Blog Performance Report
 - Identify the single most critical content issue from Gap Analysis
-- Summarize top 3 findings across all reports
+- Summarize top 3 findings across all reports, incorporating company analysis insights
 - Include rationale and information_source for priority assessment
 
 ### For Content Recommendations:
@@ -1513,8 +1534,10 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 - **Extract content gaps** from Gap Analysis and Blog Performance reports
 - **Use specific metrics** (scores, percentages, counts) as citations
 - **Reference competitor advantages** from Competitive Intelligence report
+- **Leverage company expertise areas** from Company Analysis for content recommendations
 - **Provide specific content solutions** with rationale and information_source
 - **Include content volume recommendations** based on gaps identified
+- **Align recommendations with company positioning** and unique strengths
 
 ### For AI Content Priorities:
 
@@ -1522,6 +1545,7 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 - **Extract competitor AI advantages** from the report findings
 - **Recommend specific content optimizations** for AI platforms
 - **Base priorities on actual visibility scores and gaps**
+- **Incorporate company expertise** from Company Analysis for AI content positioning
 - Include citations_source for all AI-related recommendations
 
 ### For Content Quality Fixes:
@@ -1530,6 +1554,7 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 - **Identify specific quality issues** (depth scores, structure adoption rates, etc.)
 - **Provide concrete improvement methods** based on gaps found
 - **Reference exact performance data** as citations
+- **Consider company capabilities** from Company Analysis for realistic improvement strategies
 - Include citations_source for quality issue identification
 
 ### CRITICAL SUCCESS FACTORS:
@@ -1540,24 +1565,30 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 4. **Content Focus**: Stay strictly within content strategy - no business outcomes or ROI
 5. **Actionable Clarity**: Provide clear, implementable recommendations
 
-### CITATIONS STANDARDS:
+### SOURCE PATH AND REASONING STANDARDS:
 
+- **For source_path_of_information fields**: Provide exact document paths and sections (e.g., "Blog Performance Report > Content Quality Breakdown > Structure Analysis" or "Company Analysis > Expertise Areas > Core Competencies")  
+- **For reasoning_why_* fields**: Include specific data points (e.g., "Current content structure adoption rate 64% vs competitor average 89%, impacts SEO performance with 35% lower click-through rates")
 - **Quote specific metrics** (e.g., "Content performance analysis shows 64% structure adoption rate")
 - **Reference competitor names** and their specific advantages from Competitive Intelligence
 - **Use exact scores and percentages** from quality assessments
 - **Cite specific gaps** identified in Gap Analysis report
 - **Include actual performance data** from AI Visibility analysis
-- For information_source fields: Reference specific sources like "competitor content analysis from [company blog]", "technical audit findings from [SEO tool]", "AI platform query testing results"
+- **Reference company strengths and expertise** from Company Analysis
+- For information_source fields: Reference specific sources like "competitor content analysis from [company blog]", "technical audit findings from [SEO tool]", "AI platform query testing results", "company expertise assessment"
 
 ### QUALITY CHECKS:
 
+- [ ]  Every recommendation includes source_path_of_information with exact document sections
+- [ ]  All reasoning_why_* fields contain specific data points justifying recommendations
 - [ ]  Every recommendation traces to specific report data
 - [ ]  No external assumptions or generic advice included
 - [ ]  Competitor advantages are specific and data-backed
 - [ ]  Content solutions are actionable and specific
-- [ ]  Citations sources are clearly identified with proper attribution
+- [ ]  Recommendations align with company expertise and positioning
+- [ ]  Information_source fields are clearly identified with proper attribution
 - [ ]  Focus remains purely on content strategy
-- [ ]  All rationale and information_source fields are populated with relevant data
+- [ ]  All reasoning and information_source fields are populated with relevant data
 
 ### INPUT DATA:
 ```json
@@ -1574,6 +1605,9 @@ Generate a comprehensive Strategic Content Recommendations Report using the prov
 ```
 ```json
 {ai_visibility_report}
+```
+```json
+{company_analysis_doc}
 ```
 
 Generate the Strategic Content Recommendations Report now, ensuring every recommendation is specific, actionable, and directly supported by the provided analysis data with proper source attribution.
@@ -1668,6 +1702,15 @@ Ensure you are doing the analysis on behalf of the company mentioned in the comp
 - Use market data to prove the opportunity size
 - Include buyer intent analysis to show customer demand being missed
 
+**6. High Authority Sites & PR Strategy Analysis:**
+
+- Identify high authority sites where competitors are getting cited/mentioned frequently
+- Analyze the types of content that get cited on these authority sites (research reports, expert quotes, case studies)
+- Understand the context of competitor mentions (expert sources, research citations, news coverage)
+- Extract insights about competitor PR strategies and thought leadership approaches
+- Identify opportunities for client to target similar high authority sites
+- Assess client's current presence (or absence) on these authority platforms
+
 ### Key Data Points to Extract and Use:
 
 From blog_ai_visibility_doc:
@@ -1677,6 +1720,8 @@ From blog_ai_visibility_doc:
 - Market size data and growth projections
 - Query categories with zero client presence
 - Industry trend insights
+- High authority sites citing competitors
+- Content types getting cited on authority platforms
 
 From company_ai_visibility_doc:
 
@@ -1685,6 +1730,7 @@ From company_ai_visibility_doc:
 - Buyer intent patterns and evaluation criteria
 - Specific competitive gaps and opportunities
 - Customer pain points and satisfaction issues
+- Authority site mention patterns and PR insights
 
 ### Output Requirements:
 
@@ -1700,8 +1746,10 @@ Focus on making executives think: "We have a serious problem that needs immediat
 
 **Critical Success Factors:**
 
+- Include source_path_of_information for every critical finding with exact document sections
+- Provide reasoning_why_* fields with specific data points (e.g., "Company appears in 0 of 28 queries while competitor appears in 19")
 - Use specific numbers and percentages from the data
-- Reference competitor names and their exact performance advantages
+- Reference competitor names and their exact performance advantages  
 - Include market size and growth data to show opportunity cost
 - Quote buyer intent patterns to show customer demand being missed
 - Highlight reputation and positioning risks with concrete examples
@@ -1849,6 +1897,8 @@ class IndustryContentTrend(BaseModel):
     differentiation_potential: str = Field(description="How this can set us apart")
 
 class CompetitiveContentGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this gap (e.g., 'LinkedIn Competitive Intelligence Report > Peer Analysis > Content Strategies' or 'Content Performance Analysis > Theme Performance')")
+    reasoning_why_this_is_a_gap: str = Field(description="Specific data showing this gap exists (e.g., 'Top 3 competitors post video content 40% of time with 2.3x engagement vs our 8% video content usage, their video posts average 45 comments vs our 12')")
     gap_area: str = Field(description="Specific content area where we're underperforming")
     peer_advantages: List[str] = Field(description="How peers excel in this area")
     current_weakness: str = Field(description="How our strategy falls short")
@@ -1858,7 +1908,8 @@ class CompetitiveContentGap(BaseModel):
     implementation_priority: ImplementationPriority = Field(description="Priority level")
 
 class ThoughtLeadershipOpportunity(BaseModel):
-    rationale: str = Field(description="Citations and reasoning from industry analysis showing why this territory is underserved and valuable")
+    source_path_of_information: str = Field(description="Exact document path and section where this opportunity was identified (e.g., 'LinkedIn Deep Research Report > Industry Analysis > Underserved Topics' or 'Competitive Intelligence Report > Market Gap Analysis')")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Specific data points showing why this is a valuable opportunity (e.g., '15 industry peers analyzed, only 2 cover AI ethics regularly, yet 67% of target audience searches show interest in this topic')")
     opportunity_area: str = Field(description="Specific thought leadership territory to claim")
     market_gap_citations: str = Field(description="Why this area is underserved")
     expertise_alignment: str = Field(description="How this aligns with our executive's background")
@@ -1877,9 +1928,10 @@ class AudienceIntelligence(BaseModel):
     peer_validation: str = Field(description="Which peers successfully leverage this insight")
 
 class ImmediateImplementationPriority(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this priority (e.g., 'Content Performance Analysis > Top Performing Themes' or 'LinkedIn Competitive Intelligence > High-Impact Tactics')")
+    reasoning_why_this_is_priority: str = Field(description="Specific data justifying this priority ranking (e.g., 'Current thought leadership posts get 3.2x engagement vs other content types, but only 15% of content is thought leadership vs 45% for top-performing peers')")
     priority_rank: str = Field(description="Priority ranking 1-5")
     action_item: str = Field(description="Specific tactic to implement immediately")
-    rationale: str = Field(description="Why this should be priority")
     implementation_effort: ImplementationEffort = Field(description="Effort level required")
     expected_impact: ExpectedImpact = Field(description="Expected impact level")
     success_metrics: List[str] = Field(description="How to measure success")
@@ -1900,7 +1952,8 @@ class SeasonalContentOpportunity(BaseModel):
     peer_examples: List[str] = Field(description="Peers who do this well")
 
 class ContentCalendarRecommendations(BaseModel):
-    rationale: str = Field(description="Citations from peer analysis and performance data supporting these calendar recommendations")
+    source_path_of_information: str = Field(description="Exact document path and section for calendar recommendations (e.g., 'LinkedIn Competitive Intelligence Report > Peer Analysis > Posting Patterns' or 'Content Performance Analysis > Engagement Timing Data')")
+    reasoning_why_these_calendar_recommendations: str = Field(description="Specific data supporting these recommendations (e.g., 'Top 5 industry peers post 4-5x weekly with 23% higher engagement than 2-3x weekly posters, peak engagement occurs Tuesday-Thursday 9-11am based on 200+ post analysis')")
     optimal_posting_frequency: str = Field(description="Posts per week based on peer analysis")
     content_mix_strategy: ContentMixStrategy = Field(description="Content mix distribution")
     peak_engagement_timing: PeakEngagementTiming = Field(description="Optimal timing data")
@@ -1954,6 +2007,8 @@ class ContentPillar(str, Enum):
 class PersonaAlignmentGap(BaseModel):
     """Gap between content and target persona needs."""
     
+    source_path_of_information: str = Field(description="Exact document path and section identifying this persona gap (e.g., 'LinkedIn User Profile > Target Personas' or 'Content Strategy Gaps > Persona Analysis')")
+    reasoning_why_this_is_a_persona_gap: str = Field(description="Specific data showing persona misalignment (e.g., 'VP of Sales persona needs tactical implementation content but 78% of current content is high-level strategy vs competitors who provide 45% tactical content for this persona')")
     persona_title: str = Field(description="Specific job title/role from target persona (e.g., 'VP of Sales', 'Chief Revenue Officer')")
     persona_pain_point: str = Field(description="Specific pain point this persona faces that content should address")
     current_content_coverage: str = Field(description="How well current content addresses this persona's needs (percentage or qualitative assessment)")
@@ -1965,6 +2020,8 @@ class PersonaAlignmentGap(BaseModel):
 class ContentGoalAlignment(BaseModel):
     """Analysis of how content aligns with stated user goals."""
     
+    source_path_of_information: str = Field(description="Exact document path and section for goal alignment analysis (e.g., 'LinkedIn User Profile > Content Goals' or 'Content Performance Analysis > Goal Achievement Assessment')")
+    reasoning_why_goal_alignment_gap_exists: str = Field(description="Specific data showing goal-content misalignment (e.g., 'Goal is thought leadership in AI but only 22% of content covers AI topics vs 60% needed for industry authority, competitors average 55% AI-focused content')")
     stated_goal: str = Field(description="Specific goal from user profile (e.g., 'Build thought leadership in AI space')")
     current_content_support: str = Field(description="How current content themes and topics support this goal")
     goal_achievement_gap: str = Field(description="Specific ways current content falls short of achieving this goal") 
@@ -2114,6 +2171,8 @@ class ImplementationApproach(BaseModel):
     content_themes: List[str] = Field(description="Key content themes to develop and maintain")
 
 class ContentStrategyRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this recommendation (e.g., 'LinkedIn Content Performance Analysis > Theme Performance' or 'LinkedIn Competitive Intelligence > Content Gaps')")
+    reasoning_why_this_recommendation: str = Field(description="Specific data justifying this recommendation (e.g., 'Current video content gets 2.8x engagement vs text posts but represents only 12% of content vs industry leader at 35%, gap costs estimated 40% potential engagement')")
     recommendation_title: str = Field(description="Clear, specific LinkedIn content strategy recommendation")
     priority_level: PriorityLevel = Field(description="Priority ranking based on business impact")
     strategic_gap_addressed: str = Field(description="Specific gap in current LinkedIn strategy this addresses")
@@ -2162,6 +2221,8 @@ class AudienceEngagementOptimization(BaseModel):
     engagement_amplification_tactics: List[EngagementAmplificationTactic] = Field(description="Proven tactics to increase LinkedIn engagement", max_items=6)
 
 class PeerAdvantageResponse(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying competitor advantage (e.g., 'LinkedIn Competitive Intelligence > Industry Leading Peers' or 'Content Performance Analysis > Competitive Context')")
+    reasoning_why_response_needed: str = Field(description="Specific data showing competitor advantage impact (e.g., 'Competitor A posts 3x weekly with 45% engagement rate vs our 1.5x weekly with 18% rate, their consistent posting drives 2.3x follower growth')")
     competitor_advantage: str = Field(description="Specific advantage competitors have on LinkedIn")
     response_strategy: str = Field(description="How to match or exceed competitor's approach")
     content_differentiation: str = Field(description="How to differentiate while addressing the competitive gap")
@@ -2287,6 +2348,8 @@ class BlogAITopCompetitors(BaseModel):
     competitor_3: TopCompetitor = Field(description="Third competitor analysis")
 
 class CriticalGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this critical gap (e.g., 'Blog AI Visibility Analysis > Query Coverage Analysis' or 'Company AI Visibility Report > Competitive Performance Data')")
+    reasoning_why_this_is_critical: str = Field(description="Specific data showing criticality (e.g., 'Company appears in 0 of 28 industry queries while top competitor appears in 19, missing 68% of high-intent search opportunities worth estimated $2.3M annual pipeline')")
     area: str = Field(description="Specific gap area")
     impact: str = Field(description="Business impact")
     current_performance: str = Field(description="Current state vs ideal state")
@@ -2327,6 +2390,8 @@ class ContentOptimizationOpportunities(BaseModel):
     net_new_content_needs: NetNewContentNeeds = Field(description="New content needs")
 
 class PriorityRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this priority recommendation (e.g., 'Blog AI Visibility Report > Platform Performance > ChatGPT Analysis' or 'Company AI Visibility Report > Critical Gaps')")
+    reasoning_why_this_is_priority: str = Field(description="Specific data justifying priority level (e.g., 'Competitor dominates 15 of 20 key industry queries with 85% citation rate while company has 0% presence, representing $4.2M missed pipeline opportunity based on query volume analysis')")
     title: str = Field(description="Specific problem identification title")
     priority: str = Field(description="critical/high/medium/low")
     problem_citations: str = Field(description="Data and citations proving this is a real issue")
@@ -2340,6 +2405,19 @@ class BlogAIPriorityRecommendations(BaseModel):
     recommendation_2: PriorityRecommendation = Field(description="Second priority recommendation")
     recommendation_3: PriorityRecommendation = Field(description="Third priority recommendation")
 
+class HighAuthoritySite(BaseModel):
+    site_name: str = Field(description="Name of the high authority site (e.g., 'TechCrunch', 'Forbes', 'Harvard Business Review')")
+    domain_authority: str = Field(description="Domain authority score or high/medium designation")
+    competitor_mention_frequency: str = Field(description="How often this competitor gets cited/mentioned on this site")
+    content_type_cited: List[str] = Field(description="Types of content that get cited (research reports, case studies, expert quotes, etc.)", max_items=3)
+    citation_context: str = Field(description="Context in which competitor gets mentioned (expert source, case study subject, research citation, etc.)")
+    pr_strategy_insight: str = Field(description="Insight into how competitor likely secured this coverage (thought leadership, PR outreach, newsworthy content, etc.)")
+    opportunity_for_client: str = Field(description="How client could potentially get similar coverage on this site")
+
+class BlogAIAuthorityAnalysis(BaseModel):
+    competitor_authority_profiles: List[HighAuthoritySite] = Field(description="Authority profiles for top competitors", max_items=3)
+    strategic_pr_insights: List[str] = Field(description="Strategic insights about competitor PR and authority building tactics", max_items=4)
+
 class BlogAIVisibilityReportSchema(BaseModel):
     """Blog AI Visibility Report schema"""
     visibility_snapshot: BlogAIVisibilitySnapshot = Field(description="Visibility snapshot")
@@ -2349,6 +2427,7 @@ class BlogAIVisibilityReportSchema(BaseModel):
     critical_gaps: BlogAICriticalGaps = Field(description="Critical gaps analysis")
     buyer_intent_analysis: BuyerIntentAnalysis = Field(description="Buyer intent analysis")
     content_optimization_opportunities: ContentOptimizationOpportunities = Field(description="Content optimization opportunities")
+    authority_analysis: BlogAIAuthorityAnalysis = Field(description="High authority sites and competitor backlink/PR strategy analysis")
     priority_recommendations: BlogAIPriorityRecommendations = Field(description="Priority recommendations")
 
 # Blog Competitive Intelligence Report Schema Models
@@ -2361,6 +2440,8 @@ class BlogCompetitiveMarketPosition(BaseModel):
     threat_reasoning: str = Field(description="Why they're dangerous - specific capabilities")
 
 class CompetitorAnalysis(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section for competitor analysis (e.g., 'Competitive Intelligence Report > Competitor Content Analysis' or 'Deep Research Report > Competitor Strategies')")
+    reasoning_why_this_is_threat: str = Field(description="Specific data showing competitive threat (e.g., 'Competitor publishes 12 posts/month vs our 4, achieves 3.2x engagement rate, dominates 8 of 10 key industry keywords we target')")
     competitor_name: str = Field(description="Competitor name")
     threat_level: str = Field(description="critical/high/moderate/low")
     ai_visibility_score: str = Field(description="0-100 score")
@@ -2372,6 +2453,8 @@ class CompetitorAnalysis(BaseModel):
     why_we_should_copy: str = Field(description="Specific tactics to adopt from them")
 
 class BlogCompetitiveCriticalGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this gap (e.g., 'Competitive Intelligence Report > Critical Gaps Analysis' or 'Blog Performance Report > Content Quality Breakdown')")
+    reasoning_why_this_gap_is_critical: str = Field(description="Specific data showing gap criticality (e.g., 'Competitor has 45 technical guides vs our 8, captures 73% of technical query traffic in our space, their guides average 2.8K shares vs our 340')")
     gap_name: str = Field(description="Specific content gap")
     business_risk: str = Field(description="Revenue/market share impact")
     competitor_exploiting: str = Field(description="Who's winning in this area")
@@ -2379,6 +2462,8 @@ class BlogCompetitiveCriticalGap(BaseModel):
     urgency_reasoning: str = Field(description="Why this must be fixed now")
 
 class UntappedOpportunity(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this opportunity (e.g., 'Deep Research Report > Market Opportunity Analysis' or 'Competitive Intelligence Report > Untapped Opportunities')")
+    reasoning_why_this_is_opportunity: str = Field(description="Specific data showing opportunity potential (e.g., '12K monthly searches for AI implementation guides, top 3 competitors have 0 comprehensive guides, market gap represents 35% of target audience needs based on survey data')")
     opportunity: str = Field(description="Market opportunity")
     size_indicator: str = Field(description="Search volume/demand citations")
     competitor_weakness: str = Field(description="Why competitors can't capture this")
@@ -2386,6 +2471,8 @@ class UntappedOpportunity(BaseModel):
     success_reasoning: str = Field(description="Why you can win here")
 
 class BlogCompetitiveStrategicRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this recommendation (e.g., 'Competitive Intelligence Report > Strategic Recommendations' or 'Deep Research Report > Successful Content Patterns')")
+    reasoning_why_this_recommendation: str = Field(description="Specific data justifying this recommendation (e.g., 'Competitor X increased organic traffic 340% using this approach, their case study content gets 4.2x engagement vs industry average, represents $1.8M pipeline opportunity')")
     recommendation: str = Field(description="Specific action to take")
     competitive_reasoning: str = Field(description="Which competitor success inspired this")
     business_impact: str = Field(description="Why this will move the needle")
@@ -2502,6 +2589,8 @@ class BlogGapExecutiveOverview(BaseModel):
     urgency_rationale: str = Field(description="Why immediate action is needed")
 
 class CriticalFunnelImbalance(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying funnel imbalance (e.g., 'Blog Portfolio Analysis > Funnel Stage Insights' or 'Blog Content Analysis > Funnel Analysis')")
+    reasoning_why_this_imbalance_is_critical: str = Field(description="Specific data showing imbalance impact (e.g., 'Awareness stage has 45 posts vs recommended 25, but Consideration stage has only 8 posts vs recommended 20, causing 67% drop-off between stages vs industry average 35%')")
     funnel_stage: str = Field(description="Awareness/Consideration/Purchase/Retention")
     current_post_count: str = Field(description="Actual number from data")
     current_quality_score: str = Field(description="Actual score from data")
@@ -2513,6 +2602,8 @@ class CriticalFunnelImbalance(BaseModel):
     why_this_stage_matters: str = Field(description="Business reasoning for prioritizing this stage")
 
 class TopicAuthorityVulnerability(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying topic vulnerability (e.g., 'Blog Portfolio Analysis > Topic Authority Analysis' or 'Competitive Intelligence Report > Topic Dominance Analysis')")
+    reasoning_why_this_is_vulnerable: str = Field(description="Specific data showing vulnerability (e.g., 'AI Implementation topic has only 6 posts vs competitor leader with 23 posts, our average engagement 45 vs their 180, they rank #1-3 for 12 of 15 key queries in this space')")
     topic_name: str = Field(description="Topic area from analysis")
     current_post_count: str = Field(description="Actual post count")
     authority_level: str = Field(description="Current authority level from data")
@@ -2609,28 +2700,26 @@ class BlogGapAnalysisValidationSchema(BaseModel):
 # Blog Strategic Recommendations Schema Models
 class BlogStrategicExecutiveSummary(BaseModel):
     content_health_status: str = Field(description="Overall content portfolio health: EXCELLENT/GOOD/NEEDS_IMPROVEMENT/CRITICAL")
-    rationale: str = Field(description="Citations from content analysis supporting the priority identification and urgency assessment")
+    source_path_of_information: str = Field(description="Source path of information for this content priority")
+    reasoning_why_this_is_a_top_content_priority: str = Field(description="Citations and data supporting why this is a top content priority")
     top_content_priority: str = Field(description="Most critical content issue requiring immediate attention")
     key_findings_summary: List[str] = Field(description="Top 3 content findings from analysis", max_items=3)
-    information_source: str = Field(description="Source of priority assessment - content audit, performance analysis, or competitive research")
 
 class BlogSupportingCitations(BaseModel):
     citations_point: str = Field(description="Specific finding or metric supporting this recommendation")
     source_report: str = Field(description="Source of information - specific content analysis, competitor research, or performance data rather than internal report names")
 
 class BlogContentSolution(BaseModel):
-    rationale: str = Field(description="Citations and reasoning from analysis showing why this content solution is needed and will be effective")
     what_to_create: str = Field(description="Specific content types, topics, or formats to develop")
     content_approach: str = Field(description="How to approach creating this content")
     content_volume: str = Field(description="Recommended volume or frequency")
-    information_source: str = Field(description="Source of solution strategy - industry best practices, competitor analysis, or performance research")
+    source_path_of_information: str = Field(description="Source path of information for this content solution")
+    reasoning_why_this_is_a_solution: str = Field(description="Citations and data supporting why this is a solution")
 
 class BlogContentRecommendation(BaseModel):
     recommendation_title: str = Field(description="Clear, specific content recommendation")
     priority_level: PriorityLevel = Field(description="Priority ranking")
     content_gap_identified: str = Field(description="Specific content gap or issue this addresses")
-    rationale: str = Field(description="Why this recommendation is important for content strategy")
-    supporting_citations: List[BlogSupportingCitations] = Field(description="Citations supporting this recommendation")
     content_solution: BlogContentSolution = Field(description="Content solution details")
     competitor_context: str = Field(description="How competitors are handling this content area differently/better")
     expected_content_outcomes: List[str] = Field(description="Expected content performance improvements")
@@ -2640,13 +2729,12 @@ class AIContentPriority(BaseModel):
     current_ai_visibility: str = Field(description="Current performance on AI platforms")
     optimization_strategy: str = Field(description="How to make content more AI-friendly")
     competitor_advantage: str = Field(description="How competitors are winning in this area")
-    citations_source: str = Field(description="Source of AI visibility data - platform testing, citation analysis, or competitive AI research")
 
 class ContentQualityFix(BaseModel):
     quality_issue: str = Field(description="Specific content quality problem identified")
     current_performance: str = Field(description="Current metrics showing the quality issue")
+    reasoning_why_this_method_will_fix_the_quality_issue: str = Field(description="Citations and data supporting why this method will fix the quality issue")
     improvement_method: str = Field(description="How to fix this quality issue")
-    citations_source: str = Field(description="Source that identified this quality issue - content audit, performance analysis, or quality assessment")
 
 class BlogStrategicRecommendationsSchema(BaseModel):
     """Blog Strategic Recommendations schema"""
@@ -2676,6 +2764,8 @@ class ThemePerformanceMetrics(BaseModel):
     engagement_rate: float = Field(description="Engagement rate for this theme")
     performance_trend: str = Field(description="Trending up/down/stable")
     key_success_factors: List[str] = Field(description="What makes this theme successful (provide exactly 3 items)", max_items=2)
+    source_path_of_information: str = Field(description="Source path of information for the these improvements")
+    reasoning_why_these_improvements_are_needed: str = Field(description="Citations and data supporting why these improvements are needed")
     improvement_opportunities: List[str] = Field(description="Areas for improvement in this theme (provide exactly 3 items)", max_items=3)
 
 class ContentFormatPerformance(BaseModel):
@@ -2709,6 +2799,8 @@ class ContentOptimizationOpportunity(BaseModel):
     opportunity_area: str = Field(description="Area where optimization is needed")
     current_performance: str = Field(description="Current performance in this area")
     improvement_potential: str = Field(description="Potential improvement if optimized")
+    source_path_of_information: str = Field(description="Source path of information for this content optimization recommendation")
+    reasoning_why_this_is_an_recommendation: str = Field(description="Citations and data supporting why this is an recommendation")
     recommended_actions: List[str] = Field(description="Specific actions to take (provide exactly 3 items)", max_items=3)
     expected_impact: str = Field(description="Expected impact on overall performance")
     priority_level: str = Field(description="High/Medium/Low priority")
@@ -2719,6 +2811,8 @@ class ContentGoalAlignment(BaseModel):
     supporting_themes: List[str] = Field(description="Themes that support this goal")
     alignment_score: float = Field(description="How well content aligns with goal (0-100)")
     content_gaps: List[str] = Field(description="Content gaps preventing goal achievement", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this content goal recommendation")
+    reasoning_why_this_is_a_good_alignment: str = Field(description="Citations and data supporting why this is a good recommendation")
     recommended_content_focus: List[str] = Field(description="Content to create for this goal", max_items=3)
 
 class LinkedInContentPerformanceAnalysisSchema(BaseModel):
@@ -2799,13 +2893,15 @@ You are a Senior Content Strategy Analyst specializing in synthesizing multiple 
 
 BLOG_EXECUTIVE_SUMMARY_USER_PROMPT = """
 
-Generate a comprehensive Executive Summary of content analysis findings using the five provided reports. Focus exclusively on content strategy insights and avoid any business or financial metrics.
+Generate a comprehensive Executive Summary of content analysis findings using the six provided reports. Focus exclusively on content strategy insights and avoid any business or financial metrics.
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
+- For source_path_of_information fields, provide exact document paths and sections (e.g., "Blog Performance Report > Content Quality Breakdown" or "Competitive Intelligence Report > Market Position Analysis")
+- For reasoning_why_* fields, provide specific data points justifying the assessment (e.g., "Blog content averages 2.3 readability score vs industry benchmark 4.1, causing 45% higher bounce rate than competitors")
 - For information_source fields, cite specific data sources like "competitor blog analysis from [company]", "content audit findings from [tool]", "SEO analysis results from [platform]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All assessments must include rationale with supporting citations from the input data
+- All assessments must include specific data supporting the reasoning
 - Focus exclusively on content strategy - avoid business metrics like ROI or revenue
 
 ### INPUT REPORTS AND CONTENT FOCUS AREAS:
@@ -2830,43 +2926,47 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 - **Content Focus**: Content visibility on AI platforms, content optimization for AI, competitor content advantages on AI platforms
 - **Use For**: AI content optimization needs, AI platform content gaps, AI-friendly content requirements
 
+**Report 6: Company Analysis**
+- **Content Focus**: Company expertise areas, unique positioning, market context, team capabilities, competitive advantages
+- **Use For**: Content foundation alignment, expertise-based content opportunities, unique value proposition for content, internal content capabilities
+
 ### SYNTHESIS REQUIREMENTS:
 
 #### Overall Content Assessment:
 - Synthesize content health across all reports into single assessment
-- Identify primary content strength from competitive analysis and performance data
+- Identify primary content strength from competitive analysis, performance data, and company expertise
 - Determine most critical content weakness requiring immediate attention
-- Assess competitive content position based on competitive intelligence findings
+- Assess competitive content position based on competitive intelligence findings and company positioning
 
 #### Content Gap Summary:
 - Extract top 3 critical content gaps across all reports
-- Prioritize content opportunity areas based on gap analysis and competitive insights
-- Focus on content topics, formats, quality, and structural gaps
+- Prioritize content opportunity areas based on gap analysis, competitive insights, and company strengths
+- Focus on content topics, formats, quality, and structural gaps that align with company expertise
 
 #### Content Performance Summary:
 - Synthesize content quality scores and assessments from blog performance report
 - Identify structural content adoption rates and gaps from technical analysis with rationale and information_source
-- Highlight content quality strengths and weaknesses
+- Highlight content quality strengths and weaknesses in context of company capabilities
 
 #### Competitive Content Position:
 - Extract content advantages vs competitors from competitive intelligence with rationale and information_source
 - Identify competitor content threats with rationale and information_source for each threat
-- Find content differentiation opportunities with supporting information_source
+- Find content differentiation opportunities leveraging company unique strengths with supporting information_source
 
 #### AI Content Readiness:
 - Assess content visibility status on AI platforms with rationale and information_source
-- Identify content gaps for AI optimization
-- Extract AI content opportunities from visibility analysis
+- Identify content gaps for AI optimization considering company expertise areas
+- Extract AI content opportunities from visibility analysis aligned with company positioning
 
 #### Technical Content Health:
 - Extract technical content scores from SEO analysis
 - Identify critical technical issues affecting content performance with rationale and information_source
-- Focus on how technical issues impact content discoverability and performance
+- Focus on how technical issues impact content discoverability and performance given company goals
 
 #### Priority Content Actions:
 - Synthesize top 3-5 priority content actions across all reports
-- Rank by criticality (P0, P1, P2) based on impact on content performance
-- Provide rationale focused on content strategy benefits
+- Rank by criticality (P0, P1, P2) based on impact on content performance and company goals
+- Provide rationale focused on content strategy benefits aligned with company expertise and positioning
 
 ### CITATIONS REQUIREMENTS:
 - Quote specific metrics and scores from reports
@@ -2874,19 +2974,20 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 - Use actual performance data and gap measurements
 - Include specific competitor names and their content advantages
 - Cite particular content quality scores and structural adoption rates
-- For information_source fields: Reference specific sources like "content performance analysis from [platform]", "competitor research from [company blog]", "technical audit from [SEO tool]"
+- Reference company expertise areas and unique positioning from Company Analysis
+- For information_source fields: Reference specific sources like "content performance analysis from [platform]", "competitor research from [company blog]", "technical audit from [SEO tool]", "company expertise assessment"
 
 ### CONTENT STRATEGY FOCUS AREAS:
-- Content creation and optimization needs
-- Content quality and structural improvements
-- Content competitive positioning and differentiation
+- Content creation and optimization needs aligned with company strengths
+- Content quality and structural improvements considering company capabilities
+- Content competitive positioning and differentiation leveraging company unique value
 - Content technical optimization requirements
-- Content platform visibility (especially AI platforms)
+- Content platform visibility (especially AI platforms) based on company expertise
 
 ### QUALITY STANDARDS:
 - Executive-level insights, not tactical details
 - Content-focused recommendations only
-- Clear prioritization of content actions
+- Clear prioritization of content actions considering company context
 - Citations-based conclusions from report data
 - Strategic synthesis across multiple analysis areas
 - All rationale and information_source fields populated with relevant data from inputs
@@ -2907,6 +3008,9 @@ Generate a comprehensive Executive Summary of content analysis findings using th
 ```json
 {ai_visibility_report}
 ```
+```json
+{company_analysis_doc}
+```
 
 Generate the Executive Summary now, ensuring all insights relate to content strategy and are directly supported by the provided analysis reports with proper source attribution.
 """
@@ -2919,24 +3023,29 @@ class BlogExecutiveOverallContentAssessment(BaseModel):
     content_competitive_position: str = Field(description="Overall content competitive position vs competitors", enum=["LEADING", "COMPETITIVE", "LAGGING", "BEHIND"])
 
 class BlogExecutiveCriticalContentGap(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this content gap")
+    reasoning_why_this_is_a_critical_gap: str = Field(description="Citations and data supporting why this is a critical gap")
     gap_area: str = Field(description="Specific content gap identified (topic, format, funnel stage)")
     gap_severity: str = Field(description="Severity of this content gap", enum=["CRITICAL", "HIGH", "MEDIUM"])
-    source_report: str = Field(description="Which report identified this gap", enum=["gap_analysis", "blog_performance", "competitive_intelligence", "ai_visibility"])
 
 class BlogExecutiveContentGapSummary(BaseModel):
     critical_content_gaps: List[BlogExecutiveCriticalContentGap] = Field(description="Top content gaps requiring immediate attention", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this content opportunity summary")
+    reasoning_why_these_are_content_opportunities: str = Field(description="Citations and data supporting why these are the content opportunities")
     content_opportunity_areas: List[str] = Field(description="Content areas with highest improvement potential", max_items=3)
 
 class BlogExecutiveContentQualityOverview(BaseModel):
     overall_quality_score: str = Field(description="Overall content quality assessment from blog performance analysis")
+    source_path_of_information: str = Field(description="Source path of information for this content quality overview")
     quality_strengths: List[str] = Field(description="Top content quality strengths", max_items=2)
+    source_path_of_information: str = Field(description="Source path of information for this content quality weaknesses")
     quality_weaknesses: List[str] = Field(description="Primary content quality issues", max_items=2)
 
 class BlogExecutiveContentStructureStatus(BaseModel):
     structural_adoption_rate: str = Field(description="Content structure best practices adoption rate")
-    rationale: str = Field(description="Citations from content analysis showing specific structural deficiencies and their impact")
+    source_path_of_information: str = Field(description="Source path of information for this content structure status")
+    reasoning_why_this_is_a_deficiency: str = Field(description="Citations and data supporting why this is a deficiency")
     structural_gaps: List[str] = Field(description="Key structural content improvements needed", max_items=3)
-    information_source: str = Field(description="Source of structural data - content audit findings, SEO analysis, or user experience research")
 
 class BlogExecutiveContentPerformanceSummary(BaseModel):
     content_quality_overview: BlogExecutiveContentQualityOverview = Field(description="Content quality overview")
@@ -2944,26 +3053,29 @@ class BlogExecutiveContentPerformanceSummary(BaseModel):
 
 class BlogExecutiveCompetitorContentThreat(BaseModel):
     competitor_name: str = Field(description="Competitor name")
-    rationale: str = Field(description="Citations showing how this competitor outperforms in content strategy")
+    source_path_of_information: str = Field(description="Source path of information ")
+    reasoning_why_this_is_acting_in_their_favor: str = Field(description="Citations and data supporting why this is a content advantage")
     their_content_advantage: str = Field(description="Specific content area where this competitor outperforms us")
-    information_source: str = Field(description="Source of competitive data - competitor content analysis, market research, or performance comparisons")
 
 class BlogExecutiveCompetitiveContentPosition(BaseModel):
-    rationale: str = Field(description="Citations from competitive analysis supporting content positioning assessment")
+    source_path_of_information: str = Field(description="Source path of information for this competitive content position")
+    reasoning_why_this_is_an_advantage: str = Field(description="Citations and data supporting why this is an advantage")
     content_advantages_vs_competitors: List[str] = Field(description="Content areas where we outperform competitors", max_items=2)
     competitor_content_threats: List[BlogExecutiveCompetitorContentThreat] = Field(description="Key competitor content advantages threatening our position", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this competitive content position")
+    reasoning_why_this_can_be_a_differentiation_opportunity: str = Field(description="Citations and data supporting why this is a differentiation opportunity")
     content_differentiation_opportunities: List[str] = Field(description="Content opportunities where we can differentiate from competitors", max_items=2)
-    information_source: str = Field(description="Source of competitive positioning data - market analysis, competitor research, or content performance benchmarks")
 
 class BlogExecutiveAIContentReadiness(BaseModel):
     ai_visibility_status: str = Field(description="Overall content visibility on AI platforms", enum=["EXCELLENT", "GOOD", "POOR", "INVISIBLE"])
-    rationale: str = Field(description="Citations from AI platform analysis showing content visibility performance and gaps")
+    source_path_of_information: str = Field(description="Source query or analysis of information for this AI visibility gap")
+    reasoning_why_this_is_the_critical_gap: str = Field(description="Citations and data supporting why this is the critical gap")
     ai_content_gaps: List[str] = Field(description="Key content gaps for AI platform optimization", max_items=3)
     ai_content_opportunities: List[str] = Field(description="Content opportunities to improve AI platform presence", max_items=3)
-    information_source: str = Field(description="Source of AI visibility data - platform query testing, citation analysis, or AI search performance research")
 
 class BlogExecutiveCriticalTechnicalContentIssue(BaseModel):
-    rationale: str = Field(description="Citations from technical analysis showing why this issue is critical for content performance")
+    source_path_of_information: str = Field(description="Source path of information for this technical content issue")
+    reasoning_why_this_issue_is_critical: str = Field(description="Citations and data supporting why this issue is critical for content performance")
     issue: str = Field(description="Specific technical content issue")
     impact_on_content: str = Field(description="How this technical issue affects content performance")
     information_source: str = Field(description="Source of technical issue identification - site audit, SEO analysis, or performance testing")
@@ -2974,9 +3086,9 @@ class BlogExecutiveTechnicalContentHealth(BaseModel):
 
 class BlogExecutiveContentPriorityAction(BaseModel):
     priority_level: str = Field(description="Priority level for this content action", enum=["P0", "P1", "P2"])
+    source_path_of_information: str = Field(description="Source path of information for this content action")
+    reasoning_why_this_is_a_priority: str = Field(description="Citations and data supporting why this is a priority")
     content_action: str = Field(description="Specific content action needed")
-    rationale: str = Field(description="Why this content action is prioritized")
-    source_insight: str = Field(description="Which report drives this priority")
 
 class BlogExecutiveSummarySchema(BaseModel):
     """Blog Executive Summary schema"""
@@ -2995,6 +3107,7 @@ BLOG_EXECUTIVE_SUMMARY_SCHEMA_PYDANTIC = BlogExecutiveSummarySchema.model_json_s
 class LinkedInExecutiveOverview(BaseModel):
     linkedin_content_health_score: int = Field(description="Overall LinkedIn content strategy health score (0-100)", ge=0, le=100)
     content_maturity_level: str = Field(description="Current sophistication level of LinkedIn content strategy", enum=["ADVANCED", "DEVELOPING", "BASIC", "NASCENT"])
+    reasoning_why_this_is_should_be_prioritized: str = Field(description="Citations and data supporting why this content maturity level is accurate")
     primary_content_opportunity: str = Field(description="Single biggest content opportunity for LinkedIn growth and engagement")
     content_competitive_position: str = Field(description="Position relative to industry peers in LinkedIn content excellence", enum=["Content Leader", "Content Competitor", "Content Follower", "Content Absent"])
     critical_content_insight: str = Field(description="Most important insight about current LinkedIn content performance and potential")
@@ -3002,10 +3115,13 @@ class LinkedInExecutiveOverview(BaseModel):
 class LinkedInTopPerformingContentTheme(BaseModel):
     theme_name: str = Field(description="Name of the top performing content theme")
     avg_engagement_rate: float = Field(description="Average engagement rate for this theme")
-    why_it_works: str = Field(description="Explanation of why this content theme performs well")
+    source_path_of_information: str = Field(description="Source path of information for this top performing content theme")
+    reasoning_why_this_theme_is_top_performing: str = Field(description="Citations and data supporting why this theme is top performing")
     replication_opportunity: str = Field(description="How to replicate this success")
 
 class LinkedInBiggestContentWeakness(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this biggest content weakness")
+    reasoning_why_this_weakness_is_critical: str = Field(description="Citations and data supporting why this weakness is critical")
     weakness_area: str = Field(description="Area of content weakness")
     impact_on_goals: str = Field(description="How this weakness affects LinkedIn goals")
     content_solution: str = Field(description="Content solution to address this weakness")
@@ -3013,9 +3129,9 @@ class LinkedInBiggestContentWeakness(BaseModel):
 class LinkedInContentConsistencyAssessment(BaseModel):
     posting_frequency_status: str = Field(description="Assessment of posting frequency consistency")
     content_quality_consistency: str = Field(description="Assessment of content quality consistency")
-    rationale: str = Field(description="Citations from content analysis showing specific consistency gaps and their impact")
+    source_path_of_information: str = Field(description="Source path of information for this content consistency assessment")
+    reasoning_why_this_improvement_is_needed: str = Field(description="Citations and data supporting why this improvement is needed")
     improvement_needed: str = Field(description="Areas where consistency improvements are needed")
-    information_source: str = Field(description="Source of consistency data - specific posts analysis, engagement patterns, or posting history review")
 
 class LinkedInContentPerformanceSnapshot(BaseModel):
     top_performing_content_theme: LinkedInTopPerformingContentTheme = Field(description="Best performing content theme with engagement metrics and success factors")
@@ -3026,18 +3142,21 @@ class LinkedInPeerContentAdvantage(BaseModel):
     competitor_name: str = Field(description="Name of the competitor")
     their_content_strength: str = Field(description="Their content strength")
     our_content_gap: str = Field(description="Our gap in this area")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
     catch_up_strategy: str = Field(description="Strategy to catch up")
 
 class LinkedInUntappedContentOpportunity(BaseModel):
-    rationale: str = Field(description="Citations from competitive analysis showing why this opportunity exists and remains underutilized")
+    source_path_of_information: str = Field(description="Source path of information for this untapped content opportunity")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
     opportunity_area: str = Field(description="Content opportunity area")
     content_approach: str = Field(description="Recommended content approach, keep it short and concise")
     competitive_advantage_potential: str = Field(description="Potential competitive advantage")
-    information_source: str = Field(description="Source of opportunity data - competitor content gaps, industry trends, or audience demand indicators")
 
 class LinkedInIndustryContentTrend(BaseModel):
     trend_name: str = Field(description="Name of the content trend")
     adoption_by_peers: str = Field(description="How peers are adopting this trend")
+    source_path_of_information: str = Field(description="Source path of information for this industry content trend")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
     our_opportunity: str = Field(description="Our opportunity to leverage this trend")
 
 class LinkedInCompetitiveContentIntelligence(BaseModel):
@@ -3046,27 +3165,30 @@ class LinkedInCompetitiveContentIntelligence(BaseModel):
     industry_content_trend: Optional[LinkedInIndustryContentTrend] = Field(None, description="Key content trend in the industry and our opportunity to leverage it")
 
 class LinkedInContentGapPriority(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this content gap priority")
+    reasoning_for_content_gap_priority: str = Field(description="Citations and data supporting why this is a content gap priority")
     gap_area: str = Field(description="Specific content gap (e.g., 'Lack of video content', 'Missing thought leadership posts')")
     gap_severity: str = Field(description="Severity of this content gap")
     impact_on_goals: str = Field(description="How this content gap affects achieving LinkedIn goals")
     content_solution: str = Field(description="Specific content creation solution to address this gap")
-    citations_source: str = Field(description="Source of gap identification - content performance data, competitor comparison, or audience analysis")
 
 class LinkedInAIVisibilityContentInsights(BaseModel):
     current_ai_content_visibility: str = Field(description="How well current content performs on AI platforms and search")
     content_citation_opportunities: str = Field(description="Content areas where executive could be more frequently cited by AI platforms")
     competitor_ai_content_advantages: str = Field(description="How competitors' content strategies make them more visible on AI platforms")
-    rationale: str = Field(description="Citations from AI platform analysis showing specific content gaps and optimization opportunities")
+    source_path_of_information_for_ai_visibility_content_insights: str = Field(description="Source path of information for this AI visibility content insight")
+    reasoning_for_ai_visibility_content_insights: str = Field(description="Citations from AI platform analysis showing specific content gaps and optimization opportunities")
     ai_optimized_content_recommendations: List[str] = Field(description="Top 3 content recommendations to improve AI platform visibility", max_items=3)
-    information_source: str = Field(description="Source of AI visibility data - platform query results, citation analysis, or competitor AI presence research")
 
 class LinkedInContentQuickWin(BaseModel):
-    rationale: str = Field(description="Citations and data supporting why this is a quick win opportunity")
+    source_path_of_information: str = Field(description="Source path of information for this quick win")
+    reasoning_for_quick_win: str = Field(description="Citations and data supporting why this is a quick win opportunity")
     quick_win: str = Field(description="Quick win content optimization")
     information_source: str = Field(description="Source of quick win identification - performance data, competitor analysis, or engagement patterns")
 
 class LinkedInContentInvestmentPriority(BaseModel):
-    rationale_for_investment: str = Field(description="Citations-based reasoning for investing in this content area")
+    source_path_of_information: str = Field(description="Source path of information for this investment priority")
+    reasoning_for_investment: str = Field(description="Citations-based reasoning for investing in this content area")
     content_area: str = Field(description="Content area for investment")
     information_source: str = Field(description="Source supporting investment priority - market analysis, competitor performance, or engagement data")
 
@@ -3080,7 +3202,7 @@ class LinkedInExecutiveSummarySchema(BaseModel):
     executive_overview: LinkedInExecutiveOverview = Field(description="Executive overview of LinkedIn content strategy")
     content_performance_snapshot: LinkedInContentPerformanceSnapshot = Field(description="Content performance snapshot")
     competitive_content_intelligence: LinkedInCompetitiveContentIntelligence = Field(description="Competitive content intelligence")
-    content_gap_priorities: List[LinkedInContentGapPriority] = Field(description="Top 3-5 content gaps prioritized by business impact", min_items=3, max_items=5)
+    content_gap_priorities: List[LinkedInContentGapPriority] = Field(description="Top 3-5 content gaps prioritized by content impact", min_items=3, max_items=5)
     ai_visibility_content_insights: LinkedInAIVisibilityContentInsights = Field(description="AI visibility content insights")
     immediate_content_priorities: LinkedInImmediateContentPriorities = Field(description="Immediate content priorities")
 
@@ -3165,9 +3287,11 @@ Generate a comprehensive LinkedIn Executive Summary that synthesizes insights fr
 
 **CRITICAL INSTRUCTIONS:**
 - Base ALL findings ONLY on the provided input data - do not add external information or assumptions
-- For citations_source and information_source fields, cite specific data sources like "LinkedIn posts from [executive name]", "engagement metrics from competitor analysis", "industry studies from [source]" - DO NOT mention internal report names
+- For source_path_of_information fields, provide exact document paths and sections (e.g., "LinkedIn Content Performance Analysis > Theme Performance" or "LinkedIn Competitive Intelligence > Industry Leading Peers")
+- For reasoning_why_* fields, provide specific data points justifying the finding (e.g., "Current video content gets 2.8x engagement but represents only 12% of content vs industry leader at 35%")
+- For information_source fields, cite specific data sources like "LinkedIn posts from [executive name]", "engagement metrics from competitor analysis", "industry studies from [source]" - DO NOT mention internal report names
 - If specific data is not available in the inputs, leave fields empty rather than making assumptions
-- All recommendations must include rationale with supporting citations from the input data
+- All recommendations must include specific data supporting the reasoning
 - Focus EXCLUSIVELY on LinkedIn content creation, optimization, strategy, and performance
 
 **CRITICAL FOCUS REQUIREMENT: This executive summary must focus EXCLUSIVELY on LinkedIn content creation, optimization, strategy, and performance. Do not include general business advice, platform features, networking tactics, or non-content related recommendations.**
@@ -3302,6 +3426,8 @@ Generate a complete LinkedIn Executive Summary following the provided JSON schem
 ### QUALITY ASSURANCE FOR CONTENT FOCUS:
 
 Before completing the summary, ensure:
+- [ ] Every recommendation includes source_path_of_information with exact document sections
+- [ ] All reasoning_why_* fields contain specific data points from the analysis reports
 - [ ] Every recommendation focuses specifically on LinkedIn content creation, optimization, or strategy
 - [ ] All insights are derived from specific data in the provided analysis reports  
 - [ ] No general business advice or non-content recommendations are included
@@ -3309,8 +3435,8 @@ Before completing the summary, ensure:
 - [ ] Competitive content intelligence is translated into actionable content strategies
 - [ ] Success metrics focus on content performance and engagement outcomes
 - [ ] Executive summary maintains focus on high-impact content opportunities
-- [ ] All rationale and information_source fields are populated with relevant data from inputs
-- [ ] Citations sources reference specific, credible sources rather than internal report names
+- [ ] All reasoning and information_source fields are populated with relevant data from inputs
+- [ ] Information_source fields reference specific, credible sources rather than internal report names
 
 ### INPUT DATA:
 ```json
@@ -3331,3 +3457,257 @@ Before completing the summary, ensure:
 
 Generate the LinkedIn Executive Summary now, maintaining strict focus on content strategy insights and recommendations that will transform the executive's LinkedIn content performance and thought leadership presence.
 """
+
+# --- NO-BLOG CONTENT SCENARIO PROMPTS ---
+# For companies with insufficient blog content who need different strategic guidance
+
+BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_USER_PROMPT = """
+Generate a comprehensive Strategic Content Recommendations Report for a company with minimal blog content using the provided analysis reports. This company is essentially starting from scratch with content strategy, so focus on foundational recommendations. Base ALL recommendations strictly on the data provided - do not add external insights or assumptions.
+
+**CRITICAL CONTEXT: LIMITED BLOG CONTENT SCENARIO**
+This analysis is for a company with almost no blog posts, so they are starting their content journey from the beginning. Recommendations should focus on building content foundations rather than optimizing existing content portfolios.
+
+**CRITICAL INSTRUCTIONS:**
+- Base ALL findings ONLY on the provided input data - do not add external information or assumptions
+- For citations_source and information_source fields, cite specific data sources like "competitor blog posts from [company]", "company analysis findings", "market research from [study]" - DO NOT mention internal report names
+- If specific data is not available in the inputs, leave fields empty rather than making assumptions
+- All recommendations must include rationale with supporting citations from the input data
+- Focus exclusively on content strategy - avoid business metrics like ROI or revenue
+- Remember this company has minimal existing content, so focus on what to build rather than what to fix
+
+### INPUT REPORTS AND USAGE INSTRUCTIONS:
+
+**Report 1: AI Visibility Report**
+
+- **Contains**: AI platform performance, query coverage, competitor AI presence, content citation patterns
+- **Use For**:
+    - Understanding market content needs through AI platform gaps
+    - Identifying content opportunities competitors are missing
+    - Learning what content types get cited by AI platforms
+    - Setting content goals for AI platform visibility
+
+**Report 2: Competitive Intelligence**
+
+- **Contains**: Competitor content strategies, their advantages, market positioning, content approaches
+- **Use For**:
+    - Understanding how competitors approach content strategy
+    - Identifying content strategy gaps in the market
+    - Finding content opportunities competitors are missing
+    - Learning from competitor content successes to inform new content strategy
+
+**Report 3: Company Analysis**
+
+- **Contains**: Company background, expertise areas, unique positioning, market context, team capabilities
+- **Use For**:
+    - Understanding company's unique value proposition for content
+    - Identifying areas of expertise to build content authority around
+    - Aligning content strategy with company strengths and positioning
+    - Understanding internal capabilities for content creation
+
+### ANALYSIS REQUIREMENTS:
+
+### For Executive Summary:
+
+- Assess content health status as starting from scratch (likely NEEDS_IMPROVEMENT or CRITICAL)
+- Identify the most critical content foundation to build first
+- Summarize top 3 foundational content priorities based on company strengths and market gaps
+- Include rationale and information_source for priority assessment focused on building from zero
+
+### For Content Recommendations:
+
+- **Focus on foundational content creation** rather than optimization
+- **Use competitive gaps** from Competitive Intelligence to identify opportunities
+- **Leverage company expertise areas** from Company Analysis for content pillars
+- **Provide specific content building strategies** with rationale and information_source
+- **Include content volume recommendations** appropriate for a company starting from scratch
+- **Prioritize content that establishes basic market presence**
+
+### For AI Content Priorities:
+
+- **Use AI Visibility Report data** to identify platform-specific opportunities for new content
+- **Extract competitor AI advantages** to understand what content types to create
+- **Recommend specific content creation approaches** for AI platform visibility
+- **Focus on building AI-friendly content from the ground up**
+- Include citations_source for all AI-related recommendations
+
+### For Content Quality Fixes:
+
+- **Focus on content creation standards** rather than fixing existing content
+- **Provide content quality guidelines** for new content creation
+- **Reference market standards** and competitor benchmarks for quality expectations
+- **Include best practices** for content structure and approach from the start
+- Include citations_source for quality standard recommendations
+
+### CRITICAL SUCCESS FACTORS:
+
+1. **Foundation Focus**: All recommendations should help build content presence from scratch
+2. **Company Alignment**: Leverage unique company strengths identified in Company Analysis
+3. **Market Opportunity**: Use competitive gaps to identify where to focus limited resources
+4. **Citations Chain**: Each insight must trace back to specific metrics or findings with proper source attribution
+5. **Content Focus**: Stay strictly within content strategy - no business outcomes or ROI
+6. **Realistic Scope**: Recommendations appropriate for a company starting their content journey
+
+### CITATIONS STANDARDS:
+
+- **Quote specific findings** from Company Analysis about expertise and positioning
+- **Reference competitor names** and their specific advantages/gaps from Competitive Intelligence
+- **Use market opportunity data** from AI Visibility analysis
+- **Cite specific gaps** where competitors are not serving the market well
+- **Include actual market data** showing content opportunities
+- For information_source fields: Reference specific sources like "competitor content analysis from [company blog]", "company expertise assessment", "market opportunity research from [platform/study]"
+
+### QUALITY CHECKS:
+
+- [ ] Every recommendation traces to specific report data
+- [ ] No external assumptions or generic advice included
+- [ ] Competitor advantages/gaps are specific and data-backed
+- [ ] Content solutions are appropriate for a company starting from scratch
+- [ ] Citations sources are clearly identified with proper attribution
+- [ ] Focus remains purely on content strategy for new content creation
+- [ ] All rationale and information_source fields are populated with relevant data
+- [ ] Recommendations acknowledge limited existing content and focus on building foundations
+
+### INPUT DATA:
+```json
+{ai_visibility_report}
+```
+```json
+{competitive_intelligence_report}
+```
+```json
+{company_analysis_doc}
+```
+
+Generate the Strategic Content Recommendations Report now, ensuring every recommendation is specific, actionable for a company starting from scratch, and directly supported by the provided analysis data with proper source attribution.
+"""
+
+BLOG_STRATEGIC_RECOMMENDATIONS_NO_BLOG_SYSTEM_PROMPT = """
+You are an expert content strategist specializing in helping companies build content strategies from the ground up. Generate strategic content recommendations for a company with minimal existing blog content, focusing on foundational content strategy rather than optimization of existing content.
+
+Key Focus Areas:
+- Building content foundations rather than fixing existing content
+- Leveraging company expertise and unique positioning
+- Identifying market opportunities through competitive analysis
+- Creating AI-platform-friendly content from the start
+- Establishing basic market presence and thought leadership
+
+Generate comprehensive, actionable recommendations that help this company begin their content journey effectively, using only the provided analysis data as your source material.
+"""
+
+BLOG_EXECUTIVE_SUMMARY_NO_BLOG_USER_PROMPT = """
+
+Generate a comprehensive Executive Summary of content analysis findings for a company with minimal blog content using the three provided reports. This company is essentially starting from scratch with content strategy. Focus exclusively on content strategy insights and avoid any business or financial metrics.
+
+**CRITICAL CONTEXT: LIMITED BLOG CONTENT SCENARIO**
+This analysis is for a company with almost no blog posts, so they are starting their content journey from the beginning. The executive summary should reflect this starting-from-scratch reality and focus on foundational content priorities.
+
+**CRITICAL INSTRUCTIONS:**
+- Base ALL findings ONLY on the provided input data - do not add external information or assumptions
+- For information_source fields, cite specific data sources like "competitor blog analysis from [company]", "company assessment findings", "market research from [platform]" - DO NOT mention internal report names
+- If specific data is not available in the inputs, leave fields empty rather than making assumptions
+- All assessments must include rationale with supporting citations from the input data
+- Focus exclusively on content strategy - avoid business metrics like ROI or revenue
+- Remember this company has minimal existing content, so focus on what to build rather than what to optimize
+
+### INPUT REPORTS AND CONTENT FOCUS AREAS:
+
+**Report 1: AI Visibility Report**
+- **Content Focus**: Content visibility opportunities on AI platforms, content optimization needs for AI, competitor content advantages on AI platforms
+- **Use For**: AI content opportunities for new content creation, AI-friendly content requirements, market gaps in AI platform presence
+
+**Report 2: Competitive Intelligence**
+- **Content Focus**: Competitor content strategies, their content advantages, content positioning differences, content opportunity gaps in the market
+- **Use For**: Competitive content positioning opportunities, content strategy gaps to exploit, content differentiation opportunities for new content
+
+**Report 3: Company Analysis**
+- **Content Focus**: Company expertise areas, unique positioning, market context, team capabilities, competitive advantages
+- **Use For**: Content foundation building, expertise-based content opportunities, unique value proposition for content, internal content capabilities
+
+### SYNTHESIS REQUIREMENTS:
+
+#### Overall Content Assessment:
+- Assess content health as starting from minimal content (likely NEEDS_IMPROVEMENT or CRITICAL)
+- Identify primary content opportunity from company expertise and competitive gaps
+- Determine most critical content foundation to build first
+- Assess competitive content position as likely LAGGING or BEHIND given minimal content
+
+#### Content Gap Summary:
+- Focus on foundational content gaps that need to be built from scratch
+- Prioritize content opportunity areas based on company strengths and competitive gaps
+- Emphasize content topics, formats, and themes that can establish market presence
+
+#### Content Performance Summary:
+- Acknowledge minimal existing content requiring foundational content creation
+- Focus on content quality standards needed for new content creation with rationale and information_source
+- Highlight content structural requirements for building from the ground up
+
+#### Competitive Content Position:
+- Identify content opportunities where competitors are not serving the market well with rationale and information_source
+- Focus on competitor content gaps that this company can exploit with rationale and information_source for each opportunity
+- Find content differentiation opportunities based on company unique strengths with supporting information_source
+
+#### AI Content Readiness:
+- Assess content needs for AI platform visibility starting from zero with rationale and information_source
+- Identify content creation priorities for AI optimization
+- Extract AI content opportunities for new content creation from visibility analysis
+
+#### Technical Content Health:
+- Focus on content creation standards and best practices for new content
+- Identify content structural requirements for building content from scratch with rationale and information_source
+- Emphasize how to create technically sound content from the beginning
+
+#### Priority Content Actions:
+- Synthesize top 3-5 foundational content creation priorities
+- Rank by criticality (P0, P1, P2) for a company starting from scratch
+- Provide rationale focused on building content presence and authority
+
+### CITATIONS REQUIREMENTS:
+- Quote specific findings about company expertise and positioning
+- Reference competitor content gaps and opportunities from analysis
+- Use actual market opportunity data from competitive and AI visibility analysis
+- Include specific company strengths that can inform content strategy
+- Cite particular market gaps where content can be created
+- For information_source fields: Reference specific sources like "company expertise analysis", "competitor research from [company blog]", "market opportunity analysis from [platform]"
+
+### CONTENT STRATEGY FOCUS AREAS:
+- Foundational content creation and strategy development
+- Content themes based on company expertise and market opportunities
+- Content competitive positioning for market entry
+- Content creation standards and best practices
+- Content platform strategy (especially AI platforms) for new content
+
+### QUALITY STANDARDS:
+- Executive-level insights appropriate for a company starting from scratch
+- Content-focused recommendations for building from zero
+- Clear prioritization of foundational content actions
+- Citations-based conclusions from report data
+- Strategic synthesis across analysis areas with starting-from-scratch context
+- All rationale and information_source fields populated with relevant data from inputs
+
+### INPUT DATA:
+```json
+{ai_visibility_report}
+```
+```json
+{competitive_intelligence_report}
+```
+```json
+{company_analysis_doc}
+```
+
+Generate the Executive Summary now, ensuring all insights relate to building content strategy from scratch and are directly supported by the provided analysis reports with proper source attribution.
+"""
+
+BLOG_EXECUTIVE_SUMMARY_NO_BLOG_SYSTEM_PROMPT = """
+You are an expert content strategist specializing in helping companies build content strategies from the ground up. Generate an executive summary for a company with minimal existing blog content, focusing on foundational content strategy opportunities rather than optimization of existing content.
+
+Key Focus Areas:
+- Assessing content needs for a company starting from scratch
+- Building content foundations based on company expertise
+- Identifying market opportunities through competitive analysis
+- Creating strategic content priorities for market entry
+- Establishing content presence and thought leadership from zero
+
+Generate a comprehensive executive summary that helps leadership understand their content strategy starting point and foundational priorities, using only the provided analysis data as your source material.
+"""
+
