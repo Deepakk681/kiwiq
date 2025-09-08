@@ -1291,7 +1291,7 @@ Example CSV formats supported:
     default_input_csv = str(current_file_dir / "leads.csv")
     default_output_csv = str(current_file_dir / "results.csv")
     start_row = 0
-    end_row = 10
+    end_row = 20
 
     kwargs = {
         'type': str,
