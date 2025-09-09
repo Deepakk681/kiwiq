@@ -250,7 +250,7 @@ class WorkflowRunTestClient:
                                                  or None on failure.
         """
         run_id_str = str(run_id)
-        logger.info(f"Attempting to get status for run ID: {run_id_str}")
+        # logger.info(f"Attempting to get status for run ID: {run_id_str}")
         url = RUN_DETAIL_URL(run_id_str) # Uses the /runs/{run_id} endpoint
         try:
             # Endpoint returns 200 OK, body is WorkflowRunRead schema
@@ -260,8 +260,8 @@ class WorkflowRunTestClient:
 
             # Validate the response against the WorkflowRunRead schema
             validated_run_status = wf_schemas.WorkflowRunRead.model_validate(response_json)
-            logger.info(f"Successfully retrieved and validated status for run ID: {validated_run_status.id} (Status: {validated_run_status.status})")
-            logger.debug(f"Get status response validated: {validated_run_status.model_dump_json(indent=2)}")
+            # logger.info(f"Successfully retrieved and validated status for run ID: {validated_run_status.id} (Status: {validated_run_status.status})")
+            # logger.debug(f"Get status response validated: {validated_run_status.model_dump_json(indent=2)}")
             return validated_run_status
         except httpx.HTTPStatusError as e:
             logger.error(f"Error getting status for run {run_id_str}: {e.response.status_code} - {e.response.text}")

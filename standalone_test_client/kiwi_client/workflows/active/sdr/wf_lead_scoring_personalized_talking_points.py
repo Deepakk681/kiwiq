@@ -14,6 +14,121 @@ This workflow demonstrates:
 
 Input: List of lead items with required fields
 Output: Qualified leads with ContentQ scores, content opportunities, and personalized talking points
+
+
+
+
+
+# Setup instructions:
+
+you can set it up and play around with prompts if you want (chatgpt / cursor / claude will guide you how to do it step by step)
+
+0. `git clone https://github.com/KiwiQAI/standalone_client `
+1. install python 3.12,
+2. poetry instlal from repo standalone_test_client
+3. setup .env file as below in folder like this standalone_test_client/kiwi_client/.env
+4. download leads.csv from your sheet in folder (export to csv and rename file form google sheets) standalone_test_client/kiwi_client/workflows/active/sdr/
+5. run file with diff limits (start and end row) to process diff rows in leads.csv https://github.com/KiwiQAI/standalone_client/blob/main/kiwi_client/workflows/active/sdr/wf_lead_scoring_personalized_talking_points.py
+
+
+cursor is great to play around with it
+
+.env file for step 3)
+```
+TEST_ENV=
+TEST_USER_EMAIL=
+TEST_USER_PASSWORD=
+TEST_ORG_ID=
+TEST_USER_ID=
+```
+
+NOTE: entries in leads.csv must be in same format as : https://docs.google.com/spreadsheets/d/10fgZhj7vQll-TkYMSKr5ogA0G3MSJ0BteZ8o1ETyGEM/edit?gid=0#gid=0
+
+Also, above file processes 0 - 20 row indexes, i.e. 20 rows at a time by default and works without being rate limited
+
+
+
+
+
+# Sample Results
+
+============================================================
+COMBINING BATCH RESULTS
+============================================================
+INFO:__main__:Combining 6 batch result files into: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/results.csv
+INFO:__main__:Loaded 8 results from batch file 1: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_001_rows_165-179.csv
+INFO:__main__:Loaded 9 results from batch file 2: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_002_rows_180-194.csv
+INFO:__main__:Loaded 6 results from batch file 3: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_003_rows_195-209.csv
+INFO:__main__:Loaded 5 results from batch file 4: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_004_rows_210-224.csv
+INFO:__main__:Loaded 9 results from batch file 5: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_005_rows_225-239.csv
+INFO:__main__:Loaded 5 results from batch file 6: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results/batch_006_rows_240-249.csv
+INFO:__main__:Successfully combined 42 total results into: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/results.csv
+INFO:__main__:Final Summary: 42/42 leads qualified, Average ContentQ Score: 76.6
+✓ All batch results combined into: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/results.csv
+✓ Individual batch files preserved in: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results
+============================================================
+BATCH PROCESSING COMPLETE
+============================================================
+Total batches: 6
+Successful batches: 6
+Failed batches: 0
+Final merged results saved to: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/results.csv
+Individual batch files available in: /path/to/project/standalone_test_client/kiwi_client/workflows/active/sdr/batch_results
+
+============================================================
+COMPREHENSIVE TIMING STATISTICS
+============================================================
+📊 OVERALL PERFORMANCE:
+  Total execution time: 1638.9 seconds (27.3 minutes)
+  Pure workflow time: 1188.8 seconds (19.8 minutes)
+  Artificial delay time: 450.0 seconds (7.5 minutes)
+  Setup/cleanup time: 0.0 seconds
+  Total leads processed: 42
+  Pure workflow time per lead: 28.3 seconds
+  Workflow throughput (excluding delays): 127.2 leads/hour
+  Overall throughput (including delays): 92.3 leads/hour
+
+⏰ TIME BREAKDOWN:
+  Pure workflow processing: 72.5% (1188.8s)
+  Artificial delays: 27.5% (450.0s)
+  Setup/cleanup overhead: 0.0% (0.0s)
+  Processing efficiency: 72.5% (workflow time / total processing time)
+
+⏱️  BATCH PERFORMANCE:
+  Average batch duration: 198.1 seconds
+  Fastest batch: 160.8 seconds
+  Slowest batch: 240.8 seconds
+  Batch duration std dev: 27.4 seconds
+
+🎯 PER-LEAD PERFORMANCE:
+  Average time per lead: 29.2 seconds
+  Fastest lead processing: 24.8 seconds
+  Slowest lead processing: 35.1 seconds
+
+📈 DETAILED BATCH BREAKDOWN:
+  Batch  1: 198.7s total,  8 leads, 24.8s/lead
+  Batch  2: 224.3s total,  9 leads, 24.9s/lead
+  Batch  3: 189.0s total,  6 leads, 31.5s/lead
+  Batch  4: 175.3s total,  5 leads, 35.1s/lead
+  Batch  5: 240.8s total,  9 leads, 26.8s/lead
+  Batch  6: 160.8s total,  5 leads, 32.2s/lead
+
+🔮 PERFORMANCE PROJECTIONS:
+  Pure workflow time estimates (excluding delays):
+    100 leads: 47.2 minutes
+    500 leads: 235.9 minutes
+    1000 leads: 471.8 minutes
+  Total time estimates (including 90s delays):
+    100 leads: 68.2 minutes (15.0 batches)
+    500 leads: 342.4 minutes (72.0 batches)
+    1000 leads: 684.8 minutes (143.0 batches)
+============================================================
+
+
+
+# Some key improvements:
+some companies are not from US, eg from Nigeria, etc; we can include location in column and qualification criterion
+we can scrape linkedin / posts and blogs too and use that to summarize / add richer detail instead of perplexity pulling all the weight research wise (unknown delta)
 """
 
 import json
@@ -21,6 +136,7 @@ import asyncio
 import csv
 import argparse
 import sys
+import time
 import pandas as pd
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Literal
@@ -411,7 +527,7 @@ Please provide detailed analysis with specific citations and reasoning for each 
                             "title": None,
                             "website_url": None,
                             "company_research": None,
-                            "research_citations": None
+                            "research_citations": ""
                         },
                         "construct_options": {
                             "company_name": "Company",
@@ -538,9 +654,9 @@ Please provide detailed strategic analysis with specific reasoning, citations, a
                             "title": None,
                             "website_url": None,
                             "qualification_analysis": None,
-                            "qualification_citations": None,
+                            "qualification_citations": "",
                             "contentq_analysis": None,
-                            "contentq_citations": None
+                            "contentq_citations": ""
                         },
                         "construct_options": {
                             "company_name": "Company",
@@ -657,11 +773,11 @@ IMPORTANT: while citing sources in the citations field, make sure to cite the so
                             "title": None,
                             "website_url": None,
                             "qualification_analysis": None,
-                            "qualification_citations": None,
+                            "qualification_citations": "",
                             "contentq_analysis": None,
-                            "contentq_citations": None,
+                            "contentq_citations": "",
                             "strategic_analysis": None,
-                            "strategic_citations": None
+                            "strategic_citations": ""
                         },
                         "construct_options": {
                             "company_name": "Company",
@@ -1193,61 +1309,562 @@ async def validate_output(outputs: Optional[Dict[str, Any]]) -> bool:
     logger.info("✓ All validation checks passed successfully!")
     return True
 
-async def main_test_lead_scoring(input_csv: Optional[str] = None, 
-                                  output_csv: Optional[str] = None,
-                                  start_row: int = 0,
-                                  end_row: Optional[int] = None):
+async def run_batch_workflow(input_csv: str,
+                             output_csv: str, 
+                             batch_start: int,
+                             batch_end: int,
+                             batch_number: int,
+                             total_batches: int) -> tuple:
     """
-    Main test function for the lead scoring workflow.
+    Run a single batch of the workflow.
+    
+    Returns:
+        Tuple of (status, outputs, duration, leads_processed)
+    """
+    batch_start_time = time.time()
+    batch_size = batch_end - batch_start
+    test_name = f"Batch {batch_number}/{total_batches}"
+    
+    print(f"  Loading {batch_size} leads from rows {batch_start}-{batch_end-1}...")
+    
+    try:
+        # Load CSV data for this batch
+        leads_data = load_csv_data(input_csv, batch_start, batch_end)
+        initial_inputs = {"leads_to_process": leads_data}
+        
+        print(f"  Running workflow for {len(leads_data)} leads...")
+        
+        # Run workflow for this batch
+        final_run_status_obj, final_run_outputs = await run_single_workflow(
+            input_data=initial_inputs,
+            test_name=test_name
+        )
+        
+        # Save batch results to file
+        leads_processed = 0
+        if final_run_outputs and 'processed_leads' in final_run_outputs:
+            save_results_to_csv(final_run_outputs, output_csv)
+            leads_processed = len(final_run_outputs['processed_leads'])
+            print(f"  Saved {leads_processed} results to: {Path(output_csv).name}")
+        else:
+            print(f"  ⚠️  No results to save")
+        
+        batch_duration = time.time() - batch_start_time
+        
+        return final_run_status_obj, final_run_outputs, batch_duration, leads_processed
+        
+    except Exception as e:
+        batch_duration = time.time() - batch_start_time
+        print(f"  ❌ Batch failed: {str(e)}")
+        return None, None, batch_duration, 0
+
+
+def combine_existing_batch_files(batch_folder: str, output_csv: str) -> None:
+    """
+    Combine all existing batch CSV files in the batch folder into a single output file.
+    
+    Args:
+        batch_folder: Path to folder containing batch result files
+        output_csv: Path to final combined output CSV file
+    """
+    batch_folder_path = Path(batch_folder)
+    
+    if not batch_folder_path.exists():
+        print(f"❌ Batch folder does not exist: {batch_folder}")
+        return
+    
+    # Find all CSV files in the batch folder
+    batch_files = list(batch_folder_path.glob("batch_*.csv"))
+    
+    if not batch_files:
+        print(f"❌ No batch files found in: {batch_folder}")
+        return
+    
+    # Sort batch files by name to ensure consistent ordering
+    batch_files.sort()
+    batch_file_paths = [str(f) for f in batch_files]
+    
+    print(f"📁 Found {len(batch_files)} batch files in: {batch_folder}")
+    for batch_file in batch_files:
+        print(f"  - {batch_file.name}")
+    
+    # Use existing combine function
+    combine_batch_results(batch_file_paths, output_csv)
+    
+    print(f"✅ Combined {len(batch_files)} batch files into: {output_csv}")
+
+
+def combine_batch_results(batch_output_files: List[str], final_output_csv: str) -> None:
+    """
+    Combine results from multiple batch CSV files into a single output file.
+    
+    Args:
+        batch_output_files: List of batch CSV file paths
+        final_output_csv: Path to final combined output CSV file
+    """
+    logger.info(f"Combining {len(batch_output_files)} batch result files into: {final_output_csv}")
+    
+    combined_rows = []
+    
+    for i, batch_file in enumerate(batch_output_files):
+        if not Path(batch_file).exists():
+            logger.warning(f"Batch file does not exist: {batch_file}")
+            continue
+            
+        try:
+            # Read batch CSV file
+            batch_df = pd.read_csv(batch_file)
+            logger.info(f"Loaded {len(batch_df)} results from batch file {i+1}: {batch_file}")
+            
+            # Convert to list of dictionaries and add to combined results
+            batch_rows = batch_df.to_dict('records')
+            combined_rows.extend(batch_rows)
+            
+        except Exception as e:
+            logger.error(f"Error reading batch file {batch_file}: {str(e)}")
+            continue
+    
+    if combined_rows:
+        # Write combined results to final CSV
+        combined_df = pd.DataFrame(combined_rows)
+        combined_df.to_csv(final_output_csv, index=False)
+        
+        logger.info(f"Successfully combined {len(combined_rows)} total results into: {final_output_csv}")
+        
+        # Log summary statistics
+        total_qualified = len([row for row in combined_rows if row.get('qualification_check_passed', False)])
+        avg_score = sum(float(row.get('contentq_score', 0)) for row in combined_rows if row.get('contentq_score')) / len(combined_rows) if combined_rows else 0
+        
+        logger.info(f"Final Summary: {total_qualified}/{len(combined_rows)} leads qualified, Average ContentQ Score: {avg_score:.1f}")
+    else:
+        logger.warning("No batch results to combine")
+
+# counter = 0
+async def run_single_workflow(input_data: Dict[str, Any], test_name: str) -> tuple:
+    """
+    Run a single workflow instance with given input data.
+    
+    Args:
+        input_data: Input data for the workflow
+        test_name: Name for this workflow test
+        
+    Returns:
+        Tuple of (final_run_status_obj, final_run_outputs)
+    """
+    import io
+    import contextlib
+    
+    logger.info(f"Starting {test_name}...")
+    
+    # Capture all stdout to prevent WorkflowRunRead objects from being printed
+    captured_output = io.StringIO()
+    
+    try:
+        with contextlib.redirect_stdout(captured_output):
+            final_run_status_obj, final_run_outputs = await run_workflow_test(
+                test_name=test_name,
+                workflow_graph_schema=workflow_graph_schema,
+                initial_inputs=input_data,
+                expected_final_status=WorkflowRunStatus.COMPLETED,
+                setup_docs=None,
+                cleanup_docs=None,
+                stream_intermediate_results=False,  # Suppress verbose workflow output
+                dump_artifacts=False,  # Don't create artifact files
+                poll_interval_sec=5,
+                timeout_sec=600  # 10 minutes for comprehensive research and analysis
+            )
+    except Exception as e:
+        logger.error(f"Workflow execution failed: {str(e)}")
+        raise
+    
+    # Log completion status without printing the full object
+    status_str = str(final_run_status_obj.status) if final_run_status_obj else "None"
+    logger.info(f"{test_name} completed with status: {status_str}")
+    
+    return final_run_status_obj, final_run_outputs
+
+
+def print_partial_statistics(overall_start_time: float, 
+                            batch_timings: List[Dict],
+                            total_leads_processed: int,
+                            successful_batches: int,
+                            failed_batches: int,
+                            total_delay_time: float,
+                            current_batch: int,
+                            total_batches: int,
+                            start_row: int,
+                            batch_size: int) -> None:
+    """
+    Print partial statistics when job stops due to failure.
+    
+    Args:
+        overall_start_time: Start time of the overall job
+        batch_timings: List of batch timing data
+        total_leads_processed: Total leads processed before failure
+        successful_batches: Number of successful batches
+        failed_batches: Number of failed batches
+        total_delay_time: Total artificial delay time
+        current_batch: Current batch number where failure occurred
+        total_batches: Total planned batches
+        start_row: Starting row of processing
+        batch_size: Batch size
+    """
+    current_time = time.time()
+    partial_execution_time = current_time - overall_start_time
+    
+    # Calculate pure workflow time from successful batches
+    successful_batch_timings = [b for b in batch_timings if b['leads_processed'] > 0]
+    pure_workflow_time = sum(b['duration'] for b in successful_batch_timings)
+    
+    print(f"\n{'='*60}")
+    print(f"JOB STOPPED DUE TO BATCH FAILURE - PARTIAL STATISTICS")
+    print(f"{'='*60}")
+    
+    print(f"📊 PROGRESS AT FAILURE:")
+    print(f"  Batches completed: {successful_batches}/{total_batches}")
+    print(f"  Batches failed: {failed_batches}")
+    print(f"  Current batch: {current_batch}")
+    print(f"  Leads processed: {total_leads_processed}")
+    
+    # Calculate processed rows
+    processed_rows = successful_batches * batch_size
+    if current_batch > 1:
+        last_successful_row = start_row + processed_rows - 1
+        print(f"  Rows processed: {start_row} to {last_successful_row} ({processed_rows} rows)")
+    else:
+        print(f"  Rows processed: None (failed on first batch)")
+    
+    print(f"\n⏰ TIMING AT FAILURE:")
+    print(f"  Total execution time: {partial_execution_time:.1f} seconds ({partial_execution_time/60:.1f} minutes)")
+    print(f"  Pure workflow time: {pure_workflow_time:.1f} seconds ({pure_workflow_time/60:.1f} minutes)")
+    print(f"  Artificial delay time: {total_delay_time:.1f} seconds ({total_delay_time/60:.1f} minutes)")
+    
+    if total_leads_processed > 0:
+        print(f"  Average time per lead: {pure_workflow_time/total_leads_processed:.1f} seconds")
+        print(f"  Throughput: {total_leads_processed/(pure_workflow_time/3600):.1f} leads/hour")
+    
+    if successful_batch_timings:
+        batch_durations = [b['duration'] for b in successful_batch_timings]
+        print(f"  Average batch duration: {sum(batch_durations)/len(batch_durations):.1f} seconds")
+        print(f"  Fastest batch: {min(batch_durations):.1f} seconds")
+        print(f"  Slowest batch: {max(batch_durations):.1f} seconds")
+    
+    print(f"\n📈 SUCCESSFUL BATCHES BREAKDOWN:")
+    if successful_batch_timings:
+        for batch_timing in successful_batch_timings:
+            batch_num = batch_timing['batch_num']
+            duration = batch_timing['duration']
+            leads = batch_timing['leads_processed']
+            avg_time = batch_timing['avg_time_per_lead']
+            print(f"  Batch {batch_num:2d}: {duration:5.1f}s total, {leads:2d} leads, {avg_time:4.1f}s/lead")
+    else:
+        print(f"  No batches completed successfully")
+    
+    print(f"{'='*60}")
+
+
+async def main_batch_lead_scoring(input_csv: Optional[str] = None,
+                                  output_csv: Optional[str] = None,
+                                  batch_folder: Optional[str] = None,
+                                  start_row: int = 0,
+                                  end_row: Optional[int] = None,
+                                  batch_size: int = 20,
+                                  delay: int = 45,
+                                  stop_on_failure: bool = True):
+    """
+    Main function for batch processing lead scoring workflow.
     
     Args:
         input_csv: Path to input CSV file with lead data
         output_csv: Path to output CSV file for results  
+        batch_folder: Folder to store individual batch result files
         start_row: Starting row index for processing (0-based, excluding header)
         end_row: Ending row index for processing (0-based, exclusive)
+        batch_size: Number of leads to process in each batch
+        delay: Delay in seconds between consecutive batch workflows
+        stop_on_failure: If True, stop processing and throw exception on batch failure
     """
-    test_name = "Lead Scoring and Personalized Talking Points Generation"
-    print(f"--- Starting {test_name} ---")
+    print(f"--- Starting Batch Lead Scoring Workflow ---")
+    print(f"Configuration:")
+    print(f"  Input CSV: {input_csv if input_csv else 'Using default test data'}")
+    print(f"  Output CSV: {output_csv if output_csv else 'No output file'}")
+    print(f"  Batch folder: {batch_folder}")
+    print(f"  Row range: {start_row} to {end_row if end_row else 'end'}")
+    print(f"  Batch size: {batch_size}")
+    print(f"  Inter-batch delay: {delay} seconds")
+    print(f"  Stop on failure: {stop_on_failure}")
+    print()
     
-    # Determine input data source
-    if input_csv and Path(input_csv).exists():
-        print(f"Loading leads from CSV: {input_csv}")
-        print(f"Processing rows {start_row} to {end_row if end_row else 'end'}")
-        
-        # Load CSV data with row range filtering
-        leads_data = load_csv_data(input_csv, start_row, end_row)
-        initial_inputs = {"leads_to_process": leads_data}
-        
-        print(f"Loaded {len(leads_data)} leads from CSV")
-    else:
+    # Start overall timing
+    overall_start_time = time.time()
+    
+    # Handle case where no CSV is provided (use default test data)
+    if not input_csv or not Path(input_csv).exists():
         if input_csv:
             print(f"CSV file not found: {input_csv}")
-        print("Using default test inputs (hardcoded sample data)")
-        initial_inputs = TEST_INPUTS
+        print("Using default test inputs (single workflow run)")
+        
+        # Run single workflow with default test data
+        test_name = "Lead Scoring and Personalized Talking Points Generation"
+        workflow_start_time = time.time()
+        final_run_status_obj, final_run_outputs = await run_single_workflow(
+            input_data=TEST_INPUTS,
+            test_name=test_name
+        )
+        workflow_end_time = time.time()
+        
+        # Save results if output file specified
+        if output_csv and final_run_outputs:
+            print(f"Saving results to: {output_csv}")
+            save_results_to_csv(final_run_outputs, output_csv)
+            print(f"Results saved successfully to: {output_csv}")
+        
+        # Calculate and display timing stats for single run
+        overall_duration = time.time() - overall_start_time
+        workflow_duration = workflow_end_time - workflow_start_time
+        leads_processed = len(final_run_outputs.get('processed_leads', [])) if final_run_outputs else 0
+        
+        print(f"\n{'='*60}")
+        print(f"TIMING STATISTICS - SINGLE RUN")
+        print(f"{'='*60}")
+        print(f"Total execution time: {overall_duration:.1f} seconds ({overall_duration/60:.1f} minutes)")
+        print(f"Workflow execution time: {workflow_duration:.1f} seconds ({workflow_duration/60:.1f} minutes)")
+        print(f"Leads processed: {leads_processed}")
+        if leads_processed > 0:
+            print(f"Average time per lead: {workflow_duration/leads_processed:.1f} seconds")
+        print(f"{'='*60}")
+        
+        return final_run_status_obj, final_run_outputs
     
-    print("\n--- Running Workflow Test ---")
-    final_run_status_obj, final_run_outputs = await run_workflow_test(
-        test_name=test_name,
-        workflow_graph_schema=workflow_graph_schema,
-        initial_inputs=initial_inputs,
-        expected_final_status=WorkflowRunStatus.COMPLETED,
-        setup_docs=None,
-        cleanup_docs=None,
-        # validate_output_func=validate_output,
-        stream_intermediate_results=False,
-        poll_interval_sec=5,
-        timeout_sec=600  # 10 minutes for comprehensive research and analysis
-    )
+    # Calculate total rows to process and number of batches
+    df = pd.read_csv(input_csv)
+    total_rows = len(df)
     
-    print(f"\n--- Test completed with status: {final_run_status_obj} ---")
+    # Determine actual end row
+    actual_end_row = min(end_row if end_row is not None else total_rows, total_rows)
     
-    # Save results to CSV if output file specified
-    if output_csv and final_run_outputs:
-        print(f"\nSaving results to CSV: {output_csv}")
-        save_results_to_csv(final_run_outputs, output_csv)
-        print(f"Results saved successfully to: {output_csv}")
+    # Calculate batch ranges
+    total_leads_to_process = actual_end_row - start_row
+    total_batches = (total_leads_to_process + batch_size - 1) // batch_size  # Ceiling division
     
-    return final_run_status_obj, final_run_outputs
+    print(f"Batch Processing Plan:")
+    print(f"  Total rows in CSV: {total_rows}")
+    print(f"  Processing rows {start_row} to {actual_end_row-1} ({total_leads_to_process} leads)")
+    print(f"  Batch size: {batch_size}")
+    print(f"  Total batches: {total_batches}")
+    print()
+    
+    # Create batch results folder
+    batch_folder_path = Path(batch_folder)
+    batch_folder_path.mkdir(parents=True, exist_ok=True)
+    print(f"Batch results will be stored in: {batch_folder_path.resolve()}")
+    
+    batch_output_files = []
+    successful_batches = 0
+    failed_batches = 0
+    
+    # Timing tracking for batches
+    batch_timings = []
+    total_leads_processed = 0
+    total_delay_time = 0  # Track artificial delay time separately
+    batch_processing_start_time = time.time()
+    
+    # Process each batch sequentially
+    for batch_num in range(1, total_batches + 1):
+        batch_start = start_row + (batch_num - 1) * batch_size
+        batch_end = min(batch_start + batch_size, actual_end_row)
+        
+        # Create batch-specific output file in batch folder
+        output_suffix = Path(output_csv).suffix
+        batch_output_file = batch_folder_path / f"batch_{batch_num:03d}_rows_{batch_start}-{batch_end-1}{output_suffix}"
+        batch_output_files.append(str(batch_output_file))
+        
+        print(f"{'='*60}")
+        print(f"BATCH {batch_num}/{total_batches}: Processing rows {batch_start}-{batch_end-1}")
+        print(f"{'='*60}")
+        
+        # Run workflow for this batch
+        batch_status, batch_outputs, batch_duration, leads_processed = await run_batch_workflow(
+            input_csv=input_csv,
+            output_csv=str(batch_output_file),
+            batch_start=batch_start,
+            batch_end=batch_end,
+            batch_number=batch_num,
+            total_batches=total_batches
+        )
+        
+        # Track timing and processing stats
+        batch_timings.append({
+            'batch_num': batch_num,
+            'duration': batch_duration,
+            'leads_processed': leads_processed,
+            'avg_time_per_lead': batch_duration / leads_processed if leads_processed > 0 else 0
+        })
+        total_leads_processed += leads_processed
+        
+        # Check batch result
+        if batch_status and batch_status.status == WorkflowRunStatus.COMPLETED:
+            successful_batches += 1
+            print(f"✅ Batch {batch_num} completed in {batch_duration:.1f}s ({leads_processed} leads)")
+        else:
+            failed_batches += 1
+            error_msg = f"Batch {batch_num} failed"
+            print(f"❌ {error_msg}")
+            
+            if stop_on_failure:
+                print_partial_statistics(
+                    overall_start_time=overall_start_time,
+                    batch_timings=batch_timings,
+                    total_leads_processed=total_leads_processed,
+                    successful_batches=successful_batches,
+                    failed_batches=failed_batches,
+                    total_delay_time=total_delay_time,
+                    current_batch=batch_num,
+                    total_batches=total_batches,
+                    start_row=start_row,
+                    batch_size=batch_size
+                )
+                raise RuntimeError(f"Job stopped due to batch failure. {error_msg}")
+        
+        print(f"Batch {batch_num} completed. Progress: {batch_num}/{total_batches} batches")
+        
+        # Add delay between batches (except after the last batch)
+        if batch_num < total_batches and delay > 0:
+            print(f"⏳ Waiting {delay} seconds before next batch...")
+            delay_start_time = time.time()
+            await asyncio.sleep(delay)
+            delay_end_time = time.time()
+            actual_delay_time = delay_end_time - delay_start_time
+            total_delay_time += actual_delay_time
+        
+        print()
+    
+    batch_processing_end_time = time.time()
+    total_batch_processing_time = batch_processing_end_time - batch_processing_start_time
+    
+    # Calculate pure workflow time (excluding artificial delays)
+    pure_workflow_time = total_batch_processing_time - total_delay_time
+    
+    # Combine all batch results into final output file
+    print(f"{'='*60}")
+    print(f"COMBINING BATCH RESULTS")
+    print(f"{'='*60}")
+    
+    try:
+        combine_batch_results(batch_output_files, output_csv)
+        print(f"✓ All batch results combined into: {output_csv}")
+        
+        # Keep batch files for reference (don't clean up automatically)
+        print(f"✓ Individual batch files preserved in: {batch_folder_path}")
+        
+    except Exception as e:
+        logger.error(f"Error combining batch results: {str(e)}")
+        print(f"✗ Error combining batch results: {str(e)}")
+    
+    # Calculate overall timing statistics
+    overall_end_time = time.time()
+    total_execution_time = overall_end_time - overall_start_time
+    
+    # Calculate statistics from successful batches only
+    successful_batch_timings = [b for b in batch_timings if b['leads_processed'] > 0]
+    
+    # Final summary with comprehensive timing statistics
+    print(f"{'='*60}")
+    print(f"BATCH PROCESSING COMPLETE")
+    print(f"{'='*60}")
+    print(f"Total batches: {total_batches}")
+    print(f"Successful batches: {successful_batches}")
+    print(f"Failed batches: {failed_batches}")
+    print(f"Final merged results saved to: {output_csv}")
+    print(f"Individual batch files available in: {batch_folder_path}")
+    
+    print(f"\n{'='*60}")
+    print(f"COMPREHENSIVE TIMING STATISTICS")
+    print(f"{'='*60}")
+    
+    # Overall timing
+    print(f"📊 OVERALL PERFORMANCE:")
+    print(f"  Total execution time: {total_execution_time:.1f} seconds ({total_execution_time/60:.1f} minutes)")
+    print(f"  Pure workflow time: {pure_workflow_time:.1f} seconds ({pure_workflow_time/60:.1f} minutes)")
+    print(f"  Artificial delay time: {total_delay_time:.1f} seconds ({total_delay_time/60:.1f} minutes)")
+    print(f"  Setup/cleanup time: {total_execution_time - total_batch_processing_time:.1f} seconds")
+    print(f"  Total leads processed: {total_leads_processed}")
+    
+    if total_leads_processed > 0:
+        print(f"  Pure workflow time per lead: {pure_workflow_time/total_leads_processed:.1f} seconds")
+        print(f"  Workflow throughput (excluding delays): {total_leads_processed/(pure_workflow_time/3600):.1f} leads/hour")
+        print(f"  Overall throughput (including delays): {total_leads_processed/(total_execution_time/3600):.1f} leads/hour")
+        
+        # Time breakdown percentages
+        print(f"\n⏰ TIME BREAKDOWN:")
+        workflow_pct = (pure_workflow_time / total_execution_time) * 100
+        delay_pct = (total_delay_time / total_execution_time) * 100
+        setup_pct = ((total_execution_time - total_batch_processing_time) / total_execution_time) * 100
+        
+        print(f"  Pure workflow processing: {workflow_pct:.1f}% ({pure_workflow_time:.1f}s)")
+        print(f"  Artificial delays: {delay_pct:.1f}% ({total_delay_time:.1f}s)")
+        print(f"  Setup/cleanup overhead: {setup_pct:.1f}% ({total_execution_time - total_batch_processing_time:.1f}s)")
+        
+        if delay > 0:
+            efficiency_ratio = pure_workflow_time / (pure_workflow_time + total_delay_time)
+            print(f"  Processing efficiency: {efficiency_ratio*100:.1f}% (workflow time / total processing time)")
+    
+    # Batch-level statistics
+    if successful_batch_timings:
+        batch_durations = [b['duration'] for b in successful_batch_timings]
+        per_lead_times = [b['avg_time_per_lead'] for b in successful_batch_timings if b['avg_time_per_lead'] > 0]
+        
+        print(f"\n⏱️  BATCH PERFORMANCE:")
+        print(f"  Average batch duration: {sum(batch_durations)/len(batch_durations):.1f} seconds")
+        print(f"  Fastest batch: {min(batch_durations):.1f} seconds")
+        print(f"  Slowest batch: {max(batch_durations):.1f} seconds")
+        print(f"  Batch duration std dev: {(sum([(x - sum(batch_durations)/len(batch_durations))**2 for x in batch_durations])/len(batch_durations))**0.5:.1f} seconds")
+        
+        if per_lead_times:
+            print(f"\n🎯 PER-LEAD PERFORMANCE:")
+            print(f"  Average time per lead: {sum(per_lead_times)/len(per_lead_times):.1f} seconds")
+            print(f"  Fastest lead processing: {min(per_lead_times):.1f} seconds")
+            print(f"  Slowest lead processing: {max(per_lead_times):.1f} seconds")
+        
+        print(f"\n📈 DETAILED BATCH BREAKDOWN:")
+        for batch_timing in successful_batch_timings:
+            batch_num = batch_timing['batch_num']
+            duration = batch_timing['duration']
+            leads = batch_timing['leads_processed']
+            avg_time = batch_timing['avg_time_per_lead']
+            print(f"  Batch {batch_num:2d}: {duration:5.1f}s total, {leads:2d} leads, {avg_time:4.1f}s/lead")
+    
+    # Performance projections
+    if successful_batches > 0 and total_leads_processed > 0:
+        avg_pure_batch_time = pure_workflow_time / successful_batches
+        avg_leads_per_batch = total_leads_processed / successful_batches
+        avg_delay_per_batch = total_delay_time / max(successful_batches - 1, 1)  # -1 because last batch has no delay
+        
+        print(f"\n🔮 PERFORMANCE PROJECTIONS:")
+        print(f"  Pure workflow time estimates (excluding delays):")
+        print(f"    100 leads: {(avg_pure_batch_time * 100 / avg_leads_per_batch)/60:.1f} minutes")
+        print(f"    500 leads: {(avg_pure_batch_time * 500 / avg_leads_per_batch)/60:.1f} minutes")
+        print(f"    1000 leads: {(avg_pure_batch_time * 1000 / avg_leads_per_batch)/60:.1f} minutes")
+        
+        if delay > 0:
+            print(f"  Total time estimates (including {delay}s delays):")
+            batches_for_100 = (100 + avg_leads_per_batch - 1) // avg_leads_per_batch  # Ceiling division
+            batches_for_500 = (500 + avg_leads_per_batch - 1) // avg_leads_per_batch
+            batches_for_1000 = (1000 + avg_leads_per_batch - 1) // avg_leads_per_batch
+            
+            total_time_100 = (avg_pure_batch_time * 100 / avg_leads_per_batch) + ((batches_for_100 - 1) * delay)
+            total_time_500 = (avg_pure_batch_time * 500 / avg_leads_per_batch) + ((batches_for_500 - 1) * delay)
+            total_time_1000 = (avg_pure_batch_time * 1000 / avg_leads_per_batch) + ((batches_for_1000 - 1) * delay)
+            
+            print(f"    100 leads: {total_time_100/60:.1f} minutes ({batches_for_100} batches)")
+            print(f"    500 leads: {total_time_500/60:.1f} minutes ({batches_for_500} batches)")
+            print(f"    1000 leads: {total_time_1000/60:.1f} minutes ({batches_for_1000} batches)")
+    
+    print(f"{'='*60}")
+    
+    return successful_batches, failed_batches
+
+
 
 
 def parse_arguments():
@@ -1260,14 +1877,48 @@ Examples:
   # Run with default hardcoded test data
   python wf_lead_scoring_personalized_talking_points.py
   
-  # Process entire CSV file
+  # Process entire CSV file in batches (default: batch size 20, rows 0-250)
   python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv
   
-  # Process specific row range (rows 10-19, 0-based indexing)
-  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --start-row 10 --end-row 20
+  # Process specific row range with custom batch size
+  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --start-row 10 --end-row 100 --batch-size 15
   
-  # Process from row 5 to end of file
-  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --start-row 5
+  # Process from row 5 to 50 with batch size 10 and custom batch folder
+  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --start-row 5 --end-row 50 --batch-size 10 --batch-folder my_batches/
+  
+  # Process with custom delay between batches (30 seconds instead of default 45)
+  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --delay 30
+  
+  # Process with no delay between batches (for faster processing)
+  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --delay 0
+  
+  # Continue processing even if some batches fail
+  python wf_lead_scoring_personalized_talking_points.py --input leads.csv --output results.csv --continue-on-failure
+  
+  # Combine existing batch files without running workflows
+  python wf_lead_scoring_personalized_talking_points.py --output results.csv --combine-only
+
+Batch Processing:
+  The workflow processes leads in batches to manage resource usage and provide progress tracking.
+  Each batch runs sequentially, with individual results stored in the batch folder.
+  After all batches complete, results are combined into the final output CSV file.
+  
+  Default behavior: Process rows 0-250 in batches of 20 leads each with 60-second delays.
+  Individual batch files are saved to batch_results/ folder and preserved for reference.
+  
+  Inter-batch Delay:
+  A configurable delay is added between batches to prevent API rate limiting and reduce server load.
+  Set --delay 0 to disable delays for faster processing (use with caution).
+  
+  Failure Handling:
+  By default, the job stops and throws an exception if any batch fails (--stop-on-failure).
+  Use --continue-on-failure to process all batches even if some fail, then combine available results.
+  When a job stops due to failure, partial statistics are displayed showing progress made.
+  
+  Combine-Only Mode:
+  Use --combine-only to merge existing batch files without running any workflows.
+  This is useful for combining results from previous runs or after manual intervention.
+  Only requires --output argument; finds all batch_*.csv files in the batch folder.
 
 Required CSV columns (supports multiple naming conventions):
   • LinkedIn URL: 'linkedinUrl', 'LinkedIn URL', 'LinkedIn'
@@ -1290,8 +1941,13 @@ Example CSV formats supported:
     # Set default file paths relative to current script directory
     default_input_csv = str(current_file_dir / "leads.csv")
     default_output_csv = str(current_file_dir / "results.csv")
-    start_row = 0
-    end_row = 20
+    default_batch_folder = str(current_file_dir / "batch_results")
+    start_row = 165
+    end_row = 250  # 250
+    batch_size = 15
+    default_delay_in_between_batches = 90  # 60
+    default_stop_on_failure = True
+    default_combine_batch_files_only_mode = True
 
     kwargs = {
         'type': str,
@@ -1339,6 +1995,48 @@ Example CSV formats supported:
         **kwargs
     )
     
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=batch_size,
+        help=f'Number of leads to process in each batch. Default: {batch_size}'
+    )
+    
+    parser.add_argument(
+        '--batch-folder',
+        type=str,
+        default=default_batch_folder,
+        help=f'Folder to store individual batch result files. Default: {default_batch_folder}'
+    )
+    
+    parser.add_argument(
+        '--delay',
+        type=int,
+        default=default_delay_in_between_batches,
+        help=f'Delay in seconds between consecutive batch workflows. Default: {default_delay_in_between_batches} seconds'
+    )
+    
+    parser.add_argument(
+        '--stop-on-failure',
+        action='store_true',
+        default=default_stop_on_failure,
+        help='Stop processing and throw exception if any batch fails. Default: True'
+    )
+    
+    parser.add_argument(
+        '--continue-on-failure',
+        action='store_false',
+        dest='stop_on_failure',
+        help='Continue processing remaining batches even if some fail. Overrides --stop-on-failure'
+    )
+    
+    parser.add_argument(
+        '--combine-only',
+        action='store_true',
+        default=default_combine_batch_files_only_mode,
+        help='Only combine existing batch files in batch folder without running workflows. Default: False'
+    )
+    
     args = parser.parse_args()
     
     # Convert input path to absolute path and validate
@@ -1359,6 +2057,12 @@ Example CSV formats supported:
         
     if args.end_row is not None and args.end_row <= args.start_row:
         parser.error("End row must be greater than start row")
+        
+    if args.batch_size <= 0:
+        parser.error("Batch size must be greater than 0")
+        
+    if args.delay < 0:
+        parser.error("Delay must be >= 0 seconds")
     
     return args
 
@@ -1374,27 +2078,28 @@ if __name__ == "__main__":
     print(f"Configuration:")
     print(f"  Input CSV: {args.input if args.input else 'Using default test data'}")
     print(f"  Output CSV: {args.output if args.output else 'No output file'}")
+    print(f"  Batch folder: {args.batch_folder}")
     print(f"  Row range: {args.start_row} to {args.end_row if args.end_row else 'end'}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Inter-batch delay: {args.delay} seconds")
+    print(f"  Stop on failure: {args.stop_on_failure}")
+    print(f"  Combine only: {args.combine_only}")
     print()
     
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        print("Async event loop already running. Scheduling task...")
-        loop.create_task(main_test_lead_scoring(
-            input_csv=args.input,
-            output_csv=args.output,
-            start_row=args.start_row,
-            end_row=args.end_row
-        ))
-    else:
-        print("Starting new async event loop...")
-        asyncio.run(main_test_lead_scoring(
-            input_csv=args.input,
-            output_csv=args.output,
-            start_row=args.start_row,
-            end_row=args.end_row
-        ))
+    # Handle combine-only mode
+    if args.combine_only:
+        print("🔄 COMBINE-ONLY MODE: Combining existing batch files...")
+        combine_existing_batch_files(args.batch_folder, args.output)
+        print("✅ Combine-only operation completed.")
+        sys.exit(0)
+    
+    asyncio.run(main_batch_lead_scoring(
+        input_csv=args.input,
+        output_csv=args.output,
+        batch_folder=args.batch_folder,
+        start_row=args.start_row,
+        end_row=args.end_row,
+        batch_size=args.batch_size,
+        delay=args.delay,
+        stop_on_failure=args.stop_on_failure
+    ))

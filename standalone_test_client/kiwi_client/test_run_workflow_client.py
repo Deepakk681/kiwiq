@@ -62,7 +62,7 @@ class InteractiveWorkflowRunClient:
         # event_schemas.HITLRequestEvent,
     ]
 
-    def __init__(self, auth_client: AuthenticatedClient):
+    def __init__(self, auth_client: AuthenticatedClient, let_workflow_recover_from_failure: bool = True):
         """
         Initializes the InteractiveWorkflowRunClient.
 
@@ -82,6 +82,7 @@ class InteractiveWorkflowRunClient:
         self._hitl_client: HITLTestClient = HITLTestClient(auth_client)
         # Add workflow client instance
         self._workflow_client: WorkflowTestClient = WorkflowTestClient(auth_client)
+        self.let_workflow_recover_from_failure = let_workflow_recover_from_failure
         logger.info("InteractiveWorkflowRunClient initialized.")
 
     async def _get_hitl_input(
@@ -498,6 +499,7 @@ class InteractiveWorkflowRunClient:
                 )
 
             # 4. Enter the main status monitoring loop
+            failed_count = 0
             while True:
                 # --- Timeout Check ---
                 elapsed_time = time.monotonic() - start_time
@@ -544,6 +546,10 @@ class InteractiveWorkflowRunClient:
                     elif latest_status == WorkflowRunStatus.FAILED:
                          error_msg = latest_error_message or "No error message provided."
                          logger.error(f"{end_message}. Error: {error_msg}")
+                         if (not failed_count) and self.let_workflow_recover_from_failure:
+                             await asyncio.sleep(50)
+                             failed_count += 1
+                             continue
                          print(f"\n--- {end_message} ---")
                          print(f"   Error: {error_msg}")
                     else: # Cancelled
@@ -571,8 +577,8 @@ class InteractiveWorkflowRunClient:
                 # Handle Non-Terminal, Non-HITL States
                 else:
                     # Log progress (only if not streaming, avoids duplicate status messages)
-                    if not stream_intermediate_results:
-                         print(f"   Run {created_run_id} status: {latest_status}. Waiting {poll_interval_sec}s...")
+                    # if not stream_intermediate_results:
+                    #      print(f"   Run {created_run_id} status: {latest_status}. Waiting {poll_interval_sec}s...")
                     await asyncio.sleep(poll_interval_sec)
 
         except AuthenticationError as e:
@@ -676,7 +682,8 @@ async def run_workflow_test(
     timeout_sec: int = 600,
     on_behalf_of_user_id: Optional[uuid.UUID] = None,
     thread_id: Optional[uuid.UUID] = None,
-    tag: Optional[str] = None
+    tag: Optional[str] = None,
+    let_workflow_recover_from_failure: bool = True
 ) -> Tuple[Optional[wf_schemas.WorkflowRunRead], Optional[Dict[str, Any]]]:
     """
     Runs a complete workflow test, including setup, execution, validation, and cleanup.
@@ -735,6 +742,7 @@ async def run_workflow_test(
                              were another user.
         thread_id: Optional thread ID to resume from existing thread to retain message history.
         tag: Optional tag to associate with the workflow run.
+        let_workflow_recover_from_failure: If True, the workflow will recover from failure.
 
     Returns:
         A tuple containing:
@@ -796,7 +804,7 @@ async def run_workflow_test(
         # Use a single authenticated session for setup and execution if possible
         async with AuthenticatedClient() as auth_client:
             logger.info(f"[{test_name}] Authentication successful for main test phases.")
-            interactive_client = InteractiveWorkflowRunClient(auth_client)
+            interactive_client = InteractiveWorkflowRunClient(auth_client, let_workflow_recover_from_failure)
             data_tester = CustomerDataTestClient(auth_client)
             # Instantiate template client needed for schema setup/cleanup
             from kiwi_client.template_client import TemplateTestClient
@@ -1215,12 +1223,12 @@ async def run_workflow_test(
 
             # If the workflow completed successfully, proceed with output validation (if any)
             if final_status == WorkflowRunStatus.COMPLETED:
-                print(f"   Final Outputs:")
-                try:
-                    # Attempt to pretty-print the outputs
-                    print(json.dumps(final_run_outputs, indent=2, default=str))
-                except Exception as json_e:
-                    print(f"     (Could not JSON serialize final outputs: {json_e}) Raw: {final_run_outputs}")
+                # print(f"   Final Outputs:")
+                # try:
+                #     # Attempt to pretty-print the outputs
+                #     print(json.dumps(final_run_outputs, indent=2, default=str))
+                # except Exception as json_e:
+                #     print(f"     (Could not JSON serialize final outputs: {json_e}) Raw: {final_run_outputs}")
 
                 # Perform custom output validation if a function was provided
                 if validate_output_func:
