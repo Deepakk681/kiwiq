@@ -1152,8 +1152,11 @@ async def list_runs(
                 run_ids = []
                 for prefect_run_id in run.prefect_run_ids.split(","):
                     if prefect_run_id:
-                        run_name = await services.WorkflowService.get_run_name(uuid.UUID(prefect_run_id))
-                        run_ids.append(f"{prefect_run_id}: {run_name}")
+                        try:
+                            run_name = await services.WorkflowService.get_run_name(uuid.UUID(prefect_run_id))
+                            run_ids.append(f"{prefect_run_id}: {run_name}")
+                        except ValueError as e:
+                            run_ids.append(f"{prefect_run_id}: (invalid UUID): {str(e)}")
 
                 run_dump["run_ids"] = "; ".join(run_ids)
 
@@ -1263,8 +1266,11 @@ async def get_run_status(
             run_ids = []
             for prefect_run_id in run.prefect_run_ids.split(","):
                 if prefect_run_id:
-                    run_name = await services.WorkflowService.get_run_name(uuid.UUID(prefect_run_id))
-                    run_ids.append(f"{prefect_run_id}: {run_name}")
+                    try:
+                        run_name = await services.WorkflowService.get_run_name(uuid.UUID(prefect_run_id))
+                        run_ids.append(f"{prefect_run_id}: {run_name}")
+                    except ValueError as e:
+                        run_ids.append(f"{prefect_run_id}: (invalid UUID): {str(e)}")
 
             run_dump["run_ids"] = "; ".join(run_ids)
 
