@@ -713,6 +713,10 @@ async def create_workflow(
     """
     if workflow_in.is_system_entity and not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only system admins can create system workflows.")
+    # TODO: instead add a node blacklist, regular users are not able to use those nodes in graph schema, eg python code submissions!
+    # # Current users are system admins only!
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only system admins can create workflows.")
     try:
         # Service layer handles potential name conflicts within the org
         workflow = await workflow_service.create_workflow(
@@ -1049,6 +1053,9 @@ async def submit_workflow_run(
     try:
         if not active_org_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active organization not found")
+        
+        if not current_user.is_superuser and run_submit.graph_schema:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You must be a superuser to submit ad-hoc workflow runs with custom graph schemas.")
         
         user = current_user
         if run_submit.on_behalf_of_user_id:

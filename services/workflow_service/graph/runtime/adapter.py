@@ -900,7 +900,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
         handler = interrupt_handler or default_async_interrupt_handler
 
         # Create LangGraph config
-        lg_config: RunnableConfig = {"configurable": config, "recursion_limit": 200}
+        lg_config: RunnableConfig = {"configurable": config, "recursion_limit": 10000}
 
         # print("\n\n\n\n#### ASYNC INPUT DATA SENT TO GRAPH STREAM", processed_input_data, f" --> RESUME: {resume_with_hitl} \n\n\n\n")
 

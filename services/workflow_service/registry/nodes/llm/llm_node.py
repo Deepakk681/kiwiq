@@ -872,7 +872,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # import ipdb; ipdb.set_trace()
             latency = time.time() - start_time
         except Exception as e:
-            self.critical("Model execution failed")
+            self.critical("Model execution failed", exc_info=True)
             try:
                 stream_writer = get_stream_writer()
             except Exception as e:
