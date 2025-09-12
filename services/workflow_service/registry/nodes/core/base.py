@@ -222,6 +222,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     
     # Whether to run the node in private input mode (directly accepting previous node's output)
     #   Useful for map/reduce or branching patterns or maintaining private states
+    is_input_node: bool = False
+    is_output_node: bool = False
     private_input_mode: bool = False
     private_output_mode: bool = False
     private_output_passthrough_data_to_central_state_keys: Optional[List[str]] = []  # These keys are passed through the private output data to the central state directly (if an edge from private node to central state exists!), also this data becomes passthrough data too and gets passed on to next private input node (if this is private output node)! eg usecase: while using map list router node, preserve unique IDs of each element as passthrough data that gets collected in items collected in central state
@@ -360,35 +362,44 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                     # Get value from state using the mapped state key
                     # NOTE: this handles the case when a router node creates multiple fan outs and a subsequent node receives multiple fan ins from router nodes at runtime!
                     node_id = state_key_instance[0]
-                    state_key_0 = get_node_output_state_key(state_key_instance[0])
-                    # TODO: FIXME: BUG: sometimes this is not an object but a dict! probably due to the way langgraph handles state updates!
-                    dict_has_key = (isinstance(state.get(state_key_0, None), dict)) and (state_key_instance[1] in state.get(state_key_0, {}))
-                    if state_key_0 not in state or ((not hasattr(state[state_key_0], state_key_instance[1])) and (not dict_has_key)):
+                    node_state_key = get_node_output_state_key(node_id)
+                    source_field_path = state_key_instance[1]
+                    
+                    if node_state_key not in state:
                         # This could mean the the parent node outputs are uninitialized and this node could be part of a loop!
                         #     This means that the input must be marked as optional!
-                        parents_run_status[state_key_instance[0]] = False
+                        parents_run_status[node_id] = False
                         continue
-                        # raise ValueError(f"State key {state_key[0]} not found in state!")
                     
-                    # NOTE: the node 2 node key never overrides a previously filled state since it may be filled by a previous node or central state!
-                    if dict_has_key:
-                        input_received_value = state[state_key_0][state_key_instance[1]]
-                    else:
-                        input_received_value = getattr(state[state_key_0], state_key_instance[1])
-                    parents_run_status[state_key_instance[0]] = True
+                    # Use nested path support for extracting the source field value
+                    input_received_value, found = _get_nested_obj(state[node_state_key], source_field_path)
+                    if not found:
+                        self.warning(f"Source field '{source_field_path}' not found in node '{node_id}' output state!")
+                        continue
                     
+                    parents_run_status[node_id] = True
+                    
+                    # Use nested path support for setting the destination field value
                     if input_field not in input_dict:
-                        input_dict[input_field] = input_received_value
+                        if not _set_nested_obj(input_dict, input_field, input_received_value, self):
+                            self.warning(f"Failed to set nested input field '{input_field}' from source field '{source_field_path}' in node '{self.node_id}'")
                     # break
                 else:
                     # Get value from CENTRAL state using the mapped state key!
-                    central_state_key_instance = get_central_state_field_key(state_key_instance)
-                    if central_state_key_instance not in state:
+                    
+                    central_state_source_field_path = get_central_state_field_key(state_key_instance)
+
+                    central_state_value, found = _get_nested_obj(state, central_state_source_field_path)
+                    if not found:  # if central_state_key not in state
                         # This could mean the the parent node outputs are uninitialized and this node could be part of a loop!
                         #     This means that the input must be marked as optional!
+                        self.info(f"Source field '{state_key_instance}' not found in node central state!")
                         continue
                         # raise ValueError(f"State key {state_key} not found in state!")
-                    input_dict[input_field] = state[central_state_key_instance]
+                    
+                    # Use nested path support for setting the destination field value
+                    if not _set_nested_obj(input_dict, input_field, central_state_value, self):
+                        self.warning(f"Failed to set nested input field '{input_field}' from source field '{state_key_instance}' in node '{self.node_id}'")
                 # break
         # if self.node_id == "review":
         #     import ipdb; ipdb.set_trace()
@@ -428,6 +439,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         #         state_private_output_data[key] = _data
 
         if output_schema and isinstance(output_data, output_schema):
+            if not self.is_output_node:
+                output_data = output_data.model_dump()
             # We will let node outputs be outputed even in private input mode for debugging purpsoes by adding collect values reducer for node output keys!
             if (not self.private_input_mode) or self.output_private_output_to_central_state:
                 state_update = {get_node_output_state_key(self.node_id): output_data}
@@ -442,7 +455,14 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 central_state_output = {}
                 for output_field_name, central_state_field_name in central_state_output_field_mapping.items():
                     central_state_output_field_name = get_central_state_field_key(central_state_field_name)
-                    central_state_output[central_state_output_field_name] = getattr(output_data, output_field_name)
+                    
+                    # Use nested path support for extracting the output field value
+                    output_field_value, found = _get_nested_obj(output_data, output_field_name)
+                    if found:
+                        if not _set_nested_obj(central_state_output, central_state_output_field_name, output_field_value, self):
+                            self.warning(f"Failed to set nested central state field '{central_state_field_name}' from source field '{output_field_name}' in node '{self.node_id}'")
+                    else:
+                        self.warning(f"Output field '{output_field_name}' not found in output data for mapping to central state field '{central_state_field_name}' in node '{self.node_id}'")
                     if state_private_output_data:
                         _output = {
                             self.private_output_to_central_state_node_output_key: central_state_output[central_state_output_field_name]
@@ -468,6 +488,68 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
     #     """
     #     return self.input_schema_cls(**input_data) if isinstance(input_data, dict) else input_data
 
+    async def apply_passthrough_data_to_input_data_in_private_input_mode(self, input_data_dict: Dict[str, Any], state: StateT):
+        """
+        Apply passthrough data to input data in private input mode.
+        """
+        # Apply passthrough data mappings if configured
+        if self.read_private_input_passthrough_data_to_input_field_mappings:
+            for passthrough_key, input_field in self.read_private_input_passthrough_data_to_input_field_mappings.items():
+                # Get passthrough value using dot notation
+                passthrough_value, found = _get_nested_obj(state, passthrough_key)
+                if found:
+                    # Check if target field already exists (for simple fields only, nested paths may create new structure)
+                    if '.' not in input_field and input_field in input_data_dict:
+                        self.warning(f"Input field '{input_field}' already exists in input data dict! Overwriting with passthrough data!")
+                    
+                    # Set the value using dot notation support
+                    if '.' in input_field:
+                        # For nested paths, use _set_nested_obj
+                        if not _set_nested_obj(input_data_dict, input_field, passthrough_value, self):
+                            self.warning(f"Failed to set nested input field '{input_field}' from passthrough data key '{passthrough_key}'")
+                        else:
+                            self.debug(f"Mapped passthrough data key '{passthrough_key}' to nested input field '{input_field}' with value: {passthrough_value}")
+                    else:
+                        # For simple fields, set directly
+                        input_data_dict[input_field] = passthrough_value
+                        self.debug(f"Mapped passthrough data key '{passthrough_key}' to input field '{input_field}' with value: {passthrough_value}")
+                else:
+                    self.debug(f"Passthrough data key '{passthrough_key}' not found in state, skipping mapping to input field '{input_field}'")
+    
+    async def build_passthrough_data_in_private_mode(self, output_data: Dict[str, Any], state: StateT) -> Dict[str, Any]:
+        """
+        Apply passthrough data to output data in private output mode.
+        """
+        # Build Private Mode Passthrough Data
+        private_mode_passthrough_data = {}
+        if self.private_input_mode or self.private_output_mode:
+            if self.private_output_passthrough_data_to_central_state_keys:
+                private_mode_passthrough_data = {key: state.get(key, None) for key in self.private_output_passthrough_data_to_central_state_keys if key in state}
+            
+            # Add mappings from output fields to passthrough data if configured
+            if self.write_to_private_output_passthrough_data_from_output_mappings:
+                for output_field, passthrough_key in self.write_to_private_output_passthrough_data_from_output_mappings.items():
+                    # Get value from output_data using dot notation
+                    # output_value = None
+                    output_value, found = _get_nested_obj(output_data, output_field)
+
+                    
+                    if output_value is not None:
+                        # Set the passthrough value using dot notation support
+                        if '.' in passthrough_key:
+                            # For nested passthrough keys, ensure we have a dict structure
+                            if not _set_nested_obj(private_mode_passthrough_data, passthrough_key, output_value, self):
+                                self.warning(f"Failed to set nested passthrough data key '{passthrough_key}' from output field '{output_field}'")
+                            else:
+                                self.debug(f"Mapped output field '{output_field}' to nested passthrough data key '{passthrough_key}' with value: {output_value}")
+                        else:
+                            # Simple key assignment
+                            private_mode_passthrough_data[passthrough_key] = output_value
+                            self.debug(f"Mapped output field '{output_field}' to passthrough data key '{passthrough_key}' with value: {output_value}")
+                    else:
+                        self.debug(f"Output field '{output_field}' not found or is None, skipping mapping to passthrough data key '{passthrough_key}'")
+        return private_mode_passthrough_data
+
     # FIXME: DEBUG: Prefect test!
     # @task
     async def run(self, state: StateT, config: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -492,11 +574,6 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         """
         
         try:
-            # print("\n\n\n\n NODE ENTRY: ", "="*100, "\n\n\n\n")
-            # print("\n\n\n\n#### RUN ", self.node_id, " --> ", self.node_name, "\n\n\n\n")
-            # print("\n\n\n\n#### state (in run) START!", state, "\n\n\n\n")
-            # Extract input data from state based on runtime config mapping
-            # config format: - {"inputs": node_id: {<input_field_key> : ["source_node", "field_key_in_source_node"] | OR | graph_state_key_source_of_input }}
             if self.private_input_mode:
                 # fetch central state inputs!
                 input_data_dict = self.build_input_state(state, config, only_fetch_central_state=True, build_input_schema_obj=False)
@@ -504,29 +581,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 #   for conflicting keys, overwrite central state values with private values!
                 input_data_dict.update(state)
                 
-                # Apply passthrough data mappings if configured
-                if self.read_private_input_passthrough_data_to_input_field_mappings:
-                    for passthrough_key, input_field in self.read_private_input_passthrough_data_to_input_field_mappings.items():
-                        # Get passthrough value using dot notation
-                        passthrough_value, found = _get_nested_obj(state, passthrough_key)
-                        if found:
-                            # Check if target field already exists (for simple fields only, nested paths may create new structure)
-                            if '.' not in input_field and input_field in input_data_dict:
-                                self.warning(f"Input field '{input_field}' already exists in input data dict! Overwriting with passthrough data!")
-                            
-                            # Set the value using dot notation support
-                            if '.' in input_field:
-                                # For nested paths, use _set_nested_obj
-                                if not _set_nested_obj(input_data_dict, input_field, passthrough_value, self):
-                                    self.warning(f"Failed to set nested input field '{input_field}' from passthrough data key '{passthrough_key}'")
-                                else:
-                                    self.debug(f"Mapped passthrough data key '{passthrough_key}' to nested input field '{input_field}' with value: {passthrough_value}")
-                            else:
-                                # For simple fields, set directly
-                                input_data_dict[input_field] = passthrough_value
-                                self.debug(f"Mapped passthrough data key '{passthrough_key}' to input field '{input_field}' with value: {passthrough_value}")
-                        else:
-                            self.debug(f"Passthrough data key '{passthrough_key}' not found in state, skipping mapping to input field '{input_field}'")
+                await self.apply_passthrough_data_to_input_data_in_private_input_mode(input_data_dict, state)
                 
                 # TODO: Potentially use model_validate(...)?
                 input_data = input_data_dict
@@ -543,41 +598,14 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 # We will exit the node without running the node since required field is missing 
                 #     and hope this node is re-executed when all parents are run and requried field is found in input!
                 return {}
-            # print("\n\n\n\n#### self.node_id", self.node_id)
-            # print("input_data", input_data)
-            
-            # # Apply runtime config overrides if provided
-            # effective_config = self.config
-            # if config:
-            #     config_dict = self.config.model_dump()
-            #     config_dict.update(config)
-            #     effective_config = self.config_schema_cls.model_validate(config_dict)
 
-            # print("\n\n\n\n#### input_data (in run)", input_data, "\n\n\n\n")
             if self.__class__.runtime_preprocessor:
                 # Generally used for interupts to get HITL!
                 # print("\n\n\n\n#### self.__class__.runtime_preprocessor (in run)", "\n\n\n\n")
                 preprocessed_input_data = self.__class__.runtime_preprocessor(self, input_data, config, *args, **kwargs)
                 input_data = preprocessed_input_data
-            
-            ###### Test SENDING COMPLEX OBJECTS inputs to prefect!
-            # from workflow_service.registry.registry import DBRegistry
-            # from kiwi_app.workflow_app.crud import NodeTemplateDAO, SchemaTemplateDAO, PromptTemplateDAO, WorkflowDAO
-            # node_template_dao = NodeTemplateDAO()
-            # schema_template_dao = SchemaTemplateDAO()
-            # prompt_template_dao = PromptTemplateDAO()
-            # workflow_dao = WorkflowDAO()
-            # db_registry = DBRegistry(node_template_dao, schema_template_dao, prompt_template_dao, workflow_dao)
-            # from db.session import get_async_session
-            # async_session = get_async_session()
 
-            # obj = {
-            #     "db_registry": db_registry,
-            #     "async_session": async_session,
-            # }
-            # , db_obj=obj
-            ######
-
+            # Build Central State
             central_state_data = {
                 field_name: value 
                 for field_name, value in state.items() 
@@ -585,7 +613,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             }
             kwargs["central_state_data"] = central_state_data
 
-            # Process the input data
+            # Process the input data using node's process method to compute output data
             config_node_retry_count = getattr(self.config, "node_retry_count", None)
             node_retry_count = config_node_retry_count if config_node_retry_count is not None else self.__class__.node_default_retry_count
             retry_delay_seconds = 10
@@ -628,33 +656,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                         await asyncio.sleep(retry_delay_seconds * (1 + random.random() * retry_jitter_factor))
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
 
-            private_mode_passthrough_data = {}
-            if self.private_input_mode or self.private_output_mode:
-                if self.private_output_passthrough_data_to_central_state_keys:
-                    private_mode_passthrough_data = {key: state.get(key, None) for key in self.private_output_passthrough_data_to_central_state_keys if key in state}
-                
-                # Add mappings from output fields to passthrough data if configured
-                if self.write_to_private_output_passthrough_data_from_output_mappings:
-                    for output_field, passthrough_key in self.write_to_private_output_passthrough_data_from_output_mappings.items():
-                        # Get value from output_data using dot notation
-                        # output_value = None
-                        output_value, found = _get_nested_obj(output_data, output_field)
-
-                        
-                        if output_value is not None:
-                            # Set the passthrough value using dot notation support
-                            if '.' in passthrough_key:
-                                # For nested passthrough keys, ensure we have a dict structure
-                                if not _set_nested_obj(private_mode_passthrough_data, passthrough_key, output_value, self.logger):
-                                    self.warning(f"Failed to set nested passthrough data key '{passthrough_key}' from output field '{output_field}'")
-                                else:
-                                    self.debug(f"Mapped output field '{output_field}' to nested passthrough data key '{passthrough_key}' with value: {output_value}")
-                            else:
-                                # Simple key assignment
-                                private_mode_passthrough_data[passthrough_key] = output_value
-                                self.debug(f"Mapped output field '{output_field}' to passthrough data key '{passthrough_key}' with value: {output_value}")
-                        else:
-                            self.debug(f"Output field '{output_field}' not found or is None, skipping mapping to passthrough data key '{passthrough_key}'")
+            private_mode_passthrough_data = await self.build_passthrough_data_in_private_mode(output_data, state)
             
             # Convert output to dict and return as state update
             # NOTE: in case a Command / Send is generated in the process(...) method, this method to build state update should be called from there directly since otehrwise
@@ -664,10 +666,6 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                 state_update = output_data
             else:
                 state_update = self.build_output_state_update(output_data, config, private_mode_passthrough_data, )
-            # print(f"\n\n\n\n#### state_update (in run) --> {state_update.__class__}", state_update, "\n\n\n\n")
-            # if self.node_id == "join":
-            #     import ipdb; ipdb.set_trace()
-            # import ipdb; ipdb.set_trace()
 
             state_update = state_update if state_update else output_data   # state_update could be None if no output schema defined but output_data may be a runtime command / interupt!
 
@@ -677,11 +675,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
             if (isinstance(output_data, dict) or isinstance(output_data, BaseSchema)) and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
                 # assume this is standard state_update and not Command / Send / Interrupts for eg
                 configurable = config.get("configurable", {})
-                # central_state_data = {
-                #     field_name: value 
-                #     for field_name, value in state.items() 
-                #     if field_name.startswith(GRAPH_STATE_SPECIAL_NODE_NAME)
-                # }
+
                 if self.private_output_mode:
                     # update central state with private output!
                     
@@ -689,15 +683,15 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                     for out_node_id, out_node_edge in configurable.get("outgoing_edges", {}).get(self.node_id, {}).items():
                         output_to_node = {}
                         for mapping in out_node_edge.mappings:
-                            # Get source field value from state_update, handling both dict and BaseSchema objects
-                            if isinstance(output_data, dict):
-                                src_value = output_data.get(mapping.src_field, None)
-                            else:  # BaseSchema
-                                src_value = getattr(output_data, mapping.src_field, None)
+                            # Get source field value from output_data using nested path support
+                            src_value, found = _get_nested_obj(output_data, mapping.src_field)
                             
-                            # Set the destination field in output_data
-                            if src_value is not None:
-                                output_to_node[mapping.dst_field] = src_value
+                            # Set the destination field in output_data using nested path support
+                            if found and src_value is not None:
+                                if not _set_nested_obj(output_to_node, mapping.dst_field, src_value, self):
+                                    self.warning(f"Failed to set nested destination field '{mapping.dst_field}' from source field '{mapping.src_field}' for output to node '{out_node_id}'")
+                            elif not found:
+                                self.warning(f"Private mode: Source field '{mapping.src_field}' not found in output data for mapping to destination field '{mapping.dst_field}' for output to node '{out_node_id}'")
                         
                         # Central state hack!
                         # TODO: FIXME
@@ -720,8 +714,6 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                     response = Command(goto=[Send(node_id, node_input) for node_id, node_input in output_to_nodes.items()], update=state_update, )
                     return response
 
-            # print("\n\n\n\n#### state_update (in run)", state_update, "\n\n\n\n")
-            # print("\n\n\n\n NODE EXIT: ", "="*100, "\n\n\n\n")
             return state_update
         except Exception as e:
             # TODO: raise custom error codes which are registered!

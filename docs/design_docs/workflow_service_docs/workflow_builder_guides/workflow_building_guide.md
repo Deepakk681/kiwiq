@@ -25,6 +25,9 @@ The `GraphSchema` is the core JSON object defining your workflow. It has several
   ],
   "input_node_id": "unique_id_for_start_node", // Typically "input_node"
   "output_node_id": "unique_id_for_end_node", // Typically "output_node" or the last processing node
+  "runtime_config": {
+    // Runtime configuration including database pool settings (Section 2.1)
+  },
   "metadata": {
     // Optional graph-level settings (e.g., for central state)
   }
@@ -35,9 +38,88 @@ The `GraphSchema` is the core JSON object defining your workflow. It has several
 -   **`edges` (List):** A list of objects defining the connections between nodes and how data flows along those connections.
 -   **`input_node_id` (String):** Specifies the `node_id` of the node that acts as the entry point for the workflow. This node defines the data the workflow expects when it starts. Conventionally, this is often `"input_node"`.
 -   **`output_node_id` (String):** Specifies the `node_id` of the node whose output is considered the final result of the entire workflow. Conventionally, this might be `"output_node"`, but it can be any node in the graph.
+-   **`runtime_config` (Object):** Optional section for runtime configuration settings including database connection pool tiers (see Section 2.1).
 -   **`metadata` (Object):** Optional section for advanced graph-level configurations, such as defining how data should be combined in the central workflow state (using reducers).
 
 *(See `services/workflow_service/graph/graph.py` for the precise Pydantic model definition.)*
+
+### 2.1. Runtime Configuration: Database Pool Tiers
+
+The `runtime_config` section allows you to optimize database connection pooling based on your workflow's expected load and concurrency requirements. This configuration is now defined using a structured `RuntimeConfig` schema for better validation and type safety.
+
+```json
+{
+  "runtime_config": {
+    "db_concurrent_pool_tier": "medium" // "small" | "medium" | "large"
+  }
+}
+```
+
+**RuntimeConfig Schema**: The runtime configuration is validated against a Pydantic schema that ensures only valid pool tier values are accepted and provides clear defaults.
+
+**Database Pool Tiers:**
+
+-   **`"small"` (Default):** Optimized for lightweight workflows with minimal database usage
+    -   Uses default pool settings from global configuration
+    -   Best for: Simple workflows, development, testing
+
+-   **`"medium"`:** Balanced configuration for moderate database usage
+    -   SQLAlchemy Pool: 10 base connections + 15 overflow = 25 total max connections  
+    -   LangGraph Pool: Default worker pool settings
+    -   Best for: Production workflows with moderate database operations, batch processing
+
+-   **`"large"`:** High-performance configuration for database-intensive workflows
+    -   SQLAlchemy Pool: 20 base connections + 30 overflow = 50 total max connections
+    -   LangGraph Pool: 5 max connections for checkpointer operations
+    -   Best for: High-concurrency workflows, data-heavy processing, complex multi-step operations
+
+**When to Use Each Tier:**
+
+```json
+// Lightweight workflow example (small tier - default)
+{
+  "runtime_config": {
+    "db_concurrent_pool_tier": "small"
+  }
+  // Good for: Simple LLM calls, basic data lookups, development workflows
+}
+
+// Moderate workflow example (medium tier)  
+{
+  "runtime_config": {
+    "db_concurrent_pool_tier": "medium"
+  }
+  // Good for: Multi-step data processing, moderate parallel operations, 
+  //          workflows with 10-25 concurrent database operations
+}
+
+// High-intensity workflow example (large tier)
+{
+  "runtime_config": {
+    "db_concurrent_pool_tier": "large"  
+  }
+  // Good for: Heavy parallel processing, large batch operations,
+  //          workflows with 25+ concurrent database operations,
+  //          complex data aggregation and analysis workflows
+}
+```
+
+**Technical Details:**
+
+The pool tier configuration automatically adjusts the underlying database connection pools:
+
+-   **SQLAlchemy Engine Pools:** Used for ORM operations (loading/storing customer data, workflow state management)
+-   **LangGraph Checkpointer Pools:** Used for workflow state persistence and recovery
+-   **Connection Lifecycle:** Automatic connection recycling, health checks, and timeout management
+
+**Important Considerations:**
+
+-   Higher tiers consume more database resources - use appropriately based on actual workflow needs
+-   Pool configurations are applied when the workflow execution begins
+-   Changes to pool tier require workflow redeployment to take effect
+-   Monitor database connection usage to ensure optimal tier selection
+
+*(See `libs/src/db/session.py` and `libs/src/global_config/settings.py` for implementation details.)*
 
 ## 3. Defining Nodes: The Workflow Steps
 
@@ -107,7 +189,9 @@ Each task in your workflow is a node, defined within the `nodes` dictionary of t
 
 ## 4. Connecting Nodes with Edges: Defining the Flow
 
-Edges are the arrows in your workflow flowchart. They define the sequence and, crucially, how data is passed between nodes. Define them in the `edges` list of the `GraphSchema`.
+Edges are the arrows in your workflow flowchart. They define the sequence and, crucially, how data is passed between nodes. Edges can be defined in two ways: in the `edges` list of the `GraphSchema` (traditional) or within individual node configurations (new feature).
+
+### 4.1. Traditional Edge Definition
 
 ```json
 // Inside GraphSchema.edges
@@ -120,10 +204,20 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
         "src_field": "output_field_from_A", // Field name in Node A's output
         "dst_field": "expected_input_field_in_B" // Name this data will have for Node B
       },
-      // --- Using Dot Notation for Nested Data ---
+      // --- Using Dot Notation for Nested Data (NEW FEATURE) ---
       {
-        "src_field": "complex_output.details.primary_email",
-        "dst_field": "contact_info.email"
+        "src_field": "complex_output.details.primary_email", // Extract deeply nested email
+        "dst_field": "contact_info.email" // Store in nested contact_info object
+      },
+      // --- Array Access with Indices ---
+      {
+        "src_field": "user_list.0.profile.name", // First user's profile name
+        "dst_field": "primary_user.display_name"
+      },
+      // --- Complex Nested Mapping ---
+      {
+        "src_field": "api_response.data.results.0.metadata.score",
+        "dst_field": "analysis.quality_metrics.primary_score"
       },
       // --- Mapping a whole object ---
       {
@@ -146,30 +240,160 @@ Edges are the arrows in your workflow flowchart. They define the sequence and, c
 ]
 ```
 
+### 4.2. Node-Level Edge Declaration (NEW FEATURE)
+
+You can now declare edges directly within node configurations for better organization:
+
+```json
+// Inside GraphSchema.nodes
+"nodes": {
+  "data_processor": {
+    "node_id": "data_processor",
+    "node_name": "transform_data", 
+    "node_config": { /* ... */ },
+    "edges": [ // Edges originating FROM this node
+      {
+        "dst_node_id": "validation_node",
+        "mappings": [
+          {
+            "src_field": "processed_data.results",
+            "dst_field": "input_data"
+          }
+        ]
+      },
+      {
+        "dst_node_id": "summary_node",
+        "mappings": [
+          {
+            "src_field": "processed_data.metadata.stats",
+            "dst_field": "summary_stats.processing"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Note**: A node can declare edges either in its node configuration OR in the global `edges` list, but not both. The system will automatically convert node-level edge declarations to the standard format during validation.
+
+### 4.3. Edge Field Reference
+
 **Key Fields for Each Edge:**
 
 -   **`src_node_id` (String, Required):** The `node_id` of the node where the connection starts (the data source).
 -   **`dst_node_id` (String, Required):** The `node_id` of the node where the connection ends (the data destination).
 -   **`mappings` (List[`EdgeMapping`], Optional):** This list defines *which* data fields flow from the source to the destination and what they should be called.
     *   Each object in the `mappings` list requires:
-        *   **`src_field` (String):** The name of the field in the output of the `src_node_id`. Use dot notation (`.`) to access nested data (e.g., `customer.address.zip_code`).
-        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`. Can use dot notation. Can also use `TEMPLATE_ID.VARIABLE_NAME` format for template-specific inputs (e.g., for `PromptConstructorNode`).
+        *   **`src_field` (String):** The name of the field in the output of the `src_node_id`. **Supports full dot notation** for accessing nested data structures.
+        *   **`dst_field` (String):** The name the data from `src_field` should have when it becomes input for the `dst_node_id`. **Supports full dot notation** for creating nested structures. Can also use `TEMPLATE_ID.VARIABLE_NAME` format for template-specific inputs (e.g., for `PromptConstructorNode`).
 
-**Why are Mappings Important?**
+### 4.4. Dot Notation Reference (NEW FEATURE)
 
-Nodes are often developed independently and have specific expectations for their input data names. Mappings act as adapters, ensuring the output data from one node matches the input requirements of the next. They are also essential for providing the necessary data structures when a node uses internal path lookups (like `construct_options`).
+The edge mapping system now supports comprehensive dot notation for accessing and setting nested data structures:
 
-**What if `mappings` is empty?**
+**Dot Notation Syntax:**
+- **Object Access**: `field.subfield.property`
+- **Array Access**: `field.0.property` (using numeric indices)
+- **Deep Nesting**: `data.results.0.metadata.user.profile.settings.theme`
+- **Mixed Access**: `users.0.preferences.notifications.email.enabled`
+
+**Examples by Use Case:**
+
+```json
+// --- Basic Nested Object Access ---
+{
+  "src_field": "user_profile.contact.email",
+  "dst_field": "notification_settings.email_address"
+}
+
+// --- Array Element Access ---
+{
+  "src_field": "search_results.0.title",     // First search result's title
+  "dst_field": "primary_result.heading"
+}
+
+// --- Deep Nesting with Arrays ---
+{
+  "src_field": "api_response.data.items.2.metadata.tags.0", // Third item's first tag
+  "dst_field": "categorization.primary_tag"
+}
+
+// --- Creating Nested Structures ---
+{
+  "src_field": "simple_score",               // Flat field from source
+  "dst_field": "analysis.metrics.quality_score" // Creates nested structure in destination
+}
+
+// --- Complex API Response Mapping ---
+{
+  "src_field": "linkedin_data.profile.experience.0.company.name",
+  "dst_field": "lead_info.current_employer.company_name"
+}
+
+// --- LLM Structured Output Access ---
+{
+  "src_field": "structured_output.recommendations.0.priority_level",
+  "dst_field": "action_items.highest_priority.level"
+}
+```
+
+**Advanced Patterns:**
+
+```json
+// --- Multiple Fields from Same Nested Source ---
+{
+  "mappings": [
+    {
+      "src_field": "customer_data.profile.personal.first_name",
+      "dst_field": "personalization.greeting.first_name"
+    },
+    {
+      "src_field": "customer_data.profile.personal.last_name", 
+      "dst_field": "personalization.greeting.last_name"
+    },
+    {
+      "src_field": "customer_data.profile.preferences.communication.email",
+      "dst_field": "contact.primary_method"
+    }
+  ]
+}
+
+// --- Transforming Array Structure ---
+{
+  "mappings": [
+    {
+      "src_field": "raw_leads.0.contact_info.email",
+      "dst_field": "processed_leads.primary.email"
+    },
+    {
+      "src_field": "raw_leads.0.company_info.name",
+      "dst_field": "processed_leads.primary.company"  
+    }
+  ]
+}
+```
+
+### 4.5. Why are Mappings Important?
+
+Nodes are often developed independently and have specific expectations for their input data names. Mappings act as adapters, ensuring the output data from one node matches the input requirements of the next. With dot notation support, you can now:
+
+- **Extract specific values** from complex nested structures without preprocessing
+- **Create structured inputs** for nodes that expect organized data
+- **Avoid data transformation nodes** for simple field restructuring
+- **Handle API responses directly** without custom parsing logic
+
+### 4.6. What if `mappings` is empty?
 
 An edge without mappings primarily defines execution order: `dst_node_id` will run after `src_node_id`. The `dst_node_id` might not need direct data from the `src_node_id` (perhaps it reads from the central state or uses mechanisms like `construct_options`), or it might process the entire state passed along implicitly. However, relying on implicit data flow is less clear than using explicit mappings.
 
 ## 5. Handling Data Flow
 
-Data is the lifeblood of the workflow. Understanding how it moves is critical.
+Data is the lifeblood of the workflow. Understanding how it moves is critical. With the new dot notation support, data flow has become much more flexible and powerful.
 
-**a) Basic Data Passing via Mappings:**
+### 5.1. Basic Data Passing via Mappings
 
-As shown above, `EdgeMapping`s are the standard way to pass specific data fields:
+`EdgeMapping`s are the standard way to pass specific data fields:
 
 ```json
 // Node A produces: { "result_summary": "...", "status_code": 200 }
@@ -186,13 +410,21 @@ As shown above, `EdgeMapping`s are the standard way to pass specific data fields
 }
 ```
 
-**b) Accessing Nested Data:**
+### 5.2. Accessing Nested Data with Dot Notation
 
-Use dot notation (`.`) in `src_field` and `dst_field` to access data within nested objects or lists (using numerical indices for lists):
+Use dot notation (`.`) in `src_field` and `dst_field` to access data within nested objects or lists:
 
 ```json
-// Node A produces: { "report": { "details": { "author": "...", "tags": ["urgent", "internal"] } } }
-// Node C expects: { "report_author": "...", "first_tag": "..." }
+// Node A produces: { 
+//   "report": { 
+//     "details": { 
+//       "author": "John Smith", 
+//       "tags": ["urgent", "internal"],
+//       "metrics": { "score": 95, "confidence": 0.8 }
+//     } 
+//   } 
+// }
+// Node C expects: { "report_author": "...", "first_tag": "...", "quality_metrics": {...} }
 
 // Edge from A to C:
 {
@@ -200,37 +432,128 @@ Use dot notation (`.`) in `src_field` and `dst_field` to access data within nest
   "dst_node_id": "node_C",
   "mappings": [
     { "src_field": "report.details.author", "dst_field": "report_author" },
-    { "src_field": "report.details.tags.0", "dst_field": "first_tag" } // Get the first tag
+    { "src_field": "report.details.tags.0", "dst_field": "first_tag" }, // Get the first tag
+    { "src_field": "report.details.metrics.score", "dst_field": "quality_metrics.primary_score" },
+    { "src_field": "report.details.metrics.confidence", "dst_field": "quality_metrics.confidence_level" }
   ]
 }
 ```
 
-**c) Central Workflow State (`"$graph_state"`)**
+### 5.3. Complex Data Structure Handling
+
+The dot notation system handles complex nested structures seamlessly:
+
+```json
+// Example: Processing LinkedIn API Response
+// Node A produces: {
+//   "linkedin_response": {
+//     "profile": {
+//       "basic_info": { "first_name": "Jane", "last_name": "Doe" },
+//       "experience": [
+//         {
+//           "company": { "name": "TechCorp", "industry": "Software" },
+//           "position": { "title": "Senior Engineer", "level": "Senior" }
+//         }
+//       ],
+//       "skills": ["Python", "Machine Learning", "APIs"]
+//     }
+//   }
+// }
+
+// Edge mapping to structure for LLM processing:
+{
+  "src_node_id": "linkedin_scraper",
+  "dst_node_id": "profile_analyzer", 
+  "mappings": [
+    { 
+      "src_field": "linkedin_response.profile.basic_info.first_name", 
+      "dst_field": "analysis_input.candidate.personal.first_name" 
+    },
+    { 
+      "src_field": "linkedin_response.profile.basic_info.last_name", 
+      "dst_field": "analysis_input.candidate.personal.last_name" 
+    },
+    { 
+      "src_field": "linkedin_response.profile.experience.0.company.name", 
+      "dst_field": "analysis_input.candidate.current_role.company" 
+    },
+    { 
+      "src_field": "linkedin_response.profile.experience.0.position.title", 
+      "dst_field": "analysis_input.candidate.current_role.title" 
+    },
+    { 
+      "src_field": "linkedin_response.profile.skills", 
+      "dst_field": "analysis_input.candidate.technical_skills" 
+    }
+  ]
+}
+```
+
+### 5.4. Error Handling and Validation
+
+The dot notation system includes robust error handling:
+
+- **Path Not Found**: If a nested path doesn't exist, the system logs a warning and skips the mapping
+- **Index Out of Bounds**: Array access with invalid indices is handled gracefully
+- **Type Mismatches**: Attempting to access nested properties on primitive values is caught
+- **Automatic Structure Creation**: Destination nested structures are created automatically as needed
+
+### 5.5. Central Workflow State (`"$graph_state"`)
 
 Workflows often need a shared **memory** or **scratchpad** accessible by multiple nodes throughout the execution. This allows data to persist across steps that aren't directly connected or to manage state during loops (like tracking `iteration_count` from an `LLMNode`'s metadata). This shared memory is accessed using the special node ID `"$graph_state"`.
 
--   **Writing to Central State:** An edge *from* a regular node *to* `"$graph_state"` saves data into the shared memory.
-    ```json
-    {
-      "src_node_id": "calculate_score", // Produces { "final_score": 95 }
-      "dst_node_id": "$graph_state", // Target the shared memory
-      "mappings": [
-        { "src_field": "final_score", "dst_field": "lead_score" } // Store as "lead_score" in the shared memory
-      ]
-    }
-    ```
--   **Reading from Central State:** An edge *from* `"$graph_state"` *to* a regular node retrieves data from the shared memory.
-    ```json
-    {
-      "src_node_id": "$graph_state", // Read from the shared memory
-      "dst_node_id": "send_notification", // Node that needs the stored data
-      "mappings": [
-        { "src_field": "lead_score", "dst_field": "score_to_include" } // Get "lead_score" from memory, provide as "score_to_include" to the node
-      ]
-    }
-    ```
--   **Important Note on Execution Flow:** Edges originating *from* `"$graph_state"` are solely for **data retrieval**. They **do not** trigger the execution of the destination node (`dst_node_id`). The destination node must still receive an incoming connection from another regular node (or be the `input_node_id`) to be executed as part of the workflow's sequence. Think of reading from `"$graph_state"` as looking up information when the node runs, not as a signal to run.
--   **Reducers (Advanced):** When multiple nodes write to the *same key* in the central state (e.g., adding items to a history list), you might need to define how that data is combined. This is done using "reducers" configured in the `GraphSchema.metadata`. Common reducers include `replace` (last write wins - the default), `add_messages` (for chat history), and `append_list`. See `test_AI_loop.py` or LangGraph documentation for details. If not specified, the default behavior usually replaces the old value.
+**Writing to Central State with Dot Notation:**
+An edge *from* a regular node *to* `"$graph_state"` saves data into the shared memory, with full dot notation support:
+
+```json
+// Example: Storing nested analysis results
+{
+  "src_node_id": "calculate_score", 
+  "dst_node_id": "$graph_state",
+  "mappings": [
+    { "src_field": "analysis_results.quality_score", "dst_field": "lead_analysis.quality.score" },
+    { "src_field": "analysis_results.confidence_level", "dst_field": "lead_analysis.quality.confidence" },
+    { "src_field": "metadata.processing_time", "dst_field": "workflow_stats.processing_times.scoring" }
+  ]
+}
+```
+
+**Reading from Central State with Dot Notation:**
+An edge *from* `"$graph_state"` *to* a regular node retrieves data from the shared memory:
+
+```json
+// Example: Retrieving nested analysis data
+{
+  "src_node_id": "$graph_state",
+  "dst_node_id": "send_notification",
+  "mappings": [
+    { "src_field": "lead_analysis.quality.score", "dst_field": "notification_data.score" },
+    { "src_field": "lead_analysis.quality.confidence", "dst_field": "notification_data.confidence" },
+    { "src_field": "workflow_stats.processing_times", "dst_field": "debug_info.timing" }
+  ]
+}
+```
+
+**Complex Central State Operations:**
+
+```json
+// Example: Multi-stage workflow with progressive state building
+{
+  "mappings": [
+    // Store multiple analysis results in organized structure
+    { "src_field": "linkedin_analysis.company_info", "dst_field": "lead_profile.employment.current_company" },
+    { "src_field": "linkedin_analysis.experience_summary", "dst_field": "lead_profile.employment.background" },
+    { "src_field": "web_research.company_news.0.headline", "dst_field": "lead_profile.context.latest_company_news" },
+    { "src_field": "sentiment_analysis.overall_score", "dst_field": "lead_profile.analysis.sentiment_score" }
+  ]
+}
+```
+
+**Important Notes:**
+- **Execution Flow**: Edges originating *from* `"$graph_state"` are solely for **data retrieval**. They **do not** trigger the execution of the destination node.
+- **Dot Notation**: Both reading from and writing to central state support full dot notation for nested structures
+- **Automatic Structure Creation**: Writing to nested paths in central state automatically creates the required structure
+- **Reducers (Advanced)**: When multiple nodes write to the *same key* in the central state, you can define how data is combined using "reducers" in `GraphSchema.metadata`. Common reducers include `replace` (default), `add_messages`, and `append_list`.
 
 ## 6. Accessing Runtime Context
 
@@ -596,12 +919,179 @@ For complex workflows requiring multiple sequential processing steps, each stage
 }
 ```
 
-## 10. Example Workflow: Customer Support Ticket Routing
+## 10. Example Workflow: Lead Processing with Nested Data
+
+**Goal:** Process lead data with complex nested structures, extract relevant information using dot notation, and create structured output for downstream systems.
+
+```json
+{
+  "runtime_config": {
+    "db_concurrent_pool_tier": "medium"
+  },
+  "nodes": {
+    "input_node": {
+      "node_id": "input_node", 
+      "node_name": "input_node", 
+      "node_config": {},
+      "dynamic_output_schema": {
+        "fields": {
+          "lead_data": {
+            "type": "object",
+            "required": true,
+            "default": {
+              "contact_info": {
+                "personal": { "first_name": "John", "last_name": "Smith", "email": "john@techcorp.com" },
+                "professional": { "company": "TechCorp", "title": "Senior Engineer", "department": "Engineering" }
+              },
+              "social_media": {
+                "linkedin": {
+                  "profile_url": "https://linkedin.com/in/johnsmith",
+                  "experience": [
+                    {
+                      "company": { "name": "TechCorp", "industry": "Software" },
+                      "position": { "title": "Senior Engineer", "start_date": "2021-01" },
+                      "achievements": ["Led team of 5", "Increased efficiency by 40%"]
+                    }
+                  ],
+                  "skills": ["Python", "Machine Learning", "Leadership"]
+                }
+              },
+              "research_data": {
+                "company_info": {
+                  "recent_news": [
+                    { "headline": "TechCorp Raises $50M Series B", "sentiment": "positive", "date": "2024-01-15" }
+                  ],
+                  "financial_health": { "score": 85, "trend": "growing" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "edges": [
+        {
+          "dst_node_id": "structure_for_analysis",
+          "mappings": [
+            // Extract personal information using dot notation
+            { "src_field": "lead_data.contact_info.personal.first_name", "dst_field": "analysis_input.lead.first_name" },
+            { "src_field": "lead_data.contact_info.personal.last_name", "dst_field": "analysis_input.lead.last_name" },
+            { "src_field": "lead_data.contact_info.personal.email", "dst_field": "analysis_input.lead.email" },
+            
+            // Extract professional information
+            { "src_field": "lead_data.contact_info.professional.company", "dst_field": "analysis_input.lead.current_company" },
+            { "src_field": "lead_data.contact_info.professional.title", "dst_field": "analysis_input.lead.job_title" },
+            
+            // Extract LinkedIn data with array access
+            { "src_field": "lead_data.social_media.linkedin.experience.0.company.name", "dst_field": "analysis_input.lead.employer_details.name" },
+            { "src_field": "lead_data.social_media.linkedin.experience.0.company.industry", "dst_field": "analysis_input.lead.employer_details.industry" },
+            { "src_field": "lead_data.social_media.linkedin.experience.0.achievements.0", "dst_field": "analysis_input.lead.top_achievement" },
+            { "src_field": "lead_data.social_media.linkedin.skills", "dst_field": "analysis_input.lead.technical_skills" },
+            
+            // Extract company research with nested access
+            { "src_field": "lead_data.research_data.company_info.recent_news.0.headline", "dst_field": "analysis_input.context.latest_news" },
+            { "src_field": "lead_data.research_data.company_info.recent_news.0.sentiment", "dst_field": "analysis_input.context.news_sentiment" },
+            { "src_field": "lead_data.research_data.company_info.financial_health.score", "dst_field": "analysis_input.context.company_health_score" }
+          ]
+        }
+      ]
+    },
+    "structure_for_analysis": {
+      "node_id": "structure_for_analysis",
+      "node_name": "transform_data",
+      "node_config": {
+        "mappings": [
+          {
+            "source_path": "analysis_input",
+            "destination_path": "structured_lead_profile",
+            "action": "restructure"
+          }
+        ]
+      },
+      "edges": [
+        {
+          "dst_node_id": "generate_talking_points",
+          "mappings": [
+            { "src_field": "structured_lead_profile", "dst_field": "lead_profile" }
+          ]
+        },
+        {
+          "dst_node_id": "$graph_state",
+          "mappings": [
+            // Store structured data in central state using nested paths
+            { "src_field": "analysis_input.lead.first_name", "dst_field": "lead_summary.contact.first_name" },
+            { "src_field": "analysis_input.lead.last_name", "dst_field": "lead_summary.contact.last_name" },
+            { "src_field": "analysis_input.lead.current_company", "dst_field": "lead_summary.employment.company" },
+            { "src_field": "analysis_input.context.company_health_score", "dst_field": "lead_summary.insights.company_score" }
+          ]
+        }
+      ]
+    },
+    "generate_talking_points": {
+      "node_id": "generate_talking_points",
+      "node_name": "llm",
+      "node_config": {
+        "llm_config": {
+          "model_spec": { "provider": "openai", "model": "gpt-4o" },
+          "temperature": 0.7
+        },
+        "default_system_prompt": "Generate personalized talking points for sales outreach based on the lead profile provided."
+      },
+      "edges": [
+        {
+          "dst_node_id": "output_node",
+          "mappings": [
+            // Map LLM output with existing central state data
+            { "src_field": "content", "dst_field": "final_output.talking_points" }
+          ]
+        }
+      ]
+    },
+    "output_node": {
+      "node_id": "output_node",
+      "node_name": "output_node",
+      "node_config": {}
+    }
+  },
+  "edges": [
+    // Additional edge from central state to output node
+    {
+      "src_node_id": "$graph_state",
+      "dst_node_id": "output_node", 
+      "mappings": [
+        { "src_field": "lead_summary.contact", "dst_field": "final_output.lead_contact" },
+        { "src_field": "lead_summary.employment", "dst_field": "final_output.lead_employment" },
+        { "src_field": "lead_summary.insights", "dst_field": "final_output.lead_insights" }
+      ]
+    }
+  ],
+  "input_node_id": "input_node",
+  "output_node_id": "output_node"
+}
+```
+
+**Key Features Demonstrated:**
+
+1. **Node-Level Edge Declaration**: The `input_node` and other nodes declare their outgoing edges directly in their configuration
+2. **Complex Nested Data Access**: Using dot notation to extract deeply nested values like `lead_data.social_media.linkedin.experience.0.achievements.0`
+3. **Array Element Access**: Accessing specific array elements with numeric indices
+4. **Structured Data Creation**: Creating organized nested structures in destination fields
+5. **Central State Integration**: Combining node outputs with central state data for final output
+
+**Data Flow Summary:**
+- Input provides complex nested lead data
+- First transformation extracts and restructures data using dot notation
+- Data flows through LLM processing while maintaining structure in central state  
+- Final output combines processed content with preserved lead metadata
+
+## 11. Example Workflow: Customer Support Ticket Routing
 
 **Goal:** Receive a support ticket, determine its topic using an LLM, and route it to the correct department, storing the ticket data using runtime context.
 
 ```json
 {
+  "runtime_config": {
+    "db_concurrent_pool_tier": "medium" // Use medium tier for moderate database operations
+  },
   "nodes": {
     "input_node": { // Receives: { "ticket_id": "...", "ticket_body": "..." }
       "node_id": "input_node", "node_name": "input_node", "node_config": {}
@@ -731,6 +1221,9 @@ For complex workflows requiring multiple sequential processing steps, each stage
 
 ```json
 {
+  "runtime_config": {
+    "db_concurrent_pool_tier": "large" // Use large tier for heavy data operations and joins
+  },
   "nodes": {
     "input_node": { // Receives: { "user_ids": ["u1", "u2", ...], "filter_status": "active" }
       "node_id": "input_node", "node_name": "input_node", "node_config": {}
@@ -852,20 +1345,47 @@ For complex workflows requiring multiple sequential processing steps, each stage
 
 ## 12. Tips and Best Practices
 
+### General Workflow Design
 -   **Plan First:** Sketch your workflow logic before writing the JSON.
 -   **Use Meaningful IDs:** Choose descriptive `node_id`s.
--   **Consult Node Guides:** Each node has unique `node_config` requirements.
--   **Validate Mappings:** Ensure `src_field` exists and `dst_field` matches expectations. For nodes using path lookups (like `construct_options`), ensure the *container object* holding the start of the path is mapped correctly.
--   **Leverage Runtime Context:** Avoid passing user/org IDs via mappings; rely on the runtime context (Section 6) for nodes that need it (e.g., `load/store/load_multiple_customer_data`).
 -   **Start Simple:** Build and test core paths first.
 -   **Handle Errors:** Consider error paths and logging.
--   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) for shared/persistent data, direct mappings for sequential flow.
 -   **Test Thoroughly:** Use various inputs and edge cases.
 -   **Keep it Readable:** Use comments or separate documentation.
--   **Check Model Capabilities:** Verify LLM features before configuring them.
+
+### Data Mapping and Dot Notation (NEW)
+-   **Leverage Dot Notation:** Use dot notation extensively to avoid unnecessary data transformation nodes. Instead of creating intermediate nodes just to restructure data, use nested field mappings directly in edges.
+-   **Validate Nested Paths:** Ensure `src_field` paths exist in source data and `dst_field` paths create the desired structure. The system automatically creates nested structures, but verify your path syntax.
+-   **Array Access Patterns:** When accessing array elements, consider bounds checking. Use `items.0.field` for the first element, but ensure your data has at least one item.
+-   **Complex Extraction Examples:** For API responses, use patterns like `api_response.data.results.0.metadata.score` to extract deeply nested values directly without preprocessing.
+-   **Structured Output Creation:** Use dot notation in `dst_field` to create organized input structures for downstream nodes (e.g., `analysis_input.candidate.profile.name`).
+
+### Edge Declaration Options (NEW)
+-   **Choose Edge Declaration Style:** Use node-level edge declaration (`edges` field in node config) for better organization when a node has many outgoing edges. Use global `edges` list for complex multi-node interactions.
+-   **Consistency:** Don't mix edge declaration styles for the same node - choose either node-level or global, not both.
+
+### Node Configuration
+-   **Consult Node Guides:** Each node has unique `node_config` requirements.
+-   **Validate Mappings:** For nodes using path lookups (like `construct_options`), ensure the *container object* holding the start of the path is mapped correctly.
+-   **Explicit Schemas:** Define `dynamic_input_schema` and `dynamic_output_schema` for nodes like `PromptConstructorNode`, `InputNode`, `OutputNode`, `HITLNode` for better validation and clarity.
+
+### Resource Management
+-   **Leverage Runtime Context:** Avoid passing user/org IDs via mappings; rely on the runtime context (Section 6) for nodes that need it (e.g., `load/store/load_multiple_customer_data`).
+-   **Choose Appropriate Database Pool Tier:** Consider your workflow's database usage intensity when setting `db_concurrent_pool_tier` in `runtime_config` (Section 2.1). Use "small" for simple workflows, "medium" for moderate database operations, and "large" for data-intensive workflows with heavy parallel processing.
 -   **Check External Service Costs:** Be mindful of nodes like `LinkedInScrapingNode` that consume external resources (like API credits) based on configuration and usage. Use `test_mode` where available for validation without incurring costs.
+
+### Data Flow Strategy
+-   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) for shared/persistent data accessed by multiple nodes, direct mappings for sequential node-to-node flow.
+-   **Nested Central State:** Organize central state data using nested structures (e.g., `lead_analysis.quality.score`) for better data organization and easier access.
 -   **Use `MergeAggregateNode` for Consolidation:** When needing to combine data from multiple potentially overlapping sources into a single structure with specific rules for conflict resolution (beyond simple joins), use the `MergeAggregateNode`.
--   **Explicit Schemas:** Define `dynamic_input_schema` and `dynamic_output_schema` for nodes like `PromptConstructorNode`, `InputNode`, `OutputNode`, `HITLNode` for better validation and clarity. Note that for `PromptConstructorNode`, `prompt_template_errors` is always present in the internal output dictionary, but defining it in the schema makes it robustly accessible downstream via the validated output object.
+
+### Model and Service Integration  
+-   **Check Model Capabilities:** Verify LLM features before configuring them.
+-   **Structured Output Mapping:** When using LLM structured output, use dot notation to access specific fields (e.g., `structured_output.analysis.confidence_score`) rather than passing entire objects.
+
+### Advanced Patterns
+-   **Error Handling:** The dot notation system provides automatic error handling for missing paths, but design your workflow to handle cases where expected nested data might not exist.
+-   **Performance Considerations:** Dot notation parsing is efficient, but extremely deep nesting (10+ levels) may impact performance. Consider restructuring very complex nested paths.
 
 ## 13. Conclusion
 

@@ -106,19 +106,35 @@ class GraphBuilder:
 
             for mapping in edge.mappings:
                 # Get the field definition from the target node's input schema
-                node_cls = node_instances[node_id].__class__
-                node_schema = node_cls.output_schema_cls if node_is_src else node_cls.input_schema_cls
-                node_field_name = mapping.src_field if node_is_src else mapping.dst_field
-                field_info = node_schema.model_fields[node_field_name]
 
-                field_validation_result = node_schema._get_field_validation_result(node_field_name)
-                field_core_type_annotation = field_validation_result.core_type_annotation
-                field_core_type_class = field_validation_result.core_type_class
-                field_type_for_reducer = get_origin(field_core_type_annotation) if get_origin(field_core_type_annotation) else field_core_type_class
+                set_field_to_any_type = False
+                src_field = mapping.src_field
+                dst_field = mapping.dst_field
+                if "." in mapping.src_field or "." in mapping.dst_field:
+                    set_field_to_any_type = True
+                    src_field = src_field.split(".")[0]
+                    dst_field = dst_field.split(".")[0]
 
-                central_state_field_name = mapping.dst_field if node_is_src else mapping.src_field
+                if set_field_to_any_type:
+                    field_info = FieldInfo(
+                        default=None,
+                        annotation=Any,
+                    )
+                    field_type_for_reducer = Any
+                else:
+
+                    node_cls = node_instances[node_id].__class__
+                    node_schema = node_cls.output_schema_cls if node_is_src else node_cls.input_schema_cls
+                    node_field_name = src_field if node_is_src else dst_field
+                    field_info = node_schema.model_fields[node_field_name]
+
+                    field_validation_result = node_schema._get_field_validation_result(node_field_name)
+                    field_core_type_annotation = field_validation_result.core_type_annotation
+                    field_core_type_class = field_validation_result.core_type_class
+                    field_type_for_reducer = get_origin(field_core_type_annotation) if get_origin(field_core_type_annotation) else field_core_type_class
+
+                central_state_field_name = dst_field if node_is_src else src_field
                 central_state_field_key = get_central_state_field_key(central_state_field_name)
-                
                 
                 # default reducer for type
                 reducer = ReducerRegistry.get_reducer_for_type(field_type_for_reducer)
@@ -143,7 +159,10 @@ class GraphBuilder:
                             )
                 field_to_set = (Annotated[annotation_to_set, reducer] if reducer else annotation_to_set, field_info_to_set)
                 if central_state_field_key in central_state_fields:
+                    if field_to_set[0] is Any:
+                        field_to_set = central_state_fields[central_state_field_key]
                     assert central_state_fields[central_state_field_key][0] == field_to_set[0], f"Central state field '{central_state_field_key}' has multiple different types of edges to/from it!"
+                    
                 central_state_fields[central_state_field_key] = field_to_set
                 # TODO: convert fields_info to Stategraph typeddict annotations with reducers!
         
@@ -357,6 +376,14 @@ class GraphBuilder:
                 return field_info
             return None
         
+        def set_field_info_to_any_type(node_id: str, field_name: str, fields_dict: Dict[str, Dict[str, Any]]):
+            field_info = FieldInfo(
+                default=None,
+                annotation=Any,
+            )
+            copy_field_info_to_fields_dict(node_id, field_name, fields_dict, field_info)
+            return field_info
+        
         def copy_field_info_to_fields_dict(node_id: str, field_name: str, fields_dict: Dict[str, Dict[str, Any]], field_info: FieldInfo):
             if node_id not in fields_dict:
                 fields_dict[node_id] = {}
@@ -397,6 +424,8 @@ class GraphBuilder:
                 continue
             
             for mapping in edge.mappings:
+                if "." in mapping.src_field or "." in mapping.dst_field:
+                    continue
                 if not is_central_state_special_node(src_node_id):
                     field_info = get_field_info_for_field_name(src_node_id, mapping.src_field, dst_node_id, mapping.dst_field, "output_fields", "input_fields", output_fields, input_fields)
                     if field_info:
@@ -423,25 +452,38 @@ class GraphBuilder:
                 continue
             
             for mapping in edge.mappings:
+                set_field_to_any_type = False
+                src_field = mapping.src_field
+                dst_field = mapping.dst_field
+                if "." in mapping.src_field or "." in mapping.dst_field:
+                    set_field_to_any_type = True
+                    src_field = src_field.split(".")[0]
+                    dst_field = dst_field.split(".")[0]
                 if not is_central_state_special_node(src_node_id):
                     src_node_cls = self.registry.get_node(src_node_config.node_name, src_node_config.node_version)
-                    if self.registry.is_dynamic_node(src_node_config.node_name) and is_dynamic_schema_node(src_node_cls.output_schema_cls) and (not get_field_info_from_fields_dict(edge.src_node_id, mapping.src_field, output_fields)):
-                        print(f"\n\nRecuperating field `{mapping.src_field}` for node `{edge.src_node_id}` -- > `{src_node_config.node_name}` from `{edge.dst_node_id}`'s `{mapping.dst_field}`! ; \nis_dynamic_schema_node(src_node_cls.output_schema_cls): {is_dynamic_schema_node(src_node_cls.output_schema_cls)}\n\n")
-                        recuperated_field_info = try_recuperate_missing_field_info(edge.src_node_id, mapping.src_field, edge.dst_node_id, mapping.dst_field, output_fields, input_fields)
+                    if self.registry.is_dynamic_node(src_node_config.node_name) and is_dynamic_schema_node(src_node_cls.output_schema_cls) and (not get_field_info_from_fields_dict(edge.src_node_id, src_field, output_fields)):
+                        # print(f"\n\nRecuperating field `{mapping.src_field}` for node `{edge.src_node_id}` -- > `{src_node_config.node_name}` from `{edge.dst_node_id}`'s `{mapping.dst_field}`! ; \nis_dynamic_schema_node(src_node_cls.output_schema_cls): {is_dynamic_schema_node(src_node_cls.output_schema_cls)}\n\n")
+                        if set_field_to_any_type:
+                            recuperated_field_info = set_field_info_to_any_type(edge.src_node_id, src_field, output_fields)
+                        else:
+                            recuperated_field_info = try_recuperate_missing_field_info(edge.src_node_id, src_field, edge.dst_node_id, dst_field, output_fields, input_fields)
                         if not recuperated_field_info:
                             raise ValueError(f"Field `{mapping.src_field}` for node `{edge.src_node_id}` is not found in output fields and couldn't be recuperated from `{edge.dst_node_id}`'s `{mapping.dst_field}`!")
                         if is_central_state_special_node(dst_node_id):
-                            copy_field_to_central_state_fields_no_replace(mapping.dst_field, recuperated_field_info)
+                            copy_field_to_central_state_fields_no_replace(dst_field, recuperated_field_info)
                 
                 if not is_central_state_special_node(dst_node_id):
                     dst_node_cls = self.registry.get_node(dst_node_config.node_name, dst_node_config.node_version)
-                    if self.registry.is_dynamic_node(dst_node_config.node_name) and is_dynamic_schema_node(dst_node_cls.input_schema_cls) and (not get_field_info_from_fields_dict(edge.dst_node_id, mapping.dst_field, input_fields)):
-                        print(f"\n\nRecuperating field `{mapping.dst_field}` for node `{edge.dst_node_id}` -- > `{dst_node_config.node_name}` from `{edge.src_node_id}`'s `{mapping.src_field}`! ; \nis_dynamic_schema_node(dst_node_cls.input_schema_cls): {is_dynamic_schema_node(dst_node_cls.input_schema_cls)}\n\n")
-                        recuperated_field_info = try_recuperate_missing_field_info(edge.dst_node_id, mapping.dst_field, edge.src_node_id, mapping.src_field, input_fields, output_fields)
+                    if self.registry.is_dynamic_node(dst_node_config.node_name) and is_dynamic_schema_node(dst_node_cls.input_schema_cls) and (not get_field_info_from_fields_dict(edge.dst_node_id, dst_field, input_fields)):
+                        # print(f"\n\nRecuperating field `{mapping.dst_field}` for node `{edge.dst_node_id}` -- > `{dst_node_config.node_name}` from `{edge.src_node_id}`'s `{mapping.src_field}`! ; \nis_dynamic_schema_node(dst_node_cls.input_schema_cls): {is_dynamic_schema_node(dst_node_cls.input_schema_cls)}\n\n")
+                        if set_field_to_any_type:
+                            recuperated_field_info = set_field_info_to_any_type(edge.dst_node_id, dst_field, input_fields)
+                        else:
+                            recuperated_field_info = try_recuperate_missing_field_info(edge.dst_node_id, dst_field, edge.src_node_id, src_field, input_fields, output_fields)
                         if not recuperated_field_info:
                             raise ValueError(f"Field `{mapping.dst_field}` for node `{edge.dst_node_id}` is not found in input fields and couldn't be recuperated from `{edge.src_node_id}`'s `{mapping.src_field}`!")
                         if is_central_state_special_node(src_node_id):
-                            copy_field_to_central_state_fields_no_replace(mapping.src_field, recuperated_field_info)
+                            copy_field_to_central_state_fields_no_replace(src_field, recuperated_field_info)
         
         # Step 5: Construct dynamic nodes with gathered schema information
         for node_id, schemas in explicit_dynamic_schemas.items():
@@ -734,11 +776,13 @@ class GraphBuilder:
                 if node_id not in runtime_config["inputs"]:
                     raise ValueError(f"Node '{node_id}' has required input fields but no input mappings")
                 
+                fields_with_edges = set(f.split(".")[0] for f in runtime_config["inputs"][node_id])
                 for field in required_fields:
-                    if field not in runtime_config["inputs"][node_id]:
+                    if field not in fields_with_edges:
                         raise ValueError(f"Required input field '{field}' for node '{node_id}' has no mapping")
         
         return runtime_config
+
     def build_graph_entities(
         self, 
         graph_schema: GraphSchema,
@@ -799,6 +843,10 @@ class GraphBuilder:
         for node_id, node_instance in node_instances.items():
             node_instance.prefect_mode = prefect_mode
             node_instance.runtime_metadata = runtime_metadata
+            if node_id == graph_schema.input_node_id:
+                node_instance.is_input_node = True
+            if node_id == graph_schema.output_node_id:
+                node_instance.is_output_node = True
         
         # Instantiate the GraphEntities with all components
         graph_entities = GraphEntities(
