@@ -176,7 +176,131 @@ The edge mapping system now provides comprehensive support for nested data acces
 - **Array Element Selection**: Access specific array elements (first, last, specific index) directly in mappings
 - **Structured Input Creation**: Build organized input data for nodes that expect specific nested formats
 
-**What if `mappings` is empty or omitted?**
+### 3.6. Data-Only Edges: Efficient Non-Flow Data Transfer (ADVANCED FEATURE)
+
+**Data-only edges** provide a powerful optimization for passing data between nodes without affecting execution flow. This feature helps reduce memory usage and avoid unnecessary central state storage.
+
+#### How Data-Only Edges Work
+
+A **data-only edge** transfers data from a source node to a destination node **without creating an execution dependency**:
+
+```json
+{
+  "src_node_id": "data_source_node",
+  "dst_node_id": "data_target_node", 
+  "data_only_edge": true,  // Makes this edge data-only
+  "mappings": [
+    { "src_field": "large_dataset.results", "dst_field": "analysis_input" },
+    { "src_field": "metadata.source_info", "dst_field": "context_data" }
+  ]
+}
+```
+
+#### Key Characteristics
+
+1. **No Execution Trigger**: `data_target_node` does NOT execute because of this edge
+2. **Data Availability**: When `data_target_node` does execute (via regular edges), it has access to the mapped data
+3. **Memory Efficient**: Data flows directly without being stored in central state
+4. **Supports All Features**: Full dot notation support, node-level or global declaration
+
+#### Practical Example: Large Dataset Processing
+
+```json
+{
+  "nodes": {
+    "load_customer_profiles": {
+      "node_id": "load_customer_profiles",
+      "node_name": "load_customer_data",
+      "node_config": { /* loads 200MB customer dataset */ }
+    },
+    "validate_data_structure": {
+      "node_id": "validate_data_structure", 
+      "node_name": "filter_data",
+      "node_config": { /* quick validation */ }
+    },
+    "generate_insights": {
+      "node_id": "generate_insights",
+      "node_name": "llm", 
+      "node_config": { /* analyzes customer patterns */ }
+    }
+  },
+  "edges": [
+    // Regular execution flow: load → validate → insights
+    { "src_node_id": "load_customer_profiles", "dst_node_id": "validate_data_structure", "mappings": [
+      { "src_field": "dataset_summary", "dst_field": "summary_to_validate" }
+    ]},
+    { "src_node_id": "validate_data_structure", "dst_node_id": "generate_insights", "mappings": [
+      { "src_field": "validation_status", "dst_field": "data_quality_info" }
+    ]},
+    
+    // Data-only edge: Pass full dataset directly to insights node
+    // without storing 200MB in central state
+    {
+      "src_node_id": "load_customer_profiles",
+      "dst_node_id": "generate_insights", 
+      "data_only_edge": true,
+      "mappings": [
+        { "src_field": "customer_profiles", "dst_field": "full_dataset" }
+      ]
+    }
+  ]
+}
+```
+
+#### Benefits for Node Interactions
+
+1. **Memory Optimization**: Large datasets aren't duplicated in workflow state
+2. **Selective Data Distribution**: Different downstream nodes can receive different data subsets
+3. **Clean Separation**: Execution flow vs data flow are clearly separated
+4. **Performance**: Direct node output reuse without copying
+
+#### Data-Only Edges vs Central State Patterns
+
+| Pattern | When to Use | Memory Impact | Complexity |
+|---------|-------------|---------------|------------|
+| **Data-Only Edge** | Large data, specific targets | Low (direct reuse) | Medium |
+| **Central State** | Small data, multiple access | Higher (stored copy) | Simple |
+| **Direct Mapping** | Sequential flow | Low (immediate transfer) | Simple |
+
+#### Advanced Pattern: Mixed Edge Types
+
+A single node can use both regular and data-only edges for different purposes:
+
+```json
+{
+  "load_analysis_data": {
+    "node_id": "load_analysis_data",
+    "node_name": "load_customer_data",
+    "edges": [
+      // Regular edge: Controls execution flow + passes metadata
+      {
+        "dst_node_id": "validation_step",
+        "mappings": [
+          { "src_field": "load_status", "dst_field": "status_to_check" }
+        ]
+      },
+      // Data-only edge: Passes large dataset directly to analysis
+      {
+        "dst_node_id": "deep_analysis", 
+        "data_only_edge": true,
+        "mappings": [
+          { "src_field": "full_dataset", "dst_field": "analysis_data" }
+        ]
+      },
+      // Data-only edge: Passes different subset to reporting
+      {
+        "dst_node_id": "summary_report",
+        "data_only_edge": true, 
+        "mappings": [
+          { "src_field": "dataset_summary", "dst_field": "report_data" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 3.7. What if `mappings` is empty or omitted?
 
 This often implies that the connection is primarily for control flow (ensuring one node runs after another) or that the destination node might read data from a central workflow state or use internal mechanisms (like `construct_options` in `PromptConstructorNode`) to find its data. However, explicit mappings with dot notation now make most data transfer scenarios clear and efficient.
 
@@ -458,9 +582,11 @@ Here are examples of how nodes work together:
 -   **Organize Central State with Dot Notation:** Use hierarchical structure in central state keys (e.g., `lead_analysis.quality.score`, `workflow_metrics.timing.duration`) to avoid naming conflicts and improve organization.
 -   **Selective Central State Access:** Read only the specific nested values needed by each node rather than transferring entire objects.
 
-### Edge Declaration Strategies
+### Edge Declaration and Optimization Strategies
 -   **Choose Edge Declaration Style:** Use node-level `edges` fields for nodes with many outgoing connections to keep configuration organized. Use global `edges` list for complex multi-source patterns.
 -   **Maintain Consistency:** Don't mix edge declaration styles for the same node - choose either node-level or global.
+-   **Optimize with Data-Only Edges:** Use `data_only_edge: true` for large datasets or when you need to pass data to non-consecutive nodes without affecting execution flow. This reduces memory usage and avoids central state duplication.
+-   **Mix Edge Types Strategically:** A single node can have both regular and data-only outgoing edges - use regular edges for execution control and data-only edges for efficient data distribution.
 
 ### Node-Specific Best Practices
 -   **Use `PromptConstructorNode` for Prompts:** Prefer using the `PromptConstructorNode` for defining static prompts, loading/constructing dynamic prompts, and sourcing variables from various inputs.
@@ -474,6 +600,8 @@ Here are examples of how nodes work together:
 -   **Debug with Central State Output:** Enable `output_private_output_to_central_state: true` on nodes in private mode to see their outputs in the central state for debugging purposes.
 
 ### Performance and Error Handling
+-   **Memory Optimization with Data-Only Edges:** For large datasets (>10MB), use data-only edges instead of central state to prevent memory duplication. This is especially important for workflows processing customer data, file uploads, or API responses with large payloads.
+-   **Storage Efficiency:** Data-only edges reduce workflow state storage requirements in the database, leading to faster checkpointing and recovery operations.
 -   **Error Handling:** The dot notation system automatically handles missing paths gracefully, but design workflows to handle cases where expected data might not exist.
 -   **Path Validation:** While the system is robust, extremely deep nesting (10+ levels) may impact performance. Consider data structure optimization for very complex nested paths.
 -   **Test Edge Cases:** Verify your dot notation paths work with various data structures, including empty arrays, missing properties, and null values.

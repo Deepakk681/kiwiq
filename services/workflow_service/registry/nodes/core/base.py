@@ -380,7 +380,8 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                     parents_run_status[node_id] = True
                     
                     # Use nested path support for setting the destination field value
-                    if input_field not in input_dict:
+                    _, found = _get_nested_obj(input_dict, input_field)
+                    if not found:
                         if not _set_nested_obj(input_dict, input_field, input_received_value, self):
                             self.warning(f"Failed to set nested input field '{input_field}' from source field '{source_field_path}' in node '{self.node_id}'")
                     # break

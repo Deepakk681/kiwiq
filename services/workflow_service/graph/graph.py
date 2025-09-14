@@ -37,7 +37,17 @@ class EdgeMapping(BaseModel):
     # transform: Optional[str] = Field(None, description="Optional transformation to apply")
 
 
-class EdgeSchema(BaseModel):
+class BaseEdgeSchema(BaseModel):
+    """
+    Base schema for edges in the workflow graph.
+    """
+    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
+    dst_node_id: str = Field(..., description="ID of the target node")
+    data_only_edge: Optional[bool] = Field(False, description="If True, the edge will only pass data from source to target and will not be a graph flow edge!")
+    mappings: Optional[List[EdgeMapping]] = Field(default_factory=list, description="Field mappings from source to target")
+    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
+
+class EdgeSchema(BaseEdgeSchema):
     """
     Schema for edges in the workflow graph.
     
@@ -50,26 +60,7 @@ class EdgeSchema(BaseModel):
         dst_node_id (str): ID of the target node.
         mappings (Optional[List[EdgeMapping]]): Optional list of field mappings from source to target.
     """
-    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     src_node_id: str = Field(..., description="ID of the source node")
-    dst_node_id: str = Field(..., description="ID of the target node")
-    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
-    # NOTE: a single source field may map to multiple target fields!
-    mappings: Optional[List[EdgeMapping]] = Field(default_factory=list, description="Field mappings from source to target")
-
-class NodeEdgeSchema(BaseModel):
-    """
-    Schema for edges in the workflow graph.
-    
-    Edges connect nodes in the workflow graph and define how data flows between them.
-    Each edge connects a source node's output to a target node's input, with optional
-    field mappings to specify which data fields flow where.
-    """
-    model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
-    dst_node_id: str = Field(..., description="ID of the target node")
-    mappings: Optional[List[EdgeMapping]] = Field(default_factory=list, description="Field mappings from source to target")
-    description: Optional[str] = Field(None, description="Description of the edge mapping; this is not used anywhere currently!")
-
 
 class NodeConfig(BaseModel):
     """
@@ -94,7 +85,7 @@ class NodeConfig(BaseModel):
     output_private_output_to_central_state: Optional[bool] = Field(False, description="Enable output private output to central state for the node which means the node will send direct outputs to the central state too for debugging purposes.")
     private_output_passthrough_data_to_central_state_keys: Optional[List[str]] = Field(None, description="These keys are passed through the private output data to the central state directly! eg usecase: while using map list router node, preserve unique IDs of each element as passthrough data that gets collected in items collected in central state")
     private_output_to_central_state_node_output_key: Optional[str] = Field("output", description="This key is used to send the central state output to from the node output (for each mapped edge to central state) in cases when there's extra private_output_passthrough_data ...")
-    edges: Optional[List[NodeEdgeSchema]] = Field(default_factory=list, description="List of edges connecting the node to other nodes. Either this node may declare edges here or the aggregated edges field from graph_schema but not both!")
+    edges: Optional[List[BaseEdgeSchema]] = Field(default_factory=list, description="List of edges connecting the node to other nodes. Either this node may declare edges here or the aggregated edges field from graph_schema but not both!")
     # Optional mappings for reading from and writing to passthrough data
     # Only used when private_input_mode and private_output_mode are True, respectively
     read_private_input_passthrough_data_to_input_field_mappings: Optional[Dict[str, str]] = Field(None, description="Maps passthrough data keys to input field names when private_input_mode is True. Supports dot notation for nested paths. Format: {'passthrough.nested.key': 'input_field_name'} or {'passthrough_key': 'nested.input.field'}")

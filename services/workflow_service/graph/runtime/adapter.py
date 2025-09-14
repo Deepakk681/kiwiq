@@ -274,6 +274,8 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
                     continue
             if node_instances[edge.src_node_id].private_output_mode:
                 continue
+            if edge.data_only_edge:
+                continue
             if edge.dst_node_id not in edges_by_dst:
                 edges_by_dst[edge.dst_node_id] = []
             edges_by_dst[edge.dst_node_id].append(edge.src_node_id)

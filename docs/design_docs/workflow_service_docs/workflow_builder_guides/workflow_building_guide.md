@@ -383,13 +383,123 @@ Nodes are often developed independently and have specific expectations for their
 - **Avoid data transformation nodes** for simple field restructuring
 - **Handle API responses directly** without custom parsing logic
 
-### 4.6. What if `mappings` is empty?
+### 4.6. Data-Only Edges: Efficient Non-Flow Data Passing (ADVANCED FEATURE)
+
+**Data-only edges** provide an efficient way to pass data between nodes without affecting the workflow's execution flow. This is a powerful optimization feature for complex workflows.
+
+#### What are Data-Only Edges?
+
+A data-only edge passes data from a source node to a destination node **without creating an execution dependency**. The destination node receives the data but is not triggered to execute by this edge.
+
+```json
+{
+  "src_node_id": "data_producer",
+  "dst_node_id": "data_consumer", 
+  "data_only_edge": true,  // KEY: This makes it a data-only edge
+  "mappings": [
+    { "src_field": "analysis_results", "dst_field": "background_data" },
+    { "src_field": "metadata.processing_time", "dst_field": "performance_info.duration" }
+  ]
+}
+```
+
+#### How Data-Only Edges Work
+
+1. **Execution Flow**: The edge does NOT affect when nodes execute. `data_consumer` will only execute when triggered by regular (non-data-only) edges.
+
+2. **Data Availability**: When `data_consumer` does execute, it will have access to the data mapped from `data_producer` via the data-only edge.
+
+3. **No Central State Copy**: The data flows directly from source to destination without being stored in the central workflow state, saving memory and storage.
+
+#### When to Use Data-Only Edges
+
+**Use data-only edges when:**
+- You need to pass data to a node that's not immediately next in the execution sequence
+- You want to avoid storing large datasets in central state  
+- Multiple downstream nodes need access to the same data from a source node
+- You want to optimize memory usage in complex workflows
+
+**Example Use Case:**
+```json
+{
+  "nodes": {
+    "load_large_dataset": {
+      "node_id": "load_large_dataset",
+      "node_name": "load_customer_data", 
+      "node_config": { /* loads 100MB dataset */ }
+    },
+    "quick_validation": {
+      "node_id": "quick_validation",
+      "node_name": "filter_data",
+      "node_config": { /* validates dataset structure */ }
+    },
+    "detailed_analysis": {
+      "node_id": "detailed_analysis", 
+      "node_name": "llm",
+      "node_config": { /* analyzes full dataset */ }
+    },
+    "summary_report": {
+      "node_id": "summary_report",
+      "node_name": "transform_data",
+      "node_config": { /* generates summary */ }
+    }
+  },
+  "edges": [
+    // Regular execution flow
+    { "src_node_id": "load_large_dataset", "dst_node_id": "quick_validation", "mappings": [...] },
+    { "src_node_id": "quick_validation", "dst_node_id": "summary_report", "mappings": [...] },
+    
+    // Data-only edge: Pass large dataset directly to detailed_analysis 
+    // without storing in central state or affecting execution order
+    {
+      "src_node_id": "load_large_dataset", 
+      "dst_node_id": "detailed_analysis",
+      "data_only_edge": true,
+      "mappings": [
+        { "src_field": "large_dataset", "dst_field": "analysis_data" }
+      ]
+    },
+    
+    // Regular execution flow continues (detailed_analysis runs after summary_report)
+    { "src_node_id": "summary_report", "dst_node_id": "detailed_analysis", "mappings": [...] }
+  ]
+}
+```
+
+#### Data-Only Edges vs Central State
+
+| Approach | Memory Usage | Execution Control | Best For |
+|----------|--------------|-------------------|----------|
+| **Data-Only Edge** | Efficient (direct reuse) | Precise flow control | Large data, specific destinations |
+| **Central State** | Higher (stored copy) | Simple access | Small data, multiple access points |
+
+#### Performance Benefits
+
+1. **Memory Efficiency**: Large datasets aren't duplicated in central state
+2. **Storage Optimization**: Reduces workflow state storage requirements  
+3. **Direct Data Reuse**: Node outputs are reused directly without copying
+4. **Selective Data Flow**: Only targeted nodes receive specific data
+
+#### Important Notes
+
+- **Execution Order**: Data-only edges do NOT trigger node execution
+- **Data Availability**: Data is only available when the destination node executes via regular edges
+- **Dot Notation Support**: Data-only edges support full dot notation in mappings
+- **Node-Level Declaration**: Can be declared in node `edges` configuration or global `edges` list
+- **Mixed Edge Types**: A node can have both regular and data-only outgoing edges
+
+### 4.7. What if `mappings` is empty?
 
 An edge without mappings primarily defines execution order: `dst_node_id` will run after `src_node_id`. The `dst_node_id` might not need direct data from the `src_node_id` (perhaps it reads from the central state or uses mechanisms like `construct_options`), or it might process the entire state passed along implicitly. However, relying on implicit data flow is less clear than using explicit mappings.
 
 ## 5. Handling Data Flow
 
-Data is the lifeblood of the workflow. Understanding how it moves is critical. With the new dot notation support, data flow has become much more flexible and powerful.
+Data is the lifeblood of the workflow. Understanding how it moves is critical. With dot notation support and data-only edges, data flow has become much more flexible, efficient, and powerful.
+
+**Data Flow Methods:**
+1. **Direct Edge Mappings**: Sequential node-to-node data transfer
+2. **Central Workflow State**: Shared memory for multi-node access  
+3. **Data-Only Edges**: Efficient direct data passing without execution flow (NEW - Section 4.6)
 
 ### 5.1. Basic Data Passing via Mappings
 
@@ -505,34 +615,34 @@ Workflows often need a shared **memory** or **scratchpad** accessible by multipl
 **Writing to Central State with Dot Notation:**
 An edge *from* a regular node *to* `"$graph_state"` saves data into the shared memory, with full dot notation support:
 
-```json
+    ```json
 // Example: Storing nested analysis results
-{
+    {
   "src_node_id": "calculate_score", 
   "dst_node_id": "$graph_state",
-  "mappings": [
+      "mappings": [
     { "src_field": "analysis_results.quality_score", "dst_field": "lead_analysis.quality.score" },
     { "src_field": "analysis_results.confidence_level", "dst_field": "lead_analysis.quality.confidence" },
     { "src_field": "metadata.processing_time", "dst_field": "workflow_stats.processing_times.scoring" }
-  ]
-}
-```
+      ]
+    }
+    ```
 
 **Reading from Central State with Dot Notation:**
 An edge *from* `"$graph_state"` *to* a regular node retrieves data from the shared memory:
 
-```json
+    ```json
 // Example: Retrieving nested analysis data
-{
+    {
   "src_node_id": "$graph_state",
   "dst_node_id": "send_notification",
-  "mappings": [
+      "mappings": [
     { "src_field": "lead_analysis.quality.score", "dst_field": "notification_data.score" },
     { "src_field": "lead_analysis.quality.confidence", "dst_field": "notification_data.confidence" },
     { "src_field": "workflow_stats.processing_times", "dst_field": "debug_info.timing" }
-  ]
-}
-```
+      ]
+    }
+    ```
 
 **Complex Central State Operations:**
 
@@ -1375,9 +1485,14 @@ For complex workflows requiring multiple sequential processing steps, each stage
 -   **Check External Service Costs:** Be mindful of nodes like `LinkedInScrapingNode` that consume external resources (like API credits) based on configuration and usage. Use `test_mode` where available for validation without incurring costs.
 
 ### Data Flow Strategy
--   **Central State vs. Direct Mapping:** Use central state (`"$graph_state"`) for shared/persistent data accessed by multiple nodes, direct mappings for sequential node-to-node flow.
--   **Nested Central State:** Organize central state data using nested structures (e.g., `lead_analysis.quality.score`) for better data organization and easier access.
--   **Use `MergeAggregateNode` for Consolidation:** When needing to combine data from multiple potentially overlapping sources into a single structure with specific rules for conflict resolution (beyond simple joins), use the `MergeAggregateNode`.
+-   **Choose Optimal Data Flow Method:** 
+    - **Data-Only Edges**: For large datasets to specific downstream nodes (memory efficient)
+    - **Central State**: For shared/persistent data accessed by multiple nodes
+    - **Direct Mappings**: For sequential node-to-node flow
+-   **Memory Optimization:** Use data-only edges to avoid storing large datasets in central state, reducing RAM usage and storage requirements
+-   **Selective Data Distribution:** Use data-only edges when multiple downstream nodes need different subsets of data from the same source
+-   **Nested Central State:** Organize central state data using nested structures (e.g., `lead_analysis.quality.score`) for better data organization and easier access
+-   **Use `MergeAggregateNode` for Consolidation:** When needing to combine data from multiple potentially overlapping sources into a single structure with specific rules for conflict resolution (beyond simple joins), use the `MergeAggregateNode`
 
 ### Model and Service Integration  
 -   **Check Model Capabilities:** Verify LLM features before configuring them.
