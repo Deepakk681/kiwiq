@@ -530,10 +530,9 @@ services:
       # If using the postgres container:
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
       # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
-      # if prefect server is hosted locally as UI, use localhost instead of inaccessible docker network hostname!
-      # PREFECT_API_URL: "http://localhost:4200/api"  # "http://localhost:4200/api"   "${PREFECT_API_URL}"
-      PREFECT_API_URL: "https://api.prod.kiwiq.ai/prefect/api"
-      PREFECT_SERVER_UI_SERVE_BASE: "/prefect/"
+      # Updated for subdomain approach (HTTPS via nginx + certbot)
+      PREFECT_API_URL: "https://kq-prefect-server.prod.kiwiq.ai/api"
+      # PREFECT_SERVER_UI_SERVE_BASE: "/"  # Not needed for subdomain approach
       PREFECT_SERVER_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
       PREFECT_SERVER_API_CSRF_PROTECTION_ENABLED: "true"
       # Result Persistence (consider S3 or other external storage for production)
