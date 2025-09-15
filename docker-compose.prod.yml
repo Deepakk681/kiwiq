@@ -31,6 +31,8 @@ services:
     depends_on:
       app:
         condition: service_started
+      prefect-server:
+        condition: service_started
     # Resource limits
     deploy:
       resources:
@@ -537,12 +539,8 @@ services:
       # Result Persistence (consider S3 or other external storage for production)
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT:-false}
       # PREFECT_RESULTS_DEFAULT_STORAGE_BLOCK: s3/your-prod-bucket # Example
-    ports:
-      - "4200:4200"
-    # NOTE: Exposing Prefect UI/API port directly (4200) might not be desired in production.
-    # Consider accessing via Nginx (requires adding a location block) or SSH tunnel.
     # ports:
-    #   - "4200:4200" # Map Prefect Server UI/API port if needed directly
+    #   - "4200:4200"  # Commented out - nginx handles external access
     # Persist Prefect server state (if using internal storage/SQLite)
     volumes:
       - prefect_data:/root/.prefect
