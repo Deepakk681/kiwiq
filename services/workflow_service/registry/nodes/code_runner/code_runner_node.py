@@ -524,6 +524,7 @@ class CodeRunnerNode(BaseNode[CodeRunnerInputSchema, CodeRunnerOutputSchema, Cod
         # Check if we should fail the node on code execution error
         execution_success = execution_result.get("ok", False)
         if not execution_success and self.config.fail_node_on_code_error:
+            self._cleanup_temp_directory(execution_result)
             error_details = self._format_code_execution_error(execution_result)
             self.error(f"Code execution failed: {error_details}")
             raise RuntimeError(f"CodeRunner execution failed: {error_details}")
@@ -541,9 +542,9 @@ class CodeRunnerNode(BaseNode[CodeRunnerInputSchema, CodeRunnerOutputSchema, Cod
                     ext_context.customer_data_service
                 )
         except Exception as e:
-            raise e
-        finally:    # cleanup temp directory regardless of success or failure
             self._cleanup_temp_directory(execution_result)
+            raise e
+        self._cleanup_temp_directory(execution_result)
         
         # Step 4: Build response
         # Combine stdout and stderr logs into a single string
