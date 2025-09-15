@@ -1103,6 +1103,7 @@ class CodeRunnerNode(BaseNode[CodeRunnerInputSchema, CodeRunnerOutputSchema, Cod
         """
         temp_dir_path = execution_result.get("_temp_dir_to_cleanup")
         if not temp_dir_path:
+            self.info("No temporary directory to cleanup")
             return
         
         try:
