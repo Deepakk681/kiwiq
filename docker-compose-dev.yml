@@ -118,6 +118,8 @@ services:
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT}
       # Optional: Set UI API URL if needed explicitly
       PREFECT_API_URL: "http://localhost:4201/api"
+      PREFECT_SERVER_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
+      PREFECT_SERVER_API_CSRF_PROTECTION_ENABLED: "true"
       # PREFECT_UI_API_URL: "http://prefect-server-dev:4201/api" # Example using container name
     ports:
       - "4201:4201"                       # Map Prefect Server UI/API port
@@ -155,6 +157,7 @@ services:
       REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
       WEAVIATE_HOST: "weaviate"
       PREFECT_API_URL: "http://prefect-server:4201/api"
+      PREFECT_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
       # Set PYTHONPATH if your app structure requires it
       # PYTHONPATH: /app:/app/services # Example
     volumes:
@@ -187,6 +190,7 @@ services:
       # Point agent to the server API URL (using service name)
       IS_PREFECT_WORKER: "true"
       PREFECT_API_URL: "http://prefect-server:4201/api"
+      PREFECT_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
       PREFECT_LOGGING_LEVEL: INFO
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -205,6 +209,7 @@ services:
       - dev_network
     # Optional: Mount code if agent needs access to flow definitions locally
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - .:/app # Example: Mount current directory to /app
 
 # Define named volumes for data persistence

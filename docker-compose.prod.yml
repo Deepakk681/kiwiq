@@ -160,6 +160,7 @@ services:
       # REDIS_HOST: redis
       # WEAVIATE_HOST: weaviate
       # RabbitMQ connection URL for event consumer
+      PREFECT_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
       RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       # Add other production-specific env vars if needed directly here
     volumes:
@@ -528,7 +529,11 @@ services:
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
       # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
       # if prefect server is hosted locally as UI, use localhost instead of inaccessible docker network hostname!
-      PREFECT_API_URL: "http://localhost:4200/api"  # "http://localhost:4200/api"   "${PREFECT_API_URL}"
+      # PREFECT_API_URL: "http://localhost:4200/api"  # "http://localhost:4200/api"   "${PREFECT_API_URL}"
+      PREFECT_API_URL: "https://api.prod.kiwiq.ai/prefect/api"
+      PREFECT_SERVER_UI_SERVE_BASE: "/prefect/"
+      PREFECT_SERVER_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
+      PREFECT_SERVER_API_CSRF_PROTECTION_ENABLED: "true"
       # Result Persistence (consider S3 or other external storage for production)
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT:-false}
       # PREFECT_RESULTS_DEFAULT_STORAGE_BLOCK: s3/your-prod-bucket # Example
@@ -607,6 +612,7 @@ services:
       # PREFECT_API_URL: "${PREFECT_API_URL}"
       IS_PREFECT_WORKER: "true"
       PREFECT_LOGGING_LEVEL: INFO
+      PREFECT_API_AUTH_STRING: ${PREFECT_AUTH_STRING}
       # Individual host vars are removed; rely on full URLs from .env.prod loaded above
       # POSTGRES_HOST: postgres
       # MONGO_HOST: mongo
@@ -631,6 +637,7 @@ services:
     # Similar to app, mount code only if necessary and not baked into the image
     # Keep for now, consider removing for pure prod image
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./:/app
     # Command to start the agent polling a specific work pool and/or work queues
     # Replace 'default-agent-pool' and 'default' with your actual production work pool/queue name(s)

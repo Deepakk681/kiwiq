@@ -13,6 +13,7 @@ from prefect.deployments import run_deployment
 from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
 from prefect.client.schemas import FlowRun, State
 from prefect.server.schemas.schedules import CronSchedule
+from prefect import get_client
 # from prefect.filesystems import S3, GitHub, LocalFileSystem
 from prefect.cache_policies import NO_CACHE
 from prefect.context import get_run_context
@@ -292,6 +293,24 @@ async def run_graph(
         )
         is_sub_workflow = workflow_run.parent_run_id is not None
         log_prefix = f"{workflow_run.workflow_name}: " if is_sub_workflow else ""
+
+        if is_sub_workflow:
+            # Rename the flow run to include the subworkflow name for better identification
+            try:
+                new_flow_run_name = f"[SUBFLOW] {workflow_run.workflow_name}:--{run_id} (Parent: {workflow_run.parent_run_id})"
+                
+                async with get_client() as prefect_client:
+                    await prefect_client.update_flow_run(
+                        flow_run_id=flow_id,
+                        name=new_flow_run_name
+                    )
+                
+                logger.info(log_prefix + f"Renamed subworkflow flow run to: {new_flow_run_name}")
+                
+            except Exception as rename_err:
+                logger.warning(log_prefix + f"Failed to rename subworkflow flow run: {rename_err}")
+                # Don't fail the entire workflow if renaming fails
+            
 
     try:
         ################################################################
@@ -961,6 +980,7 @@ async def trigger_workflow_run(
         name="workflow-execution/prod",  # References the deployment name below
         parameters={"run_job": run_job},   # .model_dump(mode='json')}, # Ensure proper serialization
         timeout=0,  # Don't wait for completion
+        flow_run_name=f"{workflow_name}:--{run_id}",
         tags=["subflow", f"parent:{parent_run_id}"] if parent_run_id is not None else None,
     )
     from global_config.logger import get_logger
