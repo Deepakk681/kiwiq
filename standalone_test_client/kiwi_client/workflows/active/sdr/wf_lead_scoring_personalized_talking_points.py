@@ -1498,7 +1498,7 @@ async def run_single_workflow(input_data: Dict[str, Any], test_name: str) -> tup
                 stream_intermediate_results=False,  # Suppress verbose workflow output
                 dump_artifacts=False,  # Don't create artifact files
                 poll_interval_sec=5,
-                timeout_sec=600  # 10 minutes for comprehensive research and analysis
+                timeout_sec=900  # 10 minutes for comprehensive research and analysis
             )
     except Exception as e:
         logger.error(f"Workflow execution failed: {str(e)}")
