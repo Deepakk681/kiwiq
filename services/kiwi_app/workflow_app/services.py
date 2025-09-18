@@ -330,7 +330,24 @@ class WorkflowService:
 
             effective_graph_schema = workflow.graph_config
 
-            if workflow_run.applied_workflow_config_overrides:
+            if run_submit.reset_overrides_on_hitl_resume:
+
+                overrides, effective_graph_schema = await self.list_workflow_specific_overrides_and_optional_apply(
+                    db=db,
+                    include_active=run_submit.include_active_overrides,
+                    include_tags=run_submit.include_override_tags,
+                    active_org_id=owner_org_id,
+                    requesting_user=user,
+                    base_workflow_to_apply_overrides_to=workflow
+                )
+
+                workflow_run.applied_workflow_config_overrides = ",".join([str(override.id) for override in overrides]) if overrides else None
+
+                db.add(workflow_run)
+                await db.commit()
+                await db.refresh(workflow_run)
+
+            elif workflow_run.applied_workflow_config_overrides:
                 override_ids = workflow_run.applied_workflow_config_overrides.split(",")
                 if override_ids:
                     overrides = None

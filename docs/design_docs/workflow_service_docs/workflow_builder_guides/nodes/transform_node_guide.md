@@ -29,7 +29,9 @@ You configure the `TransformerNode` within the `node_config` field of its entry 
       "node_id": "restructure_user_data", // Unique ID for this node instance
       "node_name": "transform_data", // ** Must be "transform_data" **
       "node_config": { // This is the TransformerConfigSchema
-        "merge_conflicting_paths_as_list": false, // NEW: if true, conflicting writes to same destination are merged into a list
+        "merge_conflicting_paths_as_list": false, // If true, conflicting writes to same destination are merged into a list
+        "apply_transform_to_each_item_in_list_at_path": null, // Optional: path to list for item-by-item transformation
+        "base_object": null, // Optional: base JSON object to start transformations from
         "mappings": [ // List of copy instructions
           // --- Example 1: Simple field rename ---
           {
@@ -72,7 +74,12 @@ You configure the `TransformerNode` within the `node_config` field of its entry 
 2.  **`merge_conflicting_paths_as_list`** (Boolean): Optional, defaults to `false`. If multiple mappings write to the exact same `destination_path`:
     - When `false`, the last mapping wins and overwrites the previous value.
     - When `true`, conflicting values are merged into a list at that path.
-2.  **Inside each `mapping` item**:
+3.  **`apply_transform_to_each_item_in_list_at_path`** (String): Optional, defaults to `null`. If set, specifies a dot-notation path to a list in the input data. Instead of transforming the entire input as one object, the transformation will be applied to each item in the specified list separately. The output `transformed_data` will be a list of transformed items rather than a single transformed object.
+4.  **`base_object`** (Object): Optional, defaults to `null`. If provided, this JSON object serves as the base/starting point for each transformation. Instead of starting with an empty dictionary `{}`, transformations will be applied on top of this base object. This is useful for:
+    - Providing default values that should appear in every transformed item
+    - Setting up a consistent structure or schema for output objects
+    - Bootstrapping transformations with standard metadata or configuration
+5.  **Inside each `mapping` item**:
     *   **`source_path`** (String): **Required**. Dot-notation path indicating where to find the data *in the node's input*. Examples: `user.id`, `product.details.price`, `orders.0.items.1.sku` (accessing the second item in the items list of the first order).
     *   **`destination_path`** (String): **Required**. Dot-notation path indicating where to place the copied data *in the node's output*. Examples: `customer_id`, `item_price`, `order_item_sku`. If intermediate parts of the path (like `output_user` or `identifier` in Example 3) don't exist in the output being built, they will be created as dictionaries automatically.
 
@@ -86,12 +93,20 @@ You configure the `TransformerNode` within the `node_config` field of its entry 
 
 ### Behavior Notes:
 
--   **Order Matters:** Mappings are processed sequentially. If multiple mappings write to the exact same `destination_path`, the *last* mapping in the list will determine the final value.
+-   **Order Matters:** Mappings are processed sequentially. If multiple mappings write to the exact same `destination_path`, the *last* mapping in the list will determine the final value (unless merging is enabled).
 -   **Source Not Found:** If a `source_path` does not exist in the input data, that specific mapping is simply skipped. No error occurs, and nothing is added to the output for that mapping.
--   **Creates New Output:** The node starts with an empty output dictionary `{}` and builds it up based *only* on the mappings provided. Data from the input is not included unless explicitly mapped.
+-   **Creates New Output:** The node starts with an empty output dictionary `{}` (or the provided `base_object` if specified) and builds it up based *only* on the mappings provided. In list mode, it starts with an empty list `[]`. Data from the input is not included unless explicitly mapped.
+-   **Base Object Bootstrap:** If `base_object` is provided, each transformation starts with a deep copy of this base structure. Mappings are then applied on top of this base, potentially overwriting base values if the destination paths match.
 -   **Deep Copies:** The node copies the data. If you map a list or an object, the entire structure is copied, ensuring that changes to the output data won't accidentally affect the original input data.
 -   **Nested list traversal is supported:** If a list is encountered and the next path segment is not an integer index, the transformer traverses each list item and aggregates the results. Traversing multiple list layers without indices can produce nested lists (e.g., list of lists). Use explicit indices where you want a single item rather than an aggregated list.
 -   **Merging conflicting destinations:** If you set `merge_conflicting_paths_as_list=true`, values written to the same `destination_path` across multiple mappings will be combined into a list instead of being overwritten by the last value.
+-   **List transformation mode:** When `apply_transform_to_each_item_in_list_at_path` is specified:
+    - The path must point to a list in the input data.
+    - Each item in the list must be a dictionary object.
+    - The same transformation mappings are applied to each item independently.
+    - If `base_object` is provided, each item transformation starts with that base structure.
+    - Non-dictionary items in the list are skipped with a warning.
+    - The output `transformed_data` will be a list of transformed objects, preserving the original list order.
 
 #### Examples: Aggregating vs. Indexing through Lists
 
@@ -131,6 +146,140 @@ Result example (assuming all sources exist):
 }
 ```
 
+#### Example: Transforming Each Item in a List
+
+When you have a list of objects and want to apply the same transformation to each one:
+
+```json
+{
+  "node_id": "transform_users",
+  "node_name": "transform_data",
+  "node_config": {
+    "apply_transform_to_each_item_in_list_at_path": "raw_users",
+    "mappings": [
+      { "source_path": "user_data.id", "destination_path": "user_id" },
+      { "source_path": "user_data.profile.name", "destination_path": "full_name" },
+      { "source_path": "user_data.contact.email", "destination_path": "email_address" },
+      { "source_path": "user_data.metadata.created_at", "destination_path": "registration_date" }
+    ]
+  }
+}
+```
+
+Input example:
+
+```json
+{
+  "raw_users": [
+    {
+      "user_data": {
+        "id": 123,
+        "profile": { "name": "John Doe" },
+        "contact": { "email": "john@example.com" },
+        "metadata": { "created_at": "2023-01-15" }
+      }
+    },
+    {
+      "user_data": {
+        "id": 456,
+        "profile": { "name": "Jane Smith" },
+        "contact": { "email": "jane@example.com" },
+        "metadata": { "created_at": "2023-02-20" }
+      }
+    }
+  ]
+}
+```
+
+Result:
+
+```json
+{
+  "transformed_data": [
+    {
+      "user_id": 123,
+      "full_name": "John Doe",
+      "email_address": "john@example.com",
+      "registration_date": "2023-01-15"
+    },
+    {
+      "user_id": 456,
+      "full_name": "Jane Smith",
+      "email_address": "jane@example.com",
+      "registration_date": "2023-02-20"
+    }
+  ]
+}
+```
+
+#### Example: Using Base Object for Default Values
+
+When you want to ensure every transformed object has a consistent structure with default values:
+
+```json
+{
+  "node_id": "transform_with_defaults",
+  "node_name": "transform_data",
+  "node_config": {
+    "base_object": {
+      "record_type": "customer",
+      "status": "active",
+      "metadata": {
+        "source": "import",
+        "processed_at": null,
+        "version": "1.0"
+      },
+      "contact": {
+        "email": null,
+        "phone": null
+      }
+    },
+    "mappings": [
+      { "source_path": "user.id", "destination_path": "customer_id" },
+      { "source_path": "user.email_address", "destination_path": "contact.email" },
+      { "source_path": "user.phone_number", "destination_path": "contact.phone" },
+      { "source_path": "import.timestamp", "destination_path": "metadata.processed_at" }
+    ]
+  }
+}
+```
+
+Input example:
+
+```json
+{
+  "user": {
+    "id": 12345,
+    "email_address": "customer@example.com",
+    "phone_number": "+1-555-0123"
+  },
+  "import": {
+    "timestamp": "2023-12-01T10:30:00Z"
+  }
+}
+```
+
+Result (base_object + mappings applied):
+
+```json
+{
+  "transformed_data": {
+    "record_type": "customer",
+    "status": "active",
+    "customer_id": 12345,
+    "metadata": {
+      "source": "import",
+      "processed_at": "2023-12-01T10:30:00Z",
+      "version": "1.0"
+    },
+    "contact": {
+      "email": "customer@example.com",
+      "phone": "+1-555-0123"
+    }
+  }
+}
+```
+
 ## Input (`DynamicSchema`)
 
 The `TransformerNode` typically receives data from a previous node or the central graph state. It uses a `DynamicSchema`, meaning it doesn't have a fixed input structure but adapts based on the `source_path` fields used in your `mappings`.
@@ -141,7 +290,10 @@ The `TransformerNode` typically receives data from a previous node or the centra
 
 The node produces data matching the `TransformerOutputSchema`:
 
--   **`transformed_data`** (Dict[str, Any]): The newly constructed dictionary containing only the data copied according to the `mappings`. If no mappings were successful (e.g., all source paths were invalid or the input was empty), this will be an empty dictionary `{}`.
+-   **`transformed_data`** (Union[Dict[str, Any], List[Dict[str, Any]]]): The newly constructed data structure containing only the data copied according to the `mappings`. 
+    - **Standard mode**: Returns a dictionary when no list path is specified.
+    - **List mode**: Returns a list of dictionaries when `apply_transform_to_each_item_in_list_at_path` is used.
+    - If no mappings were successful (e.g., all source paths were invalid or the input was empty), this will be an empty dictionary `{}` in standard mode or an empty list `[]` in list mode.
 
 ## Example `GraphSchema` Snippet (Focus on Edges)
 
@@ -207,4 +359,6 @@ The node produces data matching the `TransformerOutputSchema`:
 -   **Creates New Output:** It doesn't change the original data. It builds a *new* data object containing only what you told it to copy.
 -   **Renaming:** You can easily rename fields by using different `source_path` and `destination_path` names.
 -   **Simplifying:** You can pick just the few fields you need from a large, messy input object.
+-   **List Processing:** If you have a list of similar objects (like multiple customers, orders, etc.), you can use `apply_transform_to_each_item_in_list_at_path` to apply the same transformation to each item in the list. This is like running a "find and replace" operation on every item in a list at once.
+-   **Default Template:** Use `base_object` to provide a "template" or "starting point" for every transformation. Think of it like a form with some fields already filled in - your transformations will fill in the remaining blanks or overwrite the pre-filled values. This ensures every output has a consistent structure and default values.
 -   Connect the input data to this node. Connect the output field `transformed_data` (or specific fields within it using dot notation) to the next node that needs the restructured data. 

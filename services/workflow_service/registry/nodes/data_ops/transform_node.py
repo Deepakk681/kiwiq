@@ -125,6 +125,15 @@ class TransformerConfigSchema(BaseNodeConfig):
                                                  Mappings are processed in the order they appear.
                                                  Later mappings can overwrite values set by earlier ones
                                                  if destination paths collide.
+        merge_conflicting_paths_as_list (bool): If True, merge conflicting paths as a list.
+        apply_transform_to_each_item_in_list_at_path (Optional[str]): If set, points to a path containing a list.
+                                                                      The transformation will be applied to each
+                                                                      item in that list separately, and the result
+                                                                      will be a list of transformed items.
+        base_object (Optional[Dict[str, Any]]): If provided, this JSON object serves as the base/starting point
+                                                for each transformation. Instead of starting with an empty dict,
+                                                transformations will be applied on top of this base object.
+                                                Useful for providing default values or structure.
     """
     mappings: List[TransformMappingSchema] = Field(
         ...,
@@ -135,18 +144,35 @@ class TransformerConfigSchema(BaseNodeConfig):
         default=False,
         description="If True, merge conflicting paths as a list. If False, overwrite the value at the destination path."
     )
+    apply_transform_to_each_item_in_list_at_path: Optional[str] = Field(
+        default=None,
+        description="Path to a list where each item will be transformed separately. Result will be a list of transformed items."
+    )
+    base_object: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Base JSON object to start transformations from. If provided, transformations are applied on top of this base object instead of starting with an empty dict."
+    )
+
+    @field_validator('apply_transform_to_each_item_in_list_at_path')
+    @classmethod
+    def list_path_validator(cls, v: Optional[str]) -> Optional[str]:
+        """Validates the list path is not empty if provided."""
+        if v is not None and (not v or not v.strip()):
+            raise ValueError("apply_transform_to_each_item_in_list_at_path cannot be empty string.")
+        return v.strip() if v else None
 
 class TransformerOutputSchema(BaseSchema):
     """
     Output schema for the TransformerNode.
 
     Attributes:
-        transformed_data (Dict[str, Any]): The resulting data structure after applying the transformations.
+        transformed_data (Union[Dict[str, Any], List[Dict[str, Any]]]): The resulting data structure after applying the transformations.
                                           Returns an empty dict if the input was invalid or processing failed.
+                                          Returns a list of transformed dictionaries if apply_transform_to_each_item_in_list_at_path is used.
     """
-    transformed_data: Dict[str, Any] = Field(
+    transformed_data: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(
         default_factory=dict,
-        description="The data structure after applying transformations."
+        description="The data structure after applying transformations. Can be a single dict or list of dicts."
     )
 
 class TransformerNode(BaseDynamicNode):
@@ -195,12 +221,63 @@ class TransformerNode(BaseDynamicNode):
                 self.warning(f"Could not reliably convert input data of type {type(input_data)} to dict.")
                 return {}
 
+    def _transform_single_item(self, input_dict: Dict[str, Any], active_config: TransformerConfigSchema) -> Dict[str, Any]:
+        """
+        Applies the transformation mappings to a single input item.
+        
+        Args:
+            input_dict: The input dictionary to transform.
+            active_config: The configuration containing the mappings.
+            
+        Returns:
+            Dict[str, Any]: The transformed output dictionary.
+        """
+        # Initialize the output dictionary, either from base_object or empty
+        # Use deepcopy to ensure the base_object isn't mutated if reused across multiple items
+        if active_config.base_object is not None:
+            output_data: Dict[str, Any] = copy.deepcopy(active_config.base_object)
+        else:
+            output_data: Dict[str, Any] = {}
+        
+        # Process each mapping in the defined order
+        paths_set_count: Dict[str, int] = defaultdict(int)
+        for mapping in active_config.mappings:
+            source_path = mapping.source_path
+            destination_path = mapping.destination_path
+
+            # Retrieve the value from the source path in the input dictionary
+            value_to_copy, found = _get_nested_obj(input_dict, source_path, fetch_nested_list_items=True)
+
+            if found:
+                # Use deepcopy to prevent unintended modifications if the value is mutable (like lists or dicts)
+                copied_value = copy.deepcopy(value_to_copy)
+                # Set the copied value at the destination path in the output dictionary
+                try:
+                     success = _set_nested_obj(output_data, destination_path, copied_value, create_missing=True, merge_conflicting_paths_as_list=active_config.merge_conflicting_paths_as_list, paths_set_count=paths_set_count)
+                     paths_set_count[destination_path] += 1
+                     if not success:
+                         self.warning(f"Failed to set value for destination path '{destination_path}' from source '{source_path}'.")
+                except TypeError as e:
+                     # This can happen if _set_nested_obj encounters a non-dict where it expects one
+                     self.error(f"Error setting destination path '{destination_path}': {e}. Skipping this mapping.")
+                     traceback.print_exc() # Log the error for debugging
+            else:
+                # Optional: Log or handle cases where the source path doesn't exist
+                self.warning(f"Source path '{source_path}' not found in input data. Skipping mapping to '{destination_path}'.")
+        
+        return output_data
+
 
     async def process(self, input_data: Union[DynamicSchema, Dict[str, Any]], config: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> TransformerOutputSchema:
         """
         Processes input data by applying source-to-destination mappings.
 
-        Iterates through each mapping defined in the configuration:
+        If apply_transform_to_each_item_in_list_at_path is configured:
+        1. Retrieves the list at the specified path.
+        2. Applies the transformation mappings to each item in the list separately.
+        3. Returns a list of transformed items.
+        
+        Otherwise, applies the standard single-item transformation:
         1. Retrieves the value from the `source_path` in the input data.
         2. Sets a *copy* of this value at the `destination_path` in a *new* output dictionary.
         3. Creates intermediate dictionaries in the output structure as needed.
@@ -213,45 +290,47 @@ class TransformerNode(BaseDynamicNode):
 
         Returns:
             TransformerOutputSchema: Contains the newly constructed transformed data.
-                                     Returns an empty `transformed_data` dict if errors occur.
+                                     Returns an empty `transformed_data` dict/list if errors occur.
         """
         # Prepare the input data (ensures it's a dictionary)
         input_dict = self._prepare_input_data(input_data)
-        # Initialize an empty dictionary for the output. This avoids mutating the input.
-        output_data: Dict[str, Any] = {}
 
         try:
             # Use the node's validated config
             active_config = self.config
 
-            # Process each mapping in the defined order
-            paths_set_count: Dict[str, int] = defaultdict(int)
-            for mapping in active_config.mappings:
-                source_path = mapping.source_path
-                destination_path = mapping.destination_path
-
-                # Retrieve the value from the source path in the input dictionary
-                value_to_copy, found = _get_nested_obj(input_dict, source_path, fetch_nested_list_items=True)
-
-                if found:
-                    # Use deepcopy to prevent unintended modifications if the value is mutable (like lists or dicts)
-                    copied_value = copy.deepcopy(value_to_copy)
-                    # Set the copied value at the destination path in the output dictionary
-                    try:
-                         success = _set_nested_obj(output_data, destination_path, copied_value, create_missing=True, merge_conflicting_paths_as_list=self.config.merge_conflicting_paths_as_list, paths_set_count=paths_set_count)
-                         paths_set_count[destination_path] += 1
-                         if not success:
-                             self.warning(f"Failed to set value for destination path '{destination_path}' from source '{source_path}'.")
-                    except TypeError as e:
-                         # This can happen if _set_nested_obj encounters a non-dict where it expects one
-                         self.error(f"Error setting destination path '{destination_path}': {e}. Skipping this mapping.")
-                         traceback.print_exc() # Log the error for debugging
-                else:
-                    # Optional: Log or handle cases where the source path doesn't exist
-                    self.warning(f"Source path '{source_path}' not found in input data. Skipping mapping to '{destination_path}'.")
-
-            # Return the constructed output data
-            return TransformerOutputSchema(transformed_data=output_data)
+            # Check if we need to apply transformation to each item in a list
+            if active_config.apply_transform_to_each_item_in_list_at_path:
+                list_path = active_config.apply_transform_to_each_item_in_list_at_path
+                
+                # Retrieve the list at the specified path
+                target_list, found = _get_nested_obj(input_dict, list_path)
+                
+                if not found:
+                    raise ValueError(f"List path '{list_path}' not found in input data.")
+                    # return TransformerOutputSchema(transformed_data=[])
+                
+                if not isinstance(target_list, list):
+                    raise ValueError(f"Path '{list_path}' does not point to a list. Found type: {type(target_list).__name__}.")
+                    # return TransformerOutputSchema(transformed_data=[])
+                
+                # Transform each item in the list
+                transformed_items = []
+                for i, item in enumerate(target_list):
+                    if isinstance(item, dict):
+                        transformed_item = self._transform_single_item(item, active_config)
+                        transformed_items.append(transformed_item)
+                    else:
+                        self.warning(f"Item at index {i} in list at path '{list_path}' is not a dictionary. Skipping transformation.")
+                        # Optionally, we could include the original item or skip it entirely
+                        # For now, we'll skip non-dictionary items
+                
+                return TransformerOutputSchema(transformed_data=transformed_items)
+            
+            else:
+                # Standard single-item transformation
+                output_data = self._transform_single_item(input_dict, active_config)
+                return TransformerOutputSchema(transformed_data=output_data)
 
         except ValidationError as e:
              # Handle configuration validation errors

@@ -128,6 +128,7 @@ class WorkflowRunCreate(BaseModel):
     # Override configs
     include_active_overrides: Optional[bool] = Field(default=True, description="Whether to include active overrides")
     include_override_tags: Optional[List[str]] = Field(default=None, description="List of override tags to include")
+    reset_overrides_on_hitl_resume: Optional[bool] = Field(default=False, description="Whether to reset overrides on HITL resume. If this is False, on resume, the same overrides applied in previous session of this run will be reapplied.")
     streaming_mode: Optional[bool] = Field(default=True, description="Whether to stream the LLM tokens")
 
 
