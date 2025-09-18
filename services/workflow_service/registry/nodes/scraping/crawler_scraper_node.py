@@ -439,8 +439,8 @@ class CrawlerScraperOutput(BaseSchema):
     )
     
     # MongoDB storage information
-    mongodb_namespaces: Union[str, List[str]] = Field(
-        ...,
+    mongodb_namespaces: Optional[Union[str, List[str]]] = Field(
+        None,
         description="MongoDB namespace pattern where data is stored. "
                    "Format: crawler_scraper_results_{uuid}_{YYYYMMDD}_{domain}. "
                    "Use this pattern to query stored results."
@@ -853,8 +853,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     if self.config.classify_pages_as_blog:
                         prev_filtered_sample = filtered_sample
                         filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
-                        if not filtered_sample:
-                            filtered_sample = prev_filtered_sample
+                        # if not filtered_sample:
+                        #     filtered_sample = prev_filtered_sample
                     
                     # Optional: clean markdown links in output markdown_content
                     # if self.config.clean_markdown:
@@ -874,16 +874,16 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                     return CrawlerScraperOutput(
                         job_id=job_id,
                         status='completed_from_cache',
-                        stats={'cached': True, 'namespaces': cached_info['namespaces']},
+                        stats={'cached': True, 'namespaces': cached_info.get('namespaces') if cached_info else None},
                         completed_at=datetime.now().isoformat(),
-                        mongodb_namespaces=cached_info['namespace_pattern'],
+                        mongodb_namespaces=cached_info.get('namespace_pattern') if cached_info else None,
                         documents_stored=len(filtered_sample),  # At least one document exists
                         scraped_data=filtered_sample,  # Return first 5 items
                         total_scraped_count=len(filtered_sample),
                         has_insufficient_blog_and_page_count=has_insufficient_blog_and_page_count,
                         used_cached_results=True,
                         technical_seo_summary=asdict(technical_seo_summary) if technical_seo_summary else None,
-                        cached_results_age_hours=cached_info['age_hours'],
+                        cached_results_age_hours=cached_info.get('age_hours') if cached_info else None,
                         robots_analysis=robots_analysis_cached,
                     )
                 else:
@@ -1095,8 +1095,8 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
             if self.config.classify_pages_as_blog:
                 prev_filtered_sample = filtered_sample
                 filtered_sample = [d for d in filtered_sample if d and d.get('is_blog', True)]
-                if not filtered_sample:
-                    filtered_sample = prev_filtered_sample
+                # if not filtered_sample:
+                #     filtered_sample = prev_filtered_sample
 
 
             # Optional: clean markdown links in output markdown_content
@@ -1115,7 +1115,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
                 status=result['status'],
                 stats=result['stats'],
                 completed_at=result['completed_at'],
-                mongodb_namespaces=list(namespaces.keys()),
+                mongodb_namespaces=list(namespaces.keys()) if namespaces else None,
                 documents_stored=documents_stored,
                 scraped_data=filtered_sample,
                 total_scraped_count=len(filtered_sample),
