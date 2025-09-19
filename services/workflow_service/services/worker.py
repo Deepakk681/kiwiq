@@ -976,11 +976,12 @@ async def trigger_workflow_run(
     #         run_input={"run_job": run_job}
     #     )
     # else:
+    hitl_suffix = "--(HITL-RESUMED)" if resume_after_hitl else ""
     flow_run = await run_deployment(
         name="workflow-execution/prod",  # References the deployment name below
         parameters={"run_job": run_job},   # .model_dump(mode='json')}, # Ensure proper serialization
         timeout=0,  # Don't wait for completion
-        flow_run_name=f"{workflow_name}:--{run_id}",
+        flow_run_name=f"{workflow_name}:--{run_id}" + hitl_suffix,
         tags=["subflow", f"parent:{parent_run_id}"] if parent_run_id is not None else None,
     )
     from global_config.logger import get_logger
