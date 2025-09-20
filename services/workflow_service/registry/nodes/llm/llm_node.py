@@ -1569,7 +1569,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             current_messages.extend(tool_messages)
         
         # Add user prompt if available after tool responses are added
-        if input_data.user_prompt:  #  or input_data.image_input_url_or_base64  ?? Can images be added without a user prompt??  NOTE: this behaviour was removed since this value is not being set NULL by tool calls!
+        if input_data.user_prompt and (not tool_outputs_to_add):  #  or input_data.image_input_url_or_base64  ?? Can images be added without a user prompt??  NOTE: this behaviour was removed since this value is not being set NULL by tool calls!
             # Prepare content for HumanMessage - handle both text and images
             content_parts = []
             
