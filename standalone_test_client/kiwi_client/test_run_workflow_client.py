@@ -3,7 +3,10 @@ import json
 import logging
 import time
 import uuid
+import importlib.util
+import os
 from datetime import datetime, timezone # Import timezone
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple, Callable, TypedDict, Awaitable, Union
 
 # Assume these exist based on the reference file\'s structure and project layout
@@ -36,6 +39,304 @@ logger = logging.getLogger(__name__)
 # Check if handlers are already configured to avoid duplicates if this module is imported elsewhere
 if not logging.getLogger().handlers:
     logging.basicConfig(level=CLIENT_LOG_LEVEL)
+
+
+def load_hitl_inputs_from_file(file_path: str) -> List[Dict[str, Any]]:
+    """
+    Dynamically load HITL inputs from a Python file.
+    
+    This function reloads the module each time it's called, ensuring that
+    any file changes are picked up without restarting the script.
+    
+    Args:
+        file_path: Path to the Python file containing hitl_inputs
+        
+    Returns:
+        List of HITL input dictionaries. If the file contains a single dict,
+        it will be wrapped in a list.
+        
+    Raises:
+        ImportError: If the module cannot be loaded
+        AttributeError: If hitl_inputs is not found in the module
+        FileNotFoundError: If the file doesn't exist
+    """
+    try:
+        # Convert to Path object for easier handling
+        hitl_inputs_path = Path(file_path)
+        
+        # Check if file exists
+        if not hitl_inputs_path.exists():
+            raise FileNotFoundError(f"HITL inputs file not found at {hitl_inputs_path}")
+        
+        # Load the module spec
+        spec = importlib.util.spec_from_file_location("dynamic_hitl_inputs", hitl_inputs_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load module spec from {hitl_inputs_path}")
+        
+        # Create and execute the module
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Verify hitl_inputs exists
+        if not hasattr(module, 'hitl_inputs'):
+            raise AttributeError(f"Module {hitl_inputs_path} does not contain 'hitl_inputs' attribute")
+        
+        hitl_inputs = module.hitl_inputs
+        
+        # Handle both single dict and list of dicts
+        if isinstance(hitl_inputs, dict):
+            # Single dict - wrap in list for consistent handling
+            logger.info(f"Loaded single HITL input from {file_path}")
+            return [hitl_inputs]
+        elif isinstance(hitl_inputs, list):
+            # List of dicts
+            logger.info(f"Loaded {len(hitl_inputs)} HITL inputs from {file_path}")
+            return hitl_inputs
+        else:
+            raise ValueError(f"hitl_inputs must be a dict or list of dicts, got {type(hitl_inputs)}")
+            
+    except Exception as e:
+        logger.error(f"Error loading HITL inputs from {file_path}: {e}")
+        raise
+
+
+def filter_state_data(state_data: Dict[str, Any], mapping: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Filter workflow state data based on provided mapping.
+    
+    Args:
+        state_data: Complete workflow state data
+        mapping: Filtering mapping with node_id -> {path: renamed_key} structure
+        
+    Returns:
+        Filtered state data containing only mapped fields
+    """
+    if not mapping:
+        return state_data
+    
+    # Debug: Log the top-level keys in state_data
+    logger.info(f"State data top-level keys: {list(state_data.keys())}")
+    
+    # Debug: Log available node_outputs keys if they exist
+    if "node_outputs" in state_data:
+        logger.info(f"Available node_outputs keys: {list(state_data['node_outputs'].keys())}")
+    
+    # Debug: Log central_state keys if they exist  
+    if "central_state" in state_data:
+        central_keys = list(state_data['central_state'].keys()) if isinstance(state_data['central_state'], dict) else "Not a dict"
+        logger.info(f"Central state keys: {central_keys}")
+        
+    filtered_data = {}
+    sections_processed = 0
+    
+    # Process each mapped node/section
+    for section_key, field_mappings in mapping.items():
+        if not field_mappings:
+            logger.debug(f"Skipping section '{section_key}' - no field mappings")
+            continue
+            
+        # Handle central_state special case
+        if section_key == "central_state":
+            source_data = state_data.get("central_state", {})
+            logger.debug(f"Processing central_state, found {len(source_data) if isinstance(source_data, dict) else 0} keys")
+        else:
+            # Handle regular nodes - check actual structure from run_client.py
+            source_data = state_data.get("node_outputs", {}).get(section_key, {})
+            logger.debug(f"Processing node '{section_key}', found {len(source_data) if isinstance(source_data, dict) else 0} keys")
+            
+        if not source_data:
+            logger.debug(f"No source data found for section '{section_key}'")
+            continue
+            
+        # Initialize section in filtered data
+        target_section_key = "central_state" if section_key == "central_state" else section_key
+        if "node_outputs" not in filtered_data and section_key != "central_state":
+            filtered_data["node_outputs"] = {}
+        
+        filtered_section = {}
+        
+        # Process each field mapping
+        for field_path, renamed_key in field_mappings.items():
+            # Get nested field value using dot notation
+            field_value = get_nested_value(source_data, field_path)
+            
+            if field_value is not None:
+                # Determine target key (renamed or original)
+                target_key = renamed_key if renamed_key is not None else field_path.split('.')[-1]
+                
+                # Handle nested target paths
+                if '.' in target_key:
+                    set_nested_value(filtered_section, target_key, field_value)
+                else:
+                    filtered_section[target_key] = field_value
+                    
+                logger.debug(f"Mapped '{section_key}.{field_path}' -> '{target_key}' (value found)")
+            else:
+                logger.debug(f"No value found for '{section_key}.{field_path}'")
+        
+        # Add section to filtered data if it has content
+        if filtered_section:
+            if section_key == "central_state":
+                filtered_data["central_state"] = filtered_section
+            else:
+                filtered_data["node_outputs"][section_key] = filtered_section
+            sections_processed += 1
+            logger.debug(f"Added section '{section_key}' with {len(filtered_section)} fields")
+        else:
+            logger.debug(f"Section '{section_key}' filtered to empty, not including")
+    
+    # Preserve metadata and other top-level fields
+    for key in ["metadata", "run_id", "timestamp", "status", "thread_id"]:
+        if key in state_data:
+            filtered_data[key] = state_data[key]
+    
+    logger.info(f"Filtering complete: processed {sections_processed} sections, filtered data has {len(filtered_data)} top-level keys")
+    return filtered_data
+
+
+def get_nested_value(data: Dict[str, Any], path: str) -> Any:
+    """Get value from nested dict using dot notation path."""
+    try:
+        current = data
+        for key in path.split('.'):
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                return None
+        return current
+    except (KeyError, TypeError, AttributeError):
+        return None
+
+
+def set_nested_value(data: Dict[str, Any], path: str, value: Any) -> None:
+    """Set value in nested dict using dot notation path."""
+    keys = path.split('.')
+    current = data
+    
+    # Navigate to the parent of the target key
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    
+    # Set the final value
+    current[keys[-1]] = value
+
+
+def create_run_folder(runs_base_path: str, run_id: uuid.UUID, test_name: str) -> Path:
+    """
+    Create a structured folder for workflow run artifacts.
+    
+    Args:
+        runs_base_path: Base path for runs folder
+        run_id: UUID of the workflow run
+        test_name: Name of the test (will be truncated to first 5 words)
+        
+    Returns:
+        Path to the created run folder
+    """
+    # Truncate test name to first 5 words and make filesystem-safe
+    test_name_words = test_name.split()[:5]
+    safe_test_name = "_".join(word.replace("/", "_").replace("\\", "_") for word in test_name_words)
+    
+    # Create folder name: <run_id>__<test_name_first_5_words>
+    folder_name = f"{run_id}__{safe_test_name}"
+    
+    # Create the full path
+    run_folder = Path(runs_base_path) / folder_name
+    run_folder.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Created run folder: {run_folder}")
+    return run_folder
+
+
+async def dump_intermediate_outputs(
+    run_client: "BaseWorkflowRunTestClient",
+    run_id: uuid.UUID,
+    run_folder: Path,
+    hitl_turn: int,
+    test_name: str,
+    state_mapping: Optional[Dict[str, Any]] = None,
+    hitl_job: Optional[wf_schemas.HITLJobRead] = None
+) -> Optional[str]:
+    """
+    Dump intermediate state and HITL request data before a HITL turn.
+    
+    Args:
+        run_client: Client for fetching run data
+        run_id: UUID of the workflow run
+        run_folder: Path to the run folder for artifacts
+        hitl_turn: Current HITL turn number (1-based)
+        test_name: Name of the test
+        state_mapping: Optional mapping for filtering state data
+        hitl_job: Optional HITL job containing request_details and response_schema
+        
+    Returns:
+        Path to the dumped state file, or None if dump failed
+    """
+    # try:
+    logger.info(f"Dumping intermediate state for run {run_id}, HITL turn {hitl_turn}")
+    
+    # Get raw state data without saving
+    state_data, _ = await run_client.get_run_state(
+        run_id=run_id,
+        save_to_file=False
+    )
+    
+    if not state_data:
+        logger.warning(f"Failed to retrieve state for HITL turn {hitl_turn}")
+        return None
+    
+    # Apply filtering if mapping is provided and non-empty
+    if state_mapping:
+        logger.info(f"Applying state filtering for HITL turn {hitl_turn}")
+        filtered_state = filter_state_data(state_data, state_mapping)
+        state_to_save = filtered_state
+        logger.info(f"State filtered from {len(str(state_data))} to {len(str(filtered_state))} characters")
+    else:
+        state_to_save = state_data
+    
+    # Save the (possibly filtered) state to file
+    import json
+    from datetime import datetime
+    
+    # Create filename
+    safe_test_name = test_name.replace(" ", "_").replace("-", "_")[:30]
+    filename = f"hitl_turn_{hitl_turn}_state__{safe_test_name}.json"
+    state_file_path = run_folder / filename
+    
+    # Write state to file
+    with open(state_file_path, 'w', encoding='utf-8') as f:
+        json.dump(state_to_save, f, indent=2, default=str)
+    
+    logger.info(f"Successfully dumped intermediate state to {state_file_path}")
+    
+    # Save HITL request data if provided
+    if hitl_job:
+        hitl_filename = f"hitl_turn_{hitl_turn}_request_data.json"
+        hitl_file_path = run_folder / hitl_filename
+        
+        hitl_data = {
+            "hitl_job_id": str(hitl_job.id),
+            "run_id": str(run_id),
+            "hitl_turn": hitl_turn,
+            "timestamp": datetime.now().isoformat(),
+            "request_details": hitl_job.request_details,
+            "response_schema": hitl_job.response_schema,
+            "status": hitl_job.status,
+            "node_id": getattr(hitl_job, 'node_id', None)
+        }
+        
+        with open(hitl_file_path, 'w', encoding='utf-8') as f:
+            json.dump(hitl_data, f, indent=2, default=str)
+        
+        logger.info(f"Successfully dumped HITL request data to {hitl_file_path}")
+    
+    return str(state_file_path)
+            
+    # except Exception as e:
+    #     logger.error(f"Error dumping intermediate outputs: {e}")
+    #     return None
 
 
 class InteractiveWorkflowRunClient:
@@ -90,7 +391,9 @@ class InteractiveWorkflowRunClient:
         run_id: uuid.UUID,
         hitl_job: wf_schemas.HITLJobRead,
         hitl_input_iterator: int,
-        provided_hitl_inputs: Optional[List[Dict[str, Any]]]
+        provided_hitl_inputs: Optional[List[Dict[str, Any]]],
+        hitl_inputs_file_path: Optional[str] = None,
+        intermediate_outputs_path: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Internal helper to get HITL input (pre-provided or user prompt)."""
         # Check if a pre-provided input exists at the current index
@@ -115,13 +418,15 @@ class InteractiveWorkflowRunClient:
                 print("\n--- Pre-provided HITL inputs exhausted --- --- Waiting for Human Input --- --- --- --- --- --- ---")
             logger.info(f"Prompting user for HITL input for run {run_id}, job {hitl_job.id} (Step {hitl_input_iterator + 1}).")
 
-            # --- User Prompting Logic ---
-            print("\n" + "="*30)
+            # --- Enhanced User Prompting Logic ---
+            print("\n" + "="*50)
             print("--- Waiting for Human Input ---")
             print(f"Workflow Run ID: {run_id}")
-            print(f"HITL Step Index: {hitl_input_iterator + 1}")
-            print(f"HITL Job ID: {hitl_job.id}")
-            print(f"Run ID requiring input: {run_id}")
+            
+            # Show intermediate outputs path if provided
+            if intermediate_outputs_path:
+                print(f"Intermediate Outputs: {intermediate_outputs_path}")
+            
             print("--- Request Details (Data passed to HITL node) ---")
             try:
                 print(json.dumps(hitl_job.request_details, indent=2, default=str))
@@ -134,12 +439,59 @@ class InteractiveWorkflowRunClient:
             except TypeError as e:
                 logger.error(f"Failed to serialize HITL response_schema: {e}")
                 print(f"(Could not display response schema: {e}) Raw: {hitl_job.response_schema}")
-            print("="*30)
-            print("\nPlease provide the response as a valid JSON string and press Enter:")
+            print("="*50)
+            
+            if hitl_inputs_file_path:
+                print("\nOptions:")
+                print("1. Edit the HITL inputs file and press Enter (blank) to reload")
+                print("2. Directly provide JSON input below")
+                print("\nInput (or press Enter after editing file):")
+            else:
+                print("\nPlease provide the response as a valid JSON string and press Enter:")
+            
+            print(f"\nHITL Turn: #{hitl_input_iterator + 1}")
+            print(f"HITL Job ID: {hitl_job.id}")
+            
+            # Show HITL inputs file info if provided
+            if hitl_inputs_file_path:
+                print(f"HITL Inputs File: {hitl_inputs_file_path}")
+                print(f"Edit list index: [{hitl_input_iterator}] for this turn")
 
             while True:
                 try:
-                    user_input_str = input("> ")
+                    user_input_str = input("> ").strip()
+                    
+                    # Handle blank input - try to reload from file
+                    if not user_input_str and hitl_inputs_file_path:
+                        try:
+                            logger.info(f"Attempting to reload HITL inputs from {hitl_inputs_file_path}")
+                            print(f"Reloading HITL inputs from {hitl_inputs_file_path}...")
+                            
+                            dynamic_hitl_inputs = load_hitl_inputs_from_file(hitl_inputs_file_path)
+                            
+                            if 0 <= hitl_input_iterator < len(dynamic_hitl_inputs):
+                                reloaded_input = dynamic_hitl_inputs[hitl_input_iterator]
+                                print(f"Successfully loaded HITL input #{hitl_input_iterator + 1} from file:")
+                                try:
+                                    print(json.dumps(reloaded_input, indent=2))
+                                except TypeError:
+                                    print(f"(Could not serialize for display) {reloaded_input}")
+                                logger.info(f"Loaded HITL input from file for run {run_id}.")
+                                return reloaded_input
+                            else:
+                                print(f"Error: HITL input #{hitl_input_iterator + 1} not found in file (file has {len(dynamic_hitl_inputs)} entries)")
+                                continue
+                        except Exception as reload_err:
+                            print(f"Error reloading HITL inputs: {reload_err}")
+                            logger.error(f"Error reloading HITL inputs: {reload_err}")
+                            continue
+                    
+                    # Handle empty input without file
+                    if not user_input_str:
+                        print("Please provide a valid JSON input or edit the HITL file and press Enter.")
+                        continue
+                    
+                    # Handle JSON input
                     user_inputs = json.loads(user_input_str)
                     if not isinstance(user_inputs, dict):
                         print("Invalid input: Please provide a valid JSON object (e.g., {\"key\": \"value\"}). Try again.")
@@ -147,6 +499,7 @@ class InteractiveWorkflowRunClient:
                         continue
                     logger.info(f"Received HITL input from user for run {run_id}.")
                     return user_inputs
+                    
                 except json.JSONDecodeError as e:
                     print(f"Invalid JSON format: {e}. Please try again.")
                     logger.warning(f"User provided invalid JSON for HITL input: {e}")
@@ -171,7 +524,9 @@ class InteractiveWorkflowRunClient:
         on_behalf_of_user_id: Optional[uuid.UUID] = None,
         reset_overrides_on_hitl_resume: Optional[bool] = None,
         hitl_include_active_overrides: Optional[bool] = None,
-        hitl_include_override_tags: Optional[List[str]] = None
+        hitl_include_override_tags: Optional[List[str]] = None,
+        hitl_inputs_file_path: Optional[str] = None,
+        intermediate_outputs_path: Optional[str] = None
     ) -> Tuple[bool, int]:
         """Internal helper to fetch HITL job details and submit response."""
         logger.info(f"Run {run_id} is WAITING_HITL. Fetching job details for step {hitl_input_iterator + 1}...")
@@ -190,7 +545,8 @@ class InteractiveWorkflowRunClient:
             print(f"   ✓ Found pending HITL job: {pending_job.id} (Run: {run_id})")
 
             hitl_response_inputs = await self._get_hitl_input(
-                run_id, pending_job, hitl_input_iterator, provided_hitl_inputs
+                run_id, pending_job, hitl_input_iterator, provided_hitl_inputs, 
+                hitl_inputs_file_path, intermediate_outputs_path
             )
 
             if hitl_response_inputs is None:
@@ -388,8 +744,12 @@ class InteractiveWorkflowRunClient:
         include_override_tags: Optional[List[str]] = None,
         reset_overrides_on_hitl_resume: Optional[bool] = None,
         hitl_include_active_overrides: Optional[bool] = None,
-        hitl_include_override_tags: Optional[List[str]] = None
-    ) -> Tuple[Optional[wf_schemas.WorkflowRunRead], Optional[Dict[str, Any]]]:
+        hitl_include_override_tags: Optional[List[str]] = None,
+        hitl_inputs_file_path: Optional[str] = None,
+        runs_folder_path: Optional[str] = None,
+        test_name: Optional[str] = None,
+        state_filter_mapping: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Optional[wf_schemas.WorkflowRunRead], Optional[Dict[str, Any]], Optional[str]]:
         """
         Submits a workflow run and monitors its execution until completion,
         failure, cancellation, or timeout, handling HITL steps interactively.
@@ -428,6 +788,10 @@ class InteractiveWorkflowRunClient:
             reset_overrides_on_hitl_resume: Whether to reset overrides on HITL resume. If False, same overrides from previous session will be reapplied.
             hitl_include_active_overrides: Override setting for include_active_overrides specifically for HITL resume calls. If None, uses include_active_overrides value. Only used when reset_overrides_on_hitl_resume is set.
             hitl_include_override_tags: Override setting for include_override_tags specifically for HITL resume calls. If None, uses include_override_tags value. Only used when reset_overrides_on_hitl_resume is set.
+            hitl_inputs_file_path: Optional path to Python file containing HITL inputs for dynamic loading.
+            runs_folder_path: Optional base path for creating run-specific folder for artifacts and intermediate dumps.
+            test_name: Optional test name for artifact naming and run folder creation.
+            state_filter_mapping: Optional mapping for filtering state dumps to reduce verbosity.
 
         Returns:
             A tuple containing:
@@ -455,6 +819,8 @@ class InteractiveWorkflowRunClient:
         start_time = time.monotonic()
         hitl_input_iterator = 0
 
+        run_folder = None
+
         try:
             # 1. Create Workflow if graph_schema is provided
             if graph_schema:
@@ -468,7 +834,7 @@ class InteractiveWorkflowRunClient:
                 if not validation_result or not validation_result.is_valid:
                     logger.error(f"Provided graph schema failed validation: {validation_result.errors if validation_result else 'Validation request failed'}")
                     print(f"   ✗ Error: Graph schema validation failed. Errors: {json.dumps(validation_result.errors if validation_result else {}, indent=2)}")
-                    return None, None
+                    return None, None, None
                 logger.info("Graph schema validation passed.")
                 print("   ✓ Schema validation passed.")
                 # <-- END VALIDATION STEP -->
@@ -487,16 +853,16 @@ class InteractiveWorkflowRunClient:
                     else:
                         logger.error("Failed to create workflow from the provided schema.")
                         print("   ✗ Error: Workflow creation failed.")
-                        return None, None
+                        return None, None, None
                 except Exception as create_err:
                     logger.exception(f"Error during workflow creation: {create_err}")
                     print(f"   ✗ Error during workflow creation: {create_err}")
-                    return None, None
+                    return None, None, None
 
             if not workflow_id_to_run:
                  logger.error("Workflow ID is missing before run submission.")
                  print("   ✗ Internal Error: Workflow ID not available.")
-                 return None, None
+                 return None, None, None
 
             # 2. Submit the initial workflow run request
             logger.info(f"Attempting to submit run for workflow ID: {workflow_id_to_run}...")
@@ -514,12 +880,24 @@ class InteractiveWorkflowRunClient:
             if not submitted_run:
                 logger.error(f"Failed to submit initial workflow run for workflow {workflow_id_to_run}.")
                 print("   ✗ Initial run submission failed.")
-                return None, None
+                return None, None, None
 
             created_run_id = submitted_run.id
             current_status = submitted_run.status
             print(f"--- Run submitted successfully: ID = {created_run_id} (Initial Status: {current_status}) ---")
             logger.info(f"Run {created_run_id} submitted for workflow {workflow_id_to_run}. Initial status: {current_status}")
+            
+            # Create run folder now that we have the run ID
+            run_folder = None
+            if runs_folder_path and test_name:
+                try:
+                    run_folder = create_run_folder(runs_folder_path, created_run_id, test_name)
+                    logger.info(f"Created run folder: {run_folder}")
+                    print(f"   Artifacts will be stored in: {run_folder}")
+                except Exception as folder_err:
+                    logger.warning(f"Could not create run folder: {folder_err}")
+                    print(f"   Warning: Could not create run folder: {folder_err}")
+                    run_folder = None
 
             # 3. Start background event streaming if requested
             if stream_intermediate_results:
@@ -589,10 +967,29 @@ class InteractiveWorkflowRunClient:
 
                 # Handle HITL State
                 elif latest_status == WorkflowRunStatus.WAITING_HITL:
+                    # First get the HITL job details for dumping
+                    pending_job = None
+                    try:
+                        pending_job = await self._hitl_client.get_latest_pending_hitl_job(run_id=created_run_id)
+                        logger.debug(f"Retrieved HITL job for dumping: {pending_job.id if pending_job else 'None'}")
+                    except Exception as hitl_err:
+                        logger.warning(f"Could not retrieve HITL job for dumping: {hitl_err}")
+                    
+                    # Dump intermediate outputs before HITL interaction
+                    intermediate_outputs_path = None
+                    if run_folder and test_name:
+                        run_client = BaseWorkflowRunTestClient(self._auth_client)
+                        intermediate_outputs_path = await dump_intermediate_outputs(
+                            run_client, created_run_id, run_folder, 
+                            hitl_input_iterator + 1, test_name, state_filter_mapping, pending_job
+                        )
+                    
                     # Signal streaming task to pause/stop printing potentially confusing intermediate states during HITL prompt
                     # (Optional enhancement: could pause the task instead of just letting it run) 
                     handled, next_iterator_index = await self._handle_hitl_step(
-                        created_run_id, hitl_input_iterator, hitl_inputs, on_behalf_of_user_id, reset_overrides_on_hitl_resume, hitl_include_active_overrides, hitl_include_override_tags
+                        created_run_id, hitl_input_iterator, hitl_inputs, on_behalf_of_user_id, 
+                        reset_overrides_on_hitl_resume, hitl_include_active_overrides, hitl_include_override_tags,
+                        hitl_inputs_file_path, intermediate_outputs_path
                     )
                     hitl_input_iterator = next_iterator_index
 
@@ -614,7 +1011,7 @@ class InteractiveWorkflowRunClient:
         except AuthenticationError as e:
              logger.exception(f"Authentication error: {e}")
              print(f"Authentication Error: {e}")
-             return None, None
+             return None, None, None
         except Exception as e:
             logger.exception(f"An unexpected error occurred: {e}")
             print(f"An unexpected error occurred: {e}")
@@ -624,7 +1021,7 @@ class InteractiveWorkflowRunClient:
                     final_outputs = final_status_obj.outputs if final_status_obj else None
                 except Exception:
                     pass # Ignore errors getting final status after another error
-            return final_status_obj, final_outputs
+            return final_status_obj, final_outputs, run_folder
         finally:
             # --- Stop and Cleanup Streaming Task --- #
             stop_streaming_event.set() # Signal the streaming task to stop
@@ -650,7 +1047,7 @@ class InteractiveWorkflowRunClient:
                     logger.exception(f"Error during workflow cleanup: {cleanup_err}")
                     print(f"   ✗ Workflow cleanup failed: {cleanup_err}")
 
-        return final_status_obj, final_outputs
+        return final_status_obj, final_outputs, run_folder
 
 
 # --- Reusable Test Execution Helper --- #
@@ -700,6 +1097,9 @@ async def run_workflow_test(
     initial_inputs: Dict[str, Any] = {},
     expected_final_status: WorkflowRunStatus = WorkflowRunStatus.COMPLETED,
     hitl_inputs: Optional[List[Dict[str, Any]]] = None,
+    hitl_inputs_file_path: Optional[str] = None,
+    runs_folder_path: Optional[str] = None,
+    state_filter_mapping: Optional[Dict[str, Any]] = None,
     setup_docs: Optional[List[SetupDocInfo]] = None,
     cleanup_docs: Optional[List[CleanupDocInfo]] = None,
     setup_schemas: Optional[List[SetupSchemaInfo]] = None,
@@ -743,6 +1143,13 @@ async def run_workflow_test(
         hitl_inputs: An optional list of dictionaries, where each dictionary represents
                      the inputs for a Human-in-the-Loop (HITL) step. The list order
                      determines the sequence in which inputs are provided.
+        hitl_inputs_file_path: Path to a Python file containing HITL inputs for dynamic loading.
+                              If provided, takes precedence over hitl_inputs parameter. Supports both
+                              single dict and list of dicts in the file.
+        runs_folder_path: Path to folder where run artifacts should be stored. Each run creates
+                         a subfolder named '<run_id>__<test_name_first_5_words>'.
+        state_filter_mapping: Optional mapping for filtering state dumps to reduce verbosity and focus
+                      on relevant workflow data. See wf_state_filter_mapping.py for structure examples.
         setup_docs: An optional list of SetupDocInfo dictionaries. Each dictionary
                     specifies a customer data document to be created or ensured
                     exists before the workflow execution. The function attempts to
@@ -1168,7 +1575,38 @@ async def run_workflow_test(
                     error_msg = f"Workflow ID {resolved_workflow_id} does not exist or is not accessible."
                     raise RuntimeError(error_msg)
 
-            # --- 2. Execute Workflow Phase --- #
+            # --- 2. Prepare HITL Inputs and Run Folder --- #
+            # Load HITL inputs from file if specified
+            final_hitl_inputs = hitl_inputs
+            # if hitl_inputs_file_path:
+            #     try:
+            #         logger.info(f"[{test_name}] Loading HITL inputs from file: {hitl_inputs_file_path}")
+            #         print(f"\n--- [{test_name}] Loading HITL inputs from file ---")
+            #         print(f"   File: {hitl_inputs_file_path}")
+                    
+            #         dynamic_hitl_inputs = load_hitl_inputs_from_file(hitl_inputs_file_path)
+            #         final_hitl_inputs = dynamic_hitl_inputs
+                    
+            #         print(f"   ✓ Loaded {len(dynamic_hitl_inputs)} HITL input(s)")
+            #         logger.info(f"[{test_name}] Successfully loaded {len(dynamic_hitl_inputs)} HITL inputs from file")
+                    
+            #     except Exception as hitl_load_err:
+            #         logger.error(f"[{test_name}] Error loading HITL inputs from file: {hitl_load_err}")
+            #         print(f"   ✗ Error loading HITL inputs: {hitl_load_err}")
+            #         if hitl_inputs:
+            #             print(f"   Using provided hitl_inputs parameter as fallback")
+            #             final_hitl_inputs = hitl_inputs
+            #         else:
+            #             print(f"   No fallback HITL inputs available")
+            #             final_hitl_inputs = None
+            
+            # Prepare run folder path for later creation
+            final_runs_folder_path = runs_folder_path
+            if final_runs_folder_path:
+                logger.info(f"[{test_name}] Run artifacts will be stored in: {final_runs_folder_path}")
+                print(f"\n--- [{test_name}] Artifacts will be stored in: {final_runs_folder_path} ---")
+
+            # --- 3. Execute Workflow Phase --- #
             print(f"\n--- [{test_name}] Executing Workflow --- ")
             if workflow_graph_schema:
                 print(f"   Workflow Schema: Provided (details omitted for brevity)") # Avoid printing large schemas
@@ -1180,21 +1618,23 @@ async def run_workflow_test(
                 print(f"   Initial Inputs: {json.dumps(initial_inputs, indent=2, default=str)}")
             except Exception:
                  print(f"   Initial Inputs: (Could not serialize, raw: {initial_inputs}) ")
-            if hitl_inputs:
-                 print(f"   Predefined HITL Inputs ({len(hitl_inputs)} steps): Provided")
+            if final_hitl_inputs:
+                 print(f"   HITL Inputs ({len(final_hitl_inputs)} steps): {'From file' if hitl_inputs_file_path else 'Provided'}")
+                 if hitl_inputs_file_path:
+                     print(f"   HITL File: {hitl_inputs_file_path}")
             else:
-                 print(f"   Predefined HITL Inputs: None")
+                 print(f"   HITL Inputs: None")
             print(f"   Streaming Intermediate Results: {'ENABLED' if stream_intermediate_results else 'DISABLED'}")
             print(f"   Polling Interval: {poll_interval_sec}s, Timeout: {timeout_sec}s")
 
             # import ipdb; ipdb.set_trace()
 
             # Execute the workflow and wait for completion
-            final_run_status_obj, final_run_outputs = await interactive_client.submit_and_monitor_run(
+            final_run_status_obj, final_run_outputs, run_output_folder = await interactive_client.submit_and_monitor_run(
                 workflow_id=resolved_workflow_id if resolved_workflow_id else None,
                 graph_schema=workflow_graph_schema if workflow_graph_schema else None,
                 inputs=initial_inputs,
-                hitl_inputs=hitl_inputs,
+                hitl_inputs=final_hitl_inputs,
                 poll_interval_sec=poll_interval_sec,
                 timeout_sec=timeout_sec,
                 stream_intermediate_results=stream_intermediate_results,
@@ -1205,7 +1645,11 @@ async def run_workflow_test(
                 include_override_tags=include_override_tags,
                 reset_overrides_on_hitl_resume=reset_overrides_on_hitl_resume,
                 hitl_include_active_overrides=hitl_include_active_overrides,
-                hitl_include_override_tags=hitl_include_override_tags
+                hitl_include_override_tags=hitl_include_override_tags,
+                hitl_inputs_file_path=hitl_inputs_file_path,
+                runs_folder_path=final_runs_folder_path,
+                test_name=test_name,
+                state_filter_mapping=state_filter_mapping
             )
 
             # --- 3. Validation Phase --- #
@@ -1233,7 +1677,9 @@ async def run_workflow_test(
                     logs_data, logs_path = await run_client.get_run_logs(
                         run_id=run_id,
                         save_to_file=True,
-                        test_name=test_name
+                        test_name=f"final_logs__{test_name[:30]}",
+                        base_path=str(run_output_folder),
+                        add_run_id_to_filename=False,
                     )
                     
                     if logs_data:
@@ -1244,14 +1690,37 @@ async def run_workflow_test(
                         
                     # Try getting state data (might fail for non-superusers)
                     print(f"   Fetching and saving run state...")
-                    state_data, state_path = await run_client.get_run_state(
+                    
+                    # Get raw state data first and Save raw unfiltered version
+                    raw_state_data, raw_state_path = await run_client.get_run_state(
                         run_id=run_id,
                         save_to_file=True,
-                        test_name=test_name
+                        test_name=f"raw_unfiltered_final_state__{test_name[:30]}",
+                        base_path=str(run_output_folder),
+                        add_run_id_to_filename=False,
                     )
                     
-                    if state_data:
-                        print(f"   ✓ Saved state data to data directory \n\n\n\n *****Path:***** {state_path}\n\n\n\n")
+                    if raw_state_data:
+                        # If mapping is provided, save both raw unfiltered and filtered versions
+                        if state_filter_mapping:
+                            
+                            # Create and save filtered version
+                            filtered_state = filter_state_data(raw_state_data, state_filter_mapping)
+                            
+                            # Save filtered state manually
+                            import json
+                            safe_test_name = test_name.replace(" ", "_").replace("-", "_")[:30]
+                            filtered_filename = f"filtered_final_state__{safe_test_name}.json"
+                            filtered_state_path = Path(str(run_output_folder)) / filtered_filename
+                            
+                            with open(filtered_state_path, 'w', encoding='utf-8') as f:
+                                json.dump(filtered_state, f, indent=2, default=str)
+                            
+                            print(f"   ✓ Saved raw unfiltered state: {raw_state_path}")
+                            print(f"   ✓ Saved filtered state: {filtered_state_path}")
+                            print(f"   State filtered from {len(str(raw_state_data))} to {len(str(filtered_state))} characters")
+                        else:
+                            print(f"   ✓ Saved raw unfiltered state: {raw_state_path}")
                     else:
                         print(f"   ✗ Failed to retrieve state data (possibly not a superuser)")
                         

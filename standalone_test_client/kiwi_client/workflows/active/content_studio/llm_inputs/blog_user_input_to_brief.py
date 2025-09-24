@@ -197,6 +197,9 @@ Company Context:
 - Company Context: {company_doc}
 - Content Playbook Guidance: {content_playbook_doc}
 
+Brief HITL Additional Context Documents:
+{brief_hitl_additional_user_files}
+
 ---
 
 Selected Topic (with reasoning): {selected_topic}
@@ -221,6 +224,12 @@ Company Context:
 - Company Context: {company_doc}
 
 User Input: {user_input}
+
+Additional Context Documents:
+{additional_user_files}
+
+Topic HITL Additional Context Documents:
+{topic_hitl_additional_user_files}
 
 Tasks:
 1. Generate 3-5 research queries relevant to the user input and company context
@@ -257,6 +266,12 @@ PREVIOUS RESEARCH COMPLETED:
 Google Research Results: {google_research_output}
 
 User Input: {user_input}
+
+Additional Context Documents:
+{additional_user_files}
+
+Topic HITL Additional Context Documents:
+{topic_hitl_additional_user_files}
 
 Tasks:
 1. Generate 5-7 Reddit search queries using relevant subreddits for the industry
@@ -298,6 +313,9 @@ Google Research (with sources and citations): {google_research_output}
 Reddit Research (with user questions and pain points): {reddit_research_output}
 Original User Input: {user_input}
 
+Additional Context Documents:
+{additional_user_files}
+
 Generate 5 strategic blog topic ideas that:
 - Address real user intent from BOTH research sources
 - Are valuable to the target audience
@@ -333,6 +351,9 @@ COMPLETE RESEARCH FOUNDATION:
 Google Research (with sources and citations): {google_research_output}
 Reddit Research (with user questions and patterns): {reddit_research_output}
 Original User Input: {user_input}
+
+Additional Context Documents:
+{additional_user_files}
 
 CRITICAL PLAYBOOK ALIGNMENT REQUIREMENTS:
 - The brief MUST align with one of the specific themes/plays outlined in the Content Playbook
@@ -401,6 +422,9 @@ Based on the analyzed feedback, revise the content brief while maintaining align
 REVISION INSTRUCTIONS:
 {revision_instructions}
 
+Brief HITL Additional Context Documents:
+{brief_hitl_additional_user_files}
+
 CRITICAL REQUIREMENTS:
 1. Apply the specific changes requested in the revision instructions
 2. Maintain consistency with:
@@ -433,6 +457,9 @@ Based on the user's feedback, regenerate blog topic suggestions that better alig
 
 USER FEEDBACK FOR TOPIC REGENERATION:
 {regeneration_instructions}
+
+Topic HITL Additional Context Documents:
+{topic_hitl_additional_user_files}
 
 CRITICAL REQUIREMENTS:
 1. Address the specific concerns or preferences expressed in the feedback

@@ -473,6 +473,26 @@ Create a comprehensive content brief with detailed reasoning for every element. 
 - Leverage success_stories as proof points
 - Incorporate community insights throughout
 
+## 6. User Input Context
+{user_input}
+
+**KEY EXTRACTION TASKS:**
+- Understand the user's specific content direction and requirements
+- Identify any particular angles or focus areas mentioned
+- Note any specific examples or scenarios the user wants included
+- Extract any particular audience considerations or constraints
+- Understand the user's vision for the content outcome
+
+## 7. Additional User Files
+{additional_user_files}
+
+**KEY USAGE GUIDANCE:**
+- Incorporate insights from user-provided research or context files
+- Use specific examples or frameworks from user files
+- Reference user-provided data or case studies where relevant
+- Apply user-specific methodologies or approaches
+- Integrate user's unique perspectives or expertise
+
 # YOUR TASK: CREATE THE COMPREHENSIVE BRIEF
 
 ## CRITICAL INSTRUCTIONS
@@ -701,6 +721,18 @@ You're analyzing feedback on a content brief that already contains detailed reas
 **Playbook Guidelines:**
 {playbook_doc}
 
+**User Input Context:**
+{user_input}
+
+**Google Research Results:**
+{google_research_output}
+
+**Reddit Research Results:**
+{reddit_research_output}
+
+**Additional User Files:**
+{brief_hitl_additional_user_files}
+
 ## YOUR ANALYSIS APPROACH
 
 ### Step 1: Interpret Feedback Intent
@@ -726,6 +758,8 @@ Create guidance that:
 - **Maintains Coherence**: Ensures all parts work together
 - **Improves Differentiation**: Strengthens unique value
 - **Enhances Clarity**: Makes brief more actionable
+- **Incorporates User Context**: Uses user input and additional files to inform revisions
+- **Leverages Research**: Applies Google and Reddit insights to support changes
 
 ## REQUIRED OUTPUT STRUCTURE
 
@@ -1038,6 +1072,9 @@ Conduct comprehensive Google research on the following topic to inform our conte
 **Topic/User Input:**
 {user_input}
 
+**Additional User Files:**
+{additional_user_files}
+
 # YOUR RESEARCH TASKS
 
 ## 1. Search Query Development
@@ -1163,6 +1200,9 @@ Conduct deep Reddit and community research to understand authentic user perspect
 
 **Topic/User Input:**
 {user_input}
+
+**Additional User Files:**
+{additional_user_files}
 
 # YOUR RESEARCH TASKS
 

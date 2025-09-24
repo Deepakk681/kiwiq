@@ -41,7 +41,6 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | **Anthropic** | claude-opus-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 32k |
 | | claude-sonnet-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
 | | claude-3-7-sonnet-20250219 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
-| | claude-3-5-sonnet-latest | ❌ | ✅ | ❌ | ✅ | ✅ | 200k | 8k |
 | | claude-3-5-haiku-latest | ❌ | ✅ | ✅ | ✅ | ✅ | 200k | 8k |
 | **Perplexity** | sonar-deep-research | ✅ | ✅ | ❌ | ❌ | ❌ | 128k | 16k |
 | | sonar-reasoning-pro | ✅ | ✅ | ❌ | ❌ | ❌ | 128k | 8k |
@@ -329,7 +328,6 @@ Anthropic's Claude models excel at reasoning, analysis, and have built-in web se
 - `claude-3-7-sonnet-20250219` - Strong reasoning capabilities
 
 **Standard Models:**
-- `claude-3-5-sonnet-latest` - Latest Sonnet model with continuous updates
 - `claude-3-5-haiku-latest` - Fast, efficient model for lighter workloads
 
 #### Internal Tools

@@ -134,12 +134,44 @@ workflow_graph_schema = {
                         "type": "str",
                         "required": True,
                         "description": "UUID of the brief being generated"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
-        # 2. Load Company Document - Put company_context_doc configuration directly here
+        # 2. Transform Additional User Files Format (if provided)
+        "transform_additional_files_config": {
+            "node_id": "transform_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 3. Load Additional User Files (conditional)
+        "load_additional_user_files_node": {
+            "node_id": "load_additional_user_files_node", 
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 4. Load Company Document - Put company_context_doc configuration directly here
         "load_company_doc": {
             "node_id": "load_company_doc",
             "node_name": "load_customer_data",
@@ -172,6 +204,7 @@ workflow_graph_schema = {
         "construct_google_research_prompt": {
             "node_id": "construct_google_research_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for initial file loading to complete
             "node_config": {
                 "prompt_templates": {
                     "google_research_user_prompt": {
@@ -179,11 +212,15 @@ workflow_graph_schema = {
                         "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": "",
+                            "topic_hitl_additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
                         }
                     },
                     "google_research_system_prompt": {
@@ -227,12 +264,16 @@ workflow_graph_schema = {
                         "variables": {
                             "company_doc": None,
                             "google_research_output": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": "",
+                            "topic_hitl_additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
                             "google_research_output": "google_research_output",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
                         }
                     },
                     "reddit_research_system_prompt": {
@@ -281,6 +322,7 @@ workflow_graph_schema = {
         "construct_topic_generation_prompt": {
             "node_id": "construct_topic_generation_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "topic_generation_user_prompt": {
@@ -291,14 +333,16 @@ workflow_graph_schema = {
                             "content_playbook_doc": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
                             "content_playbook_doc": "content_playbook_doc",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
                         }
                     },
                     "topic_generation_system_prompt": {
@@ -352,12 +396,44 @@ workflow_graph_schema = {
                         "type": "str",
                         "required": False,
                         "description": "Feedback for topic regeneration (required if regenerate_topics)"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load for topic selection. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
-        # 10. Route Topic Selection
+        # 10. Transform Topic HITL Additional Files Format
+        "transform_topic_hitl_additional_files_config": {
+            "node_id": "transform_topic_hitl_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "topic_hitl_additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 11. Load Topic HITL Additional User Files
+        "load_topic_hitl_additional_user_files_node": {
+            "node_id": "load_topic_hitl_additional_user_files_node",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 12. Route Topic Selection
         "route_topic_selection": {
             "node_id": "route_topic_selection",
             "node_name": "router_node",
@@ -395,17 +471,19 @@ workflow_graph_schema = {
                         "id": "topic_regeneration_user_prompt",
                         "template": TOPIC_REGENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "regeneration_instructions": None
+                            "regeneration_instructions": None,
+                            "topic_hitl_additional_user_files": ""
                         },
                         "construct_options": {
-                            "regeneration_instructions": "current_regeneration_feedback"
+                            "regeneration_instructions": "current_regeneration_feedback",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
                         }
                     }
                 }
             }
         },
         
-        # 15. Filter Selected Topic
+        # 14. Filter Selected Topic
         "filter_selected_topic": {
             "node_id": "filter_selected_topic",
             "node_name": "filter_data",
@@ -430,10 +508,11 @@ workflow_graph_schema = {
             }
         },
         
-        # 16. Brief Generation - Prompt Constructor
+        # 15. Brief Generation - Prompt Constructor
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "brief_generation_user_prompt": {
@@ -445,7 +524,8 @@ workflow_graph_schema = {
                             "selected_topic": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
@@ -453,7 +533,8 @@ workflow_graph_schema = {
                             "selected_topic": "selected_topics",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
                         }
                     },
                     "brief_generation_system_prompt": {
@@ -465,7 +546,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 17. Brief Generation - LLM Node
+        # 16. Brief Generation - LLM Node
         "brief_generation_llm": {
             "node_id": "brief_generation_llm",
             "node_name": "llm",
@@ -524,7 +605,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 18. Brief Approval - HITL Node
+        # 17. Brief Approval - HITL Node
         "brief_approval_hitl": {
             "node_id": "brief_approval_hitl",
             "node_name": "hitl_node__default",
@@ -546,12 +627,44 @@ workflow_graph_schema = {
                         "type": "dict",
                         "required": True,
                         "description": "Updated content brief"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load for brief approval. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
-        # 19. Route Brief Approval
+        # 18. Transform Brief HITL Additional Files Format
+        "transform_brief_hitl_additional_files_config": {
+            "node_id": "transform_brief_hitl_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "brief_hitl_additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 19. Load Brief HITL Additional User Files
+        "load_brief_hitl_additional_user_files_node": {
+            "node_id": "load_brief_hitl_additional_user_files_node",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 20. Route Brief Approval
         "route_brief_approval": {
             "node_id": "route_brief_approval",
             "node_name": "router_node",
@@ -583,7 +696,7 @@ workflow_graph_schema = {
                 "default_choice": "delete_draft_on_cancel"
             }
         },
-        # 20. Save Brief as Draft - Store Customer Data
+        # 21. Save Brief as Draft - Store Customer Data
         "save_as_draft": {
             "node_id": "save_as_draft",
             "node_name": "store_customer_data",
@@ -623,7 +736,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 21. Check Iteration Limit
+        # 22. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
             "node_name": "if_else_condition",
@@ -646,7 +759,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 21.5 Delete Draft on Cancel - New node to clean up saved draft
+        # 22.5 Delete Draft on Cancel - New node to clean up saved draft
         "delete_draft_on_cancel": {
             "node_id": "delete_draft_on_cancel",
             "node_name": "delete_customer_data",
@@ -660,7 +773,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 22. Route Based on Iteration Limit Check
+        # 23. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
             "node_name": "router_node",
@@ -685,6 +798,7 @@ workflow_graph_schema = {
         "construct_brief_feedback_prompt": {
             "node_id": "construct_brief_feedback_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "brief_feedback_user_prompt": {
@@ -698,6 +812,7 @@ workflow_graph_schema = {
                             "selected_topic": None,
                             "google_research_output": None,
                             "reddit_research_output": None,
+                            "brief_hitl_additional_user_files": ""
                         },
                         "construct_options": {
                             "content_brief": "current_content_brief",
@@ -707,6 +822,7 @@ workflow_graph_schema = {
                             "selected_topic": "selected_topics",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
+                            "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
                         }
                     },
                     "brief_feedback_system_prompt": {
@@ -718,7 +834,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 20. Brief Feedback Analysis - Analyze user feedback before revision
+        # 24. Brief Feedback Analysis - Analyze user feedback before revision
         "analyze_brief_feedback": {
             "node_id": "analyze_brief_feedback",
             "node_name": "llm",
@@ -738,7 +854,7 @@ workflow_graph_schema = {
             }
         },
 
-     # 22. Brief Revision - Enhanced Prompt Constructor
+     # 25. Brief Revision - Enhanced Prompt Constructor
         "construct_brief_revision_prompt": {
             "node_id": "construct_brief_revision_prompt",
             "node_name": "prompt_constructor",
@@ -748,17 +864,19 @@ workflow_graph_schema = {
                         "id": "brief_revision_user_prompt",
                         "template": BRIEF_REVISION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "revision_instructions": None
+                            "revision_instructions": None,
+                            "brief_hitl_additional_user_files": ""
                         },
                         "construct_options": {
-                            "revision_instructions": "brief_feedback_analysis.revision_instructions"
+                            "revision_instructions": "brief_feedback_analysis.revision_instructions",
+                            "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
                         }
                     }
                 }
             }
         },
         
-        # 24. Save Brief - Store Customer Data
+        # 26. Save Brief - Store Customer Data
         "save_brief": {
             "node_id": "save_brief",
             "node_name": "store_customer_data",
@@ -798,7 +916,8 @@ workflow_graph_schema = {
             }
         },
         
-        # 25. Output Node
+        
+        # 27. Output Node
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
@@ -815,7 +934,9 @@ workflow_graph_schema = {
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "user_input", "dst_field": "user_input"},
                 {"src_field": "initial_status", "dst_field": "initial_status"},
-                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}            ]
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"},
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
         },
         
         # Input -> Load Company Doc
@@ -824,6 +945,24 @@ workflow_graph_schema = {
             "dst_node_id": "load_company_doc",
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Input -> Transform Additional Files Config
+        {
+            "src_node_id": "input_node",
+            "dst_node_id": "transform_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform -> Load Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_additional_files_config",
+            "dst_node_id": "load_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
             ]
         },
         
@@ -843,6 +982,26 @@ workflow_graph_schema = {
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"}            ]
+        },
+        
+        # Load Additional Files -> Google Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_google_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Google Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_google_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
+            ]
         },
         
         # State -> Google Research Prompt
@@ -892,6 +1051,26 @@ workflow_graph_schema = {
             ]
         },
         
+        # Load Additional User Files -> Reddit Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Reddit Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
+            ]
+        },
+        
         # Reddit Research Prompt -> LLM
         {
             "src_node_id": "construct_reddit_research_prompt",
@@ -928,6 +1107,16 @@ workflow_graph_schema = {
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional Files -> Topic Generation Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_topic_generation_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
             ]
         },
         
@@ -983,7 +1172,26 @@ workflow_graph_schema = {
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "selected_topic_id", "dst_field": "selected_topic_id"},
-                {"src_field": "regeneration_feedback", "dst_field": "current_regeneration_feedback"}
+                {"src_field": "regeneration_feedback", "dst_field": "current_regeneration_feedback"},
+                {"src_field": "load_additional_user_files", "dst_field": "topic_hitl_load_additional_user_files"}
+            ]
+        },
+        
+        # HITL -> Transform Topic HITL Additional Files Config
+        {
+            "src_node_id": "topic_selection_hitl",
+            "dst_node_id": "transform_topic_hitl_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform Topic HITL -> Load Topic HITL Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_topic_hitl_additional_files_config",
+            "dst_node_id": "load_topic_hitl_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
             ]
         },
         
@@ -1011,6 +1219,16 @@ workflow_graph_schema = {
             "dst_node_id": "construct_topic_regeneration_prompt",
             "mappings": [
                 {"src_field": "current_regeneration_feedback", "dst_field": "current_regeneration_feedback"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Topic Regeneration Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_topic_regeneration_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
             ]
         },
         
@@ -1061,6 +1279,16 @@ workflow_graph_schema = {
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional Files -> Brief Generation Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_brief_generation_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
             ]
         },
         
@@ -1139,7 +1367,27 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "updated_content_brief", "dst_field": "current_content_brief"},
-                {"src_field": "user_brief_action", "dst_field": "user_brief_action"}            ]
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"},
+                {"src_field": "load_additional_user_files", "dst_field": "brief_hitl_load_additional_user_files"}
+            ]
+        },
+        
+        # Brief HITL -> Transform Brief HITL Additional Files Config
+        {
+            "src_node_id": "brief_approval_hitl",
+            "dst_node_id": "transform_brief_hitl_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform Brief HITL -> Load Brief HITL Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_brief_hitl_additional_files_config",
+            "dst_node_id": "load_brief_hitl_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
+            ]
         },
         
         # --- Brief Approval Router Paths ---
@@ -1239,6 +1487,16 @@ workflow_graph_schema = {
             ]
         },
         
+        # Load Brief HITL Additional Files -> Brief Feedback Prompt (data-only edge)
+        {
+            "src_node_id": "load_brief_hitl_additional_user_files_node",
+            "dst_node_id": "construct_brief_feedback_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
+            ]
+        },
+        
         # Brief Feedback Prompt -> LLM
         {
             "src_node_id": "construct_brief_feedback_prompt",
@@ -1288,6 +1546,16 @@ workflow_graph_schema = {
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
                 {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Brief HITL Additional Files -> Brief Revision Prompt (data-only edge)
+        {
+            "src_node_id": "load_brief_hitl_additional_user_files_node",
+            "dst_node_id": "construct_brief_revision_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
             ]
         },
         
@@ -1595,11 +1863,23 @@ async def main_test_content_brief_workflow():
         ]
     }
     
-    # Test inputs
+    # Test inputs with file loading
     test_inputs = {
         "company_name": test_company_name,
         "user_input": "I've been thinking about writing content around how AI is changing project management. I want to explore how small teams can leverage AI tools without losing the human touch in their workflows. Maybe something about the balance between automation and personal connection in remote teams?",
-        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000"
+        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000",
+        "load_additional_user_files": [
+            {
+                "namespace": "user_research_files",
+                "docname": "project_management_ai_research",
+                "is_shared": False
+            },
+            {
+                "namespace": "user_research_files", 
+                "docname": "remote_team_collaboration_guide",
+                "is_shared": False
+            }
+        ]
     }
     
     # Setup test documents
@@ -1624,6 +1904,107 @@ async def main_test_content_brief_workflow():
             'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
             'initial_version': "default",
             'is_system_entity': False
+        },
+        # Additional user files for input node
+        {
+            'namespace': "user_research_files",
+            'docname': "project_management_ai_research",
+            'initial_data': {
+                "title": "AI in Project Management: Research Insights",
+                "content": "Recent studies show that 73% of project managers report improved efficiency when using AI tools for task automation. Key findings include: 1) AI reduces time spent on status updates by 40%, 2) Automated risk detection catches issues 2.5x faster than manual review, 3) Teams using AI project tools show 25% higher completion rates. However, human oversight remains critical for stakeholder communication and strategic decision-making.",
+                "research_date": "2024-01-15",
+                "source": "Project Management Institute Research"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "remote_team_collaboration_guide",
+            'initial_data': {
+                "title": "Remote Team Collaboration Best Practices",
+                "content": "Effective remote team collaboration requires balancing technology with human connection. Key strategies: 1) Use AI for routine tasks (scheduling, documentation) but maintain human touch for complex problem-solving, 2) Implement 'AI-first, human-verify' workflows for quality assurance, 3) Regular video check-ins preserve team cohesion, 4) AI tools should augment, not replace, human creativity and judgment.",
+                "author": "Remote Work Institute",
+                "publication_date": "2024-02-01"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Topic HITL context files
+        {
+            'namespace': "topic_context_files",
+            'docname': "executive_ai_framework_guide",
+            'initial_data': {
+                "title": "Executive AI Framework Guide",
+                "content": "A comprehensive framework for executives to evaluate AI implementation: 1) Identify repetitive tasks that can be automated (80% of the work), 2) Preserve human judgment for strategic decisions (20% of the work), 3) Implement 'AI-first, human-verify' workflows, 4) Maintain human oversight for stakeholder communication and complex problem-solving.",
+                "framework_sections": ["Task Classification", "Automation Guidelines", "Human Oversight Requirements"],
+                "target_audience": "C-level executives and senior managers"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "topic_context_files",
+            'docname': "remote_leadership_best_practices",
+            'initial_data': {
+                "title": "Remote Leadership Best Practices",
+                "content": "Essential practices for leading remote teams: 1) Use AI for routine coordination but maintain human touch for team building, 2) Implement regular video check-ins to preserve team cohesion, 3) Balance automation with personal connection, 4) Ensure AI tools augment rather than replace human creativity and judgment.",
+                "key_principles": ["Human-AI Balance", "Team Cohesion", "Personal Connection"],
+                "implementation_tips": ["Weekly video standups", "AI-assisted scheduling", "Human-led problem solving"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Brief HITL context files
+        {
+            'namespace': "brief_context_files",
+            'docname': "success_metrics_examples",
+            'initial_data': {
+                "title": "Success Metrics Examples for AI Implementation",
+                "content": "Concrete metrics for measuring AI success in project management: 1) 40% reduction in time spent on status updates, 2) 25% improvement in project completion rates, 3) 2.5x faster risk detection, 4) 73% of project managers report improved efficiency, 5) 20% faster status reporting with AI assistance.",
+                "metric_categories": ["Time Savings", "Quality Improvements", "Efficiency Gains"],
+                "measurement_framework": "Before/after comparisons with baseline metrics"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "concrete_scenario_templates",
+            'initial_data': {
+                "title": "Concrete Scenario Templates for Content",
+                "content": "Template scenarios for illustrating AI-human balance in project management: 1) 'Sarah's Team' - A 12-person remote team using AI for task automation while maintaining human oversight for client communication, 2) 'The 80/20 Rule in Action' - Specific examples of what gets automated vs. what stays human, 3) 'Metrics That Matter' - Real performance improvements from AI implementation.",
+                "scenario_types": ["Team Examples", "Process Illustrations", "Outcome Demonstrations"],
+                "usage_guidelines": "Use specific names, numbers, and outcomes for credibility"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "cta_optimization_examples",
+            'initial_data': {
+                "title": "CTA Optimization Examples",
+                "content": "High-performing call-to-action examples for AI content: 1) 'Download the AI readiness checklist and benchmark your current process' - Outcome-oriented with clear value, 2) 'Get your personalized AI implementation roadmap' - Personalized and actionable, 3) 'Join 500+ project managers using AI effectively' - Social proof with specific numbers.",
+                "cta_principles": ["Outcome-focused", "Actionable", "Value-driven"],
+                "optimization_tips": ["Use specific numbers", "Focus on outcomes", "Make it personal"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
         }
     ]
     
@@ -1642,24 +2023,103 @@ async def main_test_content_brief_workflow():
             'is_shared': False,
             'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
             'is_system_entity': False
+        },
+        # Cleanup additional user files
+        {
+            'namespace': "user_research_files",
+            'docname': "project_management_ai_research",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "remote_team_collaboration_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        # Cleanup topic HITL context files
+        {
+            'namespace': "topic_context_files",
+            'docname': "executive_ai_framework_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "topic_context_files",
+            'docname': "remote_leadership_best_practices",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        # Cleanup brief HITL context files
+        {
+            'namespace': "brief_context_files",
+            'docname': "success_metrics_examples",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "concrete_scenario_templates",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "cta_optimization_examples",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
         }
     ]
     
-    # Predefined HITL inputs - leaving empty to allow for interactive testing
+    # Predefined HITL inputs with file loading at each stage
     predefined_hitl_inputs = [
+        # Topic Selection HITL - with additional context files
         {
             "user_action": "provide_feedback",
             "selected_topic_id": None,
-            "revision_feedback": "Promising directions. Emphasize remote-team collaboration impacts and an exec framework for what to automate vs. where human leadership is essential."
+            "revision_feedback": "Promising directions. Emphasize remote-team collaboration impacts and an exec framework for what to automate vs. where human leadership is essential.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "topic_context_files",
+                    "docname": "executive_ai_framework_guide",
+                    "is_shared": False
+                },
+                {
+                    "namespace": "topic_context_files",
+                    "docname": "remote_leadership_best_practices",
+                    "is_shared": False
+                }
+            ]
         },
         {
             "user_action": "complete",
             "selected_topic_id": "topic_01",
-            "revision_feedback": None
+            "revision_feedback": None,
+            "load_additional_user_files": []
         },
+        # Brief Approval HITL - with additional context files
         {
             "user_brief_action": "provide_feedback",
             "revision_feedback": "Please tighten the hook and add one concrete scenario. Keep the framework but make success metrics more specific.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "success_metrics_examples",
+                    "is_shared": False
+                },
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "concrete_scenario_templates",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework",
@@ -1687,6 +2147,7 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "draft",
             "revision_feedback": None,
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework (Draft V2)",
@@ -1697,6 +2158,13 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "provide_feedback",
             "revision_feedback": "Looks good—make the CTA more outcome-oriented and add a metric example (e.g., 20% faster status reporting).",
+            "load_additional_user_files": [
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "cta_optimization_examples",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework",
@@ -1708,6 +2176,7 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "complete",
             "revision_feedback": None,
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework (Final)",

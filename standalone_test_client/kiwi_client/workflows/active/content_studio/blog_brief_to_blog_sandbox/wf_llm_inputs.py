@@ -129,10 +129,10 @@ For each section in the brief's `content_structure`, you must find and extract:
 You have access to the search_documents tool for finding relevant content in the knowledge base:
 
 **search_documents Tool Usage:**
-- Purpose: Find relevant content using AI-powered search across uploaded blog files and external research reports
+- Purpose: Find relevant content using AI-powered search across uploaded blog files
 - Required inputs:
   - search_query: Your search terms (what you're looking for)
-  - list_filter: Must include ["doc_key": "blog_uploaded_files"] and/or ["doc_key": "external_research_report_doc"]
+  - list_filter: Must include ["doc_key": "blog_uploaded_files"]
 - Returns: Relevant information from the knowledge base
 
 **CRITICAL RULE ABOUT SOURCES:**
@@ -147,7 +147,7 @@ You have access to the search_documents tool for finding relevant content in the
    - Key concepts from section_reasoning
    - Statistics or data points needed
 
-2. Always include the list_filter with doc_key "blog_uploaded_files" and/or "external_research_report_doc"
+2. Always include the list_filter with doc_key "blog_uploaded_files"
 
 3. Extract the relevant information and present it without attribution to specific documents
 
@@ -157,7 +157,7 @@ You have access to the search_documents tool for finding relevant content in the
   "tool_name": "search_documents",
   "tool_input": [
     "search_query": "conversation intelligence ROI metrics time savings",
-    "list_filter": ["doc_key": "blog_uploaded_files", "doc_key": "external_research_report_doc"]
+    "list_filter": ["doc_key": "blog_uploaded_files"]
   ]
 ]
 ```
@@ -386,7 +386,7 @@ For EVERY section in the `content_structure`, you must search and extract:
 
 **Company Context:**
 - Company name: {company_name}
-- Knowledge base: blog_uploaded_files (uploaded company content) and external_research_report_doc (external research reports)
+- Knowledge base: blog_uploaded_files (uploaded company content)
 
 **Search Approach:**
 1. **Section-Focused Searches**: For each content section, create searches that target:
@@ -430,7 +430,7 @@ For each search, use this format:
 - For competitive analysis: "competitor comparison advantages differentiation"
 
 **CRITICAL SEARCH RULES:**
-- Always include `"list_filter": ["doc_key": "blog_uploaded_files", "doc_key": "external_research_report_doc"]` in every search (use curly braces in actual calls)
+- Always include `"list_filter": ["doc_key": "blog_uploaded_files"]` in every search (use curly braces in actual calls)
 - Use specific, targeted search queries based on the brief's section_reasoning
 - Search multiple times with different query variations to find comprehensive content
 - DO NOT reference document names, serial numbers, or file identifiers in your output

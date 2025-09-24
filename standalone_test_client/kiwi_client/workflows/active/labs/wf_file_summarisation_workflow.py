@@ -1,19 +1,19 @@
 """
-On-Demand External Research Workflow
+File Summarization Workflow
 
-This workflow enables comprehensive external research with:
-- Perplexity deep research models for comprehensive web research
-- Automatic research name generation using GPT-5-mini
+This workflow enables comprehensive document summarization with:
+- GPT-5 for intelligent document analysis and summarization
+- Automatic summary name generation using GPT-5-mini
 - UUID-based unique document naming
-- Human-in-the-loop approval for research review and feedback
+- Human-in-the-loop approval for summary review and feedback
 - Iteration limit checking to prevent infinite loops
 - Flexible save configuration for custom document storage
-- Final research report saving with proper document management
+- Final summary report saving with proper document management
 
 Test Configuration:
-- Uses external research document types from the system configuration
-- Creates realistic test data matching the research document schemas
-- Tests various scenarios including research generation, HITL approval, and feedback processing
+- Uses document summary types from the system configuration
+- Creates realistic test data matching the summary document schemas
+- Tests various scenarios including summary generation, HITL approval, and feedback processing
 - Includes proper HITL approval flows and document saving with iteration limits
 """
 
@@ -38,22 +38,22 @@ from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
 # Import document model constants
 from kiwi_client.workflows.active.document_models.customer_docs import (
-    EXTERNAL_RESEARCH_REPORT_NAMESPACE_TEMPLATE,
+    DOCUMENT_SUMMARY_REPORT_NAMESPACE_TEMPLATE,
 )
 
 # Import LLM inputs
-from kiwi_client.workflows.active.labs.llm_inputs.on_demand_external_research import (
+from kiwi_client.workflows.active.labs.llm_inputs.file_summarisation_workflow import (
     # System prompts
-    DEFAULT_RESEARCH_SYSTEM_PROMPT,
-    RESEARCH_NAME_GENERATION_SYSTEM_PROMPT,
+    DEFAULT_SUMMARIZATION_SYSTEM_PROMPT,
+    SUMMARY_NAME_GENERATION_SYSTEM_PROMPT,
     
     # User prompt templates
-    DEFAULT_RESEARCH_USER_PROMPT_TEMPLATE,
-    RESEARCH_NAME_GENERATION_USER_PROMPT_TEMPLATE,
+    DEFAULT_SUMMARIZATION_USER_PROMPT_TEMPLATE,
+    SUMMARY_NAME_GENERATION_USER_PROMPT_TEMPLATE,
     FEEDBACK_REVISION_USER_PROMPT_TEMPLATE,
     
     # Schemas
-    RESEARCH_NAME_OUTPUT_SCHEMA,
+    SUMMARY_NAME_OUTPUT_SCHEMA,
     
     # Code runner configurations
     SAVE_CONFIG_GENERATION_CODE,
@@ -63,16 +63,15 @@ from kiwi_client.workflows.active.labs.llm_inputs.on_demand_external_research im
 MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations
 
 # LLM Providers per task
-PERPLEXITY_LLM_PROVIDER = "perplexity"
-PERPLEXITY_LLM_MODEL = "sonar-pro"
-# NOTE: while replacing this with deep researcher, also modify max tokens in override config!
+GPT_5_PROVIDER = "openai"
+GPT_5_MODEL = "gpt-5"
 GPT_MINI_PROVIDER = "openai"
 GPT_MINI_MODEL = "gpt-5-mini"
 
 # LLM Configuration
 TEMPERATURE = 0.7
 MAX_TOKENS = 8000
-RESEARCH_NAME_MAX_TOKENS = 500
+SUMMARY_NAME_MAX_TOKENS = 500
 
 # Workflow JSON structure
 workflow_graph_schema = {
@@ -84,10 +83,10 @@ workflow_graph_schema = {
             "node_config": {},
             "dynamic_output_schema": {
                 "fields": {
-                    "research_context": {
+                    "summary_context": {
                         "type": "str",
                         "required": True,
-                        "description": "The research topic or context to investigate"
+                        "description": "The context or purpose for the document summarization"
                     },
                     "asset_name": {
                         "type": "str",
@@ -97,25 +96,24 @@ workflow_graph_schema = {
                     "namespace": {
                         "type": "str",
                         "required": False,
-                        "default": EXTERNAL_RESEARCH_REPORT_NAMESPACE_TEMPLATE,
-                        "description": "Optional namespace for saving research report. Use {item} placeholder for asset name insertion"
+                        "default": DOCUMENT_SUMMARY_REPORT_NAMESPACE_TEMPLATE,
+                        "description": "Optional namespace for saving document summary. Use {item} placeholder for asset name insertion"
                     },
                     "docname": {
                         "type": "str", 
                         "required": False,
-                        "description": "Optional docname for saving research report. Use {item} for random UUID suffix insertion"
+                        "description": "Optional docname for saving document summary. Use {item} for random UUID suffix insertion"
                     },
                     "is_shared": {
                         "type": "bool",
                         "required": False,
                         "default": False,
-                        "description": "Optional flag to determine if research report should be shared. Defaults to False"
+                        "description": "Optional flag to determine if document summary should be shared. Defaults to False"
                     },
                     "load_additional_user_files": {
                         "type": "list",
-                        "required": False,
-                        "default": [],
-                        "description": "Optional list of additional user files to load for research context. Each item should have 'namespace', 'docname', and 'is_shared' fields."
+                        "required": True,
+                        "description": "Optional list of additional user files to load for summarization context. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
@@ -146,7 +144,7 @@ workflow_graph_schema = {
             "node_id": "route_docname_check",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["generate_save_config", "construct_research_name_prompt"],
+                "choices": ["generate_save_config", "construct_summary_name_prompt"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
@@ -155,38 +153,38 @@ workflow_graph_schema = {
                         "target_value": True
                     },
                     {
-                        "choice_id": "construct_research_name_prompt",
+                        "choice_id": "construct_summary_name_prompt",
                         "input_path": "tag_results.docname_provided",
                         "target_value": False
                     }
                 ],
-                "default_choice": "construct_research_name_prompt"
+                "default_choice": "construct_summary_name_prompt"
             }
         },
         
-        # 4. Construct Research Name Prompt
-        "construct_research_name_prompt": {
-            "node_id": "construct_research_name_prompt",
+        # 4. Construct Summary Name Prompt
+        "construct_summary_name_prompt": {
+            "node_id": "construct_summary_name_prompt",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
-                    "research_name_user_prompt": {
-                        "id": "research_name_user_prompt",
-                        "template": RESEARCH_NAME_GENERATION_USER_PROMPT_TEMPLATE,
+                    "summary_name_user_prompt": {
+                        "id": "summary_name_user_prompt",
+                        "template": SUMMARY_NAME_GENERATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "research_context": None
+                            "summary_context": None
                         },
                         "construct_options": {
-                            "research_context": "research_context"
+                            "summary_context": "summary_context"
                         }
                     }
                 }
             }
         },
 
-        # 5. Generate Research Name (GPT-5-mini with structured output)
-        "generate_research_name": {
-            "node_id": "generate_research_name",
+        # 5. Generate Summary Name (GPT-5-mini with structured output)
+        "generate_summary_name": {
+            "node_id": "generate_summary_name",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -195,12 +193,12 @@ workflow_graph_schema = {
                         "model": GPT_MINI_MODEL
                     },
                     "temperature": TEMPERATURE,
-                    "max_tokens": RESEARCH_NAME_MAX_TOKENS,
+                    "max_tokens": SUMMARY_NAME_MAX_TOKENS,
                     "reasoning_effort_class": "low",  # low, medium, high
                 },
-                "default_system_prompt": RESEARCH_NAME_GENERATION_SYSTEM_PROMPT,
+                "default_system_prompt": SUMMARY_NAME_GENERATION_SYSTEM_PROMPT,
                 "output_schema": {
-                    "schema_definition": RESEARCH_NAME_OUTPUT_SCHEMA,
+                    "schema_definition": SUMMARY_NAME_OUTPUT_SCHEMA,
                     "convert_loaded_schema_to_pydantic": False,
                 }
             }
@@ -245,22 +243,22 @@ workflow_graph_schema = {
             }
         },
         
-        # 7. Construct Research Prompt
-        "construct_research_prompt": {
-            "node_id": "construct_research_prompt",
+        # 7. Construct Summary Prompt
+        "construct_summary_prompt": {
+            "node_id": "construct_summary_prompt",
             "node_name": "prompt_constructor",
             "defer_node": True,
             "node_config": {
                 "prompt_templates": {
-                    "research_user_prompt": {
-                        "id": "research_user_prompt",
-                        "template": DEFAULT_RESEARCH_USER_PROMPT_TEMPLATE,
+                    "summary_user_prompt": {
+                        "id": "summary_user_prompt",
+                        "template": DEFAULT_SUMMARIZATION_USER_PROMPT_TEMPLATE,
                         "variables": {
-                            "research_context": None,
+                            "summary_context": None,
                             "additional_user_files": ""
                         },
                         "construct_options": {
-                            "research_context": "research_context",
+                            "summary_context": "summary_context",
                             "additional_user_files": "additional_user_files"
                         }
                     }
@@ -290,35 +288,35 @@ workflow_graph_schema = {
             },
         },
 
-        # 9. Conduct Deep Research with Perplexity
-        "conduct_research": {
-            "node_id": "conduct_research",
+        # 9. Conduct Document Summarization with GPT-5
+        "conduct_summarization": {
+            "node_id": "conduct_summarization",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
                     "model_spec": {
-                        "provider": PERPLEXITY_LLM_PROVIDER,
-                        "model": PERPLEXITY_LLM_MODEL
+                        "provider": GPT_5_PROVIDER,
+                        "model": GPT_5_MODEL
                     },
                     "temperature": TEMPERATURE,
                     "max_tokens": MAX_TOKENS
                 },
-                "default_system_prompt": DEFAULT_RESEARCH_SYSTEM_PROMPT,
+                "default_system_prompt": DEFAULT_SUMMARIZATION_SYSTEM_PROMPT,
             }
         },
         
-        # 10. Save Research Draft
-        "save_research_draft": {
-            "node_id": "save_research_draft",
+        # 10. Save Summary Draft
+        "save_summary_draft": {
+            "node_id": "save_summary_draft",
             "node_name": "store_customer_data",
             "node_config": {
                 "store_configs_input_path": "save_config",
             }
         },
         
-        # 11. HITL Research Approval
-        "research_approval": {
-            "node_id": "research_approval",
+        # 11. HITL Summary Approval
+        "summary_approval": {
+            "node_id": "summary_approval",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -327,26 +325,26 @@ workflow_graph_schema = {
                         "type": "enum",
                         "enum_values": ["approve", "request_revisions", "cancel"],
                         "required": True,
-                        "description": "User's decision on the research report"
+                        "description": "User's decision on the document summary"
                     },
                     "revision_feedback": {
                         "type": "str",
                         "required": False,
-                        "description": "Feedback for research improvements (required if action is request_revisions)"
+                        "description": "Feedback for summary improvements (required if action is request_revisions)"
                     },
                     "load_additional_user_files": {
                         "type": "list",
                         "required": False,
                         "default": [],
-                        "description": "Optional list of additional user files to load for research feedback analysis. Each item should have 'namespace', 'docname', and 'is_shared' fields."
+                        "description": "Optional list of additional user files to load for summary feedback analysis. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
         # 12. Route from HITL approval
-        "route_research_approval": {
-            "node_id": "route_research_approval",
+        "route_summary_approval": {
+            "node_id": "route_summary_approval",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["check_iteration_limit", "output_node"],  # "save_final_research", 
@@ -419,14 +417,6 @@ workflow_graph_schema = {
             }
         },
         
-        # # 15. Save Final Research
-        # "save_final_research": {
-        #     "node_id": "save_final_research",
-        #     "node_name": "store_customer_data",
-        #     "node_config": {
-        #         "store_configs_input_path": "save_config",
-        #     }
-        # },
         
         # 15. Transform HITL Additional Files Format
         "transform_hitl_additional_files_config": {
@@ -468,7 +458,7 @@ workflow_graph_schema = {
             "src_node_id": "input_node",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "research_context", "dst_field": "research_context"},
+                {"src_field": "summary_context", "dst_field": "summary_context"},
                 {"src_field": "asset_name", "dst_field": "asset_name"},
                 {"src_field": "namespace", "dst_field": "namespace"},
                 {"src_field": "docname", "dst_field": "docname"},
@@ -516,33 +506,33 @@ workflow_graph_schema = {
         # Route -> Construct research name prompt
         {
             "src_node_id": "route_docname_check",
-            "dst_node_id": "construct_research_name_prompt"
+            "dst_node_id": "construct_summary_name_prompt"
         },
         
         # State -> Construct research name prompt
         {
             "src_node_id": "$graph_state",
-            "dst_node_id": "construct_research_name_prompt",
+            "dst_node_id": "construct_summary_name_prompt",
             "mappings": [
-                {"src_field": "research_context", "dst_field": "research_context"}
+                {"src_field": "summary_context", "dst_field": "summary_context"}
             ]
         },
 
         # Construct research name prompt -> Generate research name
         {
-            "src_node_id": "construct_research_name_prompt",
-            "dst_node_id": "generate_research_name",
+            "src_node_id": "construct_summary_name_prompt",
+            "dst_node_id": "generate_summary_name",
             "mappings": [
-                {"src_field": "research_name_user_prompt", "dst_field": "user_prompt"}
+                {"src_field": "summary_name_user_prompt", "dst_field": "user_prompt"}
             ]
         },
         
         # Generate research name -> Generate save config
         {
-            "src_node_id": "generate_research_name",
+            "src_node_id": "generate_summary_name",
             "dst_node_id": "generate_save_config",
             "mappings": [
-                {"src_field": "structured_output.research_name", "dst_field": "input_data.research_name"}
+                {"src_field": "structured_output.summary_name", "dst_field": "input_data.summary_name"}
             ]
         },
         
@@ -568,10 +558,10 @@ workflow_graph_schema = {
             ]
         },
         
-        # Generate save config -> Construct research prompt
+        # Generate save config -> Construct summary prompt
         {
             "src_node_id": "generate_save_config",
-            "dst_node_id": "construct_research_prompt"
+            "dst_node_id": "construct_summary_prompt"
         },
         
         # Route -> Generate save config (when docname is provided)
@@ -580,90 +570,89 @@ workflow_graph_schema = {
             "dst_node_id": "generate_save_config"
         },
         
-        # Load additional files -> Construct research prompt (pass additional files data)
+        # Load additional files -> Construct summary prompt (pass additional files data)
         {
             "src_node_id": "load_additional_user_files_node",
-            "dst_node_id": "construct_research_prompt",
+            "dst_node_id": "construct_summary_prompt",
             "data_only_edge": True,
             "mappings": [
                 {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
             ]
         },
         
-        # State -> Construct research prompt
+        # State -> Construct summary prompt
         {
             "src_node_id": "$graph_state",
-            "dst_node_id": "construct_research_prompt",
+            "dst_node_id": "construct_summary_prompt",
             "mappings": [
-                {"src_field": "research_context", "dst_field": "research_context"},
+                {"src_field": "summary_context", "dst_field": "summary_context"},
                 {"src_field": "revision_feedback", "dst_field": "revision_feedback"}
             ]
         },
         
-        # Construct research prompt -> Conduct research
+        # Construct summary prompt -> Conduct summarization
         {
-            "src_node_id": "construct_research_prompt",
-            "dst_node_id": "conduct_research",
+            "src_node_id": "construct_summary_prompt",
+            "dst_node_id": "conduct_summarization",
             "mappings": [
-                {"src_field": "research_user_prompt", "dst_field": "user_prompt"}
+                {"src_field": "summary_user_prompt", "dst_field": "user_prompt"}
             ]
         },
         
-        # State -> Conduct research
+        # State -> Conduct summarization
         {
             "src_node_id": "$graph_state",
-            "dst_node_id": "conduct_research",
+            "dst_node_id": "conduct_summarization",
             "mappings": [
                 {"src_field": "messages_history", "dst_field": "messages_history"}
             ]
         },
         
-        # Conduct research -> State (store research results and metadata)
+        # Conduct summarization -> State (store summary results and metadata)
         {
-            "src_node_id": "conduct_research",
+            "src_node_id": "conduct_summarization",
             "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "text_content", "dst_field": "research_content.report"},
+                {"src_field": "text_content", "dst_field": "summary_content.report"},
                 {"src_field": "current_messages", "dst_field": "messages_history"},
-                {"src_field": "metadata", "dst_field": "generation_metadata"},
-                {"src_field": "web_search_result", "dst_field": "research_content.citations"}
+                {"src_field": "metadata", "dst_field": "generation_metadata"}
             ]
         },
         
-        # Conduct research -> Save research draft
+        # Conduct summarization -> Save summary draft
         {
-            "src_node_id": "conduct_research",
-            "dst_node_id": "save_research_draft"
+            "src_node_id": "conduct_summarization",
+            "dst_node_id": "save_summary_draft"
         },
         
-        # State -> Save research draft (provide save config and research content)
+        # State -> Save summary draft (provide save config and summary content)
         {
             "src_node_id": "$graph_state",
-            "dst_node_id": "save_research_draft",
+            "dst_node_id": "save_summary_draft",
             "mappings": [
                 {"src_field": "save_config", "dst_field": "save_config"},
-                {"src_field": "research_content", "dst_field": "research_content"}
+                {"src_field": "summary_content", "dst_field": "summary_content"}
             ]
         },
         
-        # Save research draft -> HITL approval
+        # Save summary draft -> HITL approval
         {
-            "src_node_id": "save_research_draft",
-            "dst_node_id": "research_approval"
+            "src_node_id": "save_summary_draft",
+            "dst_node_id": "summary_approval"
         },
         
         # State -> HITL approval
         {
             "src_node_id": "$graph_state",
-            "dst_node_id": "research_approval",
+            "dst_node_id": "summary_approval",
             "mappings": [
-                {"src_field": "research_content", "dst_field": "research_content"}
+                {"src_field": "summary_content", "dst_field": "summary_content"}
             ]
         },
         
         # HITL approval -> State (store user feedback)
         {
-            "src_node_id": "research_approval",
+            "src_node_id": "summary_approval",
             "dst_node_id": "$graph_state",
             "mappings": [
                 {"src_field": "revision_feedback", "dst_field": "revision_feedback"},
@@ -674,7 +663,7 @@ workflow_graph_schema = {
         
         # HITL approval -> Transform HITL Additional Files Config
         {
-            "src_node_id": "research_approval",
+            "src_node_id": "summary_approval",
             "dst_node_id": "transform_hitl_additional_files_config",
             "mappings": [
                 {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
@@ -690,34 +679,18 @@ workflow_graph_schema = {
             ]
         },
         
-        # HITL approval -> Route research approval
+        # HITL approval -> Route summary approval
         {
-            "src_node_id": "research_approval",
-            "dst_node_id": "route_research_approval",
+            "src_node_id": "summary_approval",
+            "dst_node_id": "route_summary_approval",
             "mappings": [
                 {"src_field": "user_action", "dst_field": "user_action"}
             ]
         },
         
-        # # Route -> Save final research
-        # {
-        #     "src_node_id": "route_research_approval",
-        #     "dst_node_id": "save_final_research"
-        # },
-        
-        # # State -> Save final research (provide save config and research content)
-        # {
-        #     "src_node_id": "$graph_state",
-        #     "dst_node_id": "save_final_research",
-        #     "mappings": [
-        #         {"src_field": "save_config", "dst_field": "save_config"},
-        #         {"src_field": "research_content", "dst_field": "research_content"}
-        #     ]
-        # },
-        
         # Route -> Check iteration limit
         {
-            "src_node_id": "route_research_approval",
+            "src_node_id": "route_summary_approval",
             "dst_node_id": "check_iteration_limit"
         },
         
@@ -770,10 +743,10 @@ workflow_graph_schema = {
             ]
         },
 
-        # Construct feedback prompt -> Conduct research (revision loop)
+        # Construct feedback prompt -> Conduct summarization (revision loop)
         {
             "src_node_id": "construct_feedback_prompt",
-            "dst_node_id": "conduct_research",
+            "dst_node_id": "conduct_summarization",
             "mappings": [
                 {"src_field": "revision_user_prompt", "dst_field": "user_prompt"}
             ]
@@ -781,7 +754,7 @@ workflow_graph_schema = {
         
         # Route -> Output node (multiple paths)
         {
-            "src_node_id": "route_research_approval",
+            "src_node_id": "route_summary_approval",
             "dst_node_id": "output_node"
         },
         
@@ -790,13 +763,13 @@ workflow_graph_schema = {
             "dst_node_id": "output_node"
         },
         
-        # Save final research -> Output node
+        # Save final summary -> Output node
         {
-            "src_node_id": "save_research_draft",
+            "src_node_id": "save_summary_draft",
             "dst_node_id": "output_node",
             "data_only_edge": True,
             "mappings": [
-                {"src_field": "paths_processed", "dst_field": "final_research_paths"}
+                {"src_field": "paths_processed", "dst_field": "final_summary_paths"}
             ]
         },
 
@@ -804,7 +777,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "output_node",
             "mappings": [
-                {"src_field": "research_content", "dst_field": "research_content"}
+                {"src_field": "summary_content", "dst_field": "summary_content"}
             ]
         }
     ],
@@ -823,25 +796,25 @@ workflow_graph_schema = {
 }
 
 # Helper function to prepare store configs
-def prepare_store_configs(save_config: Dict[str, Any], generated_docname: Optional[str] = None, research_content: str = "") -> List[Dict[str, Any]]:
+def prepare_store_configs(save_config: Dict[str, Any], generated_docname: Optional[str] = None, summary_content: str = "") -> List[Dict[str, Any]]:
     """
     Prepare store configurations for saving research data.
     
     Args:
         save_config: User provided save configuration
         generated_docname: Generated docname if not provided in save_config
-        research_content: The research content to save
+        summary_content: The research content to save
         
     Returns:
         List of store config dictionaries
     """
     # Use provided values or defaults
-    namespace = save_config.get("namespace") or EXTERNAL_RESEARCH_REPORT_NAMESPACE_TEMPLATE.replace("{item}", "default")
-    docname = save_config.get("docname") or generated_docname or "research_report"
+    namespace = save_config.get("namespace") or DOCUMENT_SUMMARY_REPORT_NAMESPACE_TEMPLATE.replace("{item}", "default")
+    docname = save_config.get("docname") or generated_docname or "document_summary"
     is_shared = save_config.get("is_shared", False)
     
     store_config = {
-        "input_field_path": "research_content",
+        "input_field_path": "summary_content",
         "target_path": {
             "filename_config": {
                 "static_namespace": namespace,
@@ -859,9 +832,9 @@ def prepare_store_configs(save_config: Dict[str, Any], generated_docname: Option
     return [store_config]
 
 # Validation function for research workflow output
-async def validate_external_research_output(outputs: Optional[Dict[str, Any]]) -> bool:
+async def validate_file_summarization_output(outputs: Optional[Dict[str, Any]]) -> bool:
     """
-    Validate the external research workflow outputs.
+    Validate the file summarization workflow outputs.
     
     Args:
         outputs: The dictionary of final outputs from the workflow run.
@@ -870,52 +843,45 @@ async def validate_external_research_output(outputs: Optional[Dict[str, Any]]) -
         True if the outputs are valid, False otherwise.
     """
     assert outputs is not None, "Validation Failed: Workflow returned no outputs."
-    logger.info("Validating external research workflow outputs...")
+    logger.info("Validating file summarization workflow outputs...")
     
-    # Check if research was completed and saved
-    final_research_paths = outputs.get('final_research_paths')
-    if final_research_paths:
-        logger.info("✓ Research was successfully completed and saved")
-        assert isinstance(final_research_paths, list), "Validation Failed: final_research_paths should be a list."
-        logger.info(f"   Research saved to: {final_research_paths}")
+    # Check if summary was completed and saved
+    final_summary_paths = outputs.get('final_summary_paths')
+    if final_summary_paths:
+        logger.info("✓ Summary was successfully completed and saved")
+        assert isinstance(final_summary_paths, list), "Validation Failed: final_summary_paths should be a list."
+        logger.info(f"   Summary saved to: {final_summary_paths}")
     
-    # Check for research content in outputs
-    research_content = outputs.get('research_content')
-    if research_content:
-        logger.info(f"✓ Research content available: {len(research_content)} characters")
+    # Check for summary content in outputs
+    summary_content = outputs.get('summary_content')
+    if summary_content:
+        logger.info(f"✓ Summary content available: {len(summary_content)} characters")
     
-    # Check for web search results
-    web_search_result = research_content.get('web_search_result')
-    if web_search_result:
-        logger.info("✓ Web search was conducted during research")
-        if 'citations' in web_search_result and web_search_result['citations']:
-            logger.info(f"✓ Citations found: {len(web_search_result['citations'])} sources")
-    
-    logger.info("✓ External research workflow validation passed.")
+    logger.info("✓ File summarization workflow validation passed.")
     
     return True
 
 # Test function
-async def main_test_external_research():
+async def main_test_file_summarization():
     """
-    Test the On-Demand External Research Workflow.
+    Test the File Summarization Workflow.
     """
-    test_name = "On-Demand External Research Workflow Test"
+    test_name = "File Summarization Workflow Test"
     print(f"\n--- Starting {test_name} ---")
     
     # Test scenarios
     test_scenario = {
-        "name": "AI Impact on Healthcare Research",
+        "name": "AI Impact on Healthcare Document Summary",
         "initial_inputs": {
-            "research_context": "Analyze the impact of artificial intelligence on healthcare diagnostics and patient care in 2024. Focus on recent breakthroughs, adoption challenges, regulatory considerations, and future implications for medical professionals.",
+            "summary_context": "Analyze the impact of artificial intelligence on healthcare diagnostics and patient care in 2024. Focus on recent breakthroughs, adoption challenges, regulatory considerations, and future implications for medical professionals.",
             "asset_name": "healthcare_ai_2024",
-            "namespace": "external_research_reports_healthcare_{item}",  # Will replace {item} with asset_name
+            "namespace": "document_summary_reports_healthcare_{item}",  # Will replace {item} with asset_name
             # "docname": "ai_healthcare_impact_2024_research",  # Commented out to test auto-generation
             "is_shared": False,
             # Example of optional additional user files to load during research
             "load_additional_user_files": [
                 {
-                    "namespace": "research_context_files_healthcare",
+                    "namespace": "summary_context_files_healthcare",
                     "docname": "ai_diagnostic_trends_2024",
                     "is_shared": False
                 }
@@ -932,7 +898,7 @@ async def main_test_external_research():
             # Example of optional additional user files to load for feedback analysis
             "load_additional_user_files": [
                 {
-                    "namespace": "research_context_files_healthcare", 
+                    "namespace": "summary_context_files_healthcare", 
                     "docname": "fda_ai_medical_devices_2024",
                     "is_shared": False
                 }
@@ -950,7 +916,7 @@ async def main_test_external_research():
     setup_docs: List[SetupDocInfo] = [
         # Initial additional context file
         {
-            'namespace': "research_context_files_healthcare",
+            'namespace': "summary_context_files_healthcare",
             'docname': "ai_diagnostic_trends_2024",
             'initial_data': {
                 "title": "AI Diagnostic Trends 2024",
@@ -973,7 +939,7 @@ async def main_test_external_research():
         },
         # HITL feedback additional context file
         {
-            'namespace': "research_context_files_healthcare",
+            'namespace': "summary_context_files_healthcare",
             'docname': "fda_ai_medical_devices_2024",
             'initial_data': {
                 "title": "FDA AI Medical Device Regulations 2024",
@@ -1002,14 +968,14 @@ async def main_test_external_research():
     ]
     cleanup_docs: List[CleanupDocInfo] = [
         {
-            'namespace': "research_context_files_healthcare",
+            'namespace': "summary_context_files_healthcare",
             'docname': "ai_diagnostic_trends_2024",
             'is_shared': False,
             'is_versioned': False,
             'is_system_entity': False
         },
         {
-            'namespace': "research_context_files_healthcare",
+            'namespace': "summary_context_files_healthcare",
             'docname': "fda_ai_medical_devices_2024",
             'is_shared': False,
             'is_versioned': False,
@@ -1029,25 +995,21 @@ async def main_test_external_research():
             setup_docs=setup_docs,
             cleanup_docs=cleanup_docs,
             cleanup_docs_created_by_setup=False,
-            validate_output_func=validate_external_research_output,
+            validate_output_func=validate_file_summarization_output,
             stream_intermediate_results=True,
             poll_interval_sec=3,
-            timeout_sec=1800  # 30 minutes for comprehensive research
+            timeout_sec=1800  # 30 minutes for comprehensive summarization
         )
         
         # Display results
         if final_outputs:
             print(f"\nTest Results:")
-            research_content = final_outputs.get('research_content', '')
-            print(f"Research Content Length: {len(research_content)} characters")
+            summary_content = final_outputs.get('summary_content', '')
+            print(f"Summary Content Length: {len(summary_content)} characters")
             
-            web_search_result = final_outputs.get('web_search_result', {})
-            citations = web_search_result.get('citations', [])
-            print(f"Sources Cited: {len(citations)}")
-            
-            if final_outputs.get('final_research_paths'):
-                print("✓ Research report was successfully saved")
-                print(f"Saved to: {final_outputs.get('final_research_paths')}")
+            if final_outputs.get('final_summary_paths'):
+                print("✓ Summary report was successfully saved")
+                print(f"Saved to: {final_outputs.get('final_summary_paths')}")
         
     except Exception as e:
         logger.error(f"Test failed: {e}")
@@ -1059,11 +1021,11 @@ async def main_test_external_research():
 # Entry point
 if __name__ == "__main__":
     print("="*60)
-    print("On-Demand External Research Workflow Test")
+    print("File Summarization Workflow Test")
     print("="*60)
     
     try:
-        asyncio.run(main_test_external_research())
+        asyncio.run(main_test_file_summarization())
     except KeyboardInterrupt:
         print("\nTest interrupted by user.")
     except Exception as e:

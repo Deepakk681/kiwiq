@@ -742,6 +742,11 @@ async def main():
         #     "workflow_key": "external_research_workflow",
         #     "module_path": "kiwi_client.workflows.active.labs.wf_on_demand_external_research",
         # },
+
+        {
+            "workflow_key": "blog_aeo_seo_scoring_workflow",
+            "module_path": "kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_blog_aeo_seo_scoring_json",
+        }
     ]
     
     try:

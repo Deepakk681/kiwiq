@@ -138,58 +138,7 @@ workflow_graph_schema = {
             }
         },
 
-        # --- 3.5. Route Based on Content Sufficiency ---
-        "route_content_path": {
-            "node_id": "route_content_path",
-            "node_name": "router_node",
-            "node_config": {
-                "choices": ["merge_document_lists", "construct_perplexity_research_prompt"],
-                "allow_multiple": False,
-                "default_choice": "merge_document_lists",
-                "choices_with_conditions": [
-                    {
-                        "choice_id": "construct_perplexity_research_prompt",
-                        "input_path": "has_insufficient_blog_and_page_count",
-                        "target_value": False
-                    },
-                    {
-                        "choice_id": "merge_document_lists",
-                        "input_path": "has_insufficient_blog_and_page_count",
-                        "target_value": True
-                    }
-                ]
-            }
-        },
-
-        # --- 3.6. Merge Document Lists (for insufficient content path) ---
-        "merge_document_lists": {
-            "node_id": "merge_document_lists",
-            "node_name": "merge_aggregate",
-            "node_config": {
-                "operations": [
-                    {
-                        "output_field_name": "all_documnents",
-                        "select_paths": [
-                            "company_documents",  # List from load_company_documents
-                            "scraped_data"    # List from input (if provided)
-                        ],
-                        "merge_each_object_in_selected_list": False,  # Treat lists as atomic items
-                        "merge_strategy": {
-                            "reduce_phase": {
-                                "default_reducer": "combine_in_list"  # Combine both lists
-                            },
-                            "post_merge_transformations": {
-                                "flatten_all": {
-                                    "operation_type": "recursive_flatten_list"  # Flatten [[docs1], [docs2]] to [docs1, docs2]
-                                }
-                            }
-                        }
-                    }
-                ]
-            }
-        },
-
-        # --- 3.7. Construct Perplexity Research Prompt (for sufficient content path) ---
+                # --- 3.7. Construct Perplexity Research Prompt (for sufficient content path) ---
         "construct_perplexity_research_prompt": {
             "node_id": "construct_perplexity_research_prompt",
             "node_name": "prompt_constructor",
@@ -231,6 +180,57 @@ workflow_graph_schema = {
                     "schema_definition": PERPLEXITY_COMPANY_RESEARCH_OUTPUT_SCHEMA,
                     "convert_loaded_schema_to_pydantic": False
                 }
+            }
+        },
+
+        # --- 3.5. Route Based on Content Sufficiency ---
+        "route_content_path": {
+            "node_id": "route_content_path",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["merge_document_lists", "batch_company_documents"],
+                "allow_multiple": False,
+                "default_choice": "merge_document_lists",
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "batch_company_documents",
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": False
+                    },
+                    {
+                        "choice_id": "merge_document_lists",
+                        "input_path": "has_insufficient_blog_and_page_count",
+                        "target_value": True
+                    }
+                ]
+            }
+        },
+
+        # --- 3.6. Merge Document Lists (for insufficient content path) ---
+        "merge_document_lists": {
+            "node_id": "merge_document_lists",
+            "node_name": "merge_aggregate",
+            "node_config": {
+                "operations": [
+                    {
+                        "output_field_name": "all_documnents",
+                        "select_paths": [
+                            "company_documents",  # List from load_company_documents
+                            "scraped_data"    # List from input (if provided)
+                        ],
+                        "merge_each_object_in_selected_list": False,  # Treat lists as atomic items
+                        "merge_strategy": {
+                            "reduce_phase": {
+                                "default_reducer": "combine_in_list"  # Combine both lists
+                            },
+                            "post_merge_transformations": {
+                                "flatten_all": {
+                                    "operation_type": "recursive_flatten_list"  # Flatten [[docs1], [docs2]] to [docs1, docs2]
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         },
 
@@ -626,7 +626,24 @@ workflow_graph_schema = {
         ]},
 
         # Flow to router node
-        {"src_node_id": "load_company_context", "dst_node_id": "route_content_path", "mappings": []},
+        {"src_node_id": "load_company_context", "dst_node_id": "construct_perplexity_research_prompt", "mappings": []},
+
+                # Pass company_context to construct_perplexity_research_prompt (sufficient content path)
+        {"src_node_id": "$graph_state", "dst_node_id": "construct_perplexity_research_prompt", "mappings": [
+            {"src_field": "company_context", "dst_field": "company_context"}
+        ]},
+
+                # Perplexity research flow (sufficient content path)
+        {"src_node_id": "construct_perplexity_research_prompt", "dst_node_id": "execute_perplexity_research", "mappings": [
+            {"src_field": "perplexity_user_prompt", "dst_field": "user_prompt"},
+            {"src_field": "perplexity_system_prompt", "dst_field": "system_prompt"}
+        ]},
+        {"src_node_id": "execute_perplexity_research", "dst_node_id": "$graph_state", "mappings": [
+            {"src_field": "structured_output", "dst_field": "perplexity_research"}
+        ]},
+
+        {"src_node_id": "execute_perplexity_research", "dst_node_id": "route_content_path", "mappings": []},
+
 
         # Pass has_insufficient_blog_and_page_count to router
         {"src_node_id": "$graph_state", "dst_node_id": "route_content_path", "mappings": [
@@ -637,7 +654,7 @@ workflow_graph_schema = {
         {"src_node_id": "route_content_path", "dst_node_id": "merge_document_lists", "mappings": []},
 
         # Router to construct_perplexity_research_prompt (sufficient content path)
-        {"src_node_id": "route_content_path", "dst_node_id": "construct_perplexity_research_prompt", "mappings": []},
+        {"src_node_id": "route_content_path", "dst_node_id": "batch_company_documents", "mappings": []},
 
         # Pass company_documents and scraped_data to merge node (insufficient content path)
         {"src_node_id": "$graph_state", "dst_node_id": "merge_document_lists", "mappings": [
@@ -645,23 +662,9 @@ workflow_graph_schema = {
             {"src_field": "scraped_data", "dst_field": "scraped_data"}
         ]},
 
-        # Pass company_context to construct_perplexity_research_prompt (sufficient content path)
-        {"src_node_id": "$graph_state", "dst_node_id": "construct_perplexity_research_prompt", "mappings": [
-            {"src_field": "company_context", "dst_field": "company_context"}
-        ]},
-
         # Store documents in state
         {"src_node_id": "merge_document_lists", "dst_node_id": "$graph_state", "mappings": [
             {"src_field": "merged_data", "dst_field": "merged_data"}
-        ]},
-
-        # Perplexity research flow (sufficient content path)
-        {"src_node_id": "construct_perplexity_research_prompt", "dst_node_id": "execute_perplexity_research", "mappings": [
-            {"src_field": "perplexity_user_prompt", "dst_field": "user_prompt"},
-            {"src_field": "perplexity_system_prompt", "dst_field": "system_prompt"}
-        ]},
-        {"src_node_id": "execute_perplexity_research", "dst_node_id": "$graph_state", "mappings": [
-            {"src_field": "structured_output", "dst_field": "perplexity_research"}
         ]},
         
         # Flow to batch documents - Insufficient content path
@@ -670,8 +673,7 @@ workflow_graph_schema = {
             {"src_field": "merged_data", "dst_field": "merged_data"}
         ]},
 
-        # Flow to batch documents - Sufficient content path  
-        {"src_node_id": "execute_perplexity_research", "dst_node_id": "batch_company_documents", "mappings": []},
+        # Flow to batch documents - Sufficient content path          
         {"src_node_id": "$graph_state", "dst_node_id": "batch_company_documents", "mappings": [
             {"src_field": "company_documents", "dst_field": "company_documents"}
         ]},

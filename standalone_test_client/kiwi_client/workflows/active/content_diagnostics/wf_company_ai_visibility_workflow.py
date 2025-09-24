@@ -24,7 +24,8 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_COMPANY_AI_VISIBILITY_TEST_DOCNAME,
     BLOG_COMPANY_AI_VISIBILITY_TEST_NAMESPACE_TEMPLATE,
     BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME,
-    BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE
+    BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+    BLOG_AI_VISIBILITY_RAW_DATA_NAMESPACE
 )
 
 from kiwi_client.workflows.active.content_diagnostics.llm_inputs.company_ai_visibility import (
@@ -222,7 +223,7 @@ workflow_graph_schema = {
                         "input_field_path": "query_results",
                         "target_path": {
                             "filename_config": {
-                                "input_namespace_field_pattern": BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+                                "input_namespace_field_pattern": BLOG_AI_VISIBILITY_RAW_DATA_NAMESPACE,
                                 "input_namespace_field": "company_name",
                                 "static_docname": BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME
                             }
@@ -244,7 +245,7 @@ workflow_graph_schema = {
                         "input_field_path": "query_results",
                         "target_path": {
                             "filename_config": {
-                                "input_namespace_field_pattern": BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
+                                "input_namespace_field_pattern": BLOG_AI_VISIBILITY_RAW_DATA_NAMESPACE,
                                 "input_namespace_field": "company_name",
                                 "static_docname": BLOG_AI_VISIBILITY_RAW_DATA_DOCNAME
                             }

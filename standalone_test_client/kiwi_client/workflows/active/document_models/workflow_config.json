@@ -1,437 +1,470 @@
 {
-    "all_workflows": {
-      "linkedin_linkedin_scraping_workflow": {
-        "name": "linkedin_linkedin_scraping_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "entity_url": null
-        },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
+  "all_workflows": {
+    "linkedin_linkedin_scraping_workflow": {
+      "name": "linkedin_linkedin_scraping_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "entity_url": null
       },
-      "linkedin_linkedin_content_analysis_workflow": {
-        "name": "linkedin_linkedin_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
-        },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
+      "user_documents_config_variables": {
       },
-      "linkedin_content_strategy_workflow": {
-        "name": "linkedin_content_strategy_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
+      "template_specific": false
+    },
+    "linkedin_linkedin_content_analysis_workflow": {
+      "name": "linkedin_linkedin_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
       },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
+      "user_documents_config_variables": {
       },
-      "linkedin_user_dna_workflow": {
-        "name": "linkedin_user_dna_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
+      "template_specific": false
+    },
+    "linkedin_content_strategy_workflow": {
+      "name": "linkedin_content_strategy_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+    },
+      "user_documents_config_variables": {
       },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
+      "template_specific": false
+    },
+    "linkedin_user_dna_workflow": {
+      "name": "linkedin_user_dna_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+    },
+      "user_documents_config_variables": {
       },
-      "linkedin_content_calendar_entry_workflow": {
-        "name": "linkedin_content_calendar_entry_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "weeks_to_generate": 1,
-          "past_context_posts_limit": 20
+      "template_specific": false
+    },
+    "linkedin_content_calendar_entry_workflow": {
+      "name": "linkedin_content_calendar_entry_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "weeks_to_generate": 1,
+        "past_context_posts_limit": 20
+    },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_alternate_text_suggestion_workflow": {
+      "name": "linkedin_alternate_text_suggestion_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "selected_text": null,
+        "complete_content_doc": null,
+        "user_feedback": null
+    },
+      "user_documents_config_variables": {
       },
-        "user_documents_config_variables": {},
-        "template_specific": false
+      "template_specific": false
+    },
+    "blog_alternate_text_suggestion_workflow": {
+      "name": "blog_alternate_text_suggestion_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "selected_text": null,
+        "complete_content_doc": null,
+        "user_feedback": null
       },
-      "linkedin_alternate_text_suggestion_workflow": {
-        "name": "linkedin_alternate_text_suggestion_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "selected_text": null,
-          "complete_content_doc": null,
-          "user_feedback": null
+      "user_documents_config_variables": {
       },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
-      },
-      "blog_alternate_text_suggestion_workflow": {
-        "name": "blog_alternate_text_suggestion_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "selected_text": null,
-          "complete_content_doc": null,
-          "user_feedback": null
-        },
-        "user_documents_config_variables": {
-        },
-        "template_specific": false
-      },
-      "blog_user_input_to_brief_workflow": {
-        "name": "blog_user_input_to_brief_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "user_input": null,
-          "brief_uuid": null,
-          "initial_status": "draft"
-         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_brief_to_blog_draft_workflow": {
-        "name": "blog_brief_to_blog_draft_workflow",
-        "version": null,
-        "inputs": {
-            "post_uuid": null,
-          "company_name": null,
-          "brief_docname": null,
-          "initial_status": "draft"
-        },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_content_optimisation_workflow": {
-        "name": "blog_content_optimisation_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "original_blog": null,
-          "route_all_choices": true,
+      "template_specific": false
+    },
+    "blog_user_input_to_brief_workflow": {
+      "name": "blog_user_input_to_brief_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "user_input": null,
+        "brief_uuid": null,
+        "initial_status": "draft"
+       },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_brief_to_blog_draft_workflow": {
+      "name": "blog_brief_to_blog_draft_workflow",
+      "version": null,
+      "inputs": {
           "post_uuid": null,
-          "initial_status": "draft"
-          
+        "company_name": null,
+        "brief_docname": null,
+        "initial_status": "draft"
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_content_optimisation_workflow": {
+      "name": "blog_content_optimisation_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "original_blog": null,
+        "route_all_choices": true,
+        "post_uuid": null,
+        "initial_status": "draft"
+        
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_content_optimisation_workflow": {
+      "name": "linkedin_content_optimisation_workflow", 
+      "version": null,
+      "inputs": {
+        "original_post": null,
+        "entity_username": null,
+        "route_all_choices": true,
+        "initial_status": "draft"
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_user_input_to_brief_workflow": {
+      "name": "linkedin_user_input_to_brief_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "user_input": null,
+        "initial_status": "draft",
+        "brief_uuid": null
+       },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_brief_to_post_draft_workflow": {
+      "name": "linkedin_brief_to_post_draft_workflow",
+      "version": null,
+      "inputs": {
+        "post_uuid": null,
+        "entity_username": null,
+        "brief_docname": null,
+        "initial_status": "draft"
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_content_playbook_workflow": {
+      "name": "blog_content_playbook_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_content_playbook_workflow": {
+      "name": "linkedin_content_playbook_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "deep_research_workflow": {
+      "name": "deep_research_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_content_analysis_workflow": {
+      "name": "blog_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "funnel_stages_input": [
+        {"stage_id": "awareness", "stage_name": "Awareness", "stage_description": "Top of funnel - building brand awareness"},
+        {"stage_id": "consideration", "stage_name": "Consideration", "stage_description": "Middle of funnel - evaluating solutions"},
+        {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
+        {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
+    ],
+        "start_urls": null,
+        "allowed_domains": null,
+        "max_urls_per_domain": 250,
+        "max_processed_urls_per_domain": 200,
+        "max_crawl_depth": 3,
+        "use_cached_scraping_results": true,
+        "cache_lookback_period_days": 7,
+        "is_shared": false,
+        "include_only_paths": null
       },
-      "linkedin_content_optimisation_workflow": {
-        "name": "linkedin_content_optimisation_workflow", 
-        "version": null,
-        "inputs": {
-          "original_post": null,
-          "entity_username": null,
-          "route_all_choices": true,
-          "initial_status": "draft"
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "company_ai_visibility_workflow": {
+      "name": "company_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "linkedin_user_input_to_brief_workflow": {
-        "name": "linkedin_user_input_to_brief_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "user_input": null,
-          "initial_status": "draft",
-          "brief_uuid": null
-         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "linkedin_brief_to_post_draft_workflow": {
-        "name": "linkedin_brief_to_post_draft_workflow",
-        "version": null,
-        "inputs": {
-          "post_uuid": null,
-          "entity_username": null,
-          "brief_docname": null,
-          "initial_status": "draft"
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "executive_ai_visibility_workflow": {
+      "name": "executive_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_content_playbook_workflow": {
-        "name": "blog_content_playbook_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_competitor_content_analysis_workflow": {
+      "name": "blog_competitor_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "linkedin_content_playbook_workflow": {
-        "name": "linkedin_content_playbook_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "orchestrator_workflow": {
+      "name": "orchestrator_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null,
+        "linkedin_profile_url": null,
+        "company_url": null,
+        "blog_start_urls": null,
+        "include_only_paths": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_linkedin_linkedin_scraping_workflow": {
+      "name": "LITE_linkedin_linkedin_scraping_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "entity_url": null
       },
-      "deep_research_workflow": {
-        "name": "deep_research_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "entity_username": null,
-          "run_blog_analysis": null,
-          "run_linkedin_exec": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
+      "user_documents_config_variables": {
       },
-      "blog_content_analysis_workflow": {
-        "name": "blog_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "funnel_stages_input": [
-          {"stage_id": "awareness", "stage_name": "Awareness", "stage_description": "Top of funnel - building brand awareness"},
-          {"stage_id": "consideration", "stage_name": "Consideration", "stage_description": "Middle of funnel - evaluating solutions"},
-          {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
-          {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
-      ],
-          "start_urls": null,
-          "allowed_domains": null,
-          "max_urls_per_domain": 250,
-          "max_processed_urls_per_domain": 200,
-          "max_crawl_depth": 3,
-          "use_cached_scraping_results": true,
-          "cache_lookback_period_days": 7,
-          "is_shared": false,
-          "include_only_paths": null
+      "template_specific": false
+    },
+    "LITE_linkedin_linkedin_content_analysis_workflow": {
+      "name": "LITE_linkedin_linkedin_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+      },
+      "user_documents_config_variables": {
+      },
+      "template_specific": false
+    },
+    "LITE_linkedin_content_playbook_workflow": {
+      "name": "LITE_linkedin_content_playbook_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null
+      },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_deep_research_workflow": {
+      "name": "LITE_deep_research_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_blog_content_analysis_workflow": {
+      "name": "LITE_blog_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "funnel_stages_input": [
+        {"stage_id": "awareness", "stage_name": "Awareness", "stage_description": "Top of funnel - building brand awareness"},
+        {"stage_id": "consideration", "stage_name": "Consideration", "stage_description": "Middle of funnel - evaluating solutions"},
+        {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
+        {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
+    ],
+        "start_urls": null,
+        "allowed_domains": null,
+        "max_urls_per_domain": 250,
+        "max_processed_urls_per_domain": 200,
+        "max_crawl_depth": 3,
+        "use_cached_scraping_results": true,
+        "cache_lookback_period_days": 7,
+        "is_shared": false,
+        "include_only_paths": null
       },
-      "company_ai_visibility_workflow": {
-        "name": "company_ai_visibility_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "enable_cache": true,
-          "cache_lookback_days": 7
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "executive_ai_visibility_workflow": {
-        "name": "executive_ai_visibility_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "enable_cache": true,
-          "cache_lookback_days": 7
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_competitor_content_analysis_workflow": {
-        "name": "blog_competitor_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "orchestrator_workflow": {
-        "name": "orchestrator_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "entity_username": null,
-          "run_blog_analysis": null,
-          "run_linkedin_exec": null,
-          "linkedin_profile_url": null,
-          "company_url": null,
-          "blog_start_urls": null,
-          "include_only_paths": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_linkedin_linkedin_scraping_workflow": {
-        "name": "LITE_linkedin_linkedin_scraping_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "entity_url": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_company_ai_visibility_workflow": {
+      "name": "LITE_company_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
         },
-        "user_documents_config_variables": {
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_executive_ai_visibility_workflow": {
+      "name": "LITE_executive_ai_visibility_workflow",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
         },
-        "template_specific": false
-      },
-      "LITE_linkedin_linkedin_content_analysis_workflow": {
-        "name": "LITE_linkedin_linkedin_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_blog_competitor_content_analysis_workflow": {
+      "name": "LITE_blog_competitor_content_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null
         },
-        "user_documents_config_variables": {
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "LITE_orchestrator_workflow": {
+      "name": "LITE_orchestrator_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "entity_username": null,
+        "run_blog_analysis": null,
+        "run_linkedin_exec": null,
+        "linkedin_profile_url": null,
+        "company_url": null,
+        "blog_start_urls": null,
+        "include_only_paths": null
         },
-        "template_specific": false
-      },
-      "LITE_linkedin_content_playbook_workflow": {
-        "name": "LITE_linkedin_content_playbook_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_content_calendar_entry": {
+      "name": "blog_content_calendar_entry",
+      "version": null,
+      "inputs": {
+        "weeks_to_generate": 1,
+        "company_name": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_deep_research_workflow": {
-        "name": "LITE_deep_research_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "entity_username": null,
-          "run_blog_analysis": null,
-          "run_linkedin_exec": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_blog_content_analysis_workflow": {
-        "name": "LITE_blog_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "funnel_stages_input": [
-          {"stage_id": "awareness", "stage_name": "Awareness", "stage_description": "Top of funnel - building brand awareness"},
-          {"stage_id": "consideration", "stage_name": "Consideration", "stage_description": "Middle of funnel - evaluating solutions"},
-          {"stage_id": "purchase", "stage_name": "Purchase", "stage_description": "Bottom of funnel - ready to buy"},
-          {"stage_id": "retention", "stage_name": "Retention", "stage_description": "Post-purchase - customer success"}
-      ],
-          "start_urls": null,
-          "allowed_domains": null,
-          "max_urls_per_domain": 250,
-          "max_processed_urls_per_domain": 200,
-          "max_crawl_depth": 3,
-          "use_cached_scraping_results": true,
-          "cache_lookback_period_days": 7,
-          "is_shared": false,
-          "include_only_paths": null
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_content_calendar_entry": {
+      "name": "linkedin_content_calendar_entry",
+      "version": null,
+      "inputs": {
+        "weeks_to_generate": 1,
+        "past_context_posts_limit": 10,
+        "entity_username": null
         },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_company_ai_visibility_workflow": {
-        "name": "LITE_company_ai_visibility_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "enable_cache": true,
-          "cache_lookback_days": 7
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_executive_ai_visibility_workflow": {
-        "name": "LITE_executive_ai_visibility_workflow",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-          "enable_cache": true,
-          "cache_lookback_days": 7
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_blog_competitor_content_analysis_workflow": {
-        "name": "LITE_blog_competitor_content_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "LITE_orchestrator_workflow": {
-        "name": "LITE_orchestrator_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "entity_username": null,
-          "run_blog_analysis": null,
-          "run_linkedin_exec": null,
-          "linkedin_profile_url": null,
-          "company_url": null,
-          "blog_start_urls": null,
-          "include_only_paths": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_content_calendar_entry": {
-        "name": "blog_content_calendar_entry",
-        "version": null,
-        "inputs": {
-          "weeks_to_generate": 1,
-          "company_name": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "linkedin_content_calendar_entry": {
-        "name": "linkedin_content_calendar_entry",
-        "version": null,
-        "inputs": {
-          "weeks_to_generate": 1,
-          "past_context_posts_limit": 10,
-          "entity_username": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "linkedin_brief_from_calendar_topic": {
-        "name": "linkedin_brief_from_calendar_topic",
-        "version": null,
-        "inputs": {
-          "entity_username": null,
-					"selected_topic": null,
-					"brief_uuid": null,
-					"initial_status": "draft"
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_brief_from_calendar_topic": {
-        "name": "blog_brief_from_calendar_topic",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-					"selected_topic": null,
-					"brief_uuid": null,
-					"initial_status": "draft"
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "blog_company_analysis_workflow": {
-        "name": "blog_company_analysis_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-					"scraped_data": null,
-					"has_insufficient_blog_and_page_count": null
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      },
-      "company_ai_visibility_edge_case_workflow": {
-        "name": "company_ai_visibility_edge_case_workflow",
-        "version": null,
-        "inputs": {
-          "company_name": null,
-          "enable_cache": true,
-          "cache_lookback_days": 7
-          },
-        "user_documents_config_variables": {},
-        "template_specific": false
-      }
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "linkedin_brief_from_calendar_topic": {
+      "name": "linkedin_brief_from_calendar_topic",
+      "version": null,
+      "inputs": {
+        "entity_username": null,
+				"selected_topic": null,
+				"brief_uuid": null,
+				"initial_status": "draft"
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_brief_from_calendar_topic": {
+      "name": "blog_brief_from_calendar_topic",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+				"selected_topic": null,
+				"brief_uuid": null,
+				"initial_status": "draft"
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_company_analysis_workflow": {
+      "name": "blog_company_analysis_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+				"scraped_data": null,
+				"has_insufficient_blog_and_page_count": null
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "company_ai_visibility_edge_case_workflow": {
+      "name": "company_ai_visibility_edge_case_workflow",
+      "version": null,
+      "inputs": {
+        "company_name": null,
+        "enable_cache": true,
+        "cache_lookback_days": 7
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "external_research_workflow": {
+      "name": "external_research_workflow",
+      "version": null,
+      "inputs": {
+        "research_context": null,
+        "asset_name": null,
+        "is_shared": false
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "file_summarisation_workflow": {
+      "name": "file_summarisation_workflow",
+      "version": null,
+      "inputs": {
+        "summary_context": null,
+        "asset_name": null,
+        "is_shared": false
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
+    },
+    "blog_aeo_seo_scoring_workflow": {
+      "name": "blog_aeo_seo_scoring_workflow",
+      "version": null,
+      "inputs": {
+        "namespace": null,
+        "docname": null,
+        "is_shared": false
+        },
+      "user_documents_config_variables": {},
+      "template_specific": false
     }
   }
+}

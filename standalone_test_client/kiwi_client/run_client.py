@@ -418,7 +418,9 @@ class WorkflowRunTestClient:
                          save_to_file: bool = True,
                          output_filename: Optional[str] = None,
                          test_name: Optional[str] = None,
-                         output_format: str = "markdown") -> Optional[Tuple[Dict[str, Any], str]]:
+                         output_format: str = "markdown",
+                         add_run_id_to_filename: bool = True,
+                         base_path: str = DATA_DIR) -> Optional[Tuple[Dict[str, Any], str]]:
         """
         Gets the logs of a specific workflow run via GET /runs/{run_id}/logs.
 
@@ -429,7 +431,9 @@ class WorkflowRunTestClient:
             save_to_file (bool): Whether to save logs to a file.
             output_filename (Optional[str]): Filename to save logs to. If None, a default name is used.
             test_name (Optional[str]): Test name to include in the default filename if output_filename is None.
+            add_run_id_to_filename (bool): Whether to add the run ID to the filename.
             output_format (str): Format to save logs in - "markdown" or "json".
+            base_path (Optional[str]): Base path to save logs to. If None, a default name is used.
             
         Returns:
             Optional[Tuple[Dict[str, Any], str]]: The logs response and output path, or None on failure.
@@ -452,7 +456,10 @@ class WorkflowRunTestClient:
                     # Include test_name in filename if provided
                     if test_name:
                         test_name_safe = test_name.replace(" ", "_").replace("/", "_").lower()
-                        output_filename = f"{test_name_safe}_run_{run_id_str}_logs"
+                        if add_run_id_to_filename:
+                            output_filename = f"{test_name_safe}_run_{run_id_str}_logs"
+                        else:
+                            output_filename = f"{test_name_safe}_logs"
                     else:
                         output_filename = f"run_{run_id_str}_logs"
                 
@@ -462,7 +469,7 @@ class WorkflowRunTestClient:
                 else:  # default to json
                     output_filename = f"{output_filename}.json"
                 
-                output_path = os.path.join(DATA_DIR, output_filename)
+                output_path = os.path.join(base_path, output_filename)
                 
                 if output_format.lower() == "markdown":
                     logs = logs_data.get('logs', [])
@@ -655,7 +662,8 @@ class WorkflowRunTestClient:
                            save_to_file: bool = True,
                            output_filename: Optional[str] = None,
                            test_name: Optional[str] = None,
-                           output_format: str = "markdown") -> Optional[Tuple[Dict[str, Any], str]]:
+                           add_run_id_to_filename: bool = True,
+                           output_format: str = "markdown", base_path: str = DATA_DIR) -> Optional[Tuple[Dict[str, Any], str]]:
         """
         Gets the state of a specific workflow run via GET /runs/{run_id}/state.
         
@@ -667,8 +675,10 @@ class WorkflowRunTestClient:
             save_to_file (bool): Whether to save state to a file.
             output_filename (Optional[str]): Filename to save state to. If None, a default name is used.
             test_name (Optional[str]): Test name to include in the default filename if output_filename is None.
+            add_run_id_to_filename (bool): Whether to add the run ID to the filename.
             output_format (str): Format to save state in - "markdown" or "json".
-            
+            base_path (Optional[str]): Base path to save state to. If None, a default name is used.
+
         Returns:
             Optional[Tuple[Dict[str, Any], str]]: The state response and output path, or None on failure.
         """
@@ -684,13 +694,17 @@ class WorkflowRunTestClient:
             
             logger.info(f"Successfully retrieved state for run ID: {run_id_str}")
             
+            output_path = None
             # Save to file if requested
             if save_to_file:
                 if output_filename is None:
                     # Include test_name in filename if provided
                     if test_name:
                         test_name_safe = test_name.replace(" ", "_").replace("/", "_").lower()
-                        output_filename = f"{test_name_safe}_run_{run_id_str}_state"
+                        if add_run_id_to_filename:
+                            output_filename = f"{test_name_safe}_run_{run_id_str}_state"
+                        else:
+                            output_filename = f"{test_name_safe}_state"
                     else:
                         output_filename = f"run_{run_id_str}_state"
                 
@@ -700,7 +714,7 @@ class WorkflowRunTestClient:
                 else:  # default to json
                     output_filename = f"{output_filename}.json"
                     
-                output_path = os.path.join(DATA_DIR, output_filename)
+                output_path = os.path.join(base_path, output_filename)
                 
                 if output_format.lower() == "markdown":
                     with open(output_path, 'w', encoding='utf-8') as f:
@@ -757,7 +771,7 @@ class WorkflowRunTestClient:
         except httpx.RequestError as e:
             logger.error(f"Request error getting state for run {run_id_str}: {e}")
         except Exception as e:
-            logger.exception(f"Unexpected error getting state for run {run_id_str}.")
+            logger.exception(f"Unexpected error getting state for run {run_id_str}. {e}", exc_info=True)
         return None, None
 
     async def wait_for_run_completion(self, run_id: Union[str, uuid.UUID], timeout_sec: int = 60, poll_interval_sec: int = 3) -> Optional[wf_schemas.WorkflowRunRead]:

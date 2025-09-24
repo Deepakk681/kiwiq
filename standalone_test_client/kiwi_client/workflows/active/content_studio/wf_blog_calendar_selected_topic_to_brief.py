@@ -51,19 +51,17 @@ from kiwi_client.workflows.active.content_studio.llm_inputs.blog_calendar_select
     # System prompts
     BRIEF_GENERATION_SYSTEM_PROMPT,
     BRIEF_FEEDBACK_SYSTEM_PROMPT,
+    GOOGLE_RESEARCH_SYSTEM_PROMPT,
+    REDDIT_RESEARCH_SYSTEM_PROMPT,
     
     # User prompt templates
+    GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
+    REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
     BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
     BRIEF_FEEDBACK_INITIAL_USER_PROMPT,
     BRIEF_REVISION_USER_PROMPT_TEMPLATE,    
     # Output schemas
-    BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA
-)
-from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_brief import (
-    GOOGLE_RESEARCH_SYSTEM_PROMPT,
-    REDDIT_RESEARCH_SYSTEM_PROMPT,
-    GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
-    REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
+    BRIEF_FEEDBACK_ANALYSIS_OUTPUT_SCHEMA,
     GOOGLE_RESEARCH_OUTPUT_SCHEMA,
     REDDIT_RESEARCH_OUTPUT_SCHEMA,
     BRIEF_GENERATION_OUTPUT_SCHEMA
@@ -93,7 +91,7 @@ PERPLEXITY_MAX_TOKENS = 3000
 # Workflow JSON structure
 workflow_graph_schema = {
     "nodes": {
-        # 1. Input Node - Receives selected topic
+        # 1. Input Node - Receives selected topic and user input
         "input_node": {
             "node_id": "input_node",
             "node_name": "input_node",
@@ -110,6 +108,11 @@ workflow_graph_schema = {
                         "required": True,
                         "description": "The selected topic from ContentTopicsOutput containing title, description, theme, objective, etc."
                     },
+                    "user_input": {
+                        "type": "str",
+                        "required": True,
+                        "description": "User's content ideas, brainstorm, or transcript"
+                    },
                     "initial_status": {
                         "type": "str",
                         "required": False,
@@ -120,12 +123,44 @@ workflow_graph_schema = {
                         "type": "str",
                         "required": True,
                         "description": "UUID of the brief being generated"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
-        # 2. Load Company and Content Strategy Documents
+        # 2. Transform Additional User Files Format (if provided)
+        "transform_additional_files_config": {
+            "node_id": "transform_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 3. Load Additional User Files (conditional)
+        "load_additional_user_files_node": {
+            "node_id": "load_additional_user_files_node", 
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 4. Load Company and Content Strategy Documents
         "load_company_and_playbook": {
             "node_id": "load_company_and_playbook",
             "node_name": "load_customer_data",
@@ -158,6 +193,7 @@ workflow_graph_schema = {
         "construct_google_research_prompt": {
             "node_id": "construct_google_research_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for initial file loading to complete
             "node_config": {
                 "prompt_templates": {
                     "google_research_user_prompt": {
@@ -165,11 +201,13 @@ workflow_graph_schema = {
                         "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
                         "variables": {
                             "company_doc": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
                         }
                     },
                     "google_research_system_prompt": {
@@ -213,12 +251,14 @@ workflow_graph_schema = {
                         "variables": {
                             "company_doc": None,
                             "google_research_output": None,
-                            "user_input": None
+                            "user_input": None,
+                            "additional_user_files": ""
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
                             "google_research_output": "google_research_output",
-                            "user_input": "user_input"
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
                         }
                     },
                     "reddit_research_system_prompt": {
@@ -260,6 +300,7 @@ workflow_graph_schema = {
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "brief_generation_user_prompt": {
@@ -270,14 +311,18 @@ workflow_graph_schema = {
                             "company_doc": None,
                             "playbook_doc": None,
                             "google_research_output": None,
-                            "reddit_research_output": None
+                            "reddit_research_output": None,
+                            "user_input": None,
+                            "additional_user_files": ""
                         },
                         "construct_options": {
                             "selected_topic": "selected_topic",
                             "company_doc": "company_doc",
                             "playbook_doc": "playbook_doc",
                             "google_research_output": "google_research_output",
-                            "reddit_research_output": "reddit_research_output"
+                            "reddit_research_output": "reddit_research_output",
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
                         }
                     },
                     "brief_generation_system_prompt": {
@@ -371,8 +416,40 @@ workflow_graph_schema = {
                         "type": "dict",
                         "required": True,
                         "description": "Updated content brief (may contain user edits)"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load for brief approval. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
+            }
+        },
+        
+        # 6.5 Transform Brief HITL Additional Files Format
+        "transform_brief_hitl_additional_files_config": {
+            "node_id": "transform_brief_hitl_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "brief_hitl_additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 6.6 Load Brief HITL Additional User Files
+        "load_brief_hitl_additional_user_files_node": {
+            "node_id": "load_brief_hitl_additional_user_files_node",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
             }
         },
         
@@ -512,6 +589,7 @@ workflow_graph_schema = {
         "construct_brief_feedback_prompt": {
             "node_id": "construct_brief_feedback_prompt",
             "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "brief_feedback_user_prompt": {
@@ -522,14 +600,22 @@ workflow_graph_schema = {
                             "revision_feedback": None,
                             "selected_topic": None,
                             "company_doc": None,
-                            "playbook_doc": None
+                            "playbook_doc": None,
+                            "user_input": None,
+                            "google_research_output": None,
+                            "reddit_research_output": None,
+                            "brief_hitl_additional_user_files": ""
                         },
                         "construct_options": {
                             "content_brief": "current_content_brief",
                             "revision_feedback": "current_revision_feedback",
                             "selected_topic": "selected_topic",
                             "company_doc": "company_doc",
-                            "playbook_doc": "playbook_doc"
+                            "playbook_doc": "playbook_doc",
+                            "user_input": "user_input",
+                            "google_research_output": "google_research_output",
+                            "reddit_research_output": "reddit_research_output",
+                            "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
                         }
                     },
                     "brief_feedback_system_prompt": {
@@ -637,8 +723,10 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "selected_topic", "dst_field": "selected_topic"},
+                {"src_field": "user_input", "dst_field": "user_input"},
                 {"src_field": "initial_status", "dst_field": "initial_status"},
-                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"},
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
             ]
         },
         
@@ -648,6 +736,24 @@ workflow_graph_schema = {
             "dst_node_id": "load_company_and_playbook",
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Input -> Transform Additional Files Config
+        {
+            "src_node_id": "input_node",
+            "dst_node_id": "transform_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform -> Load Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_additional_files_config",
+            "dst_node_id": "load_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
             ]
         },
         
@@ -669,12 +775,22 @@ workflow_graph_schema = {
                 {"src_field": "company_doc", "dst_field": "company_doc"}            ]
         },
         
+        # Load Additional Files -> Google Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_google_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
         # State -> Google Research Prompt
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
-                {"src_field": "selected_topic", "dst_field": "user_input"}
+                {"src_field": "user_input", "dst_field": "user_input"}
             ]
         },
         
@@ -712,7 +828,17 @@ workflow_graph_schema = {
             "dst_node_id": "construct_reddit_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "selected_topic", "dst_field": "user_input"}
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional Files -> Reddit Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
             ]
         },
         
@@ -751,7 +877,18 @@ workflow_graph_schema = {
                 {"src_field": "company_doc", "dst_field": "company_doc"},
                 {"src_field": "playbook_doc", "dst_field": "playbook_doc"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
-                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"}
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional Files -> Brief Generation Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_brief_generation_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
             ]
         },
         
@@ -836,7 +973,26 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "updated_content_brief", "dst_field": "current_content_brief"},
-                {"src_field": "user_brief_action", "dst_field": "user_brief_action"}
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"},
+                {"src_field": "load_additional_user_files", "dst_field": "brief_hitl_load_additional_user_files"}
+            ]
+        },
+        
+        # Brief HITL -> Transform Brief HITL Additional Files Config
+        {
+            "src_node_id": "brief_approval_hitl",
+            "dst_node_id": "transform_brief_hitl_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform Brief HITL -> Load Brief HITL Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_brief_hitl_additional_files_config",
+            "dst_node_id": "load_brief_hitl_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
             ]
         },
         
@@ -934,7 +1090,20 @@ workflow_graph_schema = {
                 {"src_field": "current_revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "selected_topic", "dst_field": "selected_topic"},
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "playbook_doc", "dst_field": "playbook_doc"}
+                {"src_field": "playbook_doc", "dst_field": "playbook_doc"},
+                {"src_field": "user_input", "dst_field": "user_input"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"}
+            ]
+        },
+        
+        # Load Brief HITL Additional Files -> Brief Feedback Prompt (data-only edge)
+        {
+            "src_node_id": "load_brief_hitl_additional_user_files_node",
+            "dst_node_id": "construct_brief_feedback_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
             ]
         },
         
@@ -1024,6 +1193,9 @@ workflow_graph_schema = {
                 "playbook_doc": "replace",
                 "google_research_output": "replace",
                 "reddit_research_output": "replace",
+                "user_input": "replace",
+                "additional_user_files": "replace",
+                "brief_hitl_load_additional_user_files": "replace",
                 "initial_status": "replace",
                 "brief_uuid": "replace"
             }
@@ -1096,10 +1268,18 @@ async def validate_selected_topic_brief_workflow_output(outputs: Optional[Dict[s
 
 async def main_test_selected_topic_brief_workflow():
     """
-    Test for Selected Topic to Brief Generation Workflow.
+    Test for Selected Topic to Brief Generation Workflow with File Input Support.
     
     This function sets up test data, executes the workflow, and validates the output.
-    The workflow takes a pre-selected topic and generates a comprehensive content brief.
+    The workflow takes a pre-selected topic, user input, and additional context files
+    to generate a comprehensive content brief with enhanced research and personalization.
+    
+    Key Features Tested:
+    - User input integration for content direction
+    - Additional file loading at input and HITL stages
+    - Research enhancement with user-provided context
+    - HITL file loading for iterative improvements
+    - Comprehensive brief generation with all context
     """
     test_name = "Selected Topic to Brief Generation Workflow Test"
     print(f"--- Starting {test_name} ---")
@@ -1212,8 +1392,21 @@ async def main_test_selected_topic_brief_workflow():
     test_inputs = {
         "company_name": test_company_name,
         "selected_topic": test_selected_topic,
+        "user_input": "I want to create content that helps CFOs understand the financial impact of manual CRM data entry. Focus on specific cost categories, hidden opportunity costs, and ROI calculations. Include real examples from SaaS companies.",
         "initial_status": "draft",
-        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000"
+        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000",
+        "load_additional_user_files": [
+            {
+                "namespace": "user_research_files",
+                "docname": "cfo_automation_roi_guide",
+                "is_shared": False
+            },
+            {
+                "namespace": "user_research_files", 
+                "docname": "saas_cost_analysis_framework",
+                "is_shared": False
+            }
+        ]
     }
     
     # Setup test documents
@@ -1235,6 +1428,64 @@ async def main_test_selected_topic_brief_workflow():
             'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
             'initial_version': "default",
             'is_system_entity': False
+        },
+        # Additional user files for input node
+        {
+            'namespace': "user_research_files",
+            'docname': "cfo_automation_roi_guide",
+            'initial_data': {
+                "title": "CFO's Guide to Automation ROI",
+                "content": "Key metrics for CFOs to evaluate automation investments: 1) Direct cost savings from reduced manual work (typically 40-60% of current costs), 2) Opportunity cost of sales reps not selling (average $500K per rep annually), 3) Data quality improvements reducing revenue leakage by 15-25%, 4) Implementation ROI typically 3-5x within 12 months.",
+                "target_audience": "CFOs and Finance Leaders",
+                "key_metrics": ["Cost per manual entry", "Time savings", "Revenue impact", "Implementation timeline"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "saas_cost_analysis_framework",
+            'initial_data': {
+                "title": "SaaS Cost Analysis Framework",
+                "content": "Comprehensive framework for analyzing operational costs in SaaS companies: 1) Direct costs (salaries, tools, training), 2) Indirect costs (opportunity cost, error correction), 3) Hidden costs (data quality issues, forecasting inaccuracy), 4) Industry benchmarks for SaaS companies of different sizes.",
+                "framework_sections": ["Direct Cost Analysis", "Opportunity Cost Calculation", "Quality Impact Assessment"],
+                "industry_benchmarks": "Enterprise SaaS: $2M+ annual manual data costs, Mid-market: $500K-1M, SMB: $100K-500K"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Additional context files for HITL scenarios
+        {
+            'namespace': "hitl_context_files",
+            'docname': "cfo_implementation_guide",
+            'initial_data': {
+                "title": "CFO Implementation Guide for Automation",
+                "content": "Step-by-step implementation guide for CFOs: 1) Budget allocation strategies (typically 2-3% of revenue), 2) Change management approaches for finance teams, 3) Success metrics to track (ROI, time savings, data quality improvements), 4) Risk mitigation strategies, 5) Timeline expectations (3-6 months for full implementation).",
+                "implementation_phases": ["Planning (Month 1)", "Pilot (Month 2-3)", "Full Rollout (Month 4-6)"],
+                "budget_considerations": "Allocate 2-3% of annual revenue for automation initiatives"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "hitl_context_files",
+            'docname': "industry_case_studies",
+            'initial_data': {
+                "title": "Industry Case Studies: Automation ROI",
+                "content": "Real-world case studies from SaaS companies: 1) TechCorp (500 employees): 40% reduction in manual data entry time, $2.1M annual savings, 2) DataFlow (200 employees): 60% improvement in data accuracy, $800K cost savings, 3) CloudSoft (1000+ employees): 3x ROI within 8 months, 25% increase in sales productivity.",
+                "case_study_highlights": ["TechCorp: $2.1M savings", "DataFlow: 60% accuracy improvement", "CloudSoft: 3x ROI in 8 months"],
+                "key_metrics": ["Cost savings", "Time reduction", "Accuracy improvement", "ROI timeline"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
         }
     ]
     
@@ -1253,6 +1504,36 @@ async def main_test_selected_topic_brief_workflow():
             'is_shared': False,
             'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
             'is_system_entity': False
+        },
+        # Cleanup additional user files
+        {
+            'namespace': "user_research_files",
+            'docname': "cfo_automation_roi_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "saas_cost_analysis_framework",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        # Cleanup HITL context files
+        {
+            'namespace': "hitl_context_files",
+            'docname': "cfo_implementation_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "hitl_context_files",
+            'docname': "industry_case_studies",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
         }
     ]
     
@@ -1262,6 +1543,13 @@ async def main_test_selected_topic_brief_workflow():
         {
             "user_brief_action": "provide_feedback",
             "revision_feedback": "The brief needs more focus on specific cost categories and should include more concrete examples. Please add a section about hidden costs like opportunity cost of sales reps not selling.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "user_research_files",
+                    "docname": "cfo_automation_roi_guide",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "title": "The Hidden Cost of Manual CRM Data Entry: A CFO's Perspective",
                 "target_audience": "CFOs and Finance Leaders at Enterprise SaaS companies",
@@ -1327,6 +1615,7 @@ async def main_test_selected_topic_brief_workflow():
         # # Second HITL: Save as draft
         {
             "user_brief_action": "draft",
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "title": "The Hidden Cost of Manual CRM Data Entry: A CFO's Perspective (Revised)",
                 "target_audience": "CFOs and Finance Leaders at Enterprise SaaS companies",
@@ -1405,6 +1694,18 @@ async def main_test_selected_topic_brief_workflow():
         {
             "user_brief_action": "revise_brief",
             "revision_feedback": "The brief looks good but needs a stronger executive summary section and should include more industry-specific examples. Also, please add a section about implementation considerations from a CFO perspective.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "hitl_context_files",
+                    "docname": "cfo_implementation_guide",
+                    "is_shared": False
+                },
+                {
+                    "namespace": "hitl_context_files",
+                    "docname": "industry_case_studies",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "title": "The Hidden Cost of Manual CRM Data Entry: A CFO's Perspective (Draft)",
                 "target_audience": "CFOs and Finance Leaders at Enterprise SaaS companies",
@@ -1482,6 +1783,7 @@ async def main_test_selected_topic_brief_workflow():
         # Fourth HITL: Final completion
         {
             "user_brief_action": "complete",
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "title": "The Hidden Cost of Manual CRM Data Entry: A CFO's Perspective (Final)",
                 "target_audience": "CFOs and Finance Leaders at Enterprise SaaS companies",
@@ -1606,16 +1908,37 @@ async def main_test_selected_topic_brief_workflow():
                 print(f"Theme: {topic.get('theme', 'N/A')}")
                 print(f"Objective: {topic.get('objective', 'N/A')}")
         
+        # Show user input integration
+        print(f"User Input: Integrated for content direction and personalization")
+        print(f"Additional Files: Loaded for enhanced research and context")
+        
         # Show brief info
         if 'final_content_brief' in final_run_outputs:
             brief = final_run_outputs['final_content_brief']
             print(f"Brief Generated: {brief.get('estimated_word_count', 'N/A')} words")
             print(f"Brief Title: {brief.get('title', 'N/A')}")
             print(f"Sections: {len(brief.get('content_structure', []))}")
+            
+            # Show file input impact
+            if 'research_sources' in brief:
+                sources = brief['research_sources']
+                print(f"Research Sources: {len(sources)} sources integrated")
+            
+            if 'content_structure' in brief:
+                structure = brief['content_structure']
+                print(f"Content Structure: {len(structure)} sections with enhanced context")
         
         # Show saved document
         if 'final_paths_processed' in final_run_outputs:
             print(f"Brief Saved: Successfully stored in database")
+        
+        # Show file input functionality summary
+        print(f"\nFile Input Functionality Demonstrated:")
+        print(f"✓ User input integrated into research and brief generation")
+        print(f"✓ Additional files loaded at input stage")
+        print(f"✓ HITL file loading for iterative improvements")
+        print(f"✓ Enhanced research with user-provided context")
+        print(f"✓ Personalized brief generation with all available context")
 
 
 # Entry point

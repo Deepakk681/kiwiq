@@ -1105,174 +1105,441 @@ DOCUMENTS = [
     }
 ]
 
-# DOCUMENTS = [
-#     {
-#         "name": "seo_best_practices_doc",
-#         "markdown_content": {"data": """
-# Based on the comprehensive GEO and SEO document you've provided, here's a guideline document for an LLM creating blog posts from content briefs:
-# Content Creation Guidelines for SEO & GEO Optimization
-# 1. Content Structure and Clarity
-# Opening Requirements
+DOCUMENTS = [
+    {
+        "name": "seo_best_practices_doc",
+        "markdown_content": {"data": """
+# B2B Blog Content Creation Guidelines for SEO & AEO Optimization
 
-# Start with a clear, concise introductory sentence that immediately states the main purpose/topic
-# Provide direct answers within the first 2-3 sentences for the primary query
-# Include a brief summary or key takeaways at the beginning for quick comprehension
+## Core Philosophy: Unified Search Optimization
+Modern search success requires optimizing for both traditional search engines (SEO) and AI-powered answer engines (AEO). This comprehensive guide provides best practices for creating content that performs well across both channels.
 
-# Content Organization
+**Universal Principles for Search Excellence:**
+- **User Intent is Everything**: Whether for Google or GPT, content must directly answer real questions with comprehensive, trustworthy information
+- **Structure Enables Discovery**: Clean information architecture serves both crawlers and LLMs - chaos is invisible to both
+- **Authority Requires Evidence**: Empty claims are worthless. Specific data, examples, and credentials build trust with algorithms and AI
+- **Entity Definition Creates Identity**: Both search engines and AI need to understand exactly what you are, what you do, and what you don't do
 
-# Use clear, descriptive headings (H1-H5) that create logical hierarchy
-# Break complex information into digestible sections using:
+## Essential Content Architecture & Structure Guidelines
 
-# Bullet points for key information
-# Numbered lists for step-by-step processes
-# Tables for comparative data
-# Short paragraphs (3-4 sentences max)
+### Semantic HTML Hierarchy Best Practices
+- **Always use proper H1-H3 structure** - Never skip heading levels (H1 → H2 → H3, not H1 → H3)
+- **Implement one clear H1 per page** - Make it descriptive and include your primary keyword
+- Create a logical content hierarchy that both users and search engines can follow
 
+### Question-Based Architecture (Critical for AI Optimization)
+- **Transform headlines into natural questions** - This is especially important for AEO success
+  - Instead of: "Best Practices for Email Marketing"
+  - Use: "What Are the Best Practices for Email Marketing?"
+  - Match voice search patterns and conversational AI queries
+- **Design subheadings to answer specific queries** that users commonly ask
+- Structure content to directly address the "who, what, when, where, why, how" framework
 
-# Maintain logical flow with smooth transitions between sections
-# Include FAQ sections for longer content to address common questions
+### Information Modules for Maximum Discoverability
+- **Create clear answer blocks (2-3 sentences)** at the start of each section
+  - Begin each section with a direct, complete answer
+  - Write standalone information that can be extracted by AI systems
+- **Always include TL;DR or executive summaries**
+  - Add 3-5 bullet point summaries at the beginning or end of major sections
+  - Provide key takeaways that answer the main query immediately
+- **Incorporate FAQ sections with 3+ questions** in every comprehensive post
+  - Address common follow-up questions your audience asks
+  - Use natural language question formats that match search queries
 
-# 2. Content Quality and Depth
-# Comprehensive Coverage
+### Navigation & Discovery Enhancement
+- **Add table of contents with jump links** for long-form content (1,500+ words)
+- **Implement breadcrumb navigation** to help users understand page hierarchy
+- Use internal linking to create clear content pathways
 
-# Answer queries thoroughly - AI favors in-depth, comprehensive responses
-# Address multiple aspects of the topic including:
+## Content Depth & Authority Best Practices
 
-# What, why, how, when, where, who
-# Benefits and challenges
-# Practical applications
-# Real-world examples
+### Original Research & Data (High Priority for Differentiation)
+- **Conduct and reference proprietary statistics and studies** 
+  - Survey your customers, analyze usage data, create industry reports
+  - Original insights that can't be found elsewhere significantly boost authority
+  - This is especially valuable for AI systems that prioritize unique information
+- **Include customer quotes and detailed case studies**
+  - Use first-hand testimonials and specific success stories
+  - Include named customers with permission when possible
+  - Provide concrete numbers and outcomes
 
+### E-E-A-T (Experience, Expertise, Authoritativeness, Trustworthiness) Signals
+- **Display author credentials prominently**
+  - Include professional bio with relevant industry experience
+  - Highlight certifications, achievements, and specializations
+  - Update author information regularly to maintain freshness
+- **Demonstrate first-hand experience throughout content**
+  - Share personal anecdotes and practical insights
+  - Use "In our experience..." statements with specific examples
+  - Include lessons learned from real implementations
+- **Cite external authoritative sources strategically**
+  - Link to reputable industry sources, studies, and research
+  - Reference recognized authorities and thought leaders in your space
+  - Balance external citations with original insights
 
-# Fill content gaps by covering aspects competitors might miss
+### Use Case Specificity (Critical for B2B Success)
+- **Target named roles and specific industries**
+  - Use phrases like "For marketing managers in SaaS companies..."
+  - Address specific job titles, company sizes, and industry verticals
+  - This specificity helps AI systems understand your target audience
+- **Provide detailed workflow examples and practical guidance**
+  - Include step-by-step processes with real scenarios
+  - Add screenshots, templates, and downloadable tools when possible
+  - Show before/after examples and implementation timelines
 
-# Language and Readability
+### Category Definition and Positioning
+- **Establish clear positioning with "We are X for Y" statements**
+  - Define your company's unique position in the market clearly
+  - Explain exactly what problem you solve and for whom
+  - Use consistent messaging across all content
+- **Include boundary statements about what you don't do**
+  - Clarify what you don't offer to prevent confusion
+  - Help search engines and AI understand your exact scope and limitations
+  - This improves content relevance and user experience
 
-# Use simple, clear language - avoid jargon unless necessary
-# Define technical terms when they must be used
-# Write at an accessible reading level while maintaining expertise
-# Ensure fluency - smooth, error-free text with natural flow
+## Discovery Optimization Guidelines
 
-# 3. Keyword and Entity Optimization
-# Keyword Integration
+### Meta Optimization Best Practices
+- **Optimize title tags for both keywords and click-through rates**
+  - Include primary keyword within first 60 characters
+  - Write compelling, click-worthy titles that promise value
+  - Test different title variations to improve CTR
+- **Craft compelling meta descriptions with clear calls-to-action**
+  - Keep descriptions between 150-160 characters
+  - Preview the specific value readers will get from your content
+  - Include a clear call-to-action when appropriate
 
-# Include long-tail keywords and conversational phrases naturally
-# Use semantic keywords - related terms, synonyms, variations
-# Incorporate question-based keywords matching voice search patterns
-# Focus on natural language that mirrors how users actually search
+### SERP Features Optimization (High Impact)
+- **Structure content for featured snippet capture**
+  - Format content for paragraph, list, and table snippets
+  - Answer questions directly in 40-60 words at the start of sections
+  - Use clear, concise language that can stand alone
+- **Target "People Also Ask" questions systematically**
+  - Research related questions using tools like AnswerThePublic
+  - Address these questions throughout your content naturally
+  - Create comprehensive coverage of topic clusters
 
-# Entity Recognition
+### Direct Answer Formats (Essential for AI Discovery)
+- **Use bullet point summaries strategically** throughout content
+- **Create comparison tables and matrices** for complex topics
+- **Structure step-by-step processes as numbered lists** for better readability
+- Format information in scannable, digestible chunks
 
-# Emphasize key entities (people, places, brands, concepts)
-# Provide context for entities to help AI understand relevance
-# Use precise terminology consistently throughout
+## Internal Architecture & Linking Guidelines
 
-# 4. Authority and Credibility Elements
+### Strategic Link Architecture
+- **Implement 3-5 contextual internal links per post**
+  - Link to related blog posts, resources, and relevant product pages
+  - Use descriptive anchor text that includes relevant keywords
+  - Create topic clusters by linking related content together
+- **Build topical authority through strategic citation patterns**
+  - Link to your most authoritative content on related topics
+  - Create hub pages that link to comprehensive topic coverage
 
-# Statistical Support
+### Knowledge Base Citations and External Linking
+- **Reference authoritative external sources strategically**
+  - Link to industry reports, studies, and expert content
+  - Balance external citations with original insights
+  - Use external links to support your arguments, not replace them
+- **Build relationships with other authorities in your space**
+  - Cite and link to respected thought leaders when relevant
+  - Participate in industry conversations through strategic linking
 
-# Include relevant statistics and data points
-# Present data in visual formats when possible
-# Provide context for statistics - explain what they mean
+## Content Quality Assessment Framework
 
-# Expert Integration
+### Evaluating Your Content Performance
+To assess how well your content follows these guidelines, regularly review your posts against these criteria:
 
-# Include relevant expert quotes from industry authorities
-# Reference case studies or real-world examples
-# Demonstrate expertise through technical accuracy when appropriate
+**Excellence Indicators:**
+- Content directly answers user queries in the first 2-3 sentences
+- Headlines are formatted as natural questions
+- Original data or customer examples are included
+- Author credentials are prominently displayed
+- FAQ sections address common follow-up questions
 
-# 5. User Intent Optimization
-# Query Matching
+**Areas for Improvement:**
+- Generic headlines that don't match search queries
+- Missing TL;DR summaries or executive summaries
+- Lack of industry-specific examples and use cases
+- Insufficient internal linking to related content
+- Missing meta descriptions or poorly optimized titles
 
-# Align content with search intent types:
+**Content Audit Checklist:**
+Use this checklist to evaluate existing content and guide new content creation:
+- [ ] Headlines written as questions that match user searches
+- [ ] Clear answer provided in first paragraph
+- [ ] TL;DR or executive summary included
+- [ ] FAQ section with 3+ relevant questions
+- [ ] Author bio with credentials displayed
+- [ ] Original data, quotes, or customer examples
+- [ ] Industry-specific use cases and examples
+- [ ] 3-5 contextual internal links included
+- [ ] Meta title and description optimized
 
-# Informational: Provide comprehensive explanations
-# Navigational: Clear direction to specific resources
-# Transactional: Include clear CTAs and action steps
-# Commercial: Compare options, provide recommendations
+## Common B2B Blog Gaps & Improvement Opportunities
 
-# Problem-Solution Framework
+### 🟢 Quick Wins (High Impact, Low Implementation Time)
 
-# Clearly identify user problems/pain points
-# Provide actionable solutions
-# Include step-by-step guidance where relevant
-# Offer multiple approaches when applicable
+**1. Add FAQ Sections to Every Post**
+- Implementation time: 30 minutes per post
+- Add 3-5 frequently asked questions to every pillar post
+- Use natural language question formats that match search queries
+- This dramatically improves AI discoverability and user experience
 
-# 6. E-E-A-T Principles
-# Experience
+**2. Transform Headlines into Questions**
+- Implementation time: 15 minutes per post
+- Rewrite 50% of your headlines as natural questions
+- Example: "Best Practices for Email Marketing" → "What Are the Best Practices for Email Marketing?"
+- This optimization is especially valuable for voice search and AI-powered results
 
-# Include first-hand insights or practical tips
-# Share specific examples from real applications
+**3. Include TL;DR Sections**
+- Implementation time: 20 minutes per post
+- Add 3-5 bullet point summaries after your introduction
+- Include key takeaways that answer the main query immediately
+- Helps both human readers and AI systems extract key information
 
-# Expertise
+**4. Display Author Information Prominently**
+- Implementation time: 1 hour per author (one-time setup)
+- Create author bio boxes with professional credentials
+- Display relevant experience, certifications, and achievements
+- Essential for building E-E-A-T signals and content authority
 
-# Use industry-specific terminology correctly
-# Demonstrate deep understanding of the subject
+**5. Structure Content with Clear Answer Blocks**
+- Implementation time: 25 minutes per post
+- Start each major section with a direct, 2-3 sentence answer
+- Write standalone information that can be extracted by AI systems
+- Significantly improves featured snippet capture potential
 
-# Authoritativeness
+### 🟡 Strategic Improvements (High Impact, Requires More Investment)
 
-# Write with confident, authoritative tone
-# Back claims with evidence
-# Avoid hedging language unless uncertainty is warranted
+**1. Develop Original Data and Research**
+- Time investment: 40 hours per quarter
+- Conduct customer surveys, analyze usage data, create industry reports
+- Original insights significantly differentiate your content
+- Especially valuable for AI systems that prioritize unique information
 
-# Trustworthiness
+**2. Optimize for SERP Features**
+- Time investment: 2 hours per post
+- Restructure existing content for featured snippet capture
+- Research and target "People Also Ask" questions systematically
+- Format content for paragraph, list, and table snippets
 
-# Maintain factual accuracy
-# Present balanced viewpoints
-# Acknowledge limitations when relevant
-# Update outdated information references
+**3. Build Comprehensive Use Case Library**
+- Time investment: 60-80 hours initial development
+- Document 20+ specific scenarios with named roles and industries
+- Include detailed workflows, before/after examples, and implementation timelines
+- Create content that directly addresses "For X role in Y industry" searches
 
-# 7. AI-Specific Optimization
-# Content Freshness
+## B2B Industry-Specific Optimization Guidelines
 
-# Include current information and recent developments
-# Reference recent events or trends when relevant
-# Update statistics to most recent available
+### SaaS/Technology B2B Companies
+- **Content Priorities**: Focus heavily on comparison content ("vs", "alternatives", "integrations")
+- **Essential Content Types**: 
+  - API documentation and integration guides
+  - Feature comparison matrices and competitive analysis
+  - Technical implementation guides and best practices
+  - Customer success stories with specific technical outcomes
 
-# Contextual Relevance
+### Professional Services B2B Firms
+- **Content Priorities**: Emphasize expertise demonstration and thought leadership
+- **Essential Content Types**:
+  - Detailed methodology explanations and frameworks
+  - Consultant bios showcasing relevant experience and results
+  - In-depth case studies with measurable business outcomes
+  - Industry trend analysis and strategic insights
 
-# Ensure all content directly relates to the main topic
-# Remove fluff or tangential information
-# Maintain topic focus throughout
+### Manufacturing/Industrial B2B Companies
+- **Content Priorities**: Technical specifications, compliance, and regulatory information
+- **Essential Content Types**:
+  - Detailed product specification tables and technical documentation
+  - Regulatory compliance guides and certification information
+  - ROI calculators and cost analysis tools
+  - Safety standards and implementation guidelines
 
-# Natural Language Processing
+### Financial Services B2B Organizations
+- **Content Priorities**: Trust signals, regulatory compliance, and market authority
+- **Essential Content Types**:
+  - Market data integration and economic analysis
+  - Regulatory compliance guides and disclaimer management
+  - Risk assessment frameworks and case studies
+  - Industry benchmarks and comparative analysis
 
-# Write in conversational tone while maintaining professionalism
-# Use complete sentences that standalone
-# Avoid ambiguous pronouns - be specific
-# Structure content for easy parsing by AI
+### Healthcare/Life Sciences B2B Companies
+- **Content Priorities**: Clinical evidence, research backing, and regulatory pathways
+- **Essential Content Types**:
+  - Clinical study summaries and research citations
+  - Regulatory pathway documentation and compliance guides
+  - Patient outcome data and clinical effectiveness studies
+  - Evidence-based practice guidelines and recommendations
 
-# 8. Formatting Best Practices
-# Visual Hierarchy
+## Expected ROI and Performance Improvements
 
-# Bold key points and important information
-# Use italics sparingly for emphasis
-# Create white space for better readability
-# Implement consistent formatting throughout
+### Implementation Impact Timeline
+Based on analysis of successful B2B blog optimization initiatives:
 
-# Meta Elements
+**Short-term improvements (30-60 days):**
+- Quick wins implementation typically shows 15-25% improvement in organic visibility
+- Featured snippet capture can increase by 40-60% with proper formatting
+- User engagement metrics (time on page, bounce rate) typically improve by 20-30%
 
-# Craft compelling meta descriptions (150-160 characters)
-# Optimize title tags with primary keywords
-# Use descriptive alt text for images
+**Medium-term gains (3-6 months):**
+- Comprehensive guideline implementation often results in 40-60% organic traffic growth
+- Lead quality improvements of 25-35% are common as content better matches user intent
+- Brand authority metrics (backlinks, mentions, citations) typically increase 30-50%
 
-# Implementation Priority
-# When creating content, prioritize these elements in order:
+**Long-term strategic benefits (6-12 months):**
+- Companies following these guidelines consistently see 80-120% organic traffic improvements
+- Qualified lead generation often increases 50-70% due to better audience targeting
+- Content becomes a significant competitive differentiator and thought leadership asset
 
-# Direct answer to user query (first paragraph)
-# Comprehensive coverage of the topic
-# Clear structure with logical headings
-# Credible citations and statistics
-# Natural keyword integration
-# Engaging, accessible writing style
-# FAQ or summary sections
-# """
-#     }
-#     }
-# ]
+**Success Measurement Framework:**
+- Track organic search visibility for target keywords
+- Monitor featured snippet capture rates and SERP feature presence
+- Measure lead quality scores and conversion rates from organic traffic
+- Analyze content engagement metrics and social sharing patterns
+
+## Advanced Content Optimization Guidelines
+
+### Keyword and Entity Optimization Best Practices
+**Strategic Keyword Integration:**
+- Include long-tail keywords and conversational phrases naturally throughout your content
+- Use semantic keywords - related terms, synonyms, and variations that support your main topic
+- Incorporate question-based keywords that match voice search patterns
+- Focus on natural language that mirrors how your target audience actually searches
+- Avoid keyword stuffing - maintain readability and user experience as the priority
+
+**Entity Recognition Enhancement:**
+- Emphasize key entities (people, places, brands, concepts) that are relevant to your industry
+- Provide context for entities to help search engines and AI understand relevance
+- Use precise, industry-standard terminology consistently throughout your content
+- Build entity associations by consistently linking related concepts and topics
+
+### User Intent Optimization Framework
+**Search Intent Alignment:**
+- **Informational Intent**: Provide comprehensive explanations, how-to guides, and educational content
+- **Navigational Intent**: Offer clear direction to specific resources, tools, or company pages  
+- **Transactional Intent**: Include clear calls-to-action and action steps for next steps
+- **Commercial Intent**: Compare options, provide recommendations, and guide decision-making
+
+**Problem-Solution Content Structure:**
+- Clearly identify and articulate user problems and pain points early in content
+- Provide multiple actionable solutions with specific implementation steps
+- Include step-by-step guidance where relevant, with visual aids when possible
+- Offer various approaches to accommodate different user situations and preferences
+
+### Enhanced E-E-A-T Implementation
+**Experience Demonstration:**
+- Include first-hand insights and practical tips from real implementations
+- Share specific examples from actual client work or internal projects
+- Use "In our experience..." statements backed by concrete examples and outcomes
+- Provide behind-the-scenes insights that only practitioners would know
+
+**Expertise Establishment:**
+- Use industry-specific terminology correctly and define technical terms when necessary
+- Demonstrate deep understanding through detailed analysis and nuanced perspectives  
+- Reference relevant certifications, qualifications, and professional achievements
+- Show familiarity with industry tools, processes, and best practices
+
+**Authority Building:**
+- Write with a confident, authoritative tone backed by evidence and data
+- Support all claims with credible sources, statistics, or documented examples
+- Avoid hedging language unless uncertainty is genuinely warranted
+- Build topical authority through consistent, high-quality content on related topics
+
+**Trustworthiness Signals:**
+- Maintain factual accuracy with the most recent data available
+- Present balanced viewpoints and acknowledge different perspectives when relevant
+- Openly acknowledge limitations, uncertainties, or areas requiring further research
+- Update content regularly to maintain information accuracy and relevance
+
+### AI-Specific Optimization Strategies
+**Content Freshness Maintenance:**
+- Include current information and reference recent industry developments
+- Update statistics and data points to reflect the most recent available information
+- Reference recent events, trends, or changes that impact your topic
+- Add clear publication and last-updated dates to establish content currency
+
+**Contextual Relevance Optimization:**
+- Ensure every section directly relates to and supports your main topic
+- Remove unnecessary fluff or tangential information that dilutes focus
+- Maintain consistent topic focus throughout while providing comprehensive coverage
+- Create clear topic clusters through strategic internal linking patterns
+
+**Natural Language Processing Compatibility:**
+- Write in a conversational yet professional tone that feels natural to read aloud
+- Use complete, standalone sentences that make sense even when extracted individually
+- Avoid ambiguous pronouns - be specific about what "it," "they," or "this" refers to
+- Structure content in a logical flow that AI systems can easily parse and understand
+
+### Advanced Formatting and Technical Best Practices
+**Visual Hierarchy Implementation:**
+- Bold the most important points and key takeaways for easy scanning
+- Use italics sparingly for emphasis - overuse reduces impact
+- Create sufficient white space between sections for improved readability
+- Implement consistent formatting patterns throughout all content
+- Always use proper heading structure progression (H1 → H2 → H3, never skip levels)
+
+**Technical SEO Elements:**
+- Craft compelling meta descriptions (150-160 characters) with clear value propositions
+- Optimize title tags with primary keywords within the first 60 characters
+- Write descriptive alt text for all images that includes relevant keywords naturally
+- Implement appropriate schema markup to help search engines understand content context
+- Ensure fast loading times and mobile responsiveness for all content
+
+## Content Creation Priority Framework
+
+**Phase 1: Foundation (Critical Elements)**
+1. **Direct answer to user query** in the first 2-3 sentences
+2. **Clear, question-based H1** that includes primary keyword
+3. **TL;DR or executive summary** with 3-5 key bullet points
+
+**Phase 2: Structure (Essential Organization)**  
+4. **Question-based subheadings** that create logical content flow
+5. **Clear answer blocks** at the start of each major section
+6. **FAQ section** addressing 3+ common follow-up questions
+
+**Phase 3: Authority (Trust Signals)**
+7. **Author credentials and bio** prominently displayed
+8. **Original data, examples, or customer stories** for differentiation  
+9. **External citations** to reputable, authoritative sources
+
+**Phase 4: Optimization (Search Performance)**
+10. **Natural keyword integration** throughout content without stuffing
+11. **3-5 contextual internal links** to related, valuable content
+12. **Meta title and description optimization** for search results
+
+## Pre-Publication Quality Checklist
+
+**Content Structure & Format:**
+- [ ] Clear H1 with primary keyword in question format
+- [ ] Proper heading hierarchy (no skipped levels)
+- [ ] TL;DR section with key takeaways prominently placed
+- [ ] FAQ section with 3+ natural language questions and complete answers
+
+**Authority & Trust Signals:**
+- [ ] Author bio with relevant credentials clearly displayed
+- [ ] At least one original data point, customer quote, or proprietary example
+- [ ] External citations to authoritative, recent sources
+- [ ] Industry-specific use cases and detailed examples
+
+**Technical Optimization:**
+- [ ] 3-5 contextual internal links with descriptive anchor text
+- [ ] Meta title optimized with primary keyword (under 60 characters)
+- [ ] Meta description compelling and informative (150-160 characters)
+- [ ] All images have descriptive alt text
+
+**Content Quality:**
+- [ ] Direct answer provided in first paragraph
+- [ ] Clear company positioning statement included
+- [ ] Recent statistics and current information referenced
+- [ ] Content thoroughly proofread and professionally formatted
+"""
+    }
+    }
+]
 
 # CUSTOMIZE THIS: Change the namespace if needed
-NAMESPACE = "blog_playbook_sys"  # Fixed namespace without item substitution
+NAMESPACE = "blog_seo_guidelines"  # Fixed namespace without item substitution
 
 
 async def upload_markdown_documents():
