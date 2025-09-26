@@ -8,6 +8,14 @@ for the B2B Blog Content Scoring Framework that analyzes blog content for both S
 from typing import List, Literal
 from pydantic import BaseModel, Field
 
+# Configuration constants
+TEMPERATURE = 0.3  # Lower temperature for more consistent scoring
+MAX_TOKENS = 10000
+
+# LLM Provider Configuration
+DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_LLM_MODEL = "gpt-5"
+
 # System Prompt for B2B Blog Content Scoring
 B2B_BLOG_SCORING_SYSTEM_PROMPT = """You are an expert B2B content analyst specializing in the unified B2B Blog Content Scoring Framework.
 

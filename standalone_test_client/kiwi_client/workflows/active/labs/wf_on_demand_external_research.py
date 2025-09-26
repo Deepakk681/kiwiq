@@ -399,7 +399,7 @@ workflow_graph_schema = {
         "route_iteration_check": {
             "node_id": "route_iteration_check",
             "node_name": "router_node",
-            "defer_node": True,
+            # "defer_node": True,
             "node_config": {
                 "choices": ["construct_feedback_prompt", "output_node"],
                 "allow_multiple": False,
@@ -692,7 +692,11 @@ workflow_graph_schema = {
         
         # HITL approval -> Route research approval
         {
-            "src_node_id": "research_approval",
+            "src_node_id": "load_hitl_additional_user_files_node",
+            "dst_node_id": "route_research_approval"
+        },
+        {
+            "src_node_id": "$graph_state",
             "dst_node_id": "route_research_approval",
             "mappings": [
                 {"src_field": "user_action", "dst_field": "user_action"}
@@ -740,10 +744,10 @@ workflow_graph_schema = {
         },
         
         # Load HITL additional files -> Route iteration check (sync point)
-        {
-            "src_node_id": "load_hitl_additional_user_files_node",
-            "dst_node_id": "route_iteration_check"
-        },
+        # {
+        #     "src_node_id": "load_hitl_additional_user_files_node",
+        #     "dst_node_id": "route_iteration_check"
+        # },
         
         # Route iteration -> Construct feedback prompt (loop back for revisions)
         {

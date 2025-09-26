@@ -668,10 +668,10 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_user_input_to_brief",
         # },
 
-        # {
-        #     "workflow_key": "blog_brief_to_blog_draft_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_brief_to_blog",
-        # },
+        {
+            "workflow_key": "blog_brief_to_blog_draft_workflow",
+            "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_brief_to_blog",
+        },
 
         # {
         #     "workflow_key": "blog_user_input_to_brief_workflow",
@@ -688,10 +688,10 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_calendar_selected_topic_to_brief",
         # },
 
-        # {
-        #     "workflow_key": "blog_brief_from_calendar_topic",
-        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_calendar_selected_topic_to_brief",
-        # },
+        {
+            "workflow_key": "blog_brief_from_calendar_topic",
+            "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_calendar_selected_topic_to_brief",
+        },
 
         # {
         #     "workflow_key": "blog_content_playbook_workflow",

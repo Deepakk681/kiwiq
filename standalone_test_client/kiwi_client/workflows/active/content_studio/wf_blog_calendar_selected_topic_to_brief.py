@@ -108,7 +108,7 @@ workflow_graph_schema = {
                         "required": True,
                         "description": "The selected topic from ContentTopicsOutput containing title, description, theme, objective, etc."
                     },
-                    "user_input": {
+                    "user_instructions": {
                         "type": "str",
                         "required": True,
                         "description": "User's content ideas, brainstorm, or transcript"
@@ -193,7 +193,6 @@ workflow_graph_schema = {
         "construct_google_research_prompt": {
             "node_id": "construct_google_research_prompt",
             "node_name": "prompt_constructor",
-            "defer_node": True,  # Wait for initial file loading to complete
             "node_config": {
                 "prompt_templates": {
                     "google_research_user_prompt": {
@@ -206,7 +205,7 @@ workflow_graph_schema = {
                         },
                         "construct_options": {
                             "company_doc": "company_doc",
-                            "user_input": "user_input",
+                            "user_input": "user_instructions",
                             "additional_user_files": "additional_user_files"
                         }
                     },
@@ -257,7 +256,7 @@ workflow_graph_schema = {
                         "construct_options": {
                             "company_doc": "company_doc",
                             "google_research_output": "google_research_output",
-                            "user_input": "user_input",
+                            "user_input": "user_instructions",
                             "additional_user_files": "additional_user_files"
                         }
                     },
@@ -300,7 +299,6 @@ workflow_graph_schema = {
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
             "node_name": "prompt_constructor",
-            "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
                 "prompt_templates": {
                     "brief_generation_user_prompt": {
@@ -321,7 +319,7 @@ workflow_graph_schema = {
                             "playbook_doc": "playbook_doc",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
-                            "user_input": "user_input",
+                            "user_input": "user_instructions",
                             "additional_user_files": "additional_user_files"
                         }
                     },
@@ -444,7 +442,7 @@ workflow_graph_schema = {
             }
         },
         
-        # 6.6 Load Brief HITL Additional User Files
+        # 6.7 Load Brief HITL Additional User Files
         "load_brief_hitl_additional_user_files_node": {
             "node_id": "load_brief_hitl_additional_user_files_node",
             "node_name": "load_customer_data",
@@ -612,7 +610,7 @@ workflow_graph_schema = {
                             "selected_topic": "selected_topic",
                             "company_doc": "company_doc",
                             "playbook_doc": "playbook_doc",
-                            "user_input": "user_input",
+                            "user_input": "user_instructions",
                             "google_research_output": "google_research_output",
                             "reddit_research_output": "reddit_research_output",
                             "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
@@ -723,7 +721,7 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "company_name", "dst_field": "company_name"},
                 {"src_field": "selected_topic", "dst_field": "selected_topic"},
-                {"src_field": "user_input", "dst_field": "user_input"},
+                {"src_field": "user_instructions", "dst_field": "user_instructions"},
                 {"src_field": "initial_status", "dst_field": "initial_status"},
                 {"src_field": "brief_uuid", "dst_field": "brief_uuid"},
                 {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
@@ -790,7 +788,7 @@ workflow_graph_schema = {
             "src_node_id": "$graph_state",
             "dst_node_id": "construct_google_research_prompt",
             "mappings": [
-                {"src_field": "user_input", "dst_field": "user_input"}
+                {"src_field": "user_instructions", "dst_field": "user_instructions"}
             ]
         },
         
@@ -828,7 +826,7 @@ workflow_graph_schema = {
             "dst_node_id": "construct_reddit_research_prompt",
             "mappings": [
                 {"src_field": "company_doc", "dst_field": "company_doc"},
-                {"src_field": "user_input", "dst_field": "user_input"}
+                {"src_field": "user_instructions", "dst_field": "user_instructions"}
             ]
         },
         
@@ -878,7 +876,7 @@ workflow_graph_schema = {
                 {"src_field": "playbook_doc", "dst_field": "playbook_doc"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
-                {"src_field": "user_input", "dst_field": "user_input"}
+                {"src_field": "user_instructions", "dst_field": "user_instructions"}
             ]
         },
         
@@ -1091,7 +1089,7 @@ workflow_graph_schema = {
                 {"src_field": "selected_topic", "dst_field": "selected_topic"},
                 {"src_field": "company_doc", "dst_field": "company_doc"},
                 {"src_field": "playbook_doc", "dst_field": "playbook_doc"},
-                {"src_field": "user_input", "dst_field": "user_input"},
+                {"src_field": "user_instructions", "dst_field": "user_instructions"},
                 {"src_field": "google_research_output", "dst_field": "google_research_output"},
                 {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"}
             ]
@@ -1101,7 +1099,6 @@ workflow_graph_schema = {
         {
             "src_node_id": "load_brief_hitl_additional_user_files_node",
             "dst_node_id": "construct_brief_feedback_prompt",
-            "data_only_edge": True,
             "mappings": [
                 {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
             ]
@@ -1193,7 +1190,7 @@ workflow_graph_schema = {
                 "playbook_doc": "replace",
                 "google_research_output": "replace",
                 "reddit_research_output": "replace",
-                "user_input": "replace",
+                "user_instructions": "replace",
                 "additional_user_files": "replace",
                 "brief_hitl_load_additional_user_files": "replace",
                 "initial_status": "replace",
@@ -1203,9 +1200,7 @@ workflow_graph_schema = {
     }
 }
 
-
 # --- Testing Code ---
-
 async def validate_selected_topic_brief_workflow_output(outputs: Optional[Dict[str, Any]]) -> bool:
     """
     Validate the selected topic to brief generation workflow outputs.
@@ -1392,7 +1387,7 @@ async def main_test_selected_topic_brief_workflow():
     test_inputs = {
         "company_name": test_company_name,
         "selected_topic": test_selected_topic,
-        "user_input": "I want to create content that helps CFOs understand the financial impact of manual CRM data entry. Focus on specific cost categories, hidden opportunity costs, and ROI calculations. Include real examples from SaaS companies.",
+        "user_instructions": "I want to create content that helps CFOs understand the financial impact of manual CRM data entry. Focus on specific cost categories, hidden opportunity costs, and ROI calculations. Include real examples from SaaS companies.",
         "initial_status": "draft",
         "brief_uuid": "123e4567-e89b-12d3-a456-426614174000",
         "load_additional_user_files": [
@@ -1541,7 +1536,7 @@ async def main_test_selected_topic_brief_workflow():
     predefined_hitl_inputs = [
         # First HITL: Request revision
         {
-            "user_brief_action": "provide_feedback",
+            "user_brief_action": "revise_brief",
             "revision_feedback": "The brief needs more focus on specific cost categories and should include more concrete examples. Please add a section about hidden costs like opportunity cost of sales reps not selling.",
             "load_additional_user_files": [
                 {

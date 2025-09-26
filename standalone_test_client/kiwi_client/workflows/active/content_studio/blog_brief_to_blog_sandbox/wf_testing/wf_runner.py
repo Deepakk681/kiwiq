@@ -30,6 +30,8 @@ from kiwi_client.workflows.active.content_studio.blog_brief_to_blog_sandbox.wf_t
     cleanup_docs,
 )
 
+WORKFLOW_NAME_TO_INGEST_AS_FOR_TESTING = "test_blog_brief_to_blog_sandbox_workflow"
+
 
 # --- Path Configuration ---
 def get_workflow_paths():
@@ -184,6 +186,7 @@ async def main_test_brief_to_blog():
         final_status, final_outputs = await run_workflow_test(
             test_name=f"{test_name} - {test_scenario['name']}",
             workflow_graph_schema=workflow_graph_schema,
+            workflow_name_to_ingest_as_for_testing=WORKFLOW_NAME_TO_INGEST_AS_FOR_TESTING,
             initial_inputs=test_scenario['initial_inputs'],
             expected_final_status=WorkflowRunStatus.COMPLETED,
             hitl_inputs_file_path=default_hitl_inputs_path,

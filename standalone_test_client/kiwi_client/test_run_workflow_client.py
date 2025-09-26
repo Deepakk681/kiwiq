@@ -731,6 +731,7 @@ class InteractiveWorkflowRunClient:
     async def submit_and_monitor_run(
         self,
         workflow_id: Optional[uuid.UUID] = None,
+        workflow_name_to_ingest_as_for_testing: Optional[str] = None,
         graph_schema: Optional[Dict[str, Any]] = None,
         inputs: Dict[str, Any] = {},
         hitl_inputs: Optional[List[Dict[str, Any]]] = None,
@@ -762,6 +763,7 @@ class InteractiveWorkflowRunClient:
         Args:
             workflow_id: The UUID of an *existing* workflow definition to run.
                          Mutually exclusive with `graph_schema`.
+            workflow_name_to_ingest_as_for_testing: The name of an *existing* workflow definition to ingest as for testing.
             graph_schema: A dictionary representing the workflow graph schema.
                           If provided, a new workflow will be created using this
                           schema before the run. The created workflow will be
@@ -840,7 +842,7 @@ class InteractiveWorkflowRunClient:
                 # <-- END VALIDATION STEP -->
 
                 try:
-                    workflow_name = f"InteractiveClientWorkflow-{uuid.uuid4().hex[:8]}"
+                    workflow_name = workflow_name_to_ingest_as_for_testing or f"InteractiveClientWorkflow-{uuid.uuid4().hex[:8]}"
                     created_workflow = await self._workflow_client.create_workflow(
                         name=workflow_name, graph_config=graph_schema
                     )
@@ -1090,6 +1092,7 @@ class CleanupSchemaInfo(TypedDict):
 async def run_workflow_test(
     test_name: str,
     workflow_graph_schema: Optional[Dict[str, Any]] = None,
+    workflow_name_to_ingest_as_for_testing: Optional[str] = None,
     workflow_id: Optional[Union[str, uuid.UUID]] = None,
     workflow_name: Optional[str] = None,
     workflow_version: Optional[str] = None,
@@ -1130,6 +1133,7 @@ async def run_workflow_test(
     Args:
         test_name: A descriptive name for the test, used in logging and print statements.
         workflow_graph_schema: The workflow graph schema definition to execute. Mutually exclusive with workflow_id, workflow_name, and workflow_key.
+        workflow_name_to_ingest_as_for_testing: The name of an *existing* workflow definition to ingest as for testing. Mutually exclusive with workflow_graph_schema, workflow_id, and workflow_key.
         workflow_id: The ID of an existing workflow to execute. Mutually exclusive with workflow_graph_schema, workflow_name, and workflow_key.
         workflow_name: The name of an existing workflow to search for and execute. If provided, will search for the workflow and use its ID.
                       If workflow_version is also provided, will search for that specific version. Mutually exclusive with 
@@ -1632,6 +1636,7 @@ async def run_workflow_test(
             # Execute the workflow and wait for completion
             final_run_status_obj, final_run_outputs, run_output_folder = await interactive_client.submit_and_monitor_run(
                 workflow_id=resolved_workflow_id if resolved_workflow_id else None,
+                workflow_name_to_ingest_as_for_testing=workflow_name_to_ingest_as_for_testing,
                 graph_schema=workflow_graph_schema if workflow_graph_schema else None,
                 inputs=initial_inputs,
                 hitl_inputs=final_hitl_inputs,

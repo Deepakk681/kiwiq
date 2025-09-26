@@ -11,6 +11,22 @@ This file contains prompts, schemas, and configurations for the workflow that:
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
+# Configuration constants
+# LLM_PROVIDER = "openai"  # anthropic    openai
+# LLM_MODEL = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
+TEMPERATURE = 0.7
+MAX_TOKENS = 20000
+MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations
+
+MAX_TOOL_CALLS = 20  # Maximum total tool calls allowed
+CONSIDER_FAILED_CALLS_IN_LIMIT = True
+
+# Providers per task
+TOOLCALL_LLM_PROVIDER = "openai"
+TOOLCALL_LLM_MODEL = "gpt-5"
+DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_LLM_MODEL = "gpt-4.1"
+
 # =============================================================================
 # SYSTEM PROMPTS
 # =============================================================================

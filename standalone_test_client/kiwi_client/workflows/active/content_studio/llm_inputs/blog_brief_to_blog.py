@@ -510,6 +510,9 @@ Generate the blog content based on the strategic brief and enrichment informatio
 ## INPUT 3: ADDITIONAL CONTEXT DOCUMENTS (If provided)
 {additional_user_files}
 
+## INPUT 4: USER INSTRUCTIONS (If provided): User instructions for the blog post.
+{user_instructions}
+
 ## CONTENT CREATION INSTRUCTIONS
 
 ### UNDERSTANDING YOUR INPUTS:

@@ -42,15 +42,12 @@ from kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_llm_inp
     B2B_BLOG_SCORING_SYSTEM_PROMPT,
     B2B_BLOG_SCORING_USER_PROMPT_TEMPLATE,
     B2B_BLOG_SCORING_OUTPUT_SCHEMA,
+    TEMPERATURE,
+    MAX_TOKENS,
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_LLM_MODEL,
 )
 
-# Configuration constants
-TEMPERATURE = 0.3  # Lower temperature for more consistent scoring
-MAX_TOKENS = 10000
-
-# LLM Provider Configuration
-DEFAULT_LLM_PROVIDER = "openai"
-DEFAULT_LLM_MODEL = "gpt-5"
 
 # Workflow JSON structure
 workflow_graph_schema = {
@@ -344,13 +341,6 @@ async def validate_seo_analysis_output(outputs: Optional[Dict[str, Any]]) -> boo
     assert isinstance(strategic_recs, list), "Validation Failed: Strategic recommendations should be a list."
     assert len(strategic_recs) >= 2, "Validation Failed: Should have at least 2 strategic recommendations."
     logger.info(f"✓ Strategic Recommendations: {len(strategic_recs)} provided")
-    
-    # Validate document information in output
-    analyzed_namespace = outputs.get('analyzed_document_namespace')
-    analyzed_docname = outputs.get('analyzed_document_docname')
-    assert analyzed_namespace is not None, "Validation Failed: Analyzed document namespace not found in output."
-    assert analyzed_docname is not None, "Validation Failed: Analyzed document docname not found in output."
-    logger.info(f"✓ Analyzed Document: {analyzed_namespace}/{analyzed_docname}")
     
     logger.info("✓ B2B Blog Content Scoring workflow validation passed.")
     

@@ -115,17 +115,6 @@ test_blog_brief_data = {
         "Organizations using AI for sales insights see 12-18% improvements in deal velocity",
         "Companies with mature conversation intelligence programs report 7-15% higher win rates"
         ]
-    },
-    {
-        "source": "Marketing Technology & AI Conference 2024: Revenue Intelligence Panel Insights",
-        "key_insights": [
-        "87% of revenue leaders at the conference reported that conversation intelligence is now critical for competitive differentiation",
-        "Panel discussions highlighted that companies using AI-powered revenue orchestration see 30-45% faster decision-making cycles",
-        "Conference speakers emphasized the importance of ROI measurement - 72% of attendees struggle to quantify conversation intelligence value",
-        "Best practice case studies showed that successful implementations require clear success metrics and executive buy-in",
-        "Industry experts predict conversation intelligence will become as essential as CRM within the next 2 years",
-        "Conference survey revealed that 65% of revenue teams want better tools for calculating and presenting ROI to executives"
-        ]
     }
     ],
     "content_structure": [

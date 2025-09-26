@@ -46,24 +46,16 @@ from kiwi_client.workflows.active.content_studio.blog_brief_to_blog_sandbox.wf_l
     KNOWLEDGE_ENRICHMENT_OUTPUT_SCHEMA,
     CONTENT_GENERATION_OUTPUT_SCHEMA,
     FEEDBACK_ANALYSIS_OUTPUT_SCHEMA,
+    TEMPERATURE,
+    MAX_TOKENS,
+    MAX_LLM_ITERATIONS,
+    MAX_TOOL_CALLS,
+    CONSIDER_FAILED_CALLS_IN_LIMIT,
+    TOOLCALL_LLM_PROVIDER,
+    TOOLCALL_LLM_MODEL,
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_LLM_MODEL,
 )
-
-# Configuration constants
-# LLM_PROVIDER = "openai"  # anthropic    openai
-# LLM_MODEL = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
-TEMPERATURE = 0.7
-MAX_TOKENS = 20000
-MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations
-
-MAX_TOOL_CALLS = 20  # Maximum total tool calls allowed
-CONSIDER_FAILED_CALLS_IN_LIMIT = True
-
-# Providers per task
-TOOLCALL_LLM_PROVIDER = "openai"
-TOOLCALL_LLM_MODEL = "gpt-5"
-DEFAULT_LLM_PROVIDER = "openai"
-DEFAULT_LLM_MODEL = "gpt-4.1"
-
 
 # Workflow JSON structure
 workflow_graph_schema = {
