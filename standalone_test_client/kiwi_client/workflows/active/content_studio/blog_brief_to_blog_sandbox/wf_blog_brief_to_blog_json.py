@@ -80,6 +80,11 @@ workflow_graph_schema = {
                         "required": False,
                         "default": [],
                         "description": "Optional list of additional user files to load. Each item should have 'namespace', 'docname', and 'is_shared' fields."
+                    },
+                    "user_instructions": {
+                        "type": "str",
+                        "required": False,
+                        "description": "User instructions for the blog post."
                     }
                 }
             }
@@ -311,7 +316,7 @@ workflow_graph_schema = {
         "construct_content_generation_prompt": {
             "node_id": "construct_content_generation_prompt",
             "node_name": "prompt_constructor",
-            "defer_node": True,  # This is so that all nodes before `construct_content_generation_prompt` have finished executing!
+            "defer_node": True,
             "node_config": {
                 "prompt_templates": {
                     "content_generation_user_prompt": {
@@ -321,11 +326,13 @@ workflow_graph_schema = {
                             "blog_brief": None,
                             "knowledge_context": None,
                             "additional_user_files": "",
+                            "user_instructions": None,
                         },
                         "construct_options": {
                             "blog_brief": "blog_brief",
                             "knowledge_context": "knowledge_context",
                             "additional_user_files": "additional_user_files",
+                            "user_instructions": "user_instructions"
                         }
                     },
                     "content_generation_system_prompt": {
@@ -722,7 +729,8 @@ workflow_graph_schema = {
                 {"src_field": "brief_docname", "dst_field": "brief_docname"},
                 {"src_field": "post_uuid", "dst_field": "post_uuid"},
                 {"src_field": "initial_status", "dst_field": "initial_status"},
-                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"},
+                {"src_field": "user_instructions", "dst_field": "user_instructions"}
             ]
         },
         
@@ -921,7 +929,8 @@ workflow_graph_schema = {
                 {"src_field": "company_guidelines", "dst_field": "company_guidelines"},
                 {"src_field": "knowledge_context", "dst_field": "knowledge_context"},
                 {"src_field": "seo_best_practices", "dst_field": "seo_best_practices"},
-                # {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+                # {"src_field": "additional_user_files", "dst_field": "additional_user_files"},
+                {"src_field": "user_instructions", "dst_field": "user_instructions"}
             ]
         },
         

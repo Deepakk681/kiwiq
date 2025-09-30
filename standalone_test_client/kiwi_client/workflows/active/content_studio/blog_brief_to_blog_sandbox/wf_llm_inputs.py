@@ -1,36 +1,49 @@
+# =============================================================================
+# LLM MODEL CONFIGURATIONS
+# =============================================================================
 """
-Brief to Blog Generation Workflow - LLM Inputs
+Configuration for different LLM models used throughout the workflow steps.
+"""
 
-This file contains prompts, schemas, and configurations for the workflow that:
-- Takes a blog brief document as input
-- Enriches the brief with domain knowledge from knowledge base
-- Generates final blog content using SEO best practices and company guidelines
-- Includes HITL approval flows and feedback processing
-"""
+# Temperature and Token Settings
+TEMPERATURE = 0.7
+MAX_TOKENS = 20000
+MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations for tool calling
+
+# Tool Calling Configuration
+MAX_TOOL_CALLS = 20  # Maximum total tool calls allowed
+CONSIDER_FAILED_CALLS_IN_LIMIT = True
+
+# LLM Providers and Models by Step
+# Step 1: Knowledge Enrichment (Tool-calling LLM)
+TOOLCALL_LLM_PROVIDER = "openai"
+TOOLCALL_LLM_MODEL = "gpt-5"
+
+# Steps 2-5: Content Generation, Feedback Analysis, Content Update
+DEFAULT_LLM_PROVIDER = "openai"
+DEFAULT_LLM_MODEL = "gpt-4.1"
+
+
+# =============================================================================
+# LLM Inputs for Blog Brief to Blog Generation Workflow
+# =============================================================================
+# This file contains prompts, schemas, and configurations organized by workflow steps:
+# 1. Knowledge Enrichment - Extract company-specific information from knowledge base
+# 2. Content Generation - Generate blog content from brief and enrichment
+# 3. Content Approval (HITL) - Human review and feedback processing
+# 4. Feedback Analysis - Process user feedback
+# 5. Content Update - Apply feedback to content
 
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
-# Configuration constants
-# LLM_PROVIDER = "openai"  # anthropic    openai
-# LLM_MODEL = "gpt-5"  # o4-mini   gpt-4.1    claude-sonnet-4-20250514
-TEMPERATURE = 0.7
-MAX_TOKENS = 20000
-MAX_LLM_ITERATIONS = 10  # Maximum LLM loop iterations
-
-MAX_TOOL_CALLS = 20  # Maximum total tool calls allowed
-CONSIDER_FAILED_CALLS_IN_LIMIT = True
-
-# Providers per task
-TOOLCALL_LLM_PROVIDER = "openai"
-TOOLCALL_LLM_MODEL = "gpt-5"
-DEFAULT_LLM_PROVIDER = "openai"
-DEFAULT_LLM_MODEL = "gpt-4.1"
-
 # =============================================================================
-# SYSTEM PROMPTS
+# STEP 1: KNOWLEDGE ENRICHMENT
 # =============================================================================
+# First step that extracts company-specific information from the knowledge base to
+# enrich the blog brief with proprietary data, case studies, and expertise.
 
+# Knowledge Enrichment System Prompt
 KNOWLEDGE_ENRICHMENT_SYSTEM_PROMPT = """
 You are a company knowledge specialist tasked with extracting and organizing company-specific information to personalize blog content creation.
 
@@ -123,7 +136,7 @@ For each section in the brief's `content_structure`, you must find and extract:
 
 ## CRITICAL REQUIREMENTS
 
-**TRUTHFULNESS:** 
+**TRUTHFULNESS:**
 - ONLY extract information you actually find through search_documents
 - Present all findings as integrated knowledge WITHOUT referencing source documents
 - If no relevant information exists for a section, clearly state this
@@ -145,10 +158,10 @@ For each section in the brief's `content_structure`, you must find and extract:
 You have access to the search_documents tool for finding relevant content in the knowledge base:
 
 **search_documents Tool Usage:**
-- Purpose: Find relevant content using AI-powered search across uploaded blog files
+- Purpose: Find relevant content using AI-powered search across uploaded blog files and external research reports
 - Required inputs:
   - search_query: Your search terms (what you're looking for)
-  - list_filter: Must include ["doc_key": "blog_uploaded_files"]
+  - list_filter: Must include ["doc_key": "blog_uploaded_files"] and/or ["doc_key": "external_research_report_doc"]
 - Returns: Relevant information from the knowledge base
 
 **CRITICAL RULE ABOUT SOURCES:**
@@ -163,7 +176,7 @@ You have access to the search_documents tool for finding relevant content in the
    - Key concepts from section_reasoning
    - Statistics or data points needed
 
-2. Always include the list_filter with doc_key "blog_uploaded_files"
+2. Always include the list_filter with doc_key "blog_uploaded_files" and/or "external_research_report_doc"
 
 3. Extract the relevant information and present it without attribution to specific documents
 
@@ -173,7 +186,7 @@ You have access to the search_documents tool for finding relevant content in the
   "tool_name": "search_documents",
   "tool_input": [
     "search_query": "conversation intelligence ROI metrics time savings",
-    "list_filter": ["doc_key": "blog_uploaded_files"]
+    "list_filter": ["doc_key": "blog_uploaded_files", "doc_key": "external_research_report_doc"]
   ]
 ]
 ```
@@ -191,6 +204,238 @@ You have access to the search_documents tool for finding relevant content in the
 Your output will be structured information that content writers can immediately use to create compelling, company-specific blog content that serves the strategic purpose of each section while addressing real user needs with concrete company evidence.
 """
 
+# Knowledge Enrichment User Prompt Template
+KNOWLEDGE_ENRICHMENT_USER_PROMPT_TEMPLATE = """
+Extract company-specific information from the knowledge base to personalize the blog content creation process.
+
+## YOUR MISSION
+
+You are provided with a strategic blog brief below. Your task is to extract relevant company-specific information that will transform this brief from generic content guidance into personalized, company-backed blog content.
+
+## BLOG BRIEF TO ANALYZE
+
+{blog_brief}
+
+## STEP-BY-STEP EXTRACTION PROCESS
+
+### STEP 1: UNDERSTAND THE BRIEF STRUCTURE
+Analyze these key elements from the brief:
+
+**Content Sections** (`content_structure`):
+- Each section has a `section_reasoning` (WHY it exists)
+- Each section lists `user_questions_answered` (WHAT problems it solves)
+- Each section has `research_support` needs (WHAT evidence it requires)
+
+**Strategic Context**:
+- `content_goal` & `goal_reasoning`: The overall purpose
+- `target_audience` & `audience_reasoning`: Who we're serving
+- `key_takeaways` & `takeaways_reasoning`: Main messages and their basis
+
+### STEP 2: EXTRACT COMPANY-SPECIFIC INFORMATION FOR EACH SECTION
+
+For EVERY section in the `content_structure`, you must search and extract:
+
+**A. PRODUCT/SERVICE DETAILS:**
+- Specific features that relate to the section topic
+- Technical capabilities that address the user questions
+- Unique functionalities that differentiate from competitors
+- Product specifications that support the section's reasoning
+
+**B. COMPANY DATA & METRICS:**
+- ROI statistics, time savings data, efficiency improvements
+- Customer success rates, adoption metrics, performance benchmarks
+- Usage statistics, conversion rates, customer satisfaction scores
+- Industry comparisons where the company outperforms
+
+**C. CUSTOMER SUCCESS EVIDENCE:**
+- Case studies that demonstrate the section's key points
+- Customer testimonials that answer the user questions
+- Implementation stories that support the section reasoning
+- Before/after scenarios showing company impact
+
+**D. COMPANY EXPERTISE & THOUGHT LEADERSHIP:**
+- Methodologies, frameworks, or approaches developed by the company
+- Expert insights from company leaders or subject matter experts
+- Proprietary research or studies conducted by the company
+- Industry perspectives that showcase company knowledge
+
+**E. SUPPORTING PROOF POINTS:**
+- Whitepapers, research findings, or industry reports
+- Quotes from company executives or technical experts
+- Awards, certifications, or industry recognition
+- Partnership data or integration capabilities
+
+### STEP 3: SEARCH EXECUTION STRATEGY
+
+**Company Context:**
+- Company name: {company_name}
+- Knowledge base: blog_uploaded_files (uploaded company content) and external_research_report_doc (external research reports)
+
+**Search Approach:**
+1. **Section-Focused Searches**: For each content section, create searches that target:
+   - The specific topic and section reasoning
+   - Data that addresses the user questions listed
+   - Examples that support the strategic purpose
+
+2. **Information Type Searches**: Look for specific types of content:
+   - Product feature searches: "[product name] features capabilities"
+   - Data searches: "ROI metrics performance statistics"
+   - Case study searches: "customer success implementation"
+   - Expert insight searches: "methodology framework approach"
+
+3. **User Question Searches**: For each `user_questions_answered`, search for:
+   - Direct answers with company-specific solutions
+   - Data that validates the company's approach
+   - Examples that demonstrate successful outcomes
+
+### STEP 4: TOOL USAGE INSTRUCTIONS
+
+**HOW TO USE search_documents:**
+
+For each search, use this format:
+```json
+[
+  "tool_name": "search_documents",
+  "tool_input": [
+    "search_query": "your specific search terms here",
+    "list_filter": ["doc_key": "blog_uploaded_files", "doc_key": "external_research_report_doc"]
+  ]
+]
+```
+
+**Important:** When making actual tool calls, replace the square brackets [ ] with curly braces for proper JSON format. The square brackets are used here only to distinguish from template variables.
+
+**Search Query Examples:** (Customize based on your brief's specific sections)
+- For ROI/performance sections: "ROI calculator conversation intelligence metrics performance"
+- For time savings data: "time savings automation efficiency productivity"
+- For case studies: "customer success story implementation results testimonial"
+- For product features: "[product name] features capabilities functionality"
+- For competitive analysis: "competitor comparison advantages differentiation"
+
+**CRITICAL SEARCH RULES:**
+- Always include `"list_filter": ["doc_key": "blog_uploaded_files", "doc_key": "external_research_report_doc"]` in every search (use curly braces in actual calls)
+- Use specific, targeted search queries based on the brief's section_reasoning
+- Search multiple times with different query variations to find comprehensive content
+- DO NOT reference document names, serial numbers, or file identifiers in your output
+- Present extracted information as integrated knowledge without source attribution
+
+### STEP 5: EXTRACTION QUALITY STANDARDS
+
+**SPECIFICITY REQUIREMENTS:**
+- Extract exact numbers, percentages, timeframes (e.g., "37% time savings" not "significant time savings")
+- Include specific product names, features, and capabilities
+- Capture precise customer quotes and attributions
+- Note specific use cases and implementation details
+
+**RELEVANCE VERIFICATION:**
+For each piece of extracted information, verify it:
+- Directly supports the section's `section_reasoning`
+- Aligns with the `target_audience` and `difficulty_level`
+- Reinforces the overall `content_goal`
+
+**TRUTHFULNESS STANDARDS:**
+- ONLY include information found through search_documents tool calls
+- Present findings as integrated knowledge WITHOUT mentioning source documents
+- If no relevant content exists for a section, state: "No company-specific information found for this section"
+- Never fabricate data, statistics, quotes, case studies, or examples
+- Try multiple search variations before concluding information is unavailable
+- Be transparent about information gaps but NOT about source documents
+
+### STEP 6: OUTPUT REQUIREMENTS
+
+**Structure Your Response:**
+- Organize extracted information by content section
+- Present all information as integrated knowledge (NO document names or references)
+- Specify how each piece of information will be used in content creation
+- Note any information gaps or limitations
+
+**Quality Indicators:**
+- Each section should have 3-5 specific, actionable pieces of company information
+- Include a mix of data points, examples, and proof points
+- Ensure variety: product details, customer stories, company expertise, metrics
+- Maintain strategic alignment with the brief's reasoning and goals
+
+**Final Verification:**
+Before submitting, ensure your extracted information will enable writers to:
+- Create unique, company-specific content (not generic industry content)
+- Answer user questions with concrete company evidence
+- Demonstrate company differentiation and expertise
+- Support key takeaways with real company data and examples
+
+Return structured output that maps each content section to its specific company enrichment with clear usage guidance for content writers. Do NOT include document names, serial numbers, or any source references - present all information as integrated knowledge.
+"""
+
+# Variables Used in Knowledge Enrichment Prompts:
+"""
+Variables that go into the Knowledge Enrichment prompts:
+- blog_brief: The complete blog brief document loaded at the beginning, contains content structure, SEO keywords, target audience, and strategic reasoning
+- company_name: Name of the company for context in searches
+"""
+
+# Knowledge Enrichment Output Schema
+class ProductInformationSchema(BaseModel):
+    """Schema for product/service specific information."""
+    features: List[str] = Field(description="Specific product features relevant to this section")
+    capabilities: List[str] = Field(description="Technical capabilities that address user questions")
+    specifications: List[str] = Field(description="Product specifications and technical details")
+    unique_selling_points: List[str] = Field(description="Unique value propositions that differentiate from competitors")
+
+class CompanyDataSchema(BaseModel):
+    """Schema for company metrics and performance data."""
+    roi_metrics: List[str] = Field(description="ROI statistics, time savings, efficiency improvements with specific numbers")
+    performance_benchmarks: List[str] = Field(description="Customer success rates, adoption metrics, performance benchmarks")
+    usage_statistics: List[str] = Field(description="Usage statistics, conversion rates, customer satisfaction scores")
+    industry_comparisons: List[str] = Field(description="Industry comparisons where company outperforms competitors")
+
+class CustomerSuccessSchema(BaseModel):
+    """Schema for customer success stories and testimonials."""
+    case_studies: List[str] = Field(description="Customer case studies that demonstrate section's key points")
+    testimonials: List[str] = Field(description="Customer testimonials that answer user questions")
+    implementation_stories: List[str] = Field(description="Implementation stories showing company impact")
+    before_after_scenarios: List[str] = Field(description="Before/after scenarios demonstrating results")
+
+class CompanyExpertiseSchema(BaseModel):
+    """Schema for company thought leadership and expertise."""
+    methodologies: List[str] = Field(description="Proprietary methodologies, frameworks, or approaches")
+    expert_insights: List[str] = Field(description="Insights from company leaders or subject matter experts")
+    proprietary_research: List[str] = Field(description="Company-conducted research or studies")
+    industry_perspectives: List[str] = Field(description="Unique industry perspectives that showcase knowledge")
+
+class SupportingEvidenceSchema(BaseModel):
+    """Schema for supporting proof points and evidence."""
+    research_findings: List[str] = Field(description="Whitepapers, research findings, industry reports")
+    expert_quotes: List[str] = Field(description="Quotes from company executives or technical experts")
+    recognition: List[str] = Field(description="Awards, certifications, industry recognition")
+    partnerships: List[str] = Field(description="Partnership data, integration capabilities, ecosystem details")
+
+class SectionEnrichmentSchema(BaseModel):
+    """Comprehensive schema for enriching a content section with company-specific information."""
+    section_name: str = Field(description="Name of the content section from the brief")
+
+    # Company-specific information categories
+    product_information: Optional[ProductInformationSchema] = Field(description="Product/service specific details")
+    company_data: Optional[CompanyDataSchema] = Field(description="Company metrics and performance data")
+    customer_success: Optional[CustomerSuccessSchema] = Field(description="Customer success stories and testimonials")
+    company_expertise: Optional[CompanyExpertiseSchema] = Field(description="Company thought leadership and expertise")
+    supporting_evidence: Optional[SupportingEvidenceSchema] = Field(description="Supporting proof points and evidence")
+
+    # Usage guidance for content writers
+    content_usage_guidance: str = Field(description="Specific instructions on how writers should use this information")
+
+class KnowledgeEnrichmentSchema(BaseModel):
+    """Enhanced schema for comprehensive knowledge enrichment output."""
+    enriched_sections: List[SectionEnrichmentSchema] = Field(description="Detailed enrichment for each content section")
+    content_differentiation_opportunities: List[str] = Field(description="Key opportunities to differentiate content using company-specific information")
+
+KNOWLEDGE_ENRICHMENT_OUTPUT_SCHEMA = KnowledgeEnrichmentSchema.model_json_schema()
+
+# =============================================================================
+# STEP 2: CONTENT GENERATION
+# =============================================================================
+# Second step that generates the actual blog content using the brief, enrichment,
+# and SEO best practices to create publication-ready content.
+
+# Content Generation System Prompt
 CONTENT_GENERATION_SYSTEM_PROMPT = """
 You are a senior content writer specializing in creating high-quality, SEO-optimized blog content that precisely executes strategic content briefs.
 
@@ -225,6 +470,11 @@ The blog brief contains strategic elements that guide your writing:
 2. **Natural Flow**: Create smooth transitions between sections
 3. **Value-Driven**: Every paragraph should provide value to the reader
 4. **Strategic Alignment**: Each section serves its documented purpose from the brief
+
+### AI OPTIMIZATION ELEMENTS :
+1. **Answer Modules**: Add 2-3 sentence answers after each question/heading throughout the content
+2. **TL;DR Box**: Include a 3-5 bullet summary after the introduction
+3. **FAQ Section**: Add 5 questions and answers at the end of the content
 
 ### WHAT NOT TO WRITE:
 1. **NO Scripts or Code**: Never include any programming scripts, code snippets, or technical markup at the end or anywhere in the content
@@ -284,7 +534,7 @@ Your output must be:
 ## CRITICAL REMINDERS
 
 **NEVER** add scripts, code, or technical content at the end of the blog
-**NEVER** mention document names, file references, or internal sources  
+**NEVER** mention document names, file references, or internal sources
 **NEVER** include meta-commentary about the content or writing process
 **NEVER** add citations, references, or source links unless explicitly provided
 **ALWAYS** write as if the content stands alone without any supporting documents
@@ -295,209 +545,7 @@ SEO Best Practices: These are the SEO best practices that you should follow when
 {seo_best_practices}
 """
 
-FEEDBACK_ANALYSIS_SYSTEM_PROMPT = """
-You are a content feedback analyst specializing in strategic content improvement while maintaining brief alignment.
-
-CRITICAL CONTEXT: You're working with content generated from a strategic brief that includes:
-1. Documented reasoning for every content decision
-2. Research citations and user questions being addressed
-3. SEO strategy with search intent analysis
-4. Brand differentiation elements
-5. Specific success metrics and requirements
-
-Your task is to:
-
-ANALYZE FEEDBACK STRATEGICALLY:
-1. Determine if feedback conflicts with or enhances the brief's strategic reasoning
-2. Identify which section_reasoning might need adjustment
-3. Assess if user_questions_answered are being effectively addressed
-4. Check if takeaways align with their takeaways_reasoning
-
-PRESERVE STRATEGIC INTENT:
-- Ensure improvements don't compromise the content_goal and goal_reasoning
-- Maintain alignment with target_audience and audience_reasoning
-- Respect the SEO strategy and search_intent_analysis
-- Preserve brand voice and differentiation_elements
-
-PROVIDE TARGETED IMPROVEMENTS:
-1. Map feedback to specific sections and their section_reasoning
-2. Suggest enhancements that strengthen the research_support
-3. Recommend additions that better answer user_questions_answered
-4. Propose changes that reinforce takeaways_reasoning
-
-MAINTAIN BRIEF COMPLIANCE:
-- Ensure word counts remain within targets
-- Keep difficulty_level appropriate to audience
-- Preserve the strategic flow of content_structure
-- Enhance rather than replace key strategic elements
-
-Remember: User feedback should enhance the strategic execution, not override the brief's documented reasoning. Balance user preferences with strategic requirements.
-"""
-
-# =============================================================================
-# USER PROMPT TEMPLATES
-# =============================================================================
-
-KNOWLEDGE_ENRICHMENT_USER_PROMPT_TEMPLATE = """
-Extract company-specific information from the knowledge base to personalize the blog content creation process.
-
-## YOUR MISSION
-
-You are provided with a strategic blog brief below. Your task is to extract relevant company-specific information that will transform this brief from generic content guidance into personalized, company-backed blog content.
-
-## BLOG BRIEF TO ANALYZE
-
-{blog_brief}
-
-## STEP-BY-STEP EXTRACTION PROCESS
-
-### STEP 1: UNDERSTAND THE BRIEF STRUCTURE
-Analyze these key elements from the brief:
-
-**Content Sections** (`content_structure`): 
-- Each section has a `section_reasoning` (WHY it exists)
-- Each section lists `user_questions_answered` (WHAT problems it solves)
-- Each section has `research_support` needs (WHAT evidence it requires)
-
-**Strategic Context**:
-- `content_goal` & `goal_reasoning`: The overall purpose
-- `target_audience` & `audience_reasoning`: Who we're serving
-- `key_takeaways` & `takeaways_reasoning`: Main messages and their basis
-
-### STEP 2: EXTRACT COMPANY-SPECIFIC INFORMATION FOR EACH SECTION
-
-For EVERY section in the `content_structure`, you must search and extract:
-
-**A. PRODUCT/SERVICE DETAILS:**
-- Specific features that relate to the section topic
-- Technical capabilities that address the user questions
-- Unique functionalities that differentiate from competitors
-- Product specifications that support the section's reasoning
-
-**B. COMPANY DATA & METRICS:**
-- ROI statistics, time savings data, efficiency improvements
-- Customer success rates, adoption metrics, performance benchmarks
-- Usage statistics, conversion rates, customer satisfaction scores
-- Industry comparisons where the company outperforms
-
-**C. CUSTOMER SUCCESS EVIDENCE:**
-- Case studies that demonstrate the section's key points
-- Customer testimonials that answer the user questions
-- Implementation stories that support the section reasoning
-- Before/after scenarios showing company impact
-
-**D. COMPANY EXPERTISE & THOUGHT LEADERSHIP:**
-- Methodologies, frameworks, or approaches developed by the company
-- Expert insights from company leaders or subject matter experts
-- Proprietary research or studies conducted by the company
-- Industry perspectives that showcase company knowledge
-
-**E. SUPPORTING PROOF POINTS:**
-- Whitepapers, research findings, or industry reports
-- Quotes from company executives or technical experts
-- Awards, certifications, or industry recognition
-- Partnership data or integration capabilities
-
-### STEP 3: SEARCH EXECUTION STRATEGY
-
-**Company Context:**
-- Company name: {company_name}
-- Knowledge base: blog_uploaded_files (uploaded company content)
-
-**Search Approach:**
-1. **Section-Focused Searches**: For each content section, create searches that target:
-   - The specific topic and section reasoning
-   - Data that addresses the user questions listed
-   - Examples that support the strategic purpose
-
-2. **Information Type Searches**: Look for specific types of content:
-   - Product feature searches: "[product name] features capabilities"
-   - Data searches: "ROI metrics performance statistics"
-   - Case study searches: "customer success implementation"
-   - Expert insight searches: "methodology framework approach"
-
-3. **User Question Searches**: For each `user_questions_answered`, search for:
-   - Direct answers with company-specific solutions
-   - Data that validates the company's approach
-   - Examples that demonstrate successful outcomes
-
-### STEP 4: TOOL USAGE INSTRUCTIONS
-
-**HOW TO USE search_documents:**
-
-For each search, use this format:
-```json
-[
-  "tool_name": "search_documents",
-  "tool_input": [
-    "search_query": "your specific search terms here",
-    "list_filter": ["doc_key": "blog_uploaded_files"]
-  ]
-]
-```
-
-**Important:** When making actual tool calls, replace the square brackets [ ] with curly braces for proper JSON format. The square brackets are used here only to distinguish from template variables.
-
-**Search Query Examples:** (Customize based on your brief's specific sections)
-- For ROI/performance sections: "ROI calculator conversation intelligence metrics performance"
-- For time savings data: "time savings automation efficiency productivity"
-- For case studies: "customer success story implementation results testimonial"
-- For product features: "[product name] features capabilities functionality"
-- For competitive analysis: "competitor comparison advantages differentiation"
-
-**CRITICAL SEARCH RULES:**
-- Always include `"list_filter": ["doc_key": "blog_uploaded_files"]` in every search (use curly braces in actual calls)
-- Use specific, targeted search queries based on the brief's section_reasoning
-- Search multiple times with different query variations to find comprehensive content
-- DO NOT reference document names, serial numbers, or file identifiers in your output
-- Present extracted information as integrated knowledge without source attribution
-
-### STEP 5: EXTRACTION QUALITY STANDARDS
-
-**SPECIFICITY REQUIREMENTS:**
-- Extract exact numbers, percentages, timeframes (e.g., "37% time savings" not "significant time savings")
-- Include specific product names, features, and capabilities
-- Capture precise customer quotes and attributions
-- Note specific use cases and implementation details
-
-**RELEVANCE VERIFICATION:**
-For each piece of extracted information, verify it:
-- Directly supports the section's `section_reasoning`
-- Aligns with the `target_audience` and `difficulty_level`
-- Reinforces the overall `content_goal`
-
-**TRUTHFULNESS STANDARDS:**
-- ONLY include information found through search_documents tool calls
-- Present findings as integrated knowledge WITHOUT mentioning source documents
-- If no relevant content exists for a section, state: "No company-specific information found for this section"
-- Never fabricate data, statistics, quotes, case studies, or examples
-- Try multiple search variations before concluding information is unavailable
-- Be transparent about information gaps but NOT about source documents
-
-### STEP 6: OUTPUT REQUIREMENTS
-
-**Structure Your Response:**
-- Organize extracted information by content section
-- Present all information as integrated knowledge (NO document names or references)
-- Specify how each piece of information will be used in content creation
-- Note any information gaps or limitations
-
-**Quality Indicators:**
-- Each section should have 3-5 specific, actionable pieces of company information
-- Include a mix of data points, examples, and proof points
-- Ensure variety: product details, customer stories, company expertise, metrics
-- Maintain strategic alignment with the brief's reasoning and goals
-
-**Final Verification:**
-Before submitting, ensure your extracted information will enable writers to:
-- Create unique, company-specific content (not generic industry content)
-- Answer user questions with concrete company evidence
-- Demonstrate company differentiation and expertise
-- Support key takeaways with real company data and examples
-
-Return structured output that maps each content section to its specific company enrichment with clear usage guidance for content writers. Do NOT include document names, serial numbers, or any source references - present all information as integrated knowledge.
-"""
-
+# Content Generation User Prompt Template
 CONTENT_GENERATION_USER_PROMPT_TEMPLATE = """
 Generate the blog content based on the strategic brief and enrichment information provided below.
 
@@ -510,7 +558,7 @@ Generate the blog content based on the strategic brief and enrichment informatio
 
 **YOU MUST NOT:**
 - Add ANY scripts, code blocks, or technical content at the end
-- Include ANY internal document names or file references  
+- Include ANY internal document names or file references
 - Add ANY citations, footnotes, or reference sections
 - Include ANY meta-commentary or explanations
 - Use ANY placeholder text like [Company Name] - use actual names
@@ -556,6 +604,11 @@ For each section in `content_structure`:
 4. Use relevant enrichment from the knowledge context
 5. Ensure smooth transitions to the next section
 
+**AI OPTIMIZATION ELEMENTS [HIGH PRIORITY]:**
+1. **Answer Modules**: After each question/heading, provide 2-3 sentence answers that directly address the question
+2. **TL;DR Box**: After the introduction, include a 3-5 bullet summary of key points
+3. **FAQ Section**: At the end of the content, add 5 questions and answers that address common user questions
+
 **Information Integration:**
 - Weave company data naturally into your narrative
 - Present statistics as part of your argument, not as citations
@@ -585,6 +638,21 @@ For each section in `content_structure`:
 Regular paragraphs with no special formatting
 ```
 
+**AI Optimization Element Formatting:**
+```
+## TL;DR
+A concise summary of the entire blog post, highlighting the most important insights and takeaways. Use a format that best fits the content—this could be a short paragraph, a set of bullet points, or a mix of both, as appropriate for the material.
+
+## FAQ
+**Q: Question 1?**
+A: Answer 1
+
+**Q: Question 2?**
+A: Answer 2
+
+[Continue for 5 total Q&A pairs]
+```
+
 **Writing Style:**
 - Keep paragraphs to 3-5 sentences
 - Use short, scannable sections
@@ -612,6 +680,11 @@ Regular paragraphs with no special formatting
 - Headers are keyword-optimized
 - Content satisfies search intent
 
+✓ **AI Optimization Elements:**
+- Answer modules (2-3 sentences) after each question/heading
+- TL;DR box (3-5 bullets) after introduction
+- FAQ section (5 Q&A pairs) at the end
+
 ✓ **Brand Alignment:**
 - Tone and voice are consistent
 - Differentiation elements highlighted
@@ -631,6 +704,86 @@ Remember:
 Begin writing the blog content now:
 """
 
+# Variables Used in Content Generation Prompts:
+"""
+Variables that go into the Content Generation prompts:
+- blog_brief: The complete blog brief with content structure, SEO keywords, and strategic elements
+- knowledge_context: The enriched company-specific information from Step 1
+- additional_user_files: Any additional files loaded during workflow (optional)
+- seo_best_practices: SEO best practices document loaded at the beginning
+"""
+
+# Content Generation Output Schema
+class FAQItemSchema(BaseModel):
+    """Schema for individual FAQ items."""
+    question: str = Field(description="The FAQ question")
+    answer: str = Field(description="The FAQ answer")
+
+class BlogContentSchema(BaseModel):
+    """Enhanced schema for generated blog content."""
+    title: str = Field(description="SEO-optimized blog post title")
+    main_content: str = Field(description="Main blog content with proper formatting and structure")
+    tldr_summary: str = Field(description="3-5 bullet summary after the introduction")
+    faq_section: List[FAQItemSchema] = Field(description="5 questions and answers at the end of the content")
+
+CONTENT_GENERATION_OUTPUT_SCHEMA = BlogContentSchema.model_json_schema()
+
+# =============================================================================
+# STEP 3: CONTENT APPROVAL (HITL)
+# =============================================================================
+# Third step where humans review the generated content and can approve, provide
+# feedback, save as draft, or cancel the workflow.
+
+# HITL configuration is handled through the workflow configuration, but the feedback
+# processing uses the following prompts.
+
+# =============================================================================
+# STEP 4: FEEDBACK ANALYSIS
+# =============================================================================
+# Fourth step that analyzes user feedback to create targeted improvement instructions
+# while preserving the strategic intent from the original brief.
+
+# Feedback Analysis System Prompt
+FEEDBACK_ANALYSIS_SYSTEM_PROMPT = """
+You are a content feedback analyst specializing in strategic content improvement while maintaining brief alignment.
+
+CRITICAL CONTEXT: You're working with content generated from a strategic brief that includes:
+1. Documented reasoning for every content decision
+2. Research citations and user questions being addressed
+3. SEO strategy with search intent analysis
+4. Brand differentiation elements
+5. Specific success metrics and requirements
+
+Your task is to:
+
+ANALYZE FEEDBACK STRATEGICALLY:
+1. Determine if feedback conflicts with or enhances the brief's strategic reasoning
+2. Identify which section_reasoning might need adjustment
+3. Assess if user_questions_answered are being effectively addressed
+4. Check if takeaways align with their takeaways_reasoning
+
+PRESERVE STRATEGIC INTENT:
+- Ensure improvements don't compromise the content_goal and goal_reasoning
+- Maintain alignment with target_audience and audience_reasoning
+- Respect the SEO strategy and search_intent_analysis
+- Preserve brand voice and differentiation_elements
+
+PROVIDE TARGETED IMPROVEMENTS:
+1. Map feedback to specific sections and their section_reasoning
+2. Suggest enhancements that strengthen the research_support
+3. Recommend additions that better answer user_questions_answered
+4. Propose changes that reinforce takeaways_reasoning
+
+MAINTAIN BRIEF COMPLIANCE:
+- Ensure word counts remain within targets
+- Keep difficulty_level appropriate to audience
+- Preserve the strategic flow of content_structure
+- Enhance rather than replace key strategic elements
+
+Remember: User feedback should enhance the strategic execution, not override the brief's documented reasoning. Balance user preferences with strategic requirements.
+"""
+
+# Feedback Analysis User Prompt Template
 FEEDBACK_ANALYSIS_USER_PROMPT_TEMPLATE = """
 Analyze user feedback and provide improvement instructions that enhance strategic execution while preserving brief alignment.
 
@@ -692,6 +845,41 @@ IMPORTANT CONSTRAINTS:
 Return structured update instructions that improve content while respecting strategic intent.
 """
 
+# Variables Used in Feedback Analysis Prompts:
+"""
+Variables that go into the Feedback Analysis prompts:
+- blog_content: The generated blog content from Step 2
+- user_feedback: The feedback provided by the user during HITL
+- hitl_additional_user_files: Additional files loaded during HITL (optional)
+"""
+
+# Feedback Analysis Output Schema
+class ContentUpdateInstructionSchema(BaseModel):
+    """Enhanced schema for content update instructions."""
+    section_to_update: str = Field(description="Specific section or part of content to update")
+    current_reasoning: str = Field(description="The section's original reasoning from the brief")
+    update_instruction: str = Field(description="Detailed instruction for how to update this section")
+    strategic_enhancement: str = Field(description="How this update enhances the strategic purpose")
+    reasoning_preserved: str = Field(description="Confirmation that section_reasoning is maintained")
+    additional_context: str = Field(description="Additional context or data needed for the update")
+
+class FeedbackAnalysisSchema(BaseModel):
+    """Enhanced schema for feedback analysis output."""
+    feedback_category: str = Field(description="Type of feedback: enhancement, correction, or addition")
+    strategic_impact: str = Field(description="How feedback affects the brief's strategic goals")
+    update_instructions: List[ContentUpdateInstructionSchema] = Field(description="List of specific update instructions")
+    elements_to_preserve: List[str] = Field(description="Critical strategic elements that must not change")
+    reasoning_adjustments: List[str] = Field(description="Any reasoning that needs clarification")
+
+FEEDBACK_ANALYSIS_OUTPUT_SCHEMA = FeedbackAnalysisSchema.model_json_schema()
+
+# =============================================================================
+# STEP 5: CONTENT UPDATE
+# =============================================================================
+# Fifth step that applies the analyzed feedback to update the blog content while
+# maintaining quality and strategic alignment.
+
+# Content Update User Prompt Template
 CONTENT_UPDATE_USER_PROMPT_TEMPLATE = """
 Update the blog content based on user feedback while maintaining quality and strategic alignment.
 
@@ -760,87 +948,10 @@ Update the blog content now based on the feedback provided. Make the requested i
 Begin the updated blog content now:
 """
 
-# =============================================================================
-# PYDANTIC SCHEMAS
-# =============================================================================
-
-class ProductInformationSchema(BaseModel):
-    """Schema for product/service specific information."""
-    features: List[str] = Field(description="Specific product features relevant to this section")
-    capabilities: List[str] = Field(description="Technical capabilities that address user questions")
-    specifications: List[str] = Field(description="Product specifications and technical details")
-    unique_selling_points: List[str] = Field(description="Unique value propositions that differentiate from competitors")
-
-class CompanyDataSchema(BaseModel):
-    """Schema for company metrics and performance data."""
-    roi_metrics: List[str] = Field(description="ROI statistics, time savings, efficiency improvements with specific numbers")
-    performance_benchmarks: List[str] = Field(description="Customer success rates, adoption metrics, performance benchmarks")
-    usage_statistics: List[str] = Field(description="Usage statistics, conversion rates, customer satisfaction scores")
-    industry_comparisons: List[str] = Field(description="Industry comparisons where company outperforms competitors")
-
-class CustomerSuccessSchema(BaseModel):
-    """Schema for customer success stories and testimonials."""
-    case_studies: List[str] = Field(description="Customer case studies that demonstrate section's key points")
-    testimonials: List[str] = Field(description="Customer testimonials that answer user questions")
-    implementation_stories: List[str] = Field(description="Implementation stories showing company impact")
-    before_after_scenarios: List[str] = Field(description="Before/after scenarios demonstrating results")
-
-class CompanyExpertiseSchema(BaseModel):
-    """Schema for company thought leadership and expertise."""
-    methodologies: List[str] = Field(description="Proprietary methodologies, frameworks, or approaches")
-    expert_insights: List[str] = Field(description="Insights from company leaders or subject matter experts")
-    proprietary_research: List[str] = Field(description="Company-conducted research or studies")
-    industry_perspectives: List[str] = Field(description="Unique industry perspectives that showcase knowledge")
-
-class SupportingEvidenceSchema(BaseModel):
-    """Schema for supporting proof points and evidence."""
-    research_findings: List[str] = Field(description="Whitepapers, research findings, industry reports")
-    expert_quotes: List[str] = Field(description="Quotes from company executives or technical experts")
-    recognition: List[str] = Field(description="Awards, certifications, industry recognition")
-    partnerships: List[str] = Field(description="Partnership data, integration capabilities, ecosystem details")
-
-class SectionEnrichmentSchema(BaseModel):
-    """Comprehensive schema for enriching a content section with company-specific information."""
-    section_name: str = Field(description="Name of the content section from the brief")
-    
-    # Company-specific information categories
-    product_information: Optional[ProductInformationSchema] = Field(description="Product/service specific details")
-    company_data: Optional[CompanyDataSchema] = Field(description="Company metrics and performance data")
-    customer_success: Optional[CustomerSuccessSchema] = Field(description="Customer success stories and testimonials")
-    company_expertise: Optional[CompanyExpertiseSchema] = Field(description="Company thought leadership and expertise")
-    supporting_evidence: Optional[SupportingEvidenceSchema] = Field(description="Supporting proof points and evidence")
-    
-    # Usage guidance for content writers
-    content_usage_guidance: str = Field(description="Specific instructions on how writers should use this information")
-
-class KnowledgeEnrichmentSchema(BaseModel):
-    """Enhanced schema for comprehensive knowledge enrichment output."""
-    enriched_sections: List[SectionEnrichmentSchema] = Field(description="Detailed enrichment for each content section")
-    content_differentiation_opportunities: List[str] = Field(description="Key opportunities to differentiate content using company-specific information")
-
-class BlogContentSchema(BaseModel):
-    """Enhanced schema for generated blog content."""
-    title: str = Field(description="SEO-optimized blog post title")
-    main_content: str = Field(description="Main blog content with proper formatting and structure")
-
-class ContentUpdateInstructionSchema(BaseModel):
-    """Enhanced schema for content update instructions."""
-    section_to_update: str = Field(description="Specific section or part of content to update")
-    current_reasoning: str = Field(description="The section's original reasoning from the brief")
-    update_instruction: str = Field(description="Detailed instruction for how to update this section")
-    strategic_enhancement: str = Field(description="How this update enhances the strategic purpose")
-    reasoning_preserved: str = Field(description="Confirmation that section_reasoning is maintained")
-    additional_context: str = Field(description="Additional context or data needed for the update")
-
-class FeedbackAnalysisSchema(BaseModel):
-    """Enhanced schema for feedback analysis output."""
-    feedback_category: str = Field(description="Type of feedback: enhancement, correction, or addition")
-    strategic_impact: str = Field(description="How feedback affects the brief's strategic goals")
-    update_instructions: List[ContentUpdateInstructionSchema] = Field(description="List of specific update instructions")
-    elements_to_preserve: List[str] = Field(description="Critical strategic elements that must not change")
-    reasoning_adjustments: List[str] = Field(description="Any reasoning that needs clarification")
-
-# Convert Pydantic models to JSON schemas for LLM use
-KNOWLEDGE_ENRICHMENT_OUTPUT_SCHEMA = KnowledgeEnrichmentSchema.model_json_schema()
-CONTENT_GENERATION_OUTPUT_SCHEMA = BlogContentSchema.model_json_schema()
-FEEDBACK_ANALYSIS_OUTPUT_SCHEMA = FeedbackAnalysisSchema.model_json_schema()
+# Variables Used in Content Update Prompts:
+"""
+Variables that go into the Content Update prompts:
+- original_content: The original blog content from Step 2
+- update_instructions: The analyzed feedback instructions from Step 4
+- hitl_additional_user_files: Additional files loaded during HITL (optional)
+"""

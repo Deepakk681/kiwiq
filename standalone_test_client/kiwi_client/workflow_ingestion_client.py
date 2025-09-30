@@ -668,15 +668,15 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_user_input_to_brief",
         # },
 
-        {
-            "workflow_key": "blog_brief_to_blog_draft_workflow",
-            "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_brief_to_blog",
-        },
-
         # {
-        #     "workflow_key": "blog_user_input_to_brief_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_user_input_to_brief",
+        #     "workflow_key": "blog_brief_to_blog_draft_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_brief_to_blog",
         # },
+
+        {
+            "workflow_key": "blog_user_input_to_brief_workflow",
+            "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_user_input_to_brief",
+        },
 
         # {
         #     "workflow_key": "blog_content_optimisation_workflow",
@@ -688,10 +688,10 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.content_studio.wf_linkedin_calendar_selected_topic_to_brief",
         # },
 
-        {
-            "workflow_key": "blog_brief_from_calendar_topic",
-            "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_calendar_selected_topic_to_brief",
-        },
+        # {
+        #     "workflow_key": "blog_brief_from_calendar_topic",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.wf_blog_calendar_selected_topic_to_brief",
+        # },
 
         # {
         #     "workflow_key": "blog_content_playbook_workflow",
@@ -743,10 +743,10 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.labs.wf_on_demand_external_research",
         # },
 
-        {
-            "workflow_key": "blog_aeo_seo_scoring_workflow",
-            "module_path": "kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_blog_aeo_seo_scoring_json",
-        }
+        # {
+        #     "workflow_key": "blog_aeo_seo_scoring_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_blog_aeo_seo_scoring_json",
+        # }
     ]
     
     try:

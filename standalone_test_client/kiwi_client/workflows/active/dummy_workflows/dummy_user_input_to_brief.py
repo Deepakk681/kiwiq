@@ -40,13 +40,60 @@ from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 # Import document model constants
 from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_COMPANY_DOCNAME,
+    BLOG_COMPANY_NAMESPACE_TEMPLATE,
     BLOG_COMPANY_IS_VERSIONED,
     BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
     BLOG_CONTENT_BRIEF_DOCNAME,
     BLOG_CONTENT_BRIEF_IS_VERSIONED,
     BLOG_CONTENT_STRATEGY_DOCNAME,
+    BLOG_CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
     BLOG_CONTENT_STRATEGY_IS_VERSIONED
 )
+
+# Import LLM inputs
+from kiwi_client.workflows.active.content_studio.llm_inputs.blog_user_input_to_brief import (
+    # System prompts
+    GOOGLE_RESEARCH_SYSTEM_PROMPT,
+    REDDIT_RESEARCH_SYSTEM_PROMPT,
+    TOPIC_GENERATION_SYSTEM_PROMPT,
+    BRIEF_GENERATION_SYSTEM_PROMPT,
+    
+    # User prompt templates
+    GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
+    REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
+    TOPIC_GENERATION_USER_PROMPT_TEMPLATE,
+    TOPIC_REGENERATION_USER_PROMPT_TEMPLATE,
+    BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
+    BRIEF_REVISION_USER_PROMPT_TEMPLATE,
+    
+    
+    # Feedback prompts for briefs
+    BRIEF_FEEDBACK_SYSTEM_PROMPT,
+    BRIEF_FEEDBACK_INITIAL_USER_PROMPT
+)
+
+# LLM Configuration
+LLM_PROVIDER = "openai"
+LLM_MODEL = "gpt-4.1"
+TEMPERATURE = 0.7
+MAX_TOKENS = 6000
+
+# Perplexity Configuration for Reddit Research
+PERPLEXITY_PROVIDER = "perplexity"
+PERPLEXITY_MODEL = "sonar-pro"
+PERPLEXITY_TEMPERATURE = 0.3
+PERPLEXITY_MAX_TOKENS = 3000
+
+# Workflow Limits
+MAX_REGENERATION_ATTEMPTS = 3
+MAX_REVISION_ATTEMPTS = 3
+MAX_ITERATIONS = 10  # Maximum iterations for HITL feedback loops
+
+# Feedback LLM Configuration
+FEEDBACK_LLM_PROVIDER = "openai"
+FEEDBACK_ANALYSIS_MODEL = "gpt-4.1"
+FEEDBACK_TEMPERATURE = 0.5
+FEEDBACK_MAX_TOKENS = 3000 
 
 
 BRIEF_HITL_INPUT = {
@@ -397,6 +444,7 @@ TOPIC_HITL_INPUT = {
     ],
     "topic_strategy_summary": "These five topics are drawn directly from overlapping Reddit and Google intent patterns, mapping to real founder/operations manager pain points—confusion, overwhelm, tool frustration, and desire for tangible outcomes. Each topic is anchored in both SEO demand and high emotional urgency, explicitly connecting to proven user questions and TryFondo’s own product differentiators (automation, integration, ROI/tax credits, clear onboarding). This strategy positions TryFondo as the authoritative, founder-centric resource for startup operations, blending education, actionable frameworks, and transparent, ROI-focused solutions. Each post will serve as a defensible, high-value asset supporting multiple business goals: awareness, consideration, and conversion."
   }
+
 # Workflow JSON structure
 workflow_graph_schema = {
     "nodes": {
@@ -428,19 +476,218 @@ workflow_graph_schema = {
                         "required": True,
                         "description": "UUID of the brief being generated"
                     },
-                    "topic_hitl_input": {
-                        "type": "dict",
+                    "load_additional_user_files": {
+                        "type": "list",
                         "required": False,
-                        "default": TOPIC_HITL_INPUT,
-                        "description": "Topic HITL input"
+                        "default": [],
+                        "description": "Optional list of additional user files to load. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     },
                     "brief_hitl_input": {
                         "type": "dict",
                         "required": False,
-                        "default": BRIEF_HITL_INPUT,
-                        "description": "Brief HITL input"
+                        "default": BRIEF_HITL_INPUT
+                    },
+                    "topic_hitl_input": {
+                        "type": "dict",
+                        "required": False,
+                        "default": TOPIC_HITL_INPUT
+                    },
+                    "generation_metadata": {
+                        "type": "dict",
+                        "required": False,
+                        "default": {"iteration_count": 0},
+                        "description": "Metadata for tracking workflow iterations (constant for dummy workflow)"
                     }
                 }
+            }
+        },
+        
+        # 2. Transform Additional User Files Format (if provided)
+        "transform_additional_files_config": {
+            "node_id": "transform_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 3. Load Additional User Files (conditional)
+        "load_additional_user_files_node": {
+            "node_id": "load_additional_user_files_node", 
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 4. Load Company Document - Put company_context_doc configuration directly here
+        "load_company_doc": {
+            "node_id": "load_company_doc",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "global_is_shared": False,
+                "global_is_system_entity": False,
+                "global_schema_options": {"load_schema": False},
+                "load_paths": [
+                    {
+                        "filename_config": {
+                            "input_namespace_field_pattern": BLOG_COMPANY_NAMESPACE_TEMPLATE,
+                            "input_namespace_field": "company_name",
+                            "static_docname": BLOG_COMPANY_DOCNAME,
+                        },
+                        "output_field_name": "company_doc"
+                    },
+                    {
+                        "filename_config": {
+                            "input_namespace_field_pattern": BLOG_CONTENT_STRATEGY_NAMESPACE_TEMPLATE,
+                            "input_namespace_field": "company_name",
+                            "static_docname": BLOG_CONTENT_STRATEGY_DOCNAME,
+                        },
+                        "output_field_name": "content_playbook_doc"
+                    }
+                ]
+            }
+        },
+        
+        # 3. Google Research - Prompt Constructor
+        "construct_google_research_prompt": {
+            "node_id": "construct_google_research_prompt",
+            "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for initial file loading to complete
+            "node_config": {
+                "prompt_templates": {
+                    "google_research_user_prompt": {
+                        "id": "google_research_user_prompt",
+                        "template": GOOGLE_RESEARCH_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "user_input": None,
+                            "additional_user_files": "",
+                            "topic_hitl_additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
+                        }
+                    },
+                    "google_research_system_prompt": {
+                        "id": "google_research_system_prompt",
+                        "template": GOOGLE_RESEARCH_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 4. Google Research - Transform Data Node (Dummy)
+        "google_research_llm": {
+            "node_id": "google_research_llm",
+            "node_name": "transform_data",
+            "node_config": {
+                "mappings": [
+                    {"source_path": "company_name", "destination_path": "google_research_output"}
+                ]
+            }
+        },
+        
+        # 5. Reddit Research - Prompt Constructor
+        "construct_reddit_research_prompt": {
+            "node_id": "construct_reddit_research_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "reddit_research_user_prompt": {
+                        "id": "reddit_research_user_prompt",
+                        "template": REDDIT_RESEARCH_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "google_research_output": None,
+                            "user_input": None,
+                            "additional_user_files": "",
+                            "topic_hitl_additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "google_research_output": "google_research_output",
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
+                        }
+                    },
+                    "reddit_research_system_prompt": {
+                        "id": "reddit_research_system_prompt",
+                        "template": REDDIT_RESEARCH_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 6. Reddit Research - Transform Data Node (Dummy)
+        "reddit_research_llm": {
+            "node_id": "reddit_research_llm",
+            "node_name": "transform_data",
+            "node_config": {
+                "mappings": [
+                    {"source_path": "company_name", "destination_path": "reddit_research_output"}
+                ]
+            }
+        },
+        
+        # 7. Topic Generation - Prompt Constructor
+        "construct_topic_generation_prompt": {
+            "node_id": "construct_topic_generation_prompt",
+            "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
+            "node_config": {
+                "prompt_templates": {
+                    "topic_generation_user_prompt": {
+                        "id": "topic_generation_user_prompt",
+                        "template": TOPIC_GENERATION_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "content_playbook_doc": None,
+                            "google_research_output": None,
+                            "reddit_research_output": None,
+                            "user_input": None,
+                            "additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
+                            "google_research_output": "google_research_output",
+                            "reddit_research_output": "reddit_research_output",
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files"
+                        }
+                    },
+                    "topic_generation_system_prompt": {
+                        "id": "topic_generation_system_prompt",
+                        "template": TOPIC_GENERATION_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 8. Topic Generation - Transform Data Node (Dummy)
+        "topic_generation_llm": {
+            "node_id": "topic_generation_llm",
+            "node_name": "transform_data",
+            "node_config": {
+                "mappings": [
+                    {"source_path": "topic_hitl_input", "destination_path": "structured_output"}
+                ]
             }
         },
         
@@ -466,26 +713,66 @@ workflow_graph_schema = {
                         "type": "str",
                         "required": False,
                         "description": "Feedback for topic regeneration (required if regenerate_topics)"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load for topic selection. Each item should have 'namespace', 'docname', and 'is_shared' fields."
+                    },
+                    "user_instructions_on_selected_topic": {
+                        "type": "str",
+                        "required": False,
+                        "description": "User's instructions on the selected topic"
                     }
                 }
             }
         },
         
-        # # 10. Route Topic Selection
+        # 10. Transform Topic HITL Additional Files Format
+        "transform_topic_hitl_additional_files_config": {
+            "node_id": "transform_topic_hitl_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "topic_hitl_additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 11. Load Topic HITL Additional User Files
+        "load_topic_hitl_additional_user_files_node": {
+            "node_id": "load_topic_hitl_additional_user_files_node",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data",
+                "global_is_shared": False,
+                "global_is_system_entity": False,
+                "global_schema_options": {"load_schema": False}
+            }
+        },
+        
+        # 12. Route Topic Selection
         "route_topic_selection": {
             "node_id": "route_topic_selection",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["brief_approval_hitl", "topic_selection_hitl", "output_node"],
+                "choices": ["filter_selected_topic", "construct_topic_regeneration_prompt", "output_node"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
-                        "choice_id": "brief_approval_hitl",
+                        "choice_id": "filter_selected_topic",
                         "input_path": "user_action",
                         "target_value": "complete"
                     },
                     {
-                        "choice_id": "topic_selection_hitl",
+                        "choice_id": "construct_topic_regeneration_prompt",
                         "input_path": "user_action",
                         "target_value": "provide_feedback"
                     },
@@ -499,7 +786,146 @@ workflow_graph_schema = {
             }
         },
         
-        # 18. Brief Approval - HITL Node
+        # 13. Topic Feedback - Enhanced Prompt Constructor
+        "construct_topic_regeneration_prompt": {
+            "node_id": "construct_topic_regeneration_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "topic_regeneration_user_prompt": {
+                        "id": "topic_regeneration_user_prompt",
+                        "template": TOPIC_REGENERATION_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "regeneration_instructions": None,
+                            "topic_hitl_additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "regeneration_instructions": "current_regeneration_feedback",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files"
+                        }
+                    }
+                }
+            }
+        },
+        
+        # 14. Filter Selected Topic
+        "filter_selected_topic": {
+            "node_id": "filter_selected_topic",
+            "node_name": "filter_data",
+            "node_config": {
+                "targets": [
+                    {
+                        "filter_target": "current_topic_suggestions.suggested_blog_topics",  # Target the topics list
+                        "condition_groups": [
+                            {
+                                "conditions": [
+                                    {
+                                        "field": "current_topic_suggestions.suggested_blog_topics.topic_id",
+                                        "operator": "equals",
+                                        "value_path": "selected_topic_id"
+                                    }
+                                ]
+                            }
+                        ],
+                        "filter_mode": "allow"  # Only allow topics that match the condition
+                    }
+                ]
+            }
+        },
+        
+        # 15. Brief Generation - Prompt Constructor
+        "construct_brief_generation_prompt": {
+            "node_id": "construct_brief_generation_prompt",
+            "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
+            "node_config": {
+                "prompt_templates": {
+                    "brief_generation_user_prompt": {
+                        "id": "brief_generation_user_prompt",
+                        "template": BRIEF_GENERATION_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "company_doc": None,
+                            "content_playbook_doc": None,
+                            "selected_topic": None,
+                            "google_research_output": None,
+                            "reddit_research_output": None,
+                            "user_input": None,
+                            "additional_user_files": "",
+                            "topic_hitl_additional_user_files": "",
+                            "user_instructions_on_selected_topic": ""
+                        },
+                        "construct_options": {
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
+                            "selected_topic": "selected_topics",
+                            "google_research_output": "google_research_output",
+                            "reddit_research_output": "reddit_research_output",
+                            "user_input": "user_input",
+                            "additional_user_files": "additional_user_files",
+                            "topic_hitl_additional_user_files": "topic_hitl_additional_user_files",
+                            "user_instructions_on_selected_topic": "user_instructions_on_selected_topic"
+                        }
+                    },
+                    "brief_generation_system_prompt": {
+                        "id": "brief_generation_system_prompt",
+                        "template": BRIEF_GENERATION_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 16. Brief Generation - Transform Data Node (Dummy)
+        "brief_generation_llm": {
+            "node_id": "brief_generation_llm",
+            "node_name": "transform_data",
+            "node_config": {
+                "mappings": [
+                    {"source_path": "brief_hitl_input", "destination_path": "structured_output"}
+                ]
+            }
+        },
+        
+        "save_as_draft_after_brief_generation": {
+            "node_id": "save_as_draft_after_brief_generation",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": {
+                    "is_versioned": BLOG_CONTENT_BRIEF_IS_VERSIONED,
+                    "operation": "upsert_versioned"
+                },
+                "global_is_shared": False,
+                "store_configs": [
+                    {
+                        "input_field_path": "current_content_brief",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
+                            }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "initial_status",
+                                "dst_path": "status"
+                            },
+                            {
+                                "src_path": "brief_uuid",
+                                "dst_path": "uuid"
+                            }
+                        ],
+                        "versioning": {
+                            "is_versioned": BLOG_CONTENT_BRIEF_IS_VERSIONED,
+                            "operation": "upsert_versioned"
+                        }
+                    }
+                ],
+            }
+        },
+        
+        # 17. Brief Approval - HITL Node
         "brief_approval_hitl": {
             "node_id": "brief_approval_hitl",
             "node_name": "hitl_node__default",
@@ -521,17 +947,49 @@ workflow_graph_schema = {
                         "type": "dict",
                         "required": True,
                         "description": "Updated content brief"
+                    },
+                    "load_additional_user_files": {
+                        "type": "list",
+                        "required": False,
+                        "default": [],
+                        "description": "Optional list of additional user files to load for brief approval. Each item should have 'namespace', 'docname', and 'is_shared' fields."
                     }
                 }
             }
         },
         
-        # 19. Route Brief Approval
+        # 18. Transform Brief HITL Additional Files Format
+        "transform_brief_hitl_additional_files_config": {
+            "node_id": "transform_brief_hitl_additional_files_config",
+            "node_name": "transform_data",
+            "node_config": {
+                "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
+                "base_object": {
+                    "output_field_name": "brief_hitl_additional_user_files"
+                },
+                "mappings": [
+                    {"source_path": "namespace", "destination_path": "filename_config.static_namespace"},
+                    {"source_path": "docname", "destination_path": "filename_config.static_docname"},
+                    {"source_path": "is_shared", "destination_path": "is_shared"}
+                ]
+            }
+        },
+        
+        # 19. Load Brief HITL Additional User Files
+        "load_brief_hitl_additional_user_files_node": {
+            "node_id": "load_brief_hitl_additional_user_files_node",
+            "node_name": "load_customer_data",
+            "node_config": {
+                "load_configs_input_path": "transformed_data"
+            }
+        },
+        
+        # 20. Route Brief Approval
         "route_brief_approval": {
             "node_id": "route_brief_approval",
             "node_name": "router_node",
             "node_config": {
-                "choices": ["save_brief", "brief_approval_hitl", "output_node"],
+                "choices": ["save_brief", "check_iteration_limit", "delete_draft_on_cancel", "save_as_draft"],
                 "allow_multiple": False,
                 "choices_with_conditions": [
                     {
@@ -540,26 +998,196 @@ workflow_graph_schema = {
                         "target_value": "complete"
                     },
                     {
-                        "choice_id": "brief_approval_hitl",
+                        "choice_id": "check_iteration_limit",
                         "input_path": "user_brief_action",
                         "target_value": "provide_feedback"
                     },
                     {
-                        "choice_id": "output_node",
+                        "choice_id": "delete_draft_on_cancel",
                         "input_path": "user_brief_action",
                         "target_value": "cancel_workflow"
                     },
                     {
-                        "choice_id": "brief_approval_hitl",
+                        "choice_id": "save_as_draft",
                         "input_path": "user_brief_action",
                         "target_value": "draft"
                     }
                 ],
-                "default_choice": "output_node"
+                "default_choice": "delete_draft_on_cancel"
+            }
+        },
+        # 21. Save Brief as Draft - Store Customer Data
+        "save_as_draft": {
+            "node_id": "save_as_draft",
+            "node_name": "store_customer_data",
+            "node_config": {
+                "global_versioning": {
+                    "is_versioned": True,
+                    "operation": "upsert_versioned"
+                },
+                "global_is_shared": False,
+                "store_configs": [
+                    {
+                        "input_field_path": "current_content_brief",
+                        "target_path": {
+                            "filename_config": {
+                                "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
+                                "input_namespace_field": "company_name",
+                                "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME,
+                                "input_docname_field": "brief_uuid"
+                            }
+                        },
+                        "extra_fields": [
+                            {
+                                "src_path": "user_brief_action",
+                                "dst_path": "status"
+                            },
+                            {
+                                "src_path": "brief_uuid",
+                                "dst_path": "uuid"
+                            }
+                        ],
+                        "versioning": {
+                            "is_versioned": True,
+                            "operation": "upsert_versioned"
+                        }
+                    }
+                ],
             }
         },
         
-        # 24. Save Brief - Store Customer Data
+        # 22. Check Iteration Limit
+        "check_iteration_limit": {
+            "node_id": "check_iteration_limit",
+            "node_name": "if_else_condition",
+            "node_config": {
+                "tagged_conditions": [
+                    {
+                        "tag": "iteration_limit_check",
+                        "condition_groups": [ {
+                            "logical_operator": "and",
+                            "conditions": [ {
+                                "field": "generation_metadata.iteration_count",
+                                "operator": "less_than",
+                                "value": MAX_ITERATIONS
+                            } ]
+                        } ],
+                        "group_logical_operator": "and"
+                    }
+                ],
+                "branch_logic_operator": "and"
+            }
+        },
+        
+        # 22.5 Delete Draft on Cancel - New node to clean up saved draft
+        "delete_draft_on_cancel": {
+            "node_id": "delete_draft_on_cancel",
+            "node_name": "delete_customer_data",
+            "node_config": {
+                "search_params": {
+                    "input_namespace_field": "company_name",
+                    "input_namespace_field_pattern": BLOG_CONTENT_BRIEF_NAMESPACE_TEMPLATE,
+                    "input_docname_field": "brief_uuid",
+                    "input_docname_field_pattern": BLOG_CONTENT_BRIEF_DOCNAME
+                }
+            }
+        },
+        
+        # 23. Route Based on Iteration Limit Check
+        "route_on_limit_check": {
+            "node_id": "route_on_limit_check",
+            "node_name": "router_node",
+            "node_config": {
+                "choices": ["construct_brief_feedback_prompt", "output_node"],
+                "allow_multiple": False,
+                "choices_with_conditions": [
+                    {
+                        "choice_id": "construct_brief_feedback_prompt",
+                        "input_path": "if_else_condition_tag_results.iteration_limit_check",
+                        "target_value": True
+                    },
+                    {
+                        "choice_id": "output_node",
+                        "input_path": "iteration_branch_result",
+                        "target_value": "false_branch"
+                    },
+                ]
+            }
+        },
+
+        "construct_brief_feedback_prompt": {
+            "node_id": "construct_brief_feedback_prompt",
+            "node_name": "prompt_constructor",
+            "defer_node": True,  # Wait for all data loads before proceeding
+            "node_config": {
+                "prompt_templates": {
+                    "brief_feedback_user_prompt": {
+                        "id": "brief_feedback_user_prompt",
+                        "template": BRIEF_FEEDBACK_INITIAL_USER_PROMPT,
+                        "variables": {
+                            "content_brief": None,
+                            "revision_feedback": None,
+                            "company_doc": None,
+                            "content_playbook_doc": None,
+                            "selected_topic": None,
+                            "google_research_output": None,
+                            "reddit_research_output": None,
+                            "brief_hitl_additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "content_brief": "current_content_brief",
+                            "revision_feedback": "current_revision_feedback",
+                            "company_doc": "company_doc",
+                            "content_playbook_doc": "content_playbook_doc",
+                            "selected_topic": "selected_topics",
+                            "google_research_output": "google_research_output",
+                            "reddit_research_output": "reddit_research_output",
+                            "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
+                        }
+                    },
+                    "brief_feedback_system_prompt": {
+                        "id": "brief_feedback_system_prompt",
+                        "template": BRIEF_FEEDBACK_SYSTEM_PROMPT,
+                        "variables": {},
+                    }
+                }
+            }
+        },
+        
+        # 24. Brief Feedback Analysis - Transform Data Node (Dummy)
+        "analyze_brief_feedback": {
+            "node_id": "analyze_brief_feedback",
+            "node_name": "transform_data",
+            "node_config": {
+                "mappings": [
+                    {"source_path": "company_name", "destination_path": "feedback_analysis_output"}
+                ]
+            }
+        },
+
+     # 25. Brief Revision - Enhanced Prompt Constructor
+        "construct_brief_revision_prompt": {
+            "node_id": "construct_brief_revision_prompt",
+            "node_name": "prompt_constructor",
+            "node_config": {
+                "prompt_templates": {
+                    "brief_revision_user_prompt": {
+                        "id": "brief_revision_user_prompt",
+                        "template": BRIEF_REVISION_USER_PROMPT_TEMPLATE,
+                        "variables": {
+                            "revision_instructions": None,
+                            "brief_hitl_additional_user_files": ""
+                        },
+                        "construct_options": {
+                            "revision_instructions": "brief_feedback_analysis.revision_instructions",
+                            "brief_hitl_additional_user_files": "brief_hitl_additional_user_files"
+                        }
+                    }
+                }
+            }
+        },
+        
+        # 26. Save Brief - Store Customer Data
         "save_brief": {
             "node_id": "save_brief",
             "node_name": "store_customer_data",
@@ -599,7 +1227,8 @@ workflow_graph_schema = {
             }
         },
         
-        # 25. Output Node
+        
+        # 27. Output Node
         "output_node": {
             "node_id": "output_node",
             "node_name": "output_node",
@@ -617,20 +1246,248 @@ workflow_graph_schema = {
                 {"src_field": "user_input", "dst_field": "user_input"},
                 {"src_field": "initial_status", "dst_field": "initial_status"},
                 {"src_field": "brief_uuid", "dst_field": "brief_uuid"},
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"},
                 {"src_field": "topic_hitl_input", "dst_field": "topic_hitl_input"},
-                {"src_field": "brief_hitl_input", "dst_field": "brief_hitl_input"}
+                {"src_field": "brief_hitl_input", "dst_field": "brief_hitl_input"},
+                {"src_field": "generation_metadata", "dst_field": "generation_metadata"}
             ]
         },
         
-        # Topic Generation LLM -> HITL
+        # Input -> Load Company Doc
         {
             "src_node_id": "input_node",
-            "dst_node_id": "topic_selection_hitl",
+            "dst_node_id": "load_company_doc",
             "mappings": [
-                {"src_field": "topic_hitl_input", "dst_field": "topic_suggestions"}
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Input -> Transform Additional Files Config
+        {
+            "src_node_id": "input_node",
+            "dst_node_id": "transform_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform -> Load Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_additional_files_config",
+            "dst_node_id": "load_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
+            ]
+        },
+        
+        # Company Doc -> State: Store company context
+        {
+            "src_node_id": "load_company_doc",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"}
+            ]
+        },
+        
+        # Company Doc -> Google Research Prompt
+        {
+            "src_node_id": "load_company_doc",
+            "dst_node_id": "construct_google_research_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"}            ]
+        },
+        
+        # Load Additional Files -> Google Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_google_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Google Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_google_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
+            ]
+        },
+        
+        # State -> Google Research Prompt
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_google_research_prompt",
+            "mappings": [
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Google Research Prompt -> LLM
+        {
+            "src_node_id": "construct_google_research_prompt",
+            "dst_node_id": "google_research_llm",
+            "mappings": [
+                {"src_field": "google_research_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "google_research_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # State -> Google Research Transform (provide company_name)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "google_research_llm",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Google Research Transform -> State
+        {
+            "src_node_id": "google_research_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "transformed_data.google_research_output", "dst_field": "google_research_output"}
+            ]
+        },
+        
+        # Google Research Transform -> Reddit Research Prompt (execution trigger)
+        {
+            "src_node_id": "google_research_llm",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "mappings": [
+                {"src_field": "transformed_data.google_research_output", "dst_field": "google_research_output"}
+            ]
+        },
+        
+        # State -> Reddit Research Prompt
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional User Files -> Reddit Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Reddit Research Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_reddit_research_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
+            ]
+        },
+        
+        # Reddit Research Prompt -> LLM
+        {
+            "src_node_id": "construct_reddit_research_prompt",
+            "dst_node_id": "reddit_research_llm",
+            "mappings": [
+                {"src_field": "reddit_research_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "reddit_research_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # State -> Reddit Research Transform (provide company_name)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "reddit_research_llm",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Reddit Research Transform -> State
+        {
+            "src_node_id": "reddit_research_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "transformed_data.reddit_research_output", "dst_field": "reddit_research_output"}
+            ]
+        },
+        
+        # Reddit Research LLM -> Topic Generation Prompt (execution trigger)
+        {
+            "src_node_id": "reddit_research_llm",
+            "dst_node_id": "construct_topic_generation_prompt",
+            "mappings": []
+        },
+        
+        # State -> Topic Generation Prompt (provide all required context including reddit data)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_topic_generation_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Additional Files -> Topic Generation Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_topic_generation_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Topic Generation Prompt -> LLM
+        {
+            "src_node_id": "construct_topic_generation_prompt",
+            "dst_node_id": "topic_generation_llm",
+            "mappings": [
+                {"src_field": "topic_generation_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "topic_generation_system_prompt", "dst_field": "system_prompt"}
             ]
         },
 
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "topic_generation_llm",
+            "mappings": [
+                {"src_field": "topic_generation_messages_history", "dst_field": "messages_history"},
+                {"src_field": "topic_hitl_input", "dst_field": "topic_hitl_input"}
+            ]
+        },
+
+        # Topic Generation Transform -> State
+        {
+            "src_node_id": "topic_generation_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "transformed_data.structured_output", "dst_field": "current_topic_suggestions"}
+            ]
+        },
+        
+        # Topic Generation Transform -> HITL
+        {
+            "src_node_id": "topic_generation_llm",
+            "dst_node_id": "topic_selection_hitl",
+            "mappings": [
+                {"src_field": "transformed_data.structured_output", "dst_field": "topic_suggestions"}
+            ]
+        },
         
         # HITL -> Route Topic Selection
         {
@@ -641,32 +1498,190 @@ workflow_graph_schema = {
             ]
         },
         
-        # # --- Topic Selection Router Paths ---
+        # HITL -> State
         {
-            "src_node_id": "route_topic_selection",
-            "dst_node_id": "topic_selection_hitl",
-        },
-
-        {
-            "src_node_id": "$graph_state",
-            "dst_node_id": "topic_selection_hitl",
+            "src_node_id": "topic_selection_hitl",
+            "dst_node_id": "$graph_state",
             "mappings": [
-                {"src_field": "topic_hitl_input", "dst_field": "topic_suggestions"}
+                {"src_field": "selected_topic_id", "dst_field": "selected_topic_id"},
+                {"src_field": "regeneration_feedback", "dst_field": "current_regeneration_feedback"},
+                {"src_field": "load_additional_user_files", "dst_field": "topic_hitl_load_additional_user_files"},
+                {"src_field": "user_instructions_on_selected_topic", "dst_field": "user_instructions_on_selected_topic"}
             ]
         },
-
+        
+        # HITL -> Transform Topic HITL Additional Files Config
+        {
+            "src_node_id": "topic_selection_hitl",
+            "dst_node_id": "transform_topic_hitl_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform Topic HITL -> Load Topic HITL Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_topic_hitl_additional_files_config",
+            "dst_node_id": "load_topic_hitl_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
+            ]
+        },
+        
+        # --- Topic Selection Router Paths ---
+        {
+            "src_node_id": "route_topic_selection",
+            "dst_node_id": "filter_selected_topic",
+            "description": "Route to filter selected topics if accepted"
+        },
+        {
+            "src_node_id": "route_topic_selection",
+            "dst_node_id": "construct_topic_regeneration_prompt",
+            "description": "Route to analyze feedback if regeneration requested"
+        },
         {
             "src_node_id": "route_topic_selection",
             "dst_node_id": "output_node",
             "description": "Route to output if workflow cancelled"
         },
         
+        
+        # State -> Topic Regeneration Prompt Constructor
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_topic_regeneration_prompt",
+            "mappings": [
+                {"src_field": "current_regeneration_feedback", "dst_field": "current_regeneration_feedback"}
+            ]
+        },
+        
+        # Load Topic HITL Additional Files -> Topic Regeneration Prompt (data-only edge)
+        {
+            "src_node_id": "load_topic_hitl_additional_user_files_node",
+            "dst_node_id": "construct_topic_regeneration_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"}
+            ]
+        },
+        
+        # Topic Regeneration Prompt -> LLM
+        {
+            "src_node_id": "construct_topic_regeneration_prompt",
+            "dst_node_id": "topic_generation_llm",
+            "mappings": [
+                {"src_field": "topic_regeneration_user_prompt", "dst_field": "user_prompt"},
+            ]
+        },
+        
+        # State -> Filter Selected Topic
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "filter_selected_topic",
+            "mappings": [
+                {"src_field": "current_topic_suggestions", "dst_field": "current_topic_suggestions"},
+                {"src_field": "selected_topic_id", "dst_field": "selected_topic_id"}
+            ]
+        },
+        
+        # Filter Selected Topic -> State
+        {
+            "src_node_id": "filter_selected_topic",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "filtered_data", "dst_field": "selected_topics"}
+            ]
+        },
+        
+        # Filter Selected Topic -> Brief Generation Prompt
+        {
+            "src_node_id": "filter_selected_topic",
+            "dst_node_id": "construct_brief_generation_prompt",
+            "mappings": [
+                {"src_field": "filtered_data", "dst_field": "selected_topics"}
+            ]
+        },
+        
+        # State -> Brief Generation Prompt
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_brief_generation_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
+                {"src_field": "user_input", "dst_field": "user_input"},
+                {"src_field": "topic_hitl_additional_user_files", "dst_field": "topic_hitl_additional_user_files"},
+                {"src_field": "user_instructions_on_selected_topic", "dst_field": "user_instructions_on_selected_topic"}
+            ]
+        },
+        
+        # Load Additional Files -> Brief Generation Prompt (data-only edge)
+        {
+            "src_node_id": "load_additional_user_files_node",
+            "dst_node_id": "construct_brief_generation_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "additional_user_files", "dst_field": "additional_user_files"}
+            ]
+        },
+        
+        # Brief Generation Prompt -> LLM
+        {
+            "src_node_id": "construct_brief_generation_prompt",
+            "dst_node_id": "brief_generation_llm",
+            "mappings": [
+                {"src_field": "brief_generation_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "brief_generation_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # State -> Brief Generation LLM (message history)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "brief_generation_llm",
+            "mappings": [
+                {"src_field": "brief_generation_messages_history", "dst_field": "messages_history"},
+                {"src_field": "brief_hitl_input", "dst_field": "brief_hitl_input"}
+            ]
+        },
+        
+        # Brief Generation Transform -> State
+        {
+            "src_node_id": "brief_generation_llm",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "transformed_data.structured_output", "dst_field": "current_content_brief"}
+            ]
+        },
+        
+        # Brief Generation Transform -> Save as Draft After Brief Generation
+        {
+            "src_node_id": "brief_generation_llm",
+            "dst_node_id": "save_as_draft_after_brief_generation",
+            "mappings": [
+                {"src_field": "transformed_data.structured_output", "dst_field": "current_content_brief"}
+            ]
+        },
+     
+        # State -> Save as Draft After Brief Generation
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "save_as_draft_after_brief_generation",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "initial_status", "dst_field": "initial_status"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
+            ]
+        },
+        
         # Save as Draft After Brief Generation -> Brief Approval HITL
-        { "src_node_id": "route_topic_selection", "dst_node_id": "brief_approval_hitl"},
+        { "src_node_id": "save_as_draft_after_brief_generation", "dst_node_id": "brief_approval_hitl", "mappings": [          ] },
 
         # ---- graph state -> brief approval hitl ----
         { "src_node_id": "$graph_state", "dst_node_id": "brief_approval_hitl", "mappings": [
-            { "src_field": "brief_hitl_input", "dst_field": "content_brief"}
+            { "src_field": "current_content_brief", "dst_field": "content_brief"}
           ]
         },
         
@@ -686,10 +1701,30 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "revision_feedback", "dst_field": "current_revision_feedback"},
                 {"src_field": "updated_content_brief", "dst_field": "current_content_brief"},
-                {"src_field": "user_brief_action", "dst_field": "user_brief_action"}            ]
+                {"src_field": "user_brief_action", "dst_field": "user_brief_action"},
+                {"src_field": "load_additional_user_files", "dst_field": "brief_hitl_load_additional_user_files"}
+            ]
         },
         
-        # # --- Brief Approval Router Paths ---
+        # Brief HITL -> Transform Brief HITL Additional Files Config
+        {
+            "src_node_id": "brief_approval_hitl",
+            "dst_node_id": "transform_brief_hitl_additional_files_config",
+            "mappings": [
+                {"src_field": "load_additional_user_files", "dst_field": "load_additional_user_files"}
+            ]
+        },
+        
+        # Transform Brief HITL -> Load Brief HITL Additional Files (pass transformed config)
+        {
+            "src_node_id": "transform_brief_hitl_additional_files_config",
+            "dst_node_id": "load_brief_hitl_additional_user_files_node",
+            "mappings": [
+                {"src_field": "transformed_data", "dst_field": "transformed_data"}
+            ]
+        },
+        
+        # --- Brief Approval Router Paths ---
         {
             "src_node_id": "route_brief_approval",
             "dst_node_id": "save_brief",
@@ -697,16 +1732,177 @@ workflow_graph_schema = {
         },
         {
             "src_node_id": "route_brief_approval",
-            "dst_node_id": "brief_approval_hitl",
+            "dst_node_id": "check_iteration_limit",
             "description": "Route to check iteration limit if revision requested"
         },
         {
             "src_node_id": "route_brief_approval",
-            "dst_node_id": "output_node",
-            "description": "Route to output if workflow cancelled"
+            "dst_node_id": "delete_draft_on_cancel",
+            "description": "Route to delete draft if workflow cancelled"
+        },
+        {
+            "src_node_id": "route_brief_approval",
+            "dst_node_id": "save_as_draft",
+            "description": "Route to save as draft if requested"
         },
         
-        # # State -> Save Brief
+        # Check Iteration Limit edges
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "check_iteration_limit",
+            "mappings": [
+                {"src_field": "generation_metadata", "dst_field": "generation_metadata", "description": "Pass LLM metadata containing iteration count."}
+            ]
+        },
+        {
+            "src_node_id": "check_iteration_limit",
+            "dst_node_id": "route_on_limit_check",
+            "mappings": [
+                {"src_field": "branch", "dst_field": "iteration_branch_result", "description": "Pass the branch taken ('true_branch' if limit not reached, 'false_branch' if reached)."},
+                {"src_field": "tag_results", "dst_field": "if_else_condition_tag_results", "description": "Pass detailed results per condition tag."},
+                {"src_field": "condition_result", "dst_field": "if_else_overall_condition_result", "description": "Pass the overall boolean result of the check."}
+            ]
+        },
+        {
+            "src_node_id": "route_on_limit_check",
+            "dst_node_id": "construct_brief_feedback_prompt",
+            "description": "Trigger feedback interpretation if iterations remain"
+        },
+        {
+            "src_node_id": "route_on_limit_check",
+            "dst_node_id": "output_node",
+            "description": "Trigger finalization if iteration limit reached"
+        },
+
+        # --- State -> Save as Draft ---
+        { "src_node_id": "$graph_state", "dst_node_id": "save_as_draft", "mappings": [
+            { "src_field": "current_content_brief", "dst_field": "current_content_brief"},
+            { "src_field": "user_brief_action", "dst_field": "user_brief_action"},
+            { "src_field": "company_name", "dst_field": "company_name"},
+            { "src_field": "brief_uuid", "dst_field": "brief_uuid"}
+          ]
+        },
+
+        # ---- Save as Draft -> brief approval hitl ----
+        { "src_node_id": "save_as_draft", "dst_node_id": "brief_approval_hitl", "mappings": [          ]},
+
+        # State -> Delete Draft on Cancel (provide company_name and brief_uuid)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "delete_draft_on_cancel",
+            "mappings": [
+                {"src_field": "company_name", "dst_field": "company_name"},
+                {"src_field": "brief_uuid", "dst_field": "brief_uuid"}
+            ]
+        },
+        
+        # Delete Draft on Cancel -> Output
+        {
+            "src_node_id": "delete_draft_on_cancel",
+            "dst_node_id": "output_node",
+            "mappings": [
+                {"src_field": "deleted_count", "dst_field": "cancelled_draft_deleted_count"}
+            ]
+        },
+        
+        # State -> Brief Feedback Prompt Constructor
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_brief_feedback_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
+                {"src_field": "current_content_brief", "dst_field": "current_content_brief"},
+                {"src_field": "current_revision_feedback", "dst_field": "current_revision_feedback"},
+                {"src_field": "selected_topics", "dst_field": "selected_topics"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Brief HITL Additional Files -> Brief Feedback Prompt (data-only edge)
+        {
+            "src_node_id": "load_brief_hitl_additional_user_files_node",
+            "dst_node_id": "construct_brief_feedback_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
+            ]
+        },
+        
+        # Brief Feedback Prompt -> LLM
+        {
+            "src_node_id": "construct_brief_feedback_prompt",
+            "dst_node_id": "analyze_brief_feedback",
+            "mappings": [
+                {"src_field": "brief_feedback_user_prompt", "dst_field": "user_prompt"},
+                {"src_field": "brief_feedback_system_prompt", "dst_field": "system_prompt"}
+            ]
+        },
+        
+        # State -> Brief Feedback Analysis (message history)
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "analyze_brief_feedback",
+            "mappings": [
+                {"src_field": "brief_feedback_analysis_messages_history", "dst_field": "messages_history"},
+                {"src_field": "company_name", "dst_field": "company_name"}
+            ]
+        },
+        
+        # Brief Feedback Analysis -> State
+        {
+            "src_node_id": "analyze_brief_feedback",
+            "dst_node_id": "$graph_state",
+            "mappings": [
+                {"src_field": "structured_output", "dst_field": "brief_feedback_analysis"},
+                {"src_field": "current_messages", "dst_field": "brief_feedback_analysis_messages_history"}
+            ]
+        },
+        
+        # Brief Feedback Analysis -> Brief Revision Prompt Constructor
+        {
+            "src_node_id": "analyze_brief_feedback",
+            "dst_node_id": "construct_brief_revision_prompt",
+            "mappings": [
+                {"src_field": "structured_output", "dst_field": "brief_feedback_analysis"}
+            ]
+        },
+        
+        # State -> Brief Revision Prompt Constructor
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "construct_brief_revision_prompt",
+            "mappings": [
+                {"src_field": "company_doc", "dst_field": "company_doc"},
+                {"src_field": "content_playbook_doc", "dst_field": "content_playbook_doc"},
+                {"src_field": "selected_topics", "dst_field": "selected_topics"},
+                {"src_field": "google_research_output", "dst_field": "google_research_output"},
+                {"src_field": "reddit_research_output", "dst_field": "reddit_research_output"},
+                {"src_field": "user_input", "dst_field": "user_input"}
+            ]
+        },
+        
+        # Load Brief HITL Additional Files -> Brief Revision Prompt (data-only edge)
+        {
+            "src_node_id": "load_brief_hitl_additional_user_files_node",
+            "dst_node_id": "construct_brief_revision_prompt",
+            "data_only_edge": True,
+            "mappings": [
+                {"src_field": "brief_hitl_additional_user_files", "dst_field": "brief_hitl_additional_user_files"}
+            ]
+        },
+        
+        # Brief Revision Prompt -> LLM
+        {
+            "src_node_id": "construct_brief_revision_prompt",
+            "dst_node_id": "brief_generation_llm",
+            "mappings": [
+                {"src_field": "brief_revision_user_prompt", "dst_field": "user_prompt"}            ]
+        },
+        
+        # State -> Save Brief
         {
             "src_node_id": "$graph_state",
             "dst_node_id": "save_brief",
@@ -724,6 +1920,13 @@ workflow_graph_schema = {
             "mappings": [
                 {"src_field": "paths_processed", "dst_field": "final_paths_processed"}
             ]
+        },
+        
+        # State -> Output
+        {
+            "src_node_id": "$graph_state",
+            "dst_node_id": "output_node",
+            "mappings": []
         }
     ],
     
@@ -867,199 +2070,391 @@ async def main_test_content_brief_workflow():
     # Test parameters
     test_company_name = "Momentum"
     
-    # # Create test company document data
-    # company_data = {
-    #     "name": "Momentum",
-    #     "website_url": "https://www.momentum.io",
-    #     "value_proposition": "AI-native Revenue Orchestration Platform that extracts, structures, and moves GTM data automatically. Momentum tracks what's said in every customer interaction and turns it into structured, usable data, updating CRM fields in real time for cleaner pipeline, better reporting, and smarter AI agents with context.",
-    #     "company_offerings": [
-    #         {
-    #             "offering": "AI-powered Revenue Orchestration Platform",
-    #             "use_case": [
-    #                 "Automated CRM data entry and hygiene",
-    #                 "Real-time deal tracking and forecasting",
-    #                 "Customer conversation intelligence and insights",
-    #                 "Sales process automation and optimization",
-    #                 "Revenue pipeline visibility and reporting"
-    #             ],
-    #             "ideal_users": [
-    #                 "Chief Revenue Officers",
-    #                 "VP of Sales",
-    #                 "Sales Operations Managers",
-    #                 "VP of Customer Success",
-    #                 "Revenue Operations Teams"
-    #             ]
-    #         },
-    #         {
-    #             "offering": "Conversation Intelligence and Analytics",
-    #             "use_case": [
-    #                 "Call transcription and sentiment analysis",
-    #                 "Customer feedback extraction and categorization",
-    #                 "Competitive intelligence gathering",
-    #                 "Product feedback and feature request tracking",
-    #                 "Risk signal identification and churn prevention"
-    #             ],
-    #             "ideal_users": [
-    #                 "Sales Representatives",
-    #                 "Customer Success Managers",
-    #                 "Product Marketing Managers",
-    #                 "Business Development Teams",
-    #                 "Executive Leadership"
-    #             ]
-    #         },
-    #         {
-    #             "offering": "Automated GTM Data Workflows",
-    #             "use_case": [
-    #                 "Salesforce integration and data synchronization",
-    #                 "Multi-platform data orchestration",
-    #                 "Custom field mapping and data transformation",
-    #                 "Workflow automation and trigger management",
-    #                 "Data quality monitoring and alerts"
-    #             ],
-    #             "ideal_users": [
-    #                 "Sales Operations Analysts",
-    #                 "CRM Administrators",
-    #                 "Revenue Operations Directors",
-    #                 "IT and Systems Integration Teams",
-    #                 "Data Analytics Teams"
-    #             ]
-    #         }
-    #     ],
-    #     "icps": [
-    #         {
-    #             "icp_name": "Enterprise SaaS Revenue Teams",
-    #             "target_industry": "SaaS/Technology",
-    #             "company_size": "Enterprise (1000+ employees)",
-    #             "buyer_persona": "Chief Revenue Officer (CRO)",
-    #             "pain_points": [
-    #                 "Manual, repetitive Salesforce data entry",
-    #                 "Poor CRM data hygiene and accuracy",
-    #                 "Lack of visibility into deal progression and forecast risk",
-    #                 "Difficulty extracting insights from customer conversations",
-    #                 "Revenue team inefficiencies and administrative overhead"
-    #             ]
-    #         },
-    #         {
-    #             "icp_name": "Growth-Stage Sales Organizations",
-    #             "target_industry": "B2B SaaS",
-    #             "company_size": "Mid-market (200-1000 employees)",
-    #             "buyer_persona": "VP of Sales/Sales Operations",
-    #             "pain_points": [
-    #                 "Inconsistent sales process execution",
-    #                 "Manual deal room management and collaboration",
-    #                 "Missing customer intelligence and buying signals",
-    #                 "Time-consuming post-call administrative tasks",
-    #                 "Lack of real-time coaching and performance insights"
-    #             ]
-    #         },
-    #         {
-    #             "icp_name": "Customer Success Teams",
-    #             "target_industry": "Technology/SaaS",
-    #             "company_size": "Mid-market to Enterprise (500+ employees)",
-    #             "buyer_persona": "VP of Customer Success",
-    #             "pain_points": [
-    #                 "Inability to predict and prevent customer churn",
-    #                 "Manual tracking of customer health and satisfaction",
-    #                 "Difficulty identifying expansion opportunities",
-    #                 "Lack of visibility into customer feedback and product insights",
-    #                 "Inefficient handoff processes from sales to customer success"
-    #             ]
-    #         }
-    #     ],
-    #     "content_distribution_mix": {
-    #         "awareness_percent": 30.0,
-    #         "consideration_percent": 40.0,
-    #         "purchase_percent": 20.0,
-    #         "retention_percent": 10.0
-    #     },
-    #     "competitors": [
-    #         {
-    #             "website_url": "https://www.gong.io",
-    #             "name": "Gong"
-    #         },
-    #         {
-    #             "website_url": "https://www.outreach.io",
-    #             "name": "Outreach"
-    #         },
-    #         {
-    #             "website_url": "https://www.avoma.com",
-    #             "name": "Avoma"
-    #         }
-    #     ],
-    #     "goals": [
-    #         "Establish thought leadership in revenue intelligence and AI-powered sales automation",
-    #         "Educate target audience about the benefits of automated GTM data workflows",
-    #         "Generate qualified leads through valuable content addressing CRM and sales operation challenges",
-    #         "Build brand awareness among enterprise revenue teams and sales operations professionals",
-    #         "Create content that drives organic traffic for high-intent keywords related to revenue orchestration and conversation intelligence"
-    #     ]
-    # }
+    # Create test company document data
+    company_data = {
+        "name": "Momentum",
+        "website_url": "https://www.momentum.io",
+        "value_proposition": "AI-native Revenue Orchestration Platform that extracts, structures, and moves GTM data automatically. Momentum tracks what's said in every customer interaction and turns it into structured, usable data, updating CRM fields in real time for cleaner pipeline, better reporting, and smarter AI agents with context.",
+        "company_offerings": [
+            {
+                "offering": "AI-powered Revenue Orchestration Platform",
+                "use_case": [
+                    "Automated CRM data entry and hygiene",
+                    "Real-time deal tracking and forecasting",
+                    "Customer conversation intelligence and insights",
+                    "Sales process automation and optimization",
+                    "Revenue pipeline visibility and reporting"
+                ],
+                "ideal_users": [
+                    "Chief Revenue Officers",
+                    "VP of Sales",
+                    "Sales Operations Managers",
+                    "VP of Customer Success",
+                    "Revenue Operations Teams"
+                ]
+            },
+            {
+                "offering": "Conversation Intelligence and Analytics",
+                "use_case": [
+                    "Call transcription and sentiment analysis",
+                    "Customer feedback extraction and categorization",
+                    "Competitive intelligence gathering",
+                    "Product feedback and feature request tracking",
+                    "Risk signal identification and churn prevention"
+                ],
+                "ideal_users": [
+                    "Sales Representatives",
+                    "Customer Success Managers",
+                    "Product Marketing Managers",
+                    "Business Development Teams",
+                    "Executive Leadership"
+                ]
+            },
+            {
+                "offering": "Automated GTM Data Workflows",
+                "use_case": [
+                    "Salesforce integration and data synchronization",
+                    "Multi-platform data orchestration",
+                    "Custom field mapping and data transformation",
+                    "Workflow automation and trigger management",
+                    "Data quality monitoring and alerts"
+                ],
+                "ideal_users": [
+                    "Sales Operations Analysts",
+                    "CRM Administrators",
+                    "Revenue Operations Directors",
+                    "IT and Systems Integration Teams",
+                    "Data Analytics Teams"
+                ]
+            }
+        ],
+        "icps": [
+            {
+                "icp_name": "Enterprise SaaS Revenue Teams",
+                "target_industry": "SaaS/Technology",
+                "company_size": "Enterprise (1000+ employees)",
+                "buyer_persona": "Chief Revenue Officer (CRO)",
+                "pain_points": [
+                    "Manual, repetitive Salesforce data entry",
+                    "Poor CRM data hygiene and accuracy",
+                    "Lack of visibility into deal progression and forecast risk",
+                    "Difficulty extracting insights from customer conversations",
+                    "Revenue team inefficiencies and administrative overhead"
+                ]
+            },
+            {
+                "icp_name": "Growth-Stage Sales Organizations",
+                "target_industry": "B2B SaaS",
+                "company_size": "Mid-market (200-1000 employees)",
+                "buyer_persona": "VP of Sales/Sales Operations",
+                "pain_points": [
+                    "Inconsistent sales process execution",
+                    "Manual deal room management and collaboration",
+                    "Missing customer intelligence and buying signals",
+                    "Time-consuming post-call administrative tasks",
+                    "Lack of real-time coaching and performance insights"
+                ]
+            },
+            {
+                "icp_name": "Customer Success Teams",
+                "target_industry": "Technology/SaaS",
+                "company_size": "Mid-market to Enterprise (500+ employees)",
+                "buyer_persona": "VP of Customer Success",
+                "pain_points": [
+                    "Inability to predict and prevent customer churn",
+                    "Manual tracking of customer health and satisfaction",
+                    "Difficulty identifying expansion opportunities",
+                    "Lack of visibility into customer feedback and product insights",
+                    "Inefficient handoff processes from sales to customer success"
+                ]
+            }
+        ],
+        "content_distribution_mix": {
+            "awareness_percent": 30.0,
+            "consideration_percent": 40.0,
+            "purchase_percent": 20.0,
+            "retention_percent": 10.0
+        },
+        "competitors": [
+            {
+                "website_url": "https://www.gong.io",
+                "name": "Gong"
+            },
+            {
+                "website_url": "https://www.outreach.io",
+                "name": "Outreach"
+            },
+            {
+                "website_url": "https://www.avoma.com",
+                "name": "Avoma"
+            }
+        ],
+        "goals": [
+            "Establish thought leadership in revenue intelligence and AI-powered sales automation",
+            "Educate target audience about the benefits of automated GTM data workflows",
+            "Generate qualified leads through valuable content addressing CRM and sales operation challenges",
+            "Build brand awareness among enterprise revenue teams and sales operations professionals",
+            "Create content that drives organic traffic for high-intent keywords related to revenue orchestration and conversation intelligence"
+        ]
+    }
     
-    # # Test inputs
+    # Test inputs with file loading
     test_inputs = {
         "company_name": test_company_name,
         "user_input": "I've been thinking about writing content around how AI is changing project management. I want to explore how small teams can leverage AI tools without losing the human touch in their workflows. Maybe something about the balance between automation and personal connection in remote teams?",
-        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000"
+        "brief_uuid": "123e4567-e89b-12d3-a456-426614174000",
+        "load_additional_user_files": [
+            {
+                "namespace": "user_research_files",
+                "docname": "project_management_ai_research",
+                "is_shared": False
+            },
+            {
+                "namespace": "user_research_files", 
+                "docname": "remote_team_collaboration_guide",
+                "is_shared": False
+            }
+        ]
     }
     
-    # # Setup test documents
-    # setup_docs: List[SetupDocInfo] = [
-    #     {
-    #         'namespace': f"blog_company_profile_{test_company_name}",
-    #         'docname': BLOG_COMPANY_DOCNAME,
-    #         'initial_data': company_data,
-    #         'is_shared': False,
-    #         'is_versioned': BLOG_COMPANY_IS_VERSIONED,
-    #         'initial_version': "default",
-    #         'is_system_entity': False
-    #     },
-    #     {
-    #         'namespace': f"blog_content_strategy_{test_company_name}",
-    #         'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
-    #         'initial_data': {
-    #             "name": test_company_name,
-    #             "content_strategy": "This is a placeholder for the content strategy document. It will be populated with actual strategy details."
-    #         },
-    #         'is_shared': False,
-    #         'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
-    #         'initial_version': "default",
-    #         'is_system_entity': False
-    #     }
-    # ]
+    # Setup test documents
+    setup_docs: List[SetupDocInfo] = [
+        {
+            'namespace': f"blog_company_profile_{test_company_name}",
+            'docname': BLOG_COMPANY_DOCNAME,
+            'initial_data': company_data,
+            'is_shared': False,
+            'is_versioned': BLOG_COMPANY_IS_VERSIONED,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': f"blog_content_strategy_{test_company_name}",
+            'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
+            'initial_data': {
+                "name": test_company_name,
+                "content_strategy": "This is a placeholder for the content strategy document. It will be populated with actual strategy details."
+            },
+            'is_shared': False,
+            'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Additional user files for input node
+        {
+            'namespace': "user_research_files",
+            'docname': "project_management_ai_research",
+            'initial_data': {
+                "title": "AI in Project Management: Research Insights",
+                "content": "Recent studies show that 73% of project managers report improved efficiency when using AI tools for task automation. Key findings include: 1) AI reduces time spent on status updates by 40%, 2) Automated risk detection catches issues 2.5x faster than manual review, 3) Teams using AI project tools show 25% higher completion rates. However, human oversight remains critical for stakeholder communication and strategic decision-making.",
+                "research_date": "2024-01-15",
+                "source": "Project Management Institute Research"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "remote_team_collaboration_guide",
+            'initial_data': {
+                "title": "Remote Team Collaboration Best Practices",
+                "content": "Effective remote team collaboration requires balancing technology with human connection. Key strategies: 1) Use AI for routine tasks (scheduling, documentation) but maintain human touch for complex problem-solving, 2) Implement 'AI-first, human-verify' workflows for quality assurance, 3) Regular video check-ins preserve team cohesion, 4) AI tools should augment, not replace, human creativity and judgment.",
+                "author": "Remote Work Institute",
+                "publication_date": "2024-02-01"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Topic HITL context files
+        {
+            'namespace': "topic_context_files",
+            'docname': "executive_ai_framework_guide",
+            'initial_data': {
+                "title": "Executive AI Framework Guide",
+                "content": "A comprehensive framework for executives to evaluate AI implementation: 1) Identify repetitive tasks that can be automated (80% of the work), 2) Preserve human judgment for strategic decisions (20% of the work), 3) Implement 'AI-first, human-verify' workflows, 4) Maintain human oversight for stakeholder communication and complex problem-solving.",
+                "framework_sections": ["Task Classification", "Automation Guidelines", "Human Oversight Requirements"],
+                "target_audience": "C-level executives and senior managers"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "topic_context_files",
+            'docname': "remote_leadership_best_practices",
+            'initial_data': {
+                "title": "Remote Leadership Best Practices",
+                "content": "Essential practices for leading remote teams: 1) Use AI for routine coordination but maintain human touch for team building, 2) Implement regular video check-ins to preserve team cohesion, 3) Balance automation with personal connection, 4) Ensure AI tools augment rather than replace human creativity and judgment.",
+                "key_principles": ["Human-AI Balance", "Team Cohesion", "Personal Connection"],
+                "implementation_tips": ["Weekly video standups", "AI-assisted scheduling", "Human-led problem solving"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        # Brief HITL context files
+        {
+            'namespace': "brief_context_files",
+            'docname': "success_metrics_examples",
+            'initial_data': {
+                "title": "Success Metrics Examples for AI Implementation",
+                "content": "Concrete metrics for measuring AI success in project management: 1) 40% reduction in time spent on status updates, 2) 25% improvement in project completion rates, 3) 2.5x faster risk detection, 4) 73% of project managers report improved efficiency, 5) 20% faster status reporting with AI assistance.",
+                "metric_categories": ["Time Savings", "Quality Improvements", "Efficiency Gains"],
+                "measurement_framework": "Before/after comparisons with baseline metrics"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "concrete_scenario_templates",
+            'initial_data': {
+                "title": "Concrete Scenario Templates for Content",
+                "content": "Template scenarios for illustrating AI-human balance in project management: 1) 'Sarah's Team' - A 12-person remote team using AI for task automation while maintaining human oversight for client communication, 2) 'The 80/20 Rule in Action' - Specific examples of what gets automated vs. what stays human, 3) 'Metrics That Matter' - Real performance improvements from AI implementation.",
+                "scenario_types": ["Team Examples", "Process Illustrations", "Outcome Demonstrations"],
+                "usage_guidelines": "Use specific names, numbers, and outcomes for credibility"
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "cta_optimization_examples",
+            'initial_data': {
+                "title": "CTA Optimization Examples",
+                "content": "High-performing call-to-action examples for AI content: 1) 'Download the AI readiness checklist and benchmark your current process' - Outcome-oriented with clear value, 2) 'Get your personalized AI implementation roadmap' - Personalized and actionable, 3) 'Join 500+ project managers using AI effectively' - Social proof with specific numbers.",
+                "cta_principles": ["Outcome-focused", "Actionable", "Value-driven"],
+                "optimization_tips": ["Use specific numbers", "Focus on outcomes", "Make it personal"]
+            },
+            'is_shared': False,
+            'is_versioned': False,
+            'initial_version': "default",
+            'is_system_entity': False
+        }
+    ]
     
-    # # Cleanup configuration
-    # cleanup_docs: List[CleanupDocInfo] = [
-    #     {
-    #         'namespace': f"blog_company_profile_{test_company_name}",
-    #         'docname': BLOG_COMPANY_DOCNAME,
-    #         'is_shared': False,
-    #         'is_versioned': BLOG_COMPANY_IS_VERSIONED,
-    #         'is_system_entity': False
-    #     },
-    #     {
-    #         'namespace': f"blog_content_strategy_{test_company_name}",
-    #         'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
-    #         'is_shared': False,
-    #         'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
-    #         'is_system_entity': False
-    #     }
-    # ]
+    # Cleanup configuration
+    cleanup_docs: List[CleanupDocInfo] = [
+        {
+            'namespace': f"blog_company_profile_{test_company_name}",
+            'docname': BLOG_COMPANY_DOCNAME,
+            'is_shared': False,
+            'is_versioned': BLOG_COMPANY_IS_VERSIONED,
+            'is_system_entity': False
+        },
+        {
+            'namespace': f"blog_content_strategy_{test_company_name}",
+            'docname': BLOG_CONTENT_STRATEGY_DOCNAME,
+            'is_shared': False,
+            'is_versioned': BLOG_CONTENT_STRATEGY_IS_VERSIONED,
+            'is_system_entity': False
+        },
+        # Cleanup additional user files
+        {
+            'namespace': "user_research_files",
+            'docname': "project_management_ai_research",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "user_research_files",
+            'docname': "remote_team_collaboration_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        # Cleanup topic HITL context files
+        {
+            'namespace': "topic_context_files",
+            'docname': "executive_ai_framework_guide",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "topic_context_files",
+            'docname': "remote_leadership_best_practices",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        # Cleanup brief HITL context files
+        {
+            'namespace': "brief_context_files",
+            'docname': "success_metrics_examples",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "concrete_scenario_templates",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        },
+        {
+            'namespace': "brief_context_files",
+            'docname': "cta_optimization_examples",
+            'is_shared': False,
+            'is_versioned': False,
+            'is_system_entity': False
+        }
+    ]
     
-    # Predefined HITL inputs - leaving empty to allow for interactive testing
+    # Predefined HITL inputs with file loading at each stage
     predefined_hitl_inputs = [
+        # Topic Selection HITL - with additional context files
         {
             "user_action": "provide_feedback",
             "selected_topic_id": None,
-            "revision_feedback": "Promising directions. Emphasize remote-team collaboration impacts and an exec framework for what to automate vs. where human leadership is essential."
+            "revision_feedback": "Promising directions. Emphasize remote-team collaboration impacts and an exec framework for what to automate vs. where human leadership is essential.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "topic_context_files",
+                    "docname": "executive_ai_framework_guide",
+                    "is_shared": False
+                },
+                {
+                    "namespace": "topic_context_files",
+                    "docname": "remote_leadership_best_practices",
+                    "is_shared": False
+                }
+            ]
         },
         {
             "user_action": "complete",
             "selected_topic_id": "topic_01",
-            "revision_feedback": None
+            "revision_feedback": None,
+            "load_additional_user_files": []
         },
+        # Brief Approval HITL - with additional context files
         {
             "user_brief_action": "provide_feedback",
             "revision_feedback": "Please tighten the hook and add one concrete scenario. Keep the framework but make success metrics more specific.",
+            "load_additional_user_files": [
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "success_metrics_examples",
+                    "is_shared": False
+                },
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "concrete_scenario_templates",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework",
@@ -1087,6 +2482,7 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "draft",
             "revision_feedback": None,
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework (Draft V2)",
@@ -1097,6 +2493,13 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "provide_feedback",
             "revision_feedback": "Looks good—make the CTA more outcome-oriented and add a metric example (e.g., 20% faster status reporting).",
+            "load_additional_user_files": [
+                {
+                    "namespace": "brief_context_files",
+                    "docname": "cta_optimization_examples",
+                    "is_shared": False
+                }
+            ],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework",
@@ -1108,6 +2511,7 @@ async def main_test_content_brief_workflow():
         {
             "user_brief_action": "complete",
             "revision_feedback": None,
+            "load_additional_user_files": [],
             "updated_content_brief": {
                 "content_brief": {
                     "title": "AI and Human Balance in Project Management: An 80/20 Framework (Final)",
@@ -1130,8 +2534,8 @@ async def main_test_content_brief_workflow():
         initial_inputs=test_inputs,
         expected_final_status=WorkflowRunStatus.COMPLETED,
         hitl_inputs=predefined_hitl_inputs,
-        # setup_docs=setup_docs,
-        # cleanup_docs=cleanup_docs,
+        setup_docs=setup_docs,
+        cleanup_docs=cleanup_docs,
         cleanup_docs_created_by_setup=False,
         validate_output_func=validate_content_brief_workflow_output,
         stream_intermediate_results=True,

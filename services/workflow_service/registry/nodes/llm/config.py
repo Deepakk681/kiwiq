@@ -371,6 +371,19 @@ class AnthropicModels(str, EnumWithAttr):
         "reasoning_tokens_budget": True,
         "reasoning_tokens_budget_min": 1024,
     }))
+    CLAUDE_SONNET_4_5 = "claude-sonnet-4-5-20250929", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
+        "output_token_limit_thinking": 64000,
+        "output_token_limit": 64000,
+        "rate_limits": {"requests_per_minute": None, "input_tokens_per_minute": 2000000, "output_tokens_per_minute": 400000},
+        "reasoning": True,
+        # it also has non-reasoning mode!
+        "reasoning_tokens_budget": True,
+        "reasoning_tokens_budget_min": 1024,
+        # Pricing per million tokens
+        "cached_token_price_per_M": 0.3,
+        "input_token_price_per_M": 3.0,
+        "output_token_price_per_M": 15.0,
+    }))
     CLAUDE_SONNET_4 = "claude-sonnet-4-20250514", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "output_token_limit_thinking": 64000,
         "output_token_limit": 64000,

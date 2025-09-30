@@ -1,3 +1,13 @@
+# =============================================================================
+# SETUP DOCUMENTS FOR WORKFLOW
+# =============================================================================
+# This file creates the following documents required for the blog brief to blog workflow:
+# 1. Blog Content Brief - The main input document containing content specifications
+# 2. Company Guidelines - Company-specific writing guidelines and brand voice
+# 3. SEO Best Practices - System document with SEO optimization rules
+# These documents are loaded during the context loading stage and used for
+# knowledge enrichment and content generation.
+
 from typing import Dict, Any, List, Optional
 import asyncio
 import logging

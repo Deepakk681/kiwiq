@@ -16,6 +16,7 @@ import os
 import glob
 import importlib.util
 from pathlib import Path
+import sys
 from typing import Dict, List, Optional, Any, Tuple, Union
 import logging
 
@@ -562,6 +563,16 @@ def load_python_module_content(file_path: Path, extract_vars_only: bool = False)
         if not file_path.exists():
             logger.warning(f"File not found: {file_path}")
             return None
+        
+        # Invalidate cached modules only when performing a normal import-based load.
+        # Skip invalidation for extract_vars_only fallback to avoid redundant work when the
+        # caller retries with extract_vars_only=True right after a failed import.
+        if not extract_vars_only:
+            try:
+                _invalidate_related_workflow_modules(file_path)
+            except Exception as _:
+                # Best-effort; proceed even if cache invalidation fails
+                pass
             
         spec = importlib.util.spec_from_file_location("module", file_path)
         if spec is None or spec.loader is None:
@@ -584,6 +595,72 @@ def load_python_module_content(file_path: Path, extract_vars_only: bool = False)
         else:
             logger.error(f"Error loading module {file_path}: {e}")
             return None
+
+
+def _compute_canonical_module_name(file_path: Path) -> Optional[str]:
+    """
+    Compute the canonical dotted module name for files under the `kiwi_client` package.
+    Returns None if the path isn't within that package.
+    """
+    try:
+        parts = list(file_path.resolve().parts)
+        if 'kiwi_client' not in parts:
+            return None
+        idx = parts.index('kiwi_client')
+        # Drop the .py suffix for the final part
+        tail = parts[idx:]
+        if not tail:
+            return None
+        # Replace path sep with dots and strip .py from last segment
+        *pkg_parts, last = tail
+        last = last[:-3] if last.endswith('.py') else last
+        dotted = '.'.join(pkg_parts + [last])
+        return dotted
+    except Exception:
+        return None
+
+
+def _invalidate_related_workflow_modules(file_path: Path) -> None:
+    """
+    Remove cached imports for the specific module and its workflow package so that
+    subsequent dynamic loads pick up on-disk changes.
+
+    This is critical because workflow JSON modules import `wf_llm_inputs.py` via
+    canonical package paths which are cached in `sys.modules`.
+    """
+    # Determine canonical module name
+    canonical = _compute_canonical_module_name(file_path)
+    if not canonical:
+        return
+
+    # Determine the workflow package prefix: kiwi_client.workflows.active.<category>.<workflow>
+    parts = canonical.split('.')
+    try:
+        w_idx = parts.index('workflows')
+        # Expect structure: kiwi_client . workflows . active . <category> . <workflow> . <file>
+        # Guard length
+        if len(parts) > w_idx + 4:
+            workflow_pkg_prefix = '.'.join(parts[: w_idx + 5])  # up to workflow directory
+        else:
+            # Fallback to the module's parent package
+            workflow_pkg_prefix = '.'.join(parts[:-1])
+    except ValueError:
+        # Not under workflows; just invalidate the module itself
+        workflow_pkg_prefix = '.'.join(parts[:-1])
+
+    to_delete = []
+    for name in list(sys.modules.keys()):
+        if name == canonical or name.startswith(workflow_pkg_prefix + '.'):
+            to_delete.append(name)
+    # Also remove the module's own name even if it equals the prefix
+    if canonical not in to_delete:
+        to_delete.append(canonical)
+
+    for name in to_delete:
+        try:
+            del sys.modules[name]
+        except Exception:
+            pass
 
 
 def extract_variables_from_file(file_path: Path) -> Optional[Any]:
@@ -917,6 +994,63 @@ def get_sandbox_identifiers() -> Optional[Any]:
         
     except Exception as e:
         logger.error(f"Error loading sandbox identifiers: {e}")
+        return None
+
+
+def get_workflow_documentation_path(workflow_info: Dict[str, Any]) -> Optional[Path]:
+    """
+    Get the path to a workflow's documentation markdown file if it exists.
+    Looks for *_documentation.md file in the workflow directory.
+    
+    Args:
+        workflow_info: Dictionary containing workflow information
+        
+    Returns:
+        Path to documentation file or None if not found
+    """
+    try:
+        workflows_root = get_workflows_root_path()
+        
+        # Handle both direct access and metadata structure
+        if 'metadata' in workflow_info:
+            category = workflow_info['metadata']['category']
+            workflow_name = workflow_info['metadata']['workflow_name']
+        else:
+            category = workflow_info['category']
+            workflow_name = workflow_info['workflow_name']
+        
+        workflow_dir = workflows_root / category / workflow_name
+        
+        # Look for *_documentation.md files
+        doc_files = list(workflow_dir.glob('*_documentation.md'))
+        
+        if doc_files:
+            return doc_files[0]  # Return first match
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error finding documentation file: {e}")
+        return None
+
+
+def get_workflow_documentation_content(workflow_info: Dict[str, Any]) -> Optional[str]:
+    """
+    Get the content of a workflow's documentation markdown file.
+    
+    Args:
+        workflow_info: Dictionary containing workflow information
+        
+    Returns:
+        Documentation content as string or None if not found
+    """
+    try:
+        doc_path = get_workflow_documentation_path(workflow_info)
+        if doc_path and doc_path.exists():
+            return doc_path.read_text(encoding='utf-8')
+        return None
+    except Exception as e:
+        logger.error(f"Error reading documentation file: {e}")
         return None
 
 
