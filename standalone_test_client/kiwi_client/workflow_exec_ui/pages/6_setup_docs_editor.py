@@ -40,6 +40,9 @@ def main() -> None:
     # Resolve file path to sandbox_setup_docs.py
     json_path: Path = workflow["metadata"]["file_path"]
     setup_file_path = json_path.parent / "wf_testing" / "sandbox_setup_docs.py"
+    
+    # Display file path at the top
+    st.caption(f"📄 **File Path:** `{setup_file_path}`")
 
     if not setup_file_path.exists():
         st.info("No sandbox_setup_docs.py found for this workflow.")

@@ -25,6 +25,9 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
       "node_id": "my_llm_call", // Unique ID for this node instance
       "node_name": "llm",      // ** Must be "llm" **
       "node_config": {
+        // --- Rate Limiting ---
+        "max_random_artificial_delay_in_seconds": null, // Optional: Add random delay (0 to N seconds) before LLM call for rate limiting
+        
         // --- Core LLM Settings ---
         "llm_config": {
           "model_spec": {
@@ -201,7 +204,13 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
 
 ### Key Configuration Sections:
 
-1.  **`llm_config`**:
+1.  **`max_random_artificial_delay_in_seconds`**: (Optional) Adds a random delay between 0 and the specified number of seconds before making the LLM API call. This is useful for:
+    *   **Rate Limiting**: Spread out API calls to avoid hitting provider rate limits, especially when running multiple workflows in parallel
+    *   **Cost Management**: Control the rate of expensive LLM calls
+    *   **Testing**: Simulate slower response times during development
+    *   Example: Setting this to `5` will add a random delay between 0-5 seconds before each LLM call. If not set or `null`, no delay is added.
+
+2.  **`llm_config`**:
     *   `model_spec`: **Required**. Specifies the AI `provider` and the exact `model` name. Check `llm_node.py` or `config.py` for available provider/model enums (e.g., `LLMModelProvider.ANTHROPIC`, `AnthropicModels.CLAUDE_3_7_SONNET`).
     *   `temperature`: Controls randomness (0.0 deterministic, ~1.0 creative). **Note:** Models in reasoning/thinking mode often default to or require a high temperature (e.g., 1.0 for Anthropic).
     *   `verbosity`: Optional string `"low" | "medium" | "high"`. Supported only on GPT-5 series models. If omitted (`null`), the provider default of `"medium"` is used. Passed as `text={"verbosity": "..."}`.
@@ -211,15 +220,15 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
     *   `force_temperature_setting_when_thinking`: (Default: `false`) Tries to use the specified `temperature` even in reasoning mode. Often ineffective, especially for Anthropic which requires 1.0.
     *   `kwargs`: Advanced, provider-specific parameters (e.g., `top_p`, `frequency_penalty`). Use with caution, verify provider documentation.
 
-2.  **`default_system_prompt`**: (Optional) A default instruction if no system message is in the input `messages_history`. Ignored if `messages_history` is provided.
+3.  **`default_system_prompt`**: (Optional) A default instruction if no system message is in the input `messages_history`. Ignored if `messages_history` is provided.
 
-3.  **`thinking_tokens_in_prompt`**: (Anthropic specific) Controls inclusion of Anthropic's internal `<thinking>` messages in subsequent prompts (`all`, `none`, `latest_message`).
+4.  **`thinking_tokens_in_prompt`**: (Anthropic specific) Controls inclusion of Anthropic's internal `<thinking>` messages in subsequent prompts (`all`, `none`, `latest_message`).
 
-4.  **`cache_responses`**: If `true`, identical requests might return cached results. NOTE: this is not implemented as of yet! 
+5.  **`cache_responses`**: If `true`, identical requests might return cached results. NOTE: this is not implemented as of yet! 
 
-5.  **`api_key_override`**: (Optional) Provide API keys directly, e.g., `{"openai": "sk-..."}`, overriding system settings.
+6.  **`api_key_override`**: (Optional) Provide API keys directly, e.g., `{"openai": "sk-..."}`, overriding system settings.
 
-6.  **`output_schema`**: **Crucial for structured output** (getting JSON back instead of just text).
+7.  **`output_schema`**: **Crucial for structured output** (getting JSON back instead of just text).
     *   To get plain text output, omit `output_schema` entirely, or set its sub-fields (`schema_template_name`, `dynamic_schema_spec`, `schema_definition`) to `null`.
     *   **Methods to define the schema (Use ONLY ONE):**
         *   **`dynamic_schema_spec` (Recommended for node-specific schemas):** Define the output structure directly within the node config using `fields`. Specify `type` (`str`, `int`, `list`, `enum`, etc.), `required` status, `description`, and type specifics (`items_type` for lists, `enum_values` for enums). See `dynamic_nodes.py:ConstructDynamicSchema` for details.
@@ -228,7 +237,7 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
     *   `convert_loaded_schema_to_pydantic`: (Default: `true`) If loading a schema via `schema_template_name` or `schema_definition` (which are typically JSON schemas), this flag controls whether it's converted to an internal Pydantic model before being used with the LLM. Pydantic models can sometimes offer better compatibility with certain LangChain structured output mechanisms.
     *   **Important Note:** Structured output reliability varies by model. Anthropic models currently use forced tool calling (which can conflict with reasoning modes), while OpenAI/Gemini generally handle JSON mode more directly. Check provider documentation and test thoroughly. See `llm_node.py:LLMStructuredOutputSchema` docstring and `test_basic_llm_workflow.py` for examples.
 
-7.  **`tool_calling_config` & `tools`**: **Optional & Model-Specific**
+8.  **`tool_calling_config` & `tools`**: **Optional & Model-Specific**
     *   Set `enable_tool_calling` to `true` to allow the LLM to request execution of other tool nodes on the platform (custom tools) or provider-integrated functionalities (inbuilt tools). Requires model support (check `llm_node.py` `ModelMetadata`).
     *   If enabled, `tools` **must** be a list defining allowed tools. Each item in the list is a `ToolConfig` object with the following fields:
         *   `tool_name`: **Required**.
@@ -253,7 +262,7 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
     *   `tool_choice`: (Optional) Force the LLM to use a specific tool (`"tool_name"`), any tool (`"any"`), or let it decide (`"auto"`, default). Model-dependent.
     *   `parallel_tool_calls`: (Optional, Default: `true`) Allow the model to request multiple tool calls simultaneously. Model-dependent.
 
-8.  **`web_search_options`**: **Optional & Model-Specific**
+9.  **`web_search_options`**: **Optional & Model-Specific**
     *   Enables and configures LLMs with integrated web search (e.g., Perplexity models, OpenAI Search Preview models). This is an alternative way to enable web search if the provider offers it as a general model option rather than (or in addition to) an inbuilt tool.
     *   `search_recency_filter`: Limit results by age (`day`, `week`, `month`, `year`).
     *   `search_domain_filter`: List of domains to restrict search (e.g., `["arxiv.org"]`).

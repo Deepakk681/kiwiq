@@ -21,7 +21,7 @@ from workflow_service.utils.utils import get_central_state_field_key, is_dynamic
 
 from kiwi_app.workflow_app.constants import LaunchStatus
 
-from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME
+from workflow_service.config.constants import GRAPH_STATE_SPECIAL_NODE_NAME, TEMP_STATE_UPDATE_KEY, ROUTER_CHOICE_KEY
 
 # Define type variables for input, output, and config schemas
 InputSchemaT = TypeVar('InputSchemaT', bound=BaseSchema)
@@ -427,6 +427,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         """
         Build the state update for the node.
         """
+        from workflow_service.registry.registry import DBRegistry
         configurable = config.get("configurable", {})
         state_update = {}
         output_schema = self.__class__.output_schema_cls
@@ -475,6 +476,9 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         else:
             # NOTE: may wanna copy this potentially!
             state_update = output_data if output_data and isinstance(output_data, dict) else state_update
+            if DBRegistry.is_node_instance_router(self) and state_update and self.private_output_mode:
+                # NOTE: this is a hack to ensure that the router node output is a dict!
+                state_update = {get_node_output_state_key(self.node_id): output_data}
 
         # Add node execution order to state update
         state_update[get_central_state_field_key(NODE_EXECUTION_ORDER_KEY)] = [self.node_id]
@@ -573,6 +577,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
         Raises:
             Exception: For any unregistered error codes encountered during processing
         """
+        from workflow_service.registry.registry import DBRegistry
         
         try:
             if self.private_input_mode:
@@ -656,6 +661,9 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                         i += 1
                         await asyncio.sleep(retry_delay_seconds * (1 + random.random() * retry_jitter_factor))
             # print("\n\n\n\n#### output_data (in run)", output_data, "\n\n\n\n")
+            if DBRegistry.is_node_instance_router(self) and self.private_output_mode:
+                router_choices = output_data.get(ROUTER_CHOICE_KEY, None)
+                output_data = output_data.get(TEMP_STATE_UPDATE_KEY, None)
 
             private_mode_passthrough_data = await self.build_passthrough_data_in_private_mode(output_data, state)
             
@@ -670,7 +678,7 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
 
             state_update = state_update if state_update else output_data   # state_update could be None if no output schema defined but output_data may be a runtime command / interupt!
 
-            if self.__class__.runtime_postprocessor and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
+            if self.__class__.runtime_postprocessor and (not self.private_output_mode) and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
                 state_update = self.__class__.runtime_postprocessor(self, state_update, config, *args, **kwargs)
             
             if (isinstance(output_data, dict) or isinstance(output_data, BaseSchema)) and (not isinstance(state_update, (Command, Send, Interrupt))) and (not isinstance(output_data, (Command, Send, Interrupt))):
@@ -682,6 +690,10 @@ class BaseNode(BaseModel, Generic[InputSchemaT, OutputSchemaT, ConfigSchemaT], A
                     
                     output_to_nodes = {}
                     for out_node_id, out_node_edge in configurable.get("outgoing_edges", {}).get(self.node_id, {}).items():
+                        if DBRegistry.is_node_instance_router(self):
+                            if out_node_id not in router_choices:
+                                continue
+
                         output_to_node = {}
                         for mapping in out_node_edge.mappings:
                             # Get source field value from output_data using nested path support

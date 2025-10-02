@@ -16,7 +16,7 @@ from kiwi_client.test_run_workflow_client import (
 )
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
-from kiwi_client.workflows.active.labs.file_summarisation_workflow.wf_file_summarisation_workflow import (
+from kiwi_client.workflows.active.labs.file_summarisation_workflow.wf_file_summarisation_workflow_json import (
     workflow_graph_schema,
 )
 

@@ -14,6 +14,7 @@ from kiwi_client.workflow_exec_ui.utils.workflow_utils import (
     update_sandbox_identifiers_variable,
     custom_btns,
     refresh_workflow_data,
+    get_workflows_root_path,
 )
 
 from code_editor import code_editor
@@ -21,7 +22,16 @@ from code_editor import code_editor
 
 def _render_header() -> None:
     st.title("Sandbox Editor")
-    st.caption("Global variables used across workflows (sandbox_identifiers.py)")
+    
+    # Display file path
+    try:
+        workflows_root = get_workflows_root_path()
+        sandbox_file = workflows_root / 'sandbox_identifiers.py'
+        st.caption(f"📄 **File Path:** `{sandbox_file}`")
+    except Exception:
+        st.caption("📄 **File Path:** `sandbox_identifiers.py`")
+    
+    st.caption("Global variables used across workflows")
 
 
 def _render_variables_table(vars_dict: Dict[str, Any]) -> None:

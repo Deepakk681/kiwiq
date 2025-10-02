@@ -40,13 +40,21 @@ def main() -> None:
     category = workflow['metadata']['category']
     workflow_name = workflow['metadata']['workflow_name']
     
+    # Get documentation path first
+    doc_path = get_workflow_documentation_path(workflow)
+    
+    # Display file path at the top
+    if doc_path:
+        st.caption(f"📄 **File Path:** `{doc_path}`")
+    else:
+        st.caption(f"📄 **File Path:** No documentation file found")
+    
     # Display current selection
     st.markdown(f"**Current Workflow:** `{category}/{workflow_name}`")
     st.divider()
     
     # Get documentation content
     doc_content = get_workflow_documentation_content(workflow)
-    doc_path = get_workflow_documentation_path(workflow)
     
     if doc_content:
         # Show documentation file path

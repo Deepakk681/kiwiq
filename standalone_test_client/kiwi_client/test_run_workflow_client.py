@@ -297,8 +297,7 @@ async def dump_intermediate_outputs(
         state_to_save = state_data
     
     # Save the (possibly filtered) state to file
-    import json
-    from datetime import datetime
+    
     
     # Create filename
     safe_test_name = test_name.replace(" ", "_").replace("-", "_")[:30]
@@ -1713,7 +1712,6 @@ async def run_workflow_test(
                             filtered_state = filter_state_data(raw_state_data, state_filter_mapping)
                             
                             # Save filtered state manually
-                            import json
                             safe_test_name = test_name.replace(" ", "_").replace("-", "_")[:30]
                             filtered_filename = f"filtered_final_state__{safe_test_name}.json"
                             filtered_state_path = Path(str(run_output_folder)) / filtered_filename

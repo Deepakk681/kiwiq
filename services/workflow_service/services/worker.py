@@ -713,7 +713,18 @@ async def run_graph(
                                 # print(node_output)
                                 node_output = node_state_update.get(get_node_output_state_key(node_id), {})
                                 if isinstance(node_output, BaseModel):
-                                    node_output = json.loads(node_output.model_dump_json())
+                                    # node_output = json.loads(node_output.model_dump_json())
+
+                                    try:
+                                        node_output = node_output.model_dump(mode='json', exclude_defaults=False)
+                                    except Exception as e:
+                                        logger.warning(log_prefix + f"Error dumping output event for {node_id}: {e}")
+                                        node_output = json.loads(json.dumps(node_output.model_dump(mode='python', exclude_defaults=False), default=str))
+
+                                elif isinstance(node_output, dict):
+                                    node_output = json.loads(json.dumps(node_output, default=str))
+                                else:
+                                    node_output = str(node_output)
                                 
                                 # print(node_state_update)
                                 # print(node_output)
@@ -748,7 +759,13 @@ async def run_graph(
                                     node_id=node_id,
                                     payload=payload,
                                 )
-                                output_event_dump = output_event.model_dump(mode='json', exclude_defaults=False)
+
+                                try:
+                                    output_event_dump = output_event.model_dump(mode='json', exclude_defaults=False)
+                                except Exception as e:
+                                    logger.warning(log_prefix + f"Error dumping output event for {node_id}: {e}")
+                                    output_event_dump = json.loads(json.dumps(output_event.model_dump(mode='python', exclude_defaults=False), default=str))
+
                                 if mongo_path:
                                     # Persist to Mongo DB
                                     await external_context.mongo.workflow.create_object(

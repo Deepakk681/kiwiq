@@ -26,6 +26,7 @@ import kiwi_client.schemas.workflow_api_schemas as wf_schemas
 def _render_header() -> None:
     """Render the page header with description."""
     st.title("📄 Document Manager")
+    st.caption("📁 **API Endpoint:** Customer Data CRUD operations (no local file editing)")
     st.caption("Query, create, update, and delete customer data documents")
     
     with st.expander("ℹ️ About Document Identifiers", expanded=False):

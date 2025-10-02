@@ -39,6 +39,7 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | | gpt-4o-search-preview | ❌ | ✅ | ✅ | ✅ | ✅ | 128k | 16k |
 | | gpt-4o-mini-search-preview | ❌ | ✅ | ✅ | ✅ | ✅ | 128k | 16k |
 | **Anthropic** | claude-opus-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 32k |
+| | claude-sonnet-4-5-20250929 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
 | | claude-sonnet-4-20250514 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
 | | claude-3-7-sonnet-20250219 | ✅ | ✅ | ✅ | ✅ | ✅ | 200k | 64k |
 | | claude-3-5-haiku-latest | ❌ | ✅ | ✅ | ✅ | ✅ | 200k | 8k |
@@ -65,7 +66,8 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 - All OpenAI models support both code interpreter and web search tools, except:
   - `chatgpt-4o-latest`: No tool support (conversational use only)
   - `gpt-4.1-nano`: Code interpreter only (web search tools excluded)
-- Deep Research models require tools to be manually configured to function properly
+- OpenAI Deep Research models require tools to be manually configured to function properly and support `max_tool_calls` for cost control
+- Perplexity's `sonar-deep-research` does NOT support `max_tool_calls` parameter (this is unique to OpenAI's Deep Research models)
 
 ### Rate Limits Overview
 
@@ -88,8 +90,9 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | | gpt-4.1-nano | 30,000 | 150M | - |
 | | gpt-4o-search-preview | 1,000 | 3M | - |
 | | gpt-4o-mini-search-preview | 30,000 | 150M | - |
-| **Anthropic** | claude-opus-4-20250514 | No limit | 1M input/400k output | - |
-| | claude-sonnet-4-20250514 | No limit | 1M input/400k output | - |
+| **Anthropic** | claude-opus-4-20250514 | No limit | 2M input/400k output | - |
+| | claude-sonnet-4-5-20250929 | No limit | 2M input/400k output | - |
+| | claude-sonnet-4-20250514 | No limit | 2M input/400k output | - |
 | | claude-3-7-sonnet-20250219 | No limit | 1M input/400k output | - |
 | **Perplexity** | sonar-deep-research | 5 | - | - |
 | | sonar-reasoning-pro | 50 | - | - |
@@ -105,7 +108,7 @@ This guide provides a comprehensive overview of supported LLM providers, their m
 | | accounts/fireworks/models/deepseek-r1-basic | 100 | 100k | Auto-scaling |
 | **AWS Bedrock** | us.deepseek.r1-v1:0 | 20 | 20k | - |
 
-## Deep Research Models
+## OpenAI Deep Research Models
 
 OpenAI's Deep Research models (`o4-mini-deep-research` and `o3-deep-research`) are specialized for research tasks and have unique configuration requirements:
 
@@ -113,7 +116,7 @@ OpenAI's Deep Research models (`o4-mini-deep-research` and `o3-deep-research`) a
 - **Autonomous Research**: Designed to autonomously conduct research by using tools like web search and code execution
 - **No Direct Reasoning Controls**: Unlike other reasoning models, you cannot configure `reasoning_effort_class`, `reasoning_effort_number`, or `reasoning_tokens_budget`
 - **Tool-Driven**: Rely on external tools (web search, code interpreter) to perform research tasks
-- **Cost Control**: Use `max_tool_calls` parameter to control costs instead of reasoning token budgets (this parameter is currently only supported for Deep Research models)
+- **Cost Control**: Use `max_tool_calls` parameter to control costs instead of reasoning token budgets (this parameter is unique to OpenAI's Deep Research models and is NOT available on other reasoning/research models like Perplexity's sonar-deep-research)
 
 ### Required Configuration:
 
@@ -324,6 +327,7 @@ Anthropic's Claude models excel at reasoning, analysis, and have built-in web se
 
 **Reasoning Models:**
 - `claude-opus-4-20250514` - Highest capability model with extended thinking
+- `claude-sonnet-4-5-20250929` - Latest Sonnet model with enhanced reasoning ($3/M input, $0.3/M cache, $15/M output)
 - `claude-sonnet-4-20250514` - Balanced performance with reasoning  
 - `claude-3-7-sonnet-20250219` - Strong reasoning capabilities
 
@@ -395,6 +399,7 @@ Perplexity specializes in web search and research with built-in real-time inform
 
 **Research Models:**
 - `sonar-deep-research` - Deep research with reasoning (5 req/min limit)
+  - **Note:** Unlike OpenAI's Deep Research models, Perplexity's sonar-deep-research does NOT support the `max_tool_calls` parameter for cost control
 - `sonar-reasoning-pro` - Professional reasoning with search
 - `sonar-reasoning` - Standard reasoning with search
 

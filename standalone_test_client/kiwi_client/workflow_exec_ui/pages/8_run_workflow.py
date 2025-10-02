@@ -77,6 +77,22 @@ def main() -> None:
     workflow = _require_selection()
     if not workflow:
         return
+    
+    # Display file paths at the top
+    try:
+        meta = workflow.get("metadata", {})
+        json_file_path = meta.get("file_path")
+        if json_file_path:
+            st.caption(f"📄 **Workflow JSON:** `{json_file_path}`")
+            
+            # Also show related files
+            workflow_dir = json_file_path.parent
+            wf_inputs_path = workflow_dir / "wf_testing" / "wf_inputs.py"
+            wf_runner_path = workflow_dir / "wf_testing" / "wf_runner.py"
+            st.caption(f"📄 **Testing Inputs:** `{wf_inputs_path}`")
+            st.caption(f"📄 **Workflow Runner:** `{wf_runner_path}`")
+    except Exception:
+        st.caption(f"📄 **Workflow files:** Unable to resolve paths")
 
     schema = workflow.get("json_schema") or get_workflow_json_content(workflow)
     if not schema:

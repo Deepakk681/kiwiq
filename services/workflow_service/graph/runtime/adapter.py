@@ -443,6 +443,7 @@ class LangGraphRuntimeAdapter(GraphRuntimeAdapter):
         update={get_node_output_state_key(node_instance.node_id): update} if update else {}
         
         # Dump any other update keys directly to final update without any modifications!
+        # NOTE: this is used to output node order central state update for now from router node!
         update.update({k:v for k,v in state_update.items() if k not in [TEMP_STATE_UPDATE_KEY, ROUTER_CHOICE_KEY]})
         # import ipdb; ipdb.set_trace()
         return Command(

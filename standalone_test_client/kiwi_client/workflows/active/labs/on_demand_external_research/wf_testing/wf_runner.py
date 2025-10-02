@@ -17,7 +17,7 @@ from kiwi_client.test_run_workflow_client import (
 
 from kiwi_client.schemas.workflow_constants import WorkflowRunStatus
 
-from kiwi_client.workflows.active.labs.on_demand_external_research.wf_on_demand_external_research import (
+from kiwi_client.workflows.active.labs.on_demand_external_research.wf_on_demand_external_research_json import (
     workflow_graph_schema,
 )
 

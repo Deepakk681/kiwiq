@@ -48,6 +48,17 @@ def main() -> None:
     workflow = _require_selection()
     if not workflow:
         return
+    
+    # Display file path at the top
+    try:
+        meta = workflow.get("metadata", {})
+        category = meta.get("category")
+        workflow_name = meta.get("workflow_name")
+        workflows_root = get_workflows_root_path()
+        file_path = workflows_root / category / workflow_name / "wf_testing" / "wf_inputs.py"
+        st.caption(f"📄 **File Path:** `{file_path}`")
+    except Exception:
+        st.caption(f"📄 **File Path:** `wf_testing/wf_inputs.py`")
 
     mode = st.radio("Mode", ["Variable-by-variable", "Full file"], index=0, horizontal=True, key="testing_mode")
 

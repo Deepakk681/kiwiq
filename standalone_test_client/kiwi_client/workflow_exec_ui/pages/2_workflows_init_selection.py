@@ -12,6 +12,7 @@ st.set_page_config(page_title="Workflows", page_icon="🧩")
 from kiwi_client.workflow_exec_ui.utils.workflow_utils import (
     list_available_workflows,
     get_workflow_by_name,
+    get_workflows_root_path,
 )
 
 
@@ -89,6 +90,14 @@ def _organize_workflows(workflows: List[Tuple[str, str]]) -> Dict[str, List[str]
 def main() -> None:
     """Main function to render the workflow selection page."""
     st.title("🧩 Workflows")
+    
+    # Display workflows root path
+    try:
+        workflows_root = get_workflows_root_path()
+        st.caption(f"📁 **Workflows Directory:** `{workflows_root}`")
+    except Exception:
+        pass
+    
     _ensure_selection_defaults()
     _render_current_selection()
 

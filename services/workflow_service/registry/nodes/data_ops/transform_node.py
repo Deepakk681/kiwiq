@@ -137,7 +137,6 @@ class TransformerConfigSchema(BaseNodeConfig):
     """
     mappings: List[TransformMappingSchema] = Field(
         ...,
-        min_length=1,
         description="List of source-to-destination path mappings."
     )
     merge_conflicting_paths_as_list: bool = Field(

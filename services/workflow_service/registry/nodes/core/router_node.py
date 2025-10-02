@@ -234,7 +234,7 @@ class RouterNode(DynamicRouterNode):
 
         # Prepare the output data structure expected by the execution engine
         # Pass through the original input data under the state update key
-        output_data_passthrough = input_dict # Use the prepared dict
+        output_data_passthrough = input_dict or {} # Use the prepared dict
 
         # NOTE: LangGraph expects the routing choice key to contain the node ID(s)
         #       to route to next. If allow_multiple is false, it expects a single string.
@@ -247,6 +247,8 @@ class RouterNode(DynamicRouterNode):
         # Let's strictly adhere to the type hint of BaseRouterSchema.choices which is List[str]
         # The downstream graph runner (like LangGraph conditional edges) needs to handle
         # an empty list (no route match) or a list with multiple items if allow_multiple=True.
+
+        output_data_passthrough[ROUTER_CHOICE_KEY.strip("$")] = matched_choices
 
         return {
             TEMP_STATE_UPDATE_KEY: output_data_passthrough,

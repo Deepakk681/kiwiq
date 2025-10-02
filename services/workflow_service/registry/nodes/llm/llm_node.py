@@ -9,6 +9,7 @@ from copy import copy, deepcopy
 import json
 import os
 from enum import Enum
+import random
 import re
 import time
 from typing import Any, ClassVar, Dict, List, Optional, Type, Union, Literal, cast, get_origin, get_args, Tuple, TYPE_CHECKING, Callable
@@ -768,6 +769,10 @@ class WebSearchConfig(BaseNodeConfig):
 class LLMNodeConfigSchema(BaseNodeConfig):
     """Configuration schema for the LLM node."""
     # Model Config
+    max_random_artificial_delay_in_seconds: Optional[int] = Field(
+        None,
+        description="Max random artificial delay in seconds to add to the LLM request. Useful for rate limiting and avoiding API rate limits."
+    )
     llm_config: Optional[LLMModelConfig] = Field(
         default=LLMModelConfig(),
         description="LLM configuration"
@@ -1012,6 +1017,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         allocated_credits = 0.0
         stream_id = str(uuid4())
         try:
+            if self.config.max_random_artificial_delay_in_seconds:
+                await asyncio.sleep(random.randint(0, self.config.max_random_artificial_delay_in_seconds))
             start_time = time.time()
             response, allocated_credits = await self._execute_model(
                 chat_model, messages_for_model, model_metadata, ext_context=ext_context, app_context=app_context,  # **tool_kwargs
