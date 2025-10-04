@@ -352,6 +352,7 @@ class WorkflowListQuery(CommonListQuery):
     owner_org_id: Optional[uuid.UUID] = Field(None, description="Filter by owning organization ID (Superuser only)")
     only_public: Optional[bool] = Field(True, description="Include public workflows in the results")
     only_system_entities: bool = Field(True, description="Include system entities (superuser only)")
+    return_graphs_schemas: Optional[bool] = Field(True, description="Return graphs schemas with the results")
 
 
 class WorkflowRunListQuery(CommonListQuery):

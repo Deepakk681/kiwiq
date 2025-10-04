@@ -779,6 +779,15 @@ async def admin_list_workflows(
             limit=query_params.limit
         )
         workflow_logger.info(f"User {current_user.id} listed workflows for org {list_org_id}")
+
+        # If not returning graphs schemas, replace them with empty dicts
+        if not query_params.return_graphs_schemas:
+            new_workflows = []
+            for workflow in workflows:
+                _workflow = schemas.WorkflowRead(**workflow.model_dump())
+                _workflow.graph_config = {}
+                new_workflows.append(_workflow)
+            workflows = new_workflows
         return workflows
     except HTTPException as e:
         workflow_logger.warning(f"Permission error for user {current_user.id} listing workflows: {str(e)}")
