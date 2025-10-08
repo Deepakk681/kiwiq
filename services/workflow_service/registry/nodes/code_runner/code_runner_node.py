@@ -2,6 +2,7 @@ import logging
 from prefect import task, flow
 import tempfile, pathlib, subprocess, json, os, shutil, hashlib, uuid
 import copy
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union, Type, ClassVar
 from enum import Enum
@@ -202,7 +203,7 @@ def _artifact_manifest(out_dir: pathlib.Path, base_dir: pathlib.Path,
     return arts
 
 
-def run_untrusted_docker(
+async def run_untrusted_docker(
     code_str: str,
     inputs: dict,
     input_files: dict[str, str] | None = None,   # {"data.csv": "/abs/path/to/data.csv"} - DEPRECATED, use file_hints instead
@@ -220,6 +221,8 @@ def run_untrusted_docker(
     logger = None,
 ):
     """
+    Async function to run untrusted code in Docker container without blocking the event loop.
+    
     Returns:
       {
         ok, result, logs, tb, rc,
@@ -353,34 +356,60 @@ def run_untrusted_docker(
         #         size = os.path.getsize(file_path)
         #         print(f"DEBUG HOST: {subindent}{file} ({size} bytes)")
 
-        # run with wall-time timeout
+        # run with wall-time timeout (async to avoid blocking event loop)
         try:
-            proc = subprocess.run(
-                cmd,
-                input=json.dumps(stdin_payload),
-                text=True, capture_output=True, timeout=timeout_s
+            # Create async subprocess for non-blocking execution
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-        except subprocess.TimeoutExpired:
+            
+            # Communicate with timeout (converts string to bytes for stdin)
+            stdin_data = json.dumps(stdin_payload).encode('utf-8')
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(input=stdin_data),
+                    timeout=timeout_s
+                )
+            except asyncio.TimeoutError:
+                # Kill the process on timeout
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except:
+                    pass
+                return {
+                    "ok": False, "error": f"timeout>{timeout_s}s",
+                    "artifacts": [], "output_dir": str(td), "job_id": job_id
+                }
+            
+            # Decode bytes to string
+            stdout = stdout_bytes.decode('utf-8', errors='replace') if stdout_bytes else ""
+            stderr = stderr_bytes.decode('utf-8', errors='replace') if stderr_bytes else ""
+            
+        except Exception as e:
+            logger.error(f"Docker subprocess execution failed: {e}")
             return {
-                "ok": False, "error": f"timeout>{timeout_s}s",
+                "ok": False, "error": f"subprocess_error: {str(e)}",
                 "artifacts": [], "output_dir": str(td), "job_id": job_id
             }
 
         # parse runner JSON line (stdout)
-        stdout = proc.stdout or ""
         try:
             payload = json.loads(stdout)
         except json.JSONDecodeError:
             payload = {
                 "ok": False, "error": "non_json_stdout",
-                "logs": {"stdout": stdout[:2000], "stderr": (proc.stderr or "")[:2000]},
+                "logs": {"stdout": stdout[:2000], "stderr": stderr[:2000]},
             }
-            logger.error(f"Non-JSON stdout: \n{stdout}")
+            # logger.error(f"Non-JSON stdout: \n{stdout}")
         payload.setdefault("rc", proc.returncode)
 
         # attach container stderr if entrypoint failed early
-        if proc.stderr:
-            payload.setdefault("container_stderr", proc.stderr[:4000])
+        if stderr:
+            payload.setdefault("container_stderr", stderr[:4000])
 
         # manifest (based on temp dir layout)
         payload["artifacts"] = _artifact_manifest(out_dir, base_dir=td)
@@ -414,22 +443,6 @@ def run_untrusted_docker(
             shutil.rmtree(td, ignore_errors=True)
         elif not persist_root and not keep_temp:
             shutil.rmtree(td, ignore_errors=True)
-
-
-def run_many(jobs: list[dict]):
-    futures = []
-    for j in jobs:
-        futures.append(
-            run_untrusted_docker.submit(
-                j["code"], j.get("inputs", {}), j.get("input_files"),
-                timeout_s=20, mem_mb=256, cpus=0.5,
-                allow_net=False  # , docker_network="none",
-                # persist_root="srv/artifacts"     # persisted for downstream tasks
-            )
-        )
-    results = [f.result() for f in futures]
-    # handle errors, logs, etc.
-    return results
 
 
 # --- CodeRunner Node Implementation ---
@@ -797,7 +810,7 @@ class CodeRunnerNode(BaseNode[CodeRunnerInputSchema, CodeRunnerOutputSchema, Cod
             self.info(f"Executing code in Docker container, temp_dir: {temp_dir} -> host_path: {host_temp_dir}")
             
             try:
-                result = run_untrusted_docker(
+                result = await run_untrusted_docker(
                     code_str=code,
                     inputs=input_data,
                     input_files=None,  # Files already written to inp_dir
@@ -1221,12 +1234,12 @@ RESULT = {
         persist_artifacts=True
     )
     
-    # Example input data
-    input_data = CodeRunnerInputSchema(
-        code=test_code,  # Could be None to use default_code
-        input_data={"test_message": "Hello from workflow!"},
-        load_data_inputs=None  # Could contain data for loading customer files
-    )
+    # # Example input data
+    # input_data = CodeRunnerInputSchema(
+    #     code=test_code,  # Could be None to use default_code
+    #     input_data={"test_message": "Hello from workflow!"},
+    #     load_data_inputs=None  # Could contain data for loading customer files
+    # )
     
     print("Node configuration and input prepared.")
     print("To test this node, instantiate it in a proper workflow environment with:")
@@ -1255,7 +1268,8 @@ with open(os.path.join(OUT_DIR, 'simple_test.txt'), 'w') as f:
 RESULT = {"message": "Docker test successful", "input_data": INPUT}
 """
     
-    result = run_untrusted_docker(
+    # Run async function in event loop (required since run_untrusted_docker is now async)
+    result = asyncio.run(run_untrusted_docker(
         code_str=simple_test_code,
         inputs={"test": "data"},
         input_files=None,
@@ -1267,7 +1281,7 @@ RESULT = {"message": "Docker test successful", "input_data": INPUT}
         allow_net=False,
         persist_root=None,
         keep_temp=False
-    )
+    ))
     
     print("Docker execution result:")
     print(json.dumps({k: v for k, v in result.items() if k != 'artifacts'}, indent=2))
