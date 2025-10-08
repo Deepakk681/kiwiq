@@ -375,6 +375,7 @@ def run_untrusted_docker(
                 "ok": False, "error": "non_json_stdout",
                 "logs": {"stdout": stdout[:2000], "stderr": (proc.stderr or "")[:2000]},
             }
+            logger.error(f"Non-JSON stdout: \n{stdout}")
         payload.setdefault("rc", proc.returncode)
 
         # attach container stderr if entrypoint failed early
