@@ -78,6 +78,8 @@ class NodeConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')  # Allow additional arguments during model init!
     node_id: str = Field(..., description="Unique ID of the node")
     node_name: str = Field(..., description="Name of the node type. There may be multiple nodes with same name / type!")
+    node_category: Optional[str] = Field(None, description="Category of the node type. This is used to group nodes together in the UI.")
+    positions: Optional[Dict[Any, Any]] = Field(None, description="Position of the node in the UI. This is used to sort nodes in the UI. The keys are x and y coordinates and the values are the position in the UI.")
     node_version: Optional[str] = Field(None, description="Version of the node implementation") 
     node_config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Node-specific configuration parameters")
     private_input_mode: Optional[bool] = Field(False, description="Enable private input mode for the node which means the node will receive direct inputs instead of whole graph state, this is useful for map/reduce or branching patterns or maintaining private states.")

@@ -1699,36 +1699,6 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 
                 # Check if both markers are present
                 done = False
-
-                # NOTE: the below is a hack for the investor workflow only!
-                linkedin_marker = "**LINKEDIN POSTS DATA (20 recent posts):**"
-                research_marker = "**DEEP RESEARCH REPORT:**"
-                if linkedin_marker in content and research_marker in content:
-                    linkedin_start = content.find(linkedin_marker)
-                    research_start = content.find(research_marker)
-                    
-                    # Only proceed if linkedin marker comes before research marker
-                    if linkedin_start < research_start:
-                        # Calculate how much content is between the markers
-                        between_start = linkedin_start + len(linkedin_marker)
-                        between_end = research_start
-                        between_length = between_end - between_start
-                        
-                        if between_length >= chars_to_remove:
-                            # Remove chars from the end of the linkedin section
-                            new_between = content[between_start:between_end - int(chars_to_remove)]
-                            new_content = content[:between_start] + new_between + content[between_end:]
-                        else:
-                            # Not enough chars between markers, remove what we can and truncate from end
-                            chars_remaining = int(chars_to_remove) - between_length
-                            # Remove all content between markers
-                            new_content = content[:between_start] + content[between_end:]
-                            # Truncate remaining chars from the end
-                            new_content = new_content[:-chars_remaining]
-                        
-                        messages[-1].content = new_content
-                        done = True
-                # hack ends!
                 
                 if not done:
                     # Markers not present, just truncate from end
