@@ -14,8 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Backgrou
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import stripe
-
 from db.session import get_async_db_dependency
 
 from kiwi_app.utils import get_kiwi_logger
@@ -527,6 +525,8 @@ async def handle_stripe_webhook(
             )
         
         # Verify webhook signature
+
+        import stripe
         
         try:
             event = stripe.Webhook.construct_event(

@@ -1,7 +1,5 @@
 from typing import Dict, List, Any, Optional, Union, Tuple
 import json
-import spacy
-from langchain_text_splitters import RecursiveJsonSplitter
 
 
 class JSONSplitter:
@@ -43,6 +41,8 @@ class JSONSplitter:
         """
         if self.nlp is not None or not self._space_model_available:
             return
+        
+        import spacy
         
         try:
             self.nlp = spacy.load("en_core_web_sm")
@@ -910,6 +910,8 @@ class JSONSplitter:
         - Character limits are applied at multiple levels for fine-grained control
         - Fallback mechanisms ensure processing continues even if some steps fail
         """
+        from langchain_text_splitters import RecursiveJsonSplitter
+        
         # Step 1: Get cluster mapping
         cluster_mapping = self.get_cluster_mapping(doc_type)
         

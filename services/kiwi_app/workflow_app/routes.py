@@ -17,12 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt # For encoding/decoding tokens (requires python-jose)
 from datetime import datetime, timedelta
 
-from prefect import get_client
-from prefect.client.schemas.filters import (
-    LogFilter,
-    LogFilterFlowRunId
-)
-
 # --- Core Dependencies ---
 from db.session import get_async_session, get_async_db_dependency
 from global_utils import datetime_now_utc

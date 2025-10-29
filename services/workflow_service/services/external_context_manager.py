@@ -31,7 +31,6 @@ from kiwi_app.data_jobs.dependencies import get_data_jobs_service_no_dependencie
 from redis_client import AsyncRedisClient
 from mongo_client import AsyncMongoDBClient
 from faststream.rabbit import RabbitBroker, RabbitQueue
-from prefect import get_client as prefect_get_client
 from workflow_service.services.events import WorkflowBaseEvent # Assuming path for event schemas
 
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
@@ -171,7 +170,6 @@ class ExternalContextManager(BaseModel):
     mongo: MongoContext = Field(...)
     rabbit: RabbitMQContext = Field(...)
     weaviate_client: WeaviateChunkClient = Field(...)
-    prefect_client: Optional[Any] = Field(default=None)
     daos: DAOContext = Field(...)
     db_registry: DBRegistry = Field(...)
     customer_data_service: CustomerDataService = Field(...)  #  CustomerDataService
@@ -231,14 +229,6 @@ class ExternalContextManager(BaseModel):
             except Exception as e:
                 logger.error(f"Error closing RabbitMQ broker: {e}", exc_info=True)
         
-        # Close Prefect client if it has a close method
-        if self.prefect_client and hasattr(self.prefect_client, 'close'):
-            try:
-                await self.prefect_client.close()
-                logger.debug("Closed Prefect client connection")
-            except Exception as e:
-                logger.error(f"Error closing Prefect client: {e}", exc_info=True)
-        
         # Close CustomerDataService
         if self.customer_data_service:
             await self.customer_data_service.mongo_client.close()
@@ -279,15 +269,6 @@ async def get_rabbit_broker():
     rabbit_broker = RabbitBroker(global_settings.RABBITMQ_URL)
     await rabbit_broker.start()
     return rabbit_broker
-
-# Prefect client instance
-# prefect_client: Any = None
-async def get_prefect_client():
-    """Get or initialize the Prefect client."""
-    # global prefect_client
-    # if not prefect_client:
-    #     prefect_client = prefect_get_client()
-    return prefect_get_client()
 
 
 # Specialized MongoDB client functions
@@ -542,7 +523,6 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
         "redis": {"text": None, "binary": None},
         "mongo": {"customer": None, "workflow": None},
         "rabbit": None,
-        "prefect": None
     }
     
     # Initialize Redis clients (text and binary)
@@ -565,12 +545,6 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
     # Initialize RabbitMQ broker
     if settings.RABBITMQ_URL:
         clients["rabbit"] = await get_rabbit_broker()
-    
-    # Initialize Prefect client
-    try:
-        clients["prefect"] = await get_prefect_client()
-    except Exception as e:
-        print(f"Error initializing Prefect client: {e}")
     
     # Initialize workflow DAOs
     node_template_dao =  wf_crud.NodeTemplateDAO()
@@ -648,7 +622,6 @@ async def get_external_context_manager_with_clients() -> ExternalContextManager:
             logger=logger
         ),
         weaviate_client=weaviate_client,
-        prefect_client=clients["prefect"],
         daos=dao_context,
         db_registry=db_registry,
         customer_data_service=customer_data_service,

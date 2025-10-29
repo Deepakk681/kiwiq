@@ -7,7 +7,6 @@ from typing import Union, List, Dict, Any, Optional, Tuple
 
 from bson.binary import Binary
 
-from markitdown import MarkItDown
 from fastapi import APIRouter, UploadFile, File, Query, Depends, HTTPException, status, Form, Body
 
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
@@ -19,8 +18,6 @@ from kiwi_app.auth.models import User
 from db.session import get_async_db_dependency, AsyncSession
 
 # from kiwi_app.workflow_app.customer_data_routes import upload_router
-
-md = MarkItDown()
 
 logger = get_kiwi_logger(__name__)
 
@@ -50,6 +47,7 @@ def convert_to_markdown(input_path: str) -> str:
     Convert .pdf/.docx/.pptx/.xlsx/.html/.jpg/.mp3/.zip/... to Markdown,
     or return raw text for .txt/.md files.
     """
+    from markitdown import MarkItDown
     _, ext = os.path.splitext(input_path.lower())
 
     # Passthrough for plain text or Markdown files

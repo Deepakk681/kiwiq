@@ -3,10 +3,7 @@ import tempfile
 import uuid
 from typing import Union, Optional
 
-from markitdown import MarkItDown
 # from kiwi_app.workflow_app.customer_data_routes import upload_router
-
-md = MarkItDown()
 
 
 def convert_to_markdown_from_raw_file_content(file_content: Union[bytes, str], file_name: Optional[str] = None) -> str:
@@ -30,6 +27,7 @@ def convert_to_markdown(input_path: str) -> str:
     Convert .pdf/.docx/.pptx/.xlsx/.html/.jpg/.mp3/.zip/... to Markdown,
     or return raw text for .txt/.md files.
     """
+    from markitdown import MarkItDown
     _, ext = os.path.splitext(input_path.lower())
 
     # Passthrough for plain text or Markdown files

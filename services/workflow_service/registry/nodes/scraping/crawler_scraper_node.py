@@ -55,7 +55,7 @@ from db.session import get_async_db_as_manager
 from workflow_service.services.scraping.settings import scraping_settings
 from kiwi_app.workflow_app import schemas as customer_data_schemas
 from global_config.logger import get_prefect_or_regular_python_logger
-from workflow_service.services.scraping.pipelines import MongoCustomerDataPipeline
+from workflow_service.services.scraping.utils.utils import generate_start_urls_uuid
 from workflow_service.services.scraping.technical_seo import compute_summary_from_documents
 from workflow_service.utils.markdown_cleaner import remove_markdown_links
 
@@ -85,7 +85,6 @@ async def web_crawler_scraper_flow(
     Returns:
         Dict containing job results including status, stats, and namespace info
     """
-    # from prefect.logging import get_run_logger
     from workflow_service.services.scraping.spider_client import request_scrape_and_wait
     
     # logger = get_run_logger()
@@ -609,7 +608,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         customer_data_service: CustomerDataService,
     ) -> Optional[Dict[str, Any]]:
         """Load the latest robots analysis doc under the given namespace pattern."""
-        start_urls_uuid = MongoCustomerDataPipeline._generate_start_urls_uuid(input_data.start_urls, input_data.include_only_paths, input_data.exclude_paths)
+        start_urls_uuid = generate_start_urls_uuid(input_data.start_urls, input_data.include_only_paths, input_data.exclude_paths)
             
         # Search pattern - only use start_urls_uuid, not netloc
         namespace_pattern = f"crawler_scraper_results_{start_urls_uuid}_*"
@@ -650,7 +649,7 @@ class CrawlerScraperNode(BaseNode[CrawlerScraperInput, CrawlerScraperOutput, Cra
         """
         try:
             # Generate the start_urls_uuid to match the namespace pattern
-            start_urls_uuid = MongoCustomerDataPipeline._generate_start_urls_uuid(input_data.start_urls, input_data.include_only_paths, input_data.exclude_paths)
+            start_urls_uuid = generate_start_urls_uuid(input_data.start_urls, input_data.include_only_paths, input_data.exclude_paths)
             
             # Search pattern - only use start_urls_uuid, not netloc
             namespace_pattern = f"crawler_scraper_results_{start_urls_uuid}_*"

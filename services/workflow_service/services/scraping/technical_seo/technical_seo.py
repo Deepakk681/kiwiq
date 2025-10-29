@@ -37,7 +37,8 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING, Any, Set
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 
-from scrapy.http import Response as ScrapyResponse
+if TYPE_CHECKING:
+    from scrapy.http import Response as ScrapyResponse
 
 
 @dataclass
@@ -797,7 +798,7 @@ class ScrapySEOAnalyzer:
         words = re.findall(r"\b\w+\b", text)
         return len(words)
 
-    def _analyze_title(self, response: ScrapyResponse) -> TitleAnalysis:
+    def _analyze_title(self, response: "ScrapyResponse") -> TitleAnalysis:
         """Extract <title> text safely and compute basic lengths."""
         title_text = response.css('title::text').get() or ""
         title_text = title_text.strip()
@@ -805,7 +806,7 @@ class ScrapySEOAnalyzer:
             return TitleAnalysis(False, "", 0, 0)
         return TitleAnalysis(True, title_text, len(title_text), self._count_words(title_text))
 
-    def _analyze_headers(self, response: ScrapyResponse) -> HeaderStructure:
+    def _analyze_headers(self, response: "ScrapyResponse") -> HeaderStructure:
         """Count headings and validate hierarchy without deep DOM traversal.
 
         We only check for presence of levels and detect gaps (e.g., H1 -> H3).
@@ -860,7 +861,7 @@ class ScrapySEOAnalyzer:
             hierarchy_issues=hierarchy_issues,
         )
 
-    def _analyze_meta_tags(self, response: ScrapyResponse) -> MetaTagsAnalysis:
+    def _analyze_meta_tags(self, response: "ScrapyResponse") -> MetaTagsAnalysis:
         """Extract meta description, robots, and viewport for mobile-friendly check."""
         desc_text = (response.css('meta[name="description"]::attr(content)').get() or "").strip()
         robots_content = (response.css('meta[name="robots"]::attr(content)').get() or "").lower()
@@ -887,7 +888,7 @@ class ScrapySEOAnalyzer:
             is_mobile_friendly=is_mobile_friendly,
         )
 
-    def _analyze_canonical(self, response: ScrapyResponse) -> CanonicalAnalysis:
+    def _analyze_canonical(self, response: "ScrapyResponse") -> CanonicalAnalysis:
         """Validate rel=canonical and compare normalized URL to page URL.
 
         Handles relative canonical URLs by resolving against the page URL for
@@ -915,7 +916,7 @@ class ScrapySEOAnalyzer:
 
         return CanonicalAnalysis(True, canonical_effective, is_self_referencing, is_absolute, is_same_domain, uses_https)
 
-    def _analyze_links(self, response: ScrapyResponse) -> LinkAnalysis:
+    def _analyze_links(self, response: "ScrapyResponse") -> LinkAnalysis:
         """Count internal/external links and provide sample sets with percentage metrics.
 
         We distinguish internal vs external by comparing netloc. Relative links
@@ -973,7 +974,7 @@ class ScrapySEOAnalyzer:
             external_links_sample=external_sample,
         )
 
-    def _analyze_images(self, response: ScrapyResponse) -> ImageAnalysis:
+    def _analyze_images(self, response: "ScrapyResponse") -> ImageAnalysis:
         """Count images and alt coverage; track sample without-alt sources."""
         imgs = response.css('img')
         total = len(imgs)
@@ -997,7 +998,7 @@ class ScrapySEOAnalyzer:
         coverage = (with_alt / total * 100) if total > 0 else 100.0
         return ImageAnalysis(total, with_alt, without_alt, round(coverage, 2), empty_alt, without_alt_sample)
 
-    def _analyze_technical(self, response: ScrapyResponse) -> TechnicalFactors:
+    def _analyze_technical(self, response: "ScrapyResponse") -> TechnicalFactors:
         """Check https scheme, html[lang], and charset meta robustly."""
         uses_https = response.url.startswith('https://')
         lang_value = (response.css('html::attr(lang)').get() or '').strip()
@@ -1010,7 +1011,7 @@ class ScrapySEOAnalyzer:
         has_charset = bool(charset_value)
         return TechnicalFactors(uses_https, has_lang, lang_value, has_charset, charset_value)
 
-    def _analyze_open_graph(self, response: ScrapyResponse) -> OpenGraphAnalysis:
+    def _analyze_open_graph(self, response: "ScrapyResponse") -> OpenGraphAnalysis:
         """Detect presence of Open Graph tags and key fields."""
         og_tags = response.css('meta[property^="og:"]')
         og_title = bool(response.css('meta[property="og:title"]'))
@@ -1020,7 +1021,7 @@ class ScrapySEOAnalyzer:
         og_type_value = (response.css('meta[property="og:type"]::attr(content)').get() or '').strip()
         return OpenGraphAnalysis(bool(og_tags), len(og_tags), og_title, og_desc, og_image, og_url, bool(og_type_value), og_type_value)
 
-    def _analyze_structured(self, response: ScrapyResponse) -> StructuredContent:
+    def _analyze_structured(self, response: "ScrapyResponse") -> StructuredContent:
         """Count basic structured content blocks that are reliably detected."""
         return StructuredContent(
             ordered_lists_count=len(response.css('ol')),
@@ -1031,7 +1032,7 @@ class ScrapySEOAnalyzer:
             iframes_count=len(response.css('iframe')),
         )
 
-    def _analyze_schema(self, response: ScrapyResponse) -> SchemaMarkup:
+    def _analyze_schema(self, response: "ScrapyResponse") -> SchemaMarkup:
         """Detect JSON-LD and microdata types conservatively (best-effort)."""
         json_ld_scripts = response.css('script[type="application/ld+json"]::text').getall()
         json_ld_types: List[str] = []
@@ -1062,7 +1063,7 @@ class ScrapySEOAnalyzer:
                 microdata_types.append(schema_type)
         return SchemaMarkup(bool(json_ld_scripts), len(response.css('[itemtype]')) > 0, list(set(json_ld_types)), list(set(microdata_types)))
 
-    def analyze_response(self, response: ScrapyResponse) -> SEOAnalysisResult:
+    def analyze_response(self, response: "ScrapyResponse") -> SEOAnalysisResult:
         """Analyze a Scrapy Response and return the aggregated result dataclass."""
         result = SEOAnalysisResult(
             url=response.url,
@@ -1106,7 +1107,7 @@ class ScrapySEOAnalyzer:
         except Exception:
             result.schema_types = None
         return result
-    def _collect_json_ld_types(self, response: ScrapyResponse) -> List[str]:
+    def _collect_json_ld_types(self, response: "ScrapyResponse") -> List[str]:
         """Robustly collect @type values from JSON-LD blocks, including @graph and nested objects."""
         def walk(obj: Any, out: List[str]) -> None:
             if isinstance(obj, dict):
@@ -1136,7 +1137,7 @@ class ScrapySEOAnalyzer:
                 norm.append(ts)
         return norm
 
-    def _collect_microdata_types(self, response: ScrapyResponse) -> List[str]:
+    def _collect_microdata_types(self, response: "ScrapyResponse") -> List[str]:
         types: List[str] = []
         for el in response.css('[itemtype]'):
             val = el.attrib.get('itemtype', '')
@@ -1146,7 +1147,7 @@ class ScrapySEOAnalyzer:
                     types.append(ts)
         return types
 
-    def _collect_rdfa_types(self, response: ScrapyResponse) -> Tuple[bool, List[str]]:
+    def _collect_rdfa_types(self, response: "ScrapyResponse") -> Tuple[bool, List[str]]:
         """Collect RDFa types using typeof and optional vocab/prefix context."""
         has_vocab = bool(response.css('[vocab*="schema.org"], [prefix*="schema.org"]'))
         rdfa_types: List[str] = []

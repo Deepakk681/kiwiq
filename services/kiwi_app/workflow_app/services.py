@@ -9,15 +9,13 @@ import json
 import uuid
 import asyncio # Keep asyncio import
 from datetime import datetime, timezone # Add timezone
-from typing import List, Optional, Dict, Any, Union, Tuple, Type
+from typing import List, Optional, Dict, Any, Union, Tuple, Type, TYPE_CHECKING
 import copy
 
 from db.session import get_async_pool
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 from pydantic import ValidationError # For schema validation
-from prefect.client.schemas import FlowRun
-from prefect import get_client
 
 from jsonschema import validate, ValidationError as JSONSchemaValidationError
 from jsonschema.validators import Draft202012Validator
@@ -50,6 +48,9 @@ from workflow_service.services import events as event_schemas # For Run Details
 # Import the worker trigger function
 # Ensure this path is correct based on your project structure
 from workflow_service.services.worker import trigger_workflow_run
+
+if TYPE_CHECKING:
+    from prefect.client.schemas import FlowRun
 
 # Placeholder for JSON Schema validation library (e.g., jsonschema)
 # import jsonschema # Add to requirements if used
@@ -222,9 +223,10 @@ class WorkflowService:
         """
         Get the name of a run.
         """
+        from prefect import get_client
         async with get_client() as client:
             flow_run = await client.read_flow_run(run_id)
-            return flow_run.name
+            return flow_run.name # type: ignore
 
     async def submit_workflow_run(
         self, 

@@ -50,9 +50,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
-from scrapy.http import Response
+
+if TYPE_CHECKING:
+    from scrapy.http import Response
 
 
 def _safe_parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -145,7 +147,7 @@ class PageDateParser:
     def __init__(self, prefer_request_meta: bool = True) -> None:
         self.prefer_request_meta = prefer_request_meta
 
-    def extract(self, response: Response) -> PageDates:
+    def extract(self, response: "Response") -> PageDates:
         """Extract best-effort dates with priority and return as ISO strings.
 
         Order of attempts: request.meta → JSON-LD → meta tags → time elements → headers.

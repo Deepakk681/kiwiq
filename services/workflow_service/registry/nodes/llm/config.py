@@ -2,14 +2,8 @@ from enum import Enum
 from typing import Dict, Type, Any, Optional, List, Tuple
 from pydantic import BaseModel
 import json
-from openai import OpenAI
-from anthropic import Anthropic
 
 from workflow_service.config.settings import settings
-
-from fireworks.client import Fireworks
-
-from langchain.chat_models import init_chat_model
 
 from workflow_service.registry.nodes.llm.internal_tools import OPENAI_TOOLS_REGISTRY, ANTHROPIC_TOOLS_REGISTRY
 
@@ -604,6 +598,9 @@ PARAM_KEY_OVERRIDES = {
 
 
 def list_models(provider: LLMModelProvider):
+    from openai import OpenAI
+    from anthropic import Anthropic
+
     if provider == LLMModelProvider.ANTHROPIC:
         client = Anthropic(
             api_key=settings.ANTHROPIC_API_KEY,

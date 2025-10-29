@@ -7,7 +7,6 @@ for service layer architecture with dependency injection.
 """
 
 import uuid
-import stripe
 from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -45,8 +44,16 @@ from kiwi_app.billing.exceptions import (
 
 
 # Configure Stripe
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import stripe
+
+# Configure Stripe
+def setup_stripe() -> "stripe":
+    import stripe # Add BackgroundTasks
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe.api_version = settings.STRIPE_API_VERSION
+    return stripe
 
 
 class BillingService:
@@ -1470,6 +1477,7 @@ class BillingService:
         Returns:
             Dict containing checkout session URL and ID
         """
+        stripe = setup_stripe()
         try:
             # Get or create Stripe customer
             stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
@@ -1538,6 +1546,7 @@ class BillingService:
             }
             
             # Create checkout session
+            
             session = stripe.checkout.Session.create(**checkout_params)
             
             # Update purchase record with actual checkout session ID and add session ID to payment intent metadata
@@ -1947,8 +1956,9 @@ class BillingService:
                 exc_info=True
             )
     
-    async def _get_or_create_stripe_customer(self, db: AsyncSession, org_id: uuid.UUID, user: User) -> stripe.Customer:
+    async def _get_or_create_stripe_customer(self, db: AsyncSession, org_id: uuid.UUID, user: User) -> "stripe.Customer":
         """Get or create a Stripe customer for an organization using external_billing_id."""
+        stripe = setup_stripe()
         # Get the organization 
         organization = await self.org_dao.get(db, org_id)
         if not organization:
@@ -2528,6 +2538,7 @@ class BillingService:
         This method creates both the database record and the corresponding
         Stripe product and price objects for billing integration.
         """
+        stripe = setup_stripe()
         try:
             # Create Stripe product if not provided
             if not plan_data.stripe_product_id:
@@ -2931,6 +2942,7 @@ class BillingService:
         Returns:
             Dict containing checkout session URL and ID
         """
+        stripe = setup_stripe()
         try:
             # Get or create Stripe customer
             stripe_customer = await self._get_or_create_stripe_customer(db, org_id, user)
@@ -3158,6 +3170,7 @@ class BillingService:
         Returns:
             Dict with portal URL
         """
+        stripe = setup_stripe()
         try:
             # Get organization to find customer ID
             organization = await self.org_dao.get(db, org_id)
@@ -4415,6 +4428,7 @@ class BillingService:
         metadata = charge_object.get("metadata", {})
         kiwiq_purchase_id = metadata.get("kiwiq_purchase_id")
         receipt_url = charge_object.get("receipt_url")
+        stripe = setup_stripe()
         
         if not receipt_url:
             self.logger.warning(f"No receipt URL found in charge.succeeded event")

@@ -6,8 +6,6 @@ import os
 import atexit
 from typing import List, Optional, Union
 
-from prefect.exceptions import MissingContextError
-
 from global_config.settings import global_settings, LOG_ROOT
 
 # --- Global Queue and Listener ---
@@ -40,6 +38,7 @@ def get_prefect_or_regular_python_logger(name: str, log_level: int = global_sett
                        and not in Prefect context.
     """
     from prefect.logging import get_run_logger
+    from prefect.exceptions import MissingContextError
     try:
         logger = get_run_logger()
         logger.setLevel(log_level)

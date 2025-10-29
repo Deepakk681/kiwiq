@@ -6,7 +6,6 @@ from datetime import datetime, timedelta # Import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, BackgroundTasks
-import stripe # Add BackgroundTasks
 
 from kiwi_app.auth import crud, models, schemas, security # Added email_verify
 from kiwi_app.auth.utils import auth_logger, datetime_now_utc # Import datetime_now_utc
@@ -32,9 +31,18 @@ from kiwi_app.email.email_templates.renderer import (
 )
 from kiwi_app.email.email_dispatch import email_dispatch, EmailContent, EmailRecipient
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import stripe
+
 # Configure Stripe
-stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = settings.STRIPE_API_VERSION
+def setup_stripe() -> "stripe":
+    import stripe # Add BackgroundTasks
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe.api_version = settings.STRIPE_API_VERSION
+    return stripe
+
 
 class AuthService:
     """Service layer for authentication and user management logic."""
@@ -531,6 +539,7 @@ class AuthService:
         await self.user_dao.add_user_to_org(db=db, user=creator, organization=new_org, role=admin_role, current_user_is_superuser=creator.is_superuser)
 
         # Create new customer
+        stripe = setup_stripe()
         customer = stripe.Customer.create(
             email=creator.email,
             name=new_org.name,
@@ -666,6 +675,7 @@ class AuthService:
             )
 
             if potentially_updated_organization is not None and potentially_updated_organization.external_billing_id:
+                stripe = setup_stripe()
                 try:
                     customer = stripe.Customer.retrieve(potentially_updated_organization.external_billing_id)
                     modify_kwargs = {}
@@ -799,6 +809,7 @@ class AuthService:
                 )
 
                 if potentially_updated_organization is not None and potentially_updated_organization.external_billing_id:
+                    stripe = setup_stripe()
                     try:
                         customer = stripe.Customer.retrieve(potentially_updated_organization.external_billing_id)
                         modify_kwargs = {}
@@ -986,6 +997,7 @@ class AuthService:
             updated_org = await self.org_dao.update(db, db_obj=target_org, obj_in=org_update)
 
             if updated_org is not None and updated_org.external_billing_id:
+                stripe = setup_stripe()
                 try:
                     customer = stripe.Customer.retrieve(updated_org.external_billing_id)
                     modify_kwargs = {}
@@ -1065,6 +1077,7 @@ class AuthService:
                     f"manually updated by user '{current_user.email}' to: {billing_email_update.primary_billing_email}"
                 )
                 if updated_org.external_billing_id:
+                    stripe = setup_stripe()
                     try:
                         customer = stripe.Customer.retrieve(updated_org.external_billing_id)
                         modify_kwargs = {}

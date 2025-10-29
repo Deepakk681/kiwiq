@@ -37,8 +37,6 @@ __all__ = [
     'get_active_entity_usernames_for_user_org_pairs',
 ]
 
-
-
 @task(cache_policy=NO_CACHE)
 async def extract_active_entity_usernames_flow(
     limit: Optional[int] = None,

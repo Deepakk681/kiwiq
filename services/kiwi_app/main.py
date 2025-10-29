@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse
 from kiwi_app.utils import get_kiwi_logger
 from kiwi_app.settings import settings # Import settings
 from kiwi_app import auth
-from weaviate_client.weaviate_client import WeaviateChunkClient
 
 from kiwi_app.workflow_app import routes as workflow_routes
 from kiwi_app.workflow_app import customer_data_routes as customer_data_routes

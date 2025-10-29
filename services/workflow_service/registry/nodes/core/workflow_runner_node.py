@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from prefect.flow_engine import run_flow_in_subprocess
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.session import get_async_db_as_manager
@@ -811,6 +810,7 @@ class WorkflowRunnerNode(BaseDynamicNode):  # [WorkflowRunnerInput, WorkflowRunn
             from workflow_service.services.worker import workflow_execution_flow
             from prefect.context import serialize_context, get_run_context
             from prefect import get_run_logger
+            from prefect.flow_engine import run_flow_in_subprocess
             context = serialize_context()
             if "task_run_context" in context:
                 if "parameters" in context["task_run_context"]:

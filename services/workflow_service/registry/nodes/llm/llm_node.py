@@ -21,9 +21,6 @@ from uuid import uuid4
 import jsonschema
 from jsonschema import Draft202012Validator
 
-# Add tokencost imports
-from tokencost import calculate_prompt_cost, calculate_completion_cost, calculate_cost_by_tokens
-
 from pydantic import Field, field_validator, model_validator, BaseModel, create_model
 from pydantic.json_schema import SkipJsonSchema
 from pydantic.fields import FieldInfo
@@ -36,161 +33,9 @@ from workflow_service.config.constants import (
     EXTERNAL_CONTEXT_MANAGER_KEY,
 )
 from db.session import get_async_db_as_manager
-# ######## ######## ######## ######## ######## ######## ########
-# ######## ######## MONKEY PATCHING LANGCHAIN ######## ######## 
-# ######## ######## ######## ######## ######## ######## ########
-from langchain_core.messages.ai import UsageMetadata
-from langchain_perplexity import chat_models
-from langchain_core.utils import usage
-
-class PerplexityExtendedUsageMetadata(UsageMetadata):
-    citation_tokens: Optional[int] = None
-    reasoning_tokens: Optional[int] = None
-    num_search_queries: Optional[int] = None
-    search_context_size: Optional[str] = None
-    cost: Optional[Dict[str, Any]] = None
-
-def _custom_create_usage_metadata(token_usage: dict) -> UsageMetadata:
-    """
-    Custom function to create UsageMetadata from token usage dictionary.
-    
-    This function monkey patches the langchain_perplexity module to properly handle
-    extended token usage information from Perplexity API responses, including
-    additional fields like citation_tokens, reasoning_tokens, etc.
-    
-    Args:
-        token_usage: Dictionary containing token usage information from API response
-        
-    Returns:
-        UsageMetadata: Langchain usage metadata object with extended information
-        
-    Note:
-        This handles various Perplexity-specific fields that aren't in standard OpenAI format:
-        - citation_tokens: Tokens used for citations in search results
-        - reasoning_tokens: Tokens used for internal reasoning (deep researcher models)
-        - num_search_queries: Number of search queries performed
-        - search_context_size: Size of search context used
-        - cost: Detailed cost breakdown
-    
-    {
-        "completion_tokens": 9772,
-        "prompt_tokens": 7,
-        "total_tokens": 9779,
-        "completion_tokens_details": None,
-        "prompt_tokens_details": None,
-        "citation_tokens": 12694,
-        "num_search_queries": 15,
-        "reasoning_tokens": 100651,
-        # "search_context_size": "medium",
-        "cost": {
-            "input_tokens_cost": 0.0,
-            "output_tokens_cost": 0.078,
-            "citation_tokens_cost": 0.025,
-            "reasoning_tokens_cost": 0.302,
-            "search_queries_cost": 0.075,
-            # "request_cost": 0.01,
-            "total_cost": 0.481
-        }
-    }
-    """
-    # Extract standard token counts
-    input_tokens = token_usage.get("prompt_tokens", 0)
-    output_tokens = token_usage.get("completion_tokens", 0)
-    total_tokens = token_usage.get("total_tokens", input_tokens + output_tokens)
-    
-    # # Debug logging for token usage analysis
-    # print("####### ######## $$$$$ FUCKING MONKEY PATCHING $$$$$ ######## ########")
-    # print("json.dumps(token_usage):", json.dumps(token_usage, indent=4))
-    
-    # Create base usage metadata with standard fields
-    usage_metadata = PerplexityExtendedUsageMetadata(  # UsageMetadata
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
-    )
-    
-    # Store extended Perplexity-specific fields in the usage metadata object
-    # These fields are preserved for downstream processing and cost calculation
-    kwargs = {}
-    if "citation_tokens" in token_usage and token_usage["citation_tokens"] is not None:
-        usage_metadata["citation_tokens"] = token_usage["citation_tokens"]
-    
-    if "reasoning_tokens" in token_usage and token_usage["reasoning_tokens"] is not None:
-        usage_metadata["reasoning_tokens"] = token_usage["reasoning_tokens"]
-    
-    if "num_search_queries" in token_usage and token_usage["num_search_queries"] is not None:
-        usage_metadata["num_search_queries"] = token_usage["num_search_queries"]
-    
-    # if "search_context_size" in token_usage and token_usage["search_context_size"] is not None:
-    #     usage_metadata["search_context_size"] = token_usage["search_context_size"]
-    
-    if "cost" in token_usage and token_usage["cost"] is not None and isinstance(token_usage["cost"], dict):
-        cost = token_usage["cost"]
-        filtered_cost = {}
-        for key, value in cost.items():
-            if value is not None:
-                filtered_cost[key] = float(value)
-        usage_metadata["cost"] = filtered_cost
-    
-    # # Handle completion_tokens_details if present
-    # if "completion_tokens_details" in token_usage:
-    #     usage_metadata.completion_tokens_details = token_usage["completion_tokens_details"]
-    
-    # # Handle prompt_tokens_details if present  
-    # if "prompt_tokens_details" in token_usage:
-    #     usage_metadata.prompt_tokens_details = token_usage["prompt_tokens_details"]
-    
-    # print("usage_metadata:", json.dumps(usage_metadata, indent=4))
-    return usage_metadata
-
-chat_models._create_usage_metadata = _custom_create_usage_metadata
-
-
-# add support for floats as well!
-def _dict_int_op(
-    left: dict,
-    right: dict,
-    op: Callable[[Union[int, float], Union[int, float]], Union[int, float]],
-    *,
-    default: int = 0,
-    depth: int = 0,
-    max_depth: int = 100,
-) -> dict:
-    if depth >= max_depth:
-        msg = f"{max_depth=} exceeded, unable to combine dicts."
-        raise ValueError(msg)
-    combined: dict = {}
-    for k in set(left).union(right):
-        if isinstance(left.get(k, default), (int, float)) and isinstance(
-            right.get(k, default), (int, float)
-        ):
-            combined[k] = op(left.get(k, default), right.get(k, default))
-        elif isinstance(left.get(k, {}), dict) and isinstance(right.get(k, {}), dict):
-            combined[k] = _dict_int_op(
-                left.get(k, {}),
-                right.get(k, {}),
-                op,
-                default=default,
-                depth=depth + 1,
-                max_depth=max_depth,
-            )
-        else:
-            types = [type(d[k]) for d in (left, right) if k in d]
-            msg = (
-                f"Unknown value types: {types}. Only dict and int/float values are supported."
-            )
-            raise ValueError(msg)  # noqa: TRY004
-    return combined
-
-
-usage._dict_int_op = _dict_int_op
-
-# ######## ######## ######## ######## ######## ######## ########
-# ######## ######## ######## ######## ######## ######## ########
 
 # from anthropic import Anthropic
-from openai import OpenAI, AsyncOpenAI
-import anthropic
+# from openai import OpenAI, AsyncOpenAI
 
 from langchain_core.messages import (
     AIMessage, 
@@ -200,30 +45,16 @@ from langchain_core.messages import (
     AnyMessage,
     # BaseMessage
 )
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_perplexity import ChatPerplexity
-
-from langchain_openai.chat_models.base import (
-    _convert_to_openai_response_format, convert_to_openai_tool, 
-    _is_pydantic_class, RunnableLambda, RunnablePassthrough, _oai_structured_outputs_parser, RunnableMap,
-    PydanticToolsParser,
-    JsonOutputKeyToolsParser,
-)
-from langchain_anthropic.chat_models import (
-    convert_to_anthropic_tool, 
-    LanguageModelInput, is_basemodel_subclass, OutputParserLike,
-    OutputParserException, BaseMessage, AnthropicTool
-)
+if TYPE_CHECKING:
+    from langchain_openai import ChatOpenAI
+    from langchain_anthropic import ChatAnthropic
+    from langchain_anthropic.chat_models import (
+        LanguageModelInput, BaseMessage, AnthropicTool
+    )
 
 from langchain_core.runnables import Runnable, RunnableBinding
 
 from langchain_core.messages.utils import message_chunk_to_message
-
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-from langchain_core.tools import BaseTool
-from langchain.chat_models import init_chat_model
 
 from langgraph.config import get_stream_writer
 # from langchain_community.chat_models import ChatPerplexity
@@ -233,7 +64,6 @@ from langgraph.config import get_stream_writer
 # from db.session import get_async_db_as_manager
 # Add context key imports
 
-from global_utils.json_schema_to_pydantic import convert_json_schema_to_pydantic_in_memory
 from kiwi_app.workflow_app.constants import LaunchStatus
 from workflow_service.config.settings import settings
 from workflow_service.registry.nodes.llm.internal_tools.internal_base import BaseProviderInternalTool
@@ -252,6 +82,160 @@ from workflow_service.registry.schemas.base import create_dynamic_schema_with_fi
 
 if TYPE_CHECKING:
     from workflow_service.services.external_context_manager import ExternalContextManager
+
+
+def monkey_patch_langchain_perplexity():
+    # ######## ######## ######## ######## ######## ######## ########
+    # ######## ######## MONKEY PATCHING LANGCHAIN ######## ######## 
+    # ######## ######## ######## ######## ######## ######## ########
+    from langchain_core.messages.ai import UsageMetadata
+    from langchain_perplexity import chat_models
+    from langchain_core.utils import usage
+
+    class PerplexityExtendedUsageMetadata(UsageMetadata):
+        citation_tokens: Optional[int] = None
+        reasoning_tokens: Optional[int] = None
+        num_search_queries: Optional[int] = None
+        search_context_size: Optional[str] = None
+        cost: Optional[Dict[str, Any]] = None
+
+    def _custom_create_usage_metadata(token_usage: dict) -> UsageMetadata:
+        """
+        Custom function to create UsageMetadata from token usage dictionary.
+        
+        This function monkey patches the langchain_perplexity module to properly handle
+        extended token usage information from Perplexity API responses, including
+        additional fields like citation_tokens, reasoning_tokens, etc.
+        
+        Args:
+            token_usage: Dictionary containing token usage information from API response
+            
+        Returns:
+            UsageMetadata: Langchain usage metadata object with extended information
+            
+        Note:
+            This handles various Perplexity-specific fields that aren't in standard OpenAI format:
+            - citation_tokens: Tokens used for citations in search results
+            - reasoning_tokens: Tokens used for internal reasoning (deep researcher models)
+            - num_search_queries: Number of search queries performed
+            - search_context_size: Size of search context used
+            - cost: Detailed cost breakdown
+        
+        {
+            "completion_tokens": 9772,
+            "prompt_tokens": 7,
+            "total_tokens": 9779,
+            "completion_tokens_details": None,
+            "prompt_tokens_details": None,
+            "citation_tokens": 12694,
+            "num_search_queries": 15,
+            "reasoning_tokens": 100651,
+            # "search_context_size": "medium",
+            "cost": {
+                "input_tokens_cost": 0.0,
+                "output_tokens_cost": 0.078,
+                "citation_tokens_cost": 0.025,
+                "reasoning_tokens_cost": 0.302,
+                "search_queries_cost": 0.075,
+                # "request_cost": 0.01,
+                "total_cost": 0.481
+            }
+        }
+        """
+        # Extract standard token counts
+        input_tokens = token_usage.get("prompt_tokens", 0)
+        output_tokens = token_usage.get("completion_tokens", 0)
+        total_tokens = token_usage.get("total_tokens", input_tokens + output_tokens)
+        
+        # # Debug logging for token usage analysis
+        # print("####### ######## $$$$$ FUCKING MONKEY PATCHING $$$$$ ######## ########")
+        # print("json.dumps(token_usage):", json.dumps(token_usage, indent=4))
+        
+        # Create base usage metadata with standard fields
+        usage_metadata = PerplexityExtendedUsageMetadata(  # UsageMetadata
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+        
+        # Store extended Perplexity-specific fields in the usage metadata object
+        # These fields are preserved for downstream processing and cost calculation
+        kwargs = {}
+        if "citation_tokens" in token_usage and token_usage["citation_tokens"] is not None:
+            usage_metadata["citation_tokens"] = token_usage["citation_tokens"]
+        
+        if "reasoning_tokens" in token_usage and token_usage["reasoning_tokens"] is not None:
+            usage_metadata["reasoning_tokens"] = token_usage["reasoning_tokens"]
+        
+        if "num_search_queries" in token_usage and token_usage["num_search_queries"] is not None:
+            usage_metadata["num_search_queries"] = token_usage["num_search_queries"]
+        
+        # if "search_context_size" in token_usage and token_usage["search_context_size"] is not None:
+        #     usage_metadata["search_context_size"] = token_usage["search_context_size"]
+        
+        if "cost" in token_usage and token_usage["cost"] is not None and isinstance(token_usage["cost"], dict):
+            cost = token_usage["cost"]
+            filtered_cost = {}
+            for key, value in cost.items():
+                if value is not None:
+                    filtered_cost[key] = float(value)
+            usage_metadata["cost"] = filtered_cost
+        
+        # # Handle completion_tokens_details if present
+        # if "completion_tokens_details" in token_usage:
+        #     usage_metadata.completion_tokens_details = token_usage["completion_tokens_details"]
+        
+        # # Handle prompt_tokens_details if present  
+        # if "prompt_tokens_details" in token_usage:
+        #     usage_metadata.prompt_tokens_details = token_usage["prompt_tokens_details"]
+        
+        # print("usage_metadata:", json.dumps(usage_metadata, indent=4))
+        return usage_metadata
+
+    chat_models._create_usage_metadata = _custom_create_usage_metadata
+
+
+    # add support for floats as well!
+    def _dict_int_op(
+        left: dict,
+        right: dict,
+        op: Callable[[Union[int, float], Union[int, float]], Union[int, float]],
+        *,
+        default: int = 0,
+        depth: int = 0,
+        max_depth: int = 100,
+    ) -> dict:
+        if depth >= max_depth:
+            msg = f"{max_depth=} exceeded, unable to combine dicts."
+            raise ValueError(msg)
+        combined: dict = {}
+        for k in set(left).union(right):
+            if isinstance(left.get(k, default), (int, float)) and isinstance(
+                right.get(k, default), (int, float)
+            ):
+                combined[k] = op(left.get(k, default), right.get(k, default))
+            elif isinstance(left.get(k, {}), dict) and isinstance(right.get(k, {}), dict):
+                combined[k] = _dict_int_op(
+                    left.get(k, {}),
+                    right.get(k, {}),
+                    op,
+                    default=default,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                )
+            else:
+                types = [type(d[k]) for d in (left, right) if k in d]
+                msg = (
+                    f"Unknown value types: {types}. Only dict and int/float values are supported."
+                )
+                raise ValueError(msg)  # noqa: TRY004
+        return combined
+
+
+    usage._dict_int_op = _dict_int_op
+
+    # ######## ######## ######## ######## ######## ######## ########
+    # ######## ######## ######## ######## ######## ######## ########
 
 
 class RefusalError(ValueError):
@@ -674,6 +658,7 @@ class LLMStructuredOutputSchema(BaseNodeConfig):
             raise ValueError("Invalid LLMStructuredOutputSchema configuration: No schema source specified.")
 
         if self.convert_loaded_schema_to_pydantic and isinstance(response, dict):
+            from global_utils.json_schema_to_pydantic import convert_json_schema_to_pydantic_in_memory
             response = convert_json_schema_to_pydantic_in_memory(response)
         elif isinstance(response, dict):
             if model_metadata.provider == LLMModelProvider.OPENAI:
@@ -1109,12 +1094,12 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
     def _get_llm_for_structured_output_when_thinking_is_enabled_anthropic(
         self,
-        chat_model: ChatAnthropic,
+        chat_model: "ChatAnthropic",
         schema: Union[dict, type],
-        formatted_tool: AnthropicTool,
+        formatted_tool: "AnthropicTool",
         tools: Optional[list] = None,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, BaseMessage]:
+    ) -> Runnable["LanguageModelInput", "BaseMessage"]:
         thinking_admonition = (
             "Anthropic structured output relies on forced tool calling, "
             "which is not supported when `thinking` is enabled. This method will raise "
@@ -1141,13 +1126,16 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
     def _apply_structured_and_tools_anthropic(
         self,
-        chat_model: ChatAnthropic,
+        chat_model: "ChatAnthropic",
         schema: Union[dict, type],
         *,
         include_raw: bool = False,
         tools: Optional[list] = None,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, Union[dict, BaseModel]]:
+    ) -> Runnable["LanguageModelInput", Union[dict, BaseModel]]:
+        from langchain_anthropic.chat_models import (
+            convert_to_anthropic_tool
+        )
         formatted_tool = convert_to_anthropic_tool(schema)
         tool_name = formatted_tool["name"]
         if chat_model.thinking is not None and chat_model.thinking.get("type") == "enabled":
@@ -1189,7 +1177,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
     def _apply_structured_and_tools_openai(
             self,
-            chat_model: ChatOpenAI, 
+            chat_model: "ChatOpenAI", 
             schema = None,
             method: Literal[
                 "json_schema", "function_calling"
@@ -1198,6 +1186,14 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             strict: Optional[bool] = None,
             tools: Optional[list] = None, **kwargs
         ) -> Runnable:
+
+        from langchain_openai.chat_models.base import (
+            _convert_to_openai_response_format, convert_to_openai_tool, 
+            _is_pydantic_class, RunnableLambda, RunnablePassthrough, _oai_structured_outputs_parser, RunnableMap,
+            PydanticToolsParser,
+            JsonOutputKeyToolsParser,
+        )
+        from langchain_core.output_parsers import JsonOutputParser
 
         is_pydantic_schema = _is_pydantic_class(schema)
 
@@ -1442,8 +1438,11 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             model_kwargs["betas"] = anthropic_betas
 
         if provider == LLMModelProvider.PERPLEXITY:
+            monkey_patch_langchain_perplexity()
+            from langchain_perplexity import ChatPerplexity
             model = ChatPerplexity(model=model_name, **model_kwargs)
         else:
+            from langchain.chat_models import init_chat_model
             model = init_chat_model(
                 model=model_name,
                 model_provider=provider.value,
@@ -2938,6 +2937,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             "total_tokens": None,
             "cost": None,
         }
+        # Add tokencost imports
+        from tokencost import calculate_prompt_cost, calculate_cost_by_tokens
         try:
 
             # Deep research models have a higher cost for single research report!
@@ -2992,6 +2993,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                             "system": system_message[1]
                         }
                 # self.info(f"messages: {json.dumps(prompt_messages, indent=2)}, kwargs_system: {kwargs.get('system', None)}")
+                import anthropic
                 input_tokens = anthropic.Anthropic().beta.messages.count_tokens(
                         model=model_name,
                         messages=prompt_messages,
@@ -3054,6 +3056,8 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         Returns:
             float: Actual cost in USD
         """
+        # Add tokencost imports
+        from tokencost import calculate_cost_by_tokens
         try:
             # Map model to tokencost format
             tokencost_model = self.map_model_to_tokencost_format(provider, model_name)

@@ -17,7 +17,6 @@ from logging import Logger
 
 from scrapy import Spider
 from scrapy.crawler import Crawler
-from scrapy.http import Response
 
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
 from kiwi_app.auth.models import User
@@ -29,11 +28,9 @@ from workflow_service.services.external_context_manager import get_customer_data
 from workflow_service.services.scraping.settings import scraping_settings
 from workflow_service.config.settings import settings as workflow_settings
 from workflow_service.utils.markdown_cleaner import remove_markdown_links
+from workflow_service.services.scraping.utils.utils import generate_start_urls_uuid
 
 from pydantic import BaseModel, Field
-from openai import AsyncOpenAI
-
-OPENAI_CLIENT = AsyncOpenAI(api_key=workflow_settings.OPENAI_API_KEY)
 
 
 class BlogClassification(BaseModel):
@@ -214,7 +211,11 @@ async def classify_item_is_blog(
         f"{json.dumps(filtered_item, ensure_ascii=False)}\n"
     )
 
-    response = await OPENAI_CLIENT.responses.parse(
+    from openai import AsyncOpenAI
+
+    openai_client = AsyncOpenAI(api_key=workflow_settings.OPENAI_API_KEY)
+
+    response = await openai_client.responses.parse(
         model=model_name,
         input=[
             {"role": "system", "content": BLOG_SYSTEM_PROMPT},
@@ -427,59 +428,59 @@ class MongoCustomerDataPipeline:
             logger=logger,
         )
     
-    @staticmethod
-    def _generate_start_urls_uuid(start_urls: List[str], include_only_paths: Optional[List[str]] = None, exclude_paths: Optional[List[str]] = None) -> str:
-        """
-        Generate a deterministic UUID from the start URLs for consistency.
+    # @staticmethod
+    # def _generate_start_urls_uuid(start_urls: List[str], include_only_paths: Optional[List[str]] = None, exclude_paths: Optional[List[str]] = None) -> str:
+    #     """
+    #     Generate a deterministic UUID from the start URLs for consistency.
         
-        Args:
-            start_urls: List of start URLs
-            include_only_paths: List of path patterns to include
-            exclude_paths: List of path patterns to exclude
-        Returns:
-            The generated UUID string (as string, not UUID object)
-        """
-        if not include_only_paths:
-            include_only_paths = []
-        if not exclude_paths:
-            exclude_paths = []
+    #     Args:
+    #         start_urls: List of start URLs
+    #         include_only_paths: List of path patterns to include
+    #         exclude_paths: List of path patterns to exclude
+    #     Returns:
+    #         The generated UUID string (as string, not UUID object)
+    #     """
+    #     if not include_only_paths:
+    #         include_only_paths = []
+    #     if not exclude_paths:
+    #         exclude_paths = []
         
-        # normalize include / exclude paths
-        def normalize_path(path: str) -> str:
-            path = path.strip()
-            if path.startswith("/"):
-                path = path[1:]
-            if path.endswith("*"):
-                path = path[:-1]
-            return path
+    #     # normalize include / exclude paths
+    #     def normalize_path(path: str) -> str:
+    #         path = path.strip()
+    #         if path.startswith("/"):
+    #             path = path[1:]
+    #         if path.endswith("*"):
+    #             path = path[:-1]
+    #         return path
         
-        include_only_paths = sorted(list(set([normalize_path(path) for path in include_only_paths])))
-        exclude_paths = sorted(list(set([normalize_path(path) for path in exclude_paths])))
+    #     include_only_paths = sorted(list(set([normalize_path(path) for path in include_only_paths])))
+    #     exclude_paths = sorted(list(set([normalize_path(path) for path in exclude_paths])))
 
-        path_filter_string = ""
-        if exclude_paths or include_only_paths:
-            path_filter_string = "include:" + ",".join(include_only_paths) + "exclude:" + ",".join(exclude_paths)
+    #     path_filter_string = ""
+    #     if exclude_paths or include_only_paths:
+    #         path_filter_string = "include:" + ",".join(include_only_paths) + "exclude:" + ",".join(exclude_paths)
         
-        try:
-            def _get_netloc(url: str) -> str:
-                parsed_url = urlparse(url)
-                netloc = parsed_url.netloc.replace(':', '~').replace('_', '~')
-                return netloc
-            # Sort netlocs to ensure consistency
-            sorted_netlocs = list(sorted(list(set(_get_netloc(url) for url in start_urls))))
-            # Join netlocs to create a deterministic string
-            combined_string = ",".join(sorted_netlocs) + path_filter_string
-            # Generate UUID from the combined string
-            start_urls_uuid = uuid.uuid5(uuid.NAMESPACE_URL, combined_string)
-            return str(start_urls_uuid)
-        except Exception as e:
-            logger = get_prefect_or_regular_python_logger(
-                name="workflow_service.scraping.pipelines", 
-                return_non_prefect_logger=True
-            )
-            logger.error(f"Failed to generate UUID for start URLs: {start_urls}. Using random UUID. Error: {e}", exc_info=True)
-            random_uuid = uuid.uuid4()
-            return str(random_uuid)
+    #     try:
+    #         def _get_netloc(url: str) -> str:
+    #             parsed_url = urlparse(url)
+    #             netloc = parsed_url.netloc.replace(':', '~').replace('_', '~')
+    #             return netloc
+    #         # Sort netlocs to ensure consistency
+    #         sorted_netlocs = list(sorted(list(set(_get_netloc(url) for url in start_urls))))
+    #         # Join netlocs to create a deterministic string
+    #         combined_string = ",".join(sorted_netlocs) + path_filter_string
+    #         # Generate UUID from the combined string
+    #         start_urls_uuid = uuid.uuid5(uuid.NAMESPACE_URL, combined_string)
+    #         return str(start_urls_uuid)
+    #     except Exception as e:
+    #         logger = get_prefect_or_regular_python_logger(
+    #             name="workflow_service.scraping.pipelines", 
+    #             return_non_prefect_logger=True
+    #         )
+    #         logger.error(f"Failed to generate UUID for start URLs: {start_urls}. Using random UUID. Error: {e}", exc_info=True)
+    #         random_uuid = uuid.uuid4()
+    #         return str(random_uuid)
     
     @staticmethod
     def _generate_namespace_static(url: str, date_str: str, start_urls_uuid: str, logger: Optional[Logger] = None) -> str:
@@ -568,7 +569,7 @@ class MongoCustomerDataPipeline:
             'org_id': org_id,
             'user': user,
             'is_shared': is_shared,
-            'start_urls_uuid': MongoCustomerDataPipeline._generate_start_urls_uuid(start_urls, include_only_paths, exclude_paths),
+            'start_urls_uuid': generate_start_urls_uuid(start_urls, include_only_paths, exclude_paths),
             "date_str": date_str,
             "classify_pages_as_blog": classify_pages_as_blog,
             "blog_classifier_model": blog_classifier_model,

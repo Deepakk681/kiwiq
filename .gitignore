@@ -75,3 +75,7 @@ billing_analysis_reports/
 standalone_test_client/kiwi_client/workflows/**/*.json
 standalone_test_client/kiwi_client/workflows/**/*.csv
 tmp/
+
+# memray files
+memray*.bin
+memray*.html

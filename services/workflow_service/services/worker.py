@@ -8,15 +8,14 @@ from pydantic import BaseModel
 from functools import partial
 
 # Prefect imports
-from prefect import flow, get_run_logger, serve, Flow
+from prefect import flow, Flow
 from prefect.deployments import run_deployment
-from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
+# from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
 from prefect.client.schemas import FlowRun, State
-from prefect.server.schemas.schedules import CronSchedule
 from prefect import get_client
 # from prefect.filesystems import S3, GitHub, LocalFileSystem
-from prefect.cache_policies import NO_CACHE
-from prefect.context import get_run_context
+# from prefect.cache_policies import NO_CACHE
+# from prefect.context import get_run_context
 from prefect import runtime
 
 # LangGraph and DB imports
@@ -1580,6 +1579,8 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Error cleaning up redis pool: {e}", exc_info=True)
             # logger.error(f"Error cleaning up redis pool: {e}", exc_info=True)
+    
+    from prefect import serve
 
     serve(
         workflow_execution_flow.to_deployment(
