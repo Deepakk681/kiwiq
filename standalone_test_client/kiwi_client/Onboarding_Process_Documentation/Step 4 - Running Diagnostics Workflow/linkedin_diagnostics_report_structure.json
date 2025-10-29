@@ -1,0 +1,573 @@
+{
+  "_source_file_reference": "This schema is documented here for reference only. The actual source file is located at: standalone_client/kiwi_client/workflows/active/content_diagnostics/orchestrator_workflow_sandbox/wf_llm_inputs.py",
+  "executive_reports": {
+    "linkedin_visibility_assessment": {
+      "created_at": "<string>",
+      "updated_at": "<string>",
+      "executive_summary": "<string>",
+      "overall_visibility_score": "<int>",
+      "platform_analyses": [
+        {
+          "platform": "<string>",
+          "metrics": {
+            "coverage_score": "<int>",
+            "depth_score": "<int>",
+            "accuracy_score": "<int>",
+            "sentiment_index": "<int>",
+            "source_quality": "<int>",
+            "response_consistency": "<int>",
+            "information_recency": "<string>"
+          },
+          "visibility_assessment": "<string>",
+          "key_narratives": [
+            "<string>"
+          ],
+          "unique_insights": [
+            "<string>"
+          ],
+          "coverage_gaps": [
+            "<string>"
+          ],
+          "representative_evidence": [
+            {
+              "platform": "<string>",
+              "query_used": "<string>",
+              "relevant_excerpt": "<string>",
+              "source_url": "<string>",
+              "confidence_level": "<string>"
+            }
+          ],
+          "improvement_actions": [
+            "<string>"
+          ]
+        }
+      ],
+      "best_performing_platform": "<string>",
+      "platform_rankings": [
+        {
+          "platform": "<string>",
+          "rank": "<int>",
+          "justification": "<string>"
+        }
+      ],
+      "competitive_landscape": {
+        "direct_competitors": [
+          {
+            "name": "<string>",
+            "context": "<string>"
+          }
+        ],
+        "positioning_statement": "<string>",
+        "differentiation_factors": [
+          "<string>"
+        ],
+        "competitive_gaps": [
+          "<string>"
+        ],
+        "market_share_voice": "<int>",
+        "evidence": [
+          {
+            "platform": "<string>",
+            "query_used": "<string>",
+            "relevant_excerpt": "<string>",
+            "source_url": "<string>",
+            "confidence_level": "<string>"
+          }
+        ]
+      },
+      "information_quality": {
+        "accuracy_assessment": "<string>",
+        "consistency_score": "<int>",
+        "information_gaps": [
+          "<string>"
+        ],
+        "misinformation_risks": [
+          "<string>"
+        ],
+        "verification_status": [
+          "<string>"
+        ]
+      }
+    },
+    "linkedin_competitive_intelligence": {
+      "executive_summary": {
+        "industry_content_maturity": "<string>",
+        "biggest_competitive_threat": "<string>",
+        "highest_opportunity_area": "<string>",
+        "strategic_positioning_gap": "<string>",
+        "urgency_factor": "<string>"
+      },
+      "industry_leading_peers": [
+        {
+          "name": "<string>",
+          "title_company": "<string>",
+          "linkedin_profile_url": "<string>",
+          "follower_count_range": "<string>",
+          "posting_frequency": "<string>",
+          "content_strategy_strengths": [
+            "<string>"
+          ],
+          "signature_content_types": [
+            "<string>"
+          ],
+          "engagement_patterns": "<string>",
+          "unique_positioning_angle": "<string>",
+          "content_themes": [
+            "<string>"
+          ],
+          "why_they_succeed": "<string>",
+          "copyable_tactics": [
+            {
+              "tactic_name": "<string>",
+              "tactic_description": "<string>",
+              "success_citations": "<string>",
+              "implementation_approach": "<string>",
+              "content_examples": [
+                "<string>"
+              ],
+              "posting_frequency": "<string>",
+              "audience_appeal_factor": "<string>"
+            }
+          ]
+        }
+      ]
+    },
+    "content_performance_analysis": {
+      "performance_overview": {
+        "total_themes_analyzed": "<int>",
+        "total_posts_analyzed": "<int>",
+        "overall_engagement_health": "<string>",
+        "average_engagement_rate": "<float>",
+        "posting_consistency": "<string>",
+        "content_diversity_score": "<int>"
+      },
+      "theme_performance": [
+        {
+          "theme_name": "<string>",
+          "theme_description": "<string>",
+          "posts_in_theme": "<int>",
+          "avg_likes": "<float>",
+          "avg_comments": "<float>",
+          "avg_reposts": "<float>",
+          "engagement_rate": "<float>",
+          "performance_trend": "<string>",
+          "key_success_factors": [
+            "<string>"
+          ],
+          "source_path_of_information": "<string>",
+          "reasoning_why_these_improvements_are_needed": "<string>",
+          "improvement_opportunities": [
+            "<string>"
+          ]
+        }
+      ],
+      "format_performance": [
+        {
+          "format_type": "<string>",
+          "usage_percentage": "<float>",
+          "avg_engagement": "<float>",
+          "effectiveness_score": "<int>",
+          "best_use_cases": [
+            "<string>"
+          ],
+          "optimization_tips": [
+            "<string>"
+          ]
+        }
+      ],
+      "content_quality": {
+        "avg_readability_score": "<float>",
+        "avg_clarity_score": "<float>",
+        "avg_uniqueness_score": "<float>",
+        "avg_value_proposition_strength": "<float>",
+        "content_depth_analysis": "<string>",
+        "quality_improvement_priorities": [
+          "<string>"
+        ]
+      },
+      "top_performing_posts": [
+        {
+          "post_id": "<string>",
+          "theme": "<string>",
+          "engagement_metrics": "<string>",
+          "success_factors": [
+            "<string>"
+          ],
+          "replicable_elements": [
+            "<string>"
+          ]
+        }
+      ],
+      "optimization_opportunities": [
+        {
+          "opportunity_area": "<string>",
+          "current_performance": "<string>",
+          "improvement_potential": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_is_an_recommendation": "<string>",
+          "recommended_actions": [
+            "<string>"
+          ],
+          "expected_impact": "<string>",
+          "priority_level": "<string>"
+        }
+      ],
+      "goal_alignment": [
+        {
+          "business_goal": "<string>",
+          "supporting_themes": [
+            "<string>"
+          ],
+          "alignment_score": "<int>",
+          "content_gaps": [
+            "<string>"
+          ],
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_is_a_good_alignment": "<string>",
+          "recommended_content_focus": [
+            "<string>"
+          ]
+        }
+      ],
+      "key_strengths": [
+        "<string>"
+      ],
+      "critical_weaknesses": [
+        "<string>"
+      ],
+      "immediate_actions": [
+        "<string>"
+      ]
+    },
+    "content_strategy_gaps": {
+      "executive_summary": "<string>",
+      "persona_alignment_gaps": [
+        {
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_is_a_persona_gap": "<string>",
+          "persona_title": "<string>",
+          "persona_pain_point": "<string>",
+          "current_content_coverage": "<string>",
+          "content_preference_mismatch": "<string>",
+          "competitor_advantage": "<string>",
+          "gap_severity": "<string>",
+          "recommended_content_adjustments": [
+            "<string>"
+          ]
+        }
+      ],
+      "goal_alignment_analysis": [
+        {
+          "source_path_of_information": "<string>",
+          "reasoning_why_goal_alignment_gap_exists": "<string>",
+          "stated_goal": "<string>",
+          "current_content_support": "<string>",
+          "goal_achievement_gap": "<string>",
+          "content_theme_misalignment": [
+            "<string>"
+          ],
+          "missing_content_types": [
+            "<string>"
+          ],
+          "competitor_goal_execution": "<string>",
+          "strategic_content_recommendations": [
+            "<string>"
+          ]
+        }
+      ],
+      "content_format_gaps": [
+        {
+          "format_type": "<string>",
+          "current_usage_percentage": "<int>",
+          "recommended_usage_percentage": "<int>",
+          "effectiveness_for_goals": "<string>",
+          "peer_benchmark_comparison": "<string>",
+          "audience_engagement_potential": "<string>",
+          "implementation_complexity": "<string>"
+        }
+      ],
+      "content_pillar_gaps": [
+        {
+          "pillar_name": "<string>",
+          "current_coverage": "<string>",
+          "recommended_coverage": "<string>",
+          "content_depth_assessment": "<string>",
+          "unique_angle_opportunity": "<string>",
+          "competitor_pillar_execution": "<string>",
+          "specific_content_needs": [
+            "<string>"
+          ]
+        }
+      ],
+      "funnel_stage_gaps": [
+        {
+          "funnel_stage": "<string>",
+          "current_content_percentage": "<int>",
+          "recommended_percentage": "<int>",
+          "content_quality_in_stage": "<string>",
+          "persona_alignment_in_stage": "<string>",
+          "competitor_stage_execution": "<string>",
+          "stage_specific_gaps": [
+            "<string>"
+          ]
+        }
+      ]
+    },
+    "strategic_linkedin_recommendations": {
+      "risk_mitigation": {
+        "content_strategy_risks": [
+          {
+            "risk_factor": "<string>",
+            "potential_impact": "<string>",
+            "mitigation_strategy": "<string>"
+          }
+        ],
+        "brand_consistency_safeguards": [
+          "<string>"
+        ]
+      },
+      "executive_summary": {
+        "urgency_rationale": "<string>",
+        "linkedin_health_status": "<string>",
+        "competitive_positioning": "<string>",
+        "top_strategic_priorities": [
+          "<string>"
+        ],
+        "primary_strategic_opportunity": "<string>"
+      },
+      "immediate_action_plan": {
+        "thirty_day_priorities": [
+          "<string>"
+        ],
+        "success_measurement_plan": {
+          "success_benchmarks": [
+            "<string>"
+          ],
+          "tracking_frequency": "<string>",
+          "key_performance_indicators": [
+            "<string>"
+          ]
+        },
+        "ninety_day_strategic_moves": [
+          "<string>"
+        ]
+      },
+      "competitive_response_strategy": {
+        "market_positioning_moves": [
+          {
+            "content_strategy": "<string>",
+            "positioning_opportunity": "<string>",
+            "competitive_moat_potential": "<string>"
+          }
+        ],
+        "peer_advantage_responses": [
+          {
+            "response_strategy": "<string>",
+            "competitor_advantage": "<string>",
+            "content_differentiation": "<string>",
+            "implementation_priority": "<string>",
+            "source_path_of_information": "<string>",
+            "reasoning_why_response_needed": "<string>"
+          }
+        ]
+      },
+      "thought_leadership_positioning": {
+        "narrative_strategy": {
+          "narrative_hooks": [
+            {
+              "hook_theme": "<string>",
+              "content_opportunity": "<string>",
+              "relevance_to_expertise": "<string>"
+            }
+          ],
+          "competitive_differentiation": "<string>",
+          "messaging_consistency_strategy": "<string>",
+          "recommended_thought_leadership_angle": "<string>"
+        },
+        "content_authority_building": [
+          {
+            "expertise_area": "<string>",
+            "content_proof_points": [
+              "<string>"
+            ],
+            "timeline_to_recognition": "<string>",
+            "authority_building_approach": "<string>"
+          }
+        ]
+      },
+      "content_production_optimization": {
+        "content_calendar_strategy": {
+          "optimal_posting_times": [
+            "<string>"
+          ],
+          "content_theme_distribution": {
+            "personal_brand_percentage": "<int>",
+            "industry_insights_percentage": "<int>",
+            "engagement_content_percentage": "<int>",
+            "thought_leadership_percentage": "<int>"
+          },
+          "recommended_posting_frequency": "<string>"
+        },
+        "content_format_optimization": [
+          {
+            "format_type": "<string>",
+            "current_usage_gap": "<string>",
+            "implementation_approach": "<string>",
+            "optimization_opportunity": "<string>"
+          }
+        ]
+      },
+      "audience_engagement_optimization": {
+        "persona_specific_strategies": [
+          {
+            "target_persona": "<string>",
+            "engagement_tactics": [
+              "<string>"
+            ],
+            "current_alignment_gap": "<string>",
+            "content_optimization_strategy": "<string>"
+          }
+        ],
+        "engagement_amplification_tactics": [
+          {
+            "tactic_name": "<string>",
+            "implementation_method": "<string>",
+            "peer_success_citations": "<string>",
+            "expected_engagement_lift": "<string>"
+          }
+        ]
+      },
+      "content_strategy_recommendations": [
+        {
+          "priority_level": "<string>",
+          "success_metrics": [
+            "<string>"
+          ],
+          "expected_outcomes": [
+            "<string>"
+          ],
+          "business_rationale": "<string>",
+          "competitive_context": "<string>",
+          "recommendation_title": "<string>",
+          "supporting_citations": [
+            {
+              "source_report": "<string>",
+              "citations_point": "<string>"
+            }
+          ],
+          "implementation_approach": {
+            "content_themes": [
+              "<string>"
+            ],
+            "content_tactics": [
+              "<string>"
+            ],
+            "posting_strategy": "<string>",
+            "format_recommendations": [
+              "<string>"
+            ]
+          },
+          "strategic_gap_addressed": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_recommendation": "<string>"
+        }
+      ]
+    },
+    "executive_summary": {
+      "executive_overview": {
+        "content_maturity_level": "<string>",
+        "critical_content_insight": "<string>",
+        "primary_content_opportunity": "<string>",
+        "content_competitive_position": "<string>",
+        "linkedin_content_health_score": "<int>",
+        "reasoning_why_this_is_should_be_prioritized": "<string>"
+      },
+      "content_gap_priorities": [
+        {
+          "gap_area": "<string>",
+          "gap_severity": "<string>",
+          "impact_on_goals": "<string>",
+          "content_solution": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_for_content_gap_priority": "<string>"
+        }
+      ],
+      "content_performance_snapshot": {
+        "biggest_content_weakness": {
+          "weakness_area": "<string>",
+          "impact_on_goals": "<string>",
+          "content_solution": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_weakness_is_critical": "<string>"
+        },
+        "top_performing_content_theme": {
+          "theme_name": "<string>",
+          "avg_engagement_rate": "<float>",
+          "replication_opportunity": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_theme_is_top_performing": "<string>"
+        },
+        "content_consistency_assessment": {
+          "improvement_needed": "<string>",
+          "posting_frequency_status": "<string>",
+          "source_path_of_information": "<string>",
+          "content_quality_consistency": "<string>",
+          "reasoning_why_this_improvement_is_needed": "<string>"
+        }
+      },
+      "immediate_content_priorities": {
+        "content_quick_wins": [
+          {
+            "quick_win": "<string>",
+            "information_source": "<string>",
+            "reasoning_for_quick_win": "<string>",
+            "source_path_of_information": "<string>"
+          }
+        ],
+        "content_investment_priorities": [
+          {
+            "content_area": "<string>",
+            "information_source": "<string>",
+            "reasoning_for_investment": "<string>",
+            "source_path_of_information": "<string>"
+          }
+        ]
+      },
+      "ai_visibility_content_insights": {
+        "current_ai_content_visibility": "<string>",
+        "content_citation_opportunities": "<string>",
+        "competitor_ai_content_advantages": "<string>",
+        "ai_optimized_content_recommendations": [
+          "<string>"
+        ],
+        "reasoning_for_ai_visibility_content_insights": "<string>",
+        "source_path_of_information_for_ai_visibility_content_insights": "<string>"
+      },
+      "competitive_content_intelligence": {
+        "industry_content_trend": {
+          "trend_name": "<string>",
+          "our_opportunity": "<string>",
+          "adoption_by_peers": "<string>",
+          "source_path_of_information": "<string>",
+          "reasoning_why_this_is_an_opportunity": "<string>"
+        },
+        "peer_content_advantage": {
+          "competitor_name": "<string>",
+          "our_content_gap": "<string>",
+          "catch_up_strategy": "<string>",
+          "their_content_strength": "<string>",
+          "reasoning_why_this_is_an_opportunity": "<string>"
+        },
+        "untapped_content_opportunity": {
+          "content_approach": "<string>",
+          "opportunity_area": "<string>",
+          "source_path_of_information": "<string>",
+          "competitive_advantage_potential": "<string>",
+          "reasoning_why_this_is_an_opportunity": "<string>"
+        }
+      }
+    },
+    "created_at": "<string>",
+    "updated_at": "<string>"
+  }
+}

@@ -104,6 +104,7 @@ workflow_graph_schema = {
         # --- 1. Input Node ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -191,6 +192,7 @@ workflow_graph_schema = {
         # --- 2. Crawl Blog Posts ---
         "web_crawler": {
             "node_id": "web_crawler",
+            "node_category": "scraping",
             "node_name": "crawler_scraper",
             "node_config": {
                 # Using defaults; blog classification is enabled by default
@@ -200,6 +202,7 @@ workflow_graph_schema = {
         # --- 3. Batch Posts ---
         "batch_and_route_posts": {
             "node_id": "batch_and_route_posts",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["construct_classification_prompt"],
@@ -217,6 +220,7 @@ workflow_graph_schema = {
         # --- 4. Classify Posts per Batch ---
         "construct_classification_prompt": {
             "node_id": "construct_classification_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -246,6 +250,7 @@ workflow_graph_schema = {
 
         "classify_batch": {
             "node_id": "classify_batch",
+            "node_category": "analysis",
             "node_name": "llm",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -265,6 +270,7 @@ workflow_graph_schema = {
         # --- 5. Flatten Classification Results ---
         "flatten_classifications": {
             "node_id": "flatten_classifications",
+            "node_category": "system",
             "node_name": "merge_aggregate",
             "node_config": {
                 "operations": [
@@ -300,6 +306,7 @@ workflow_graph_schema = {
         # --- 6. Join Classifications to Posts ---
         "join_classifications_to_posts": {
             "node_id": "join_classifications_to_posts",
+            "node_category": "system",
             "node_name": "data_join_data",
             "node_config": {
                 "joins": [
@@ -318,6 +325,7 @@ workflow_graph_schema = {
         # --- 7. Store Classified Posts ---
         "store_classified_posts": {
             "node_id": "store_classified_posts",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": False, "operation": "upsert"},
@@ -341,6 +349,7 @@ workflow_graph_schema = {
         # Create funnel stage objects to use as primary list for grouping
         "extract_funnel_stages": {
             "node_id": "extract_funnel_stages",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "mappings": [
@@ -356,6 +365,7 @@ workflow_graph_schema = {
         # Use data_join_data to group posts under their respective funnel stages
         "group_posts_by_funnel_stage": {
             "node_id": "group_posts_by_funnel_stage",
+            "node_category": "system",
             "node_name": "data_join_data",
             "enable_node_fan_in": True,
             "node_config": {
@@ -374,6 +384,7 @@ workflow_graph_schema = {
 
         "route_funnel_stage_groups": {
             "node_id": "route_funnel_stage_groups",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["preprocess_stage_group_sort_posts"],
@@ -391,6 +402,7 @@ workflow_graph_schema = {
         # --- 10a. Preprocess Stage Group: Sort posts by updated desc ---
         "preprocess_stage_group_sort_posts": {
             "node_id": "preprocess_stage_group_sort_posts",
+            "node_category": "system",
             "node_name": "merge_aggregate",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -416,6 +428,7 @@ workflow_graph_schema = {
         # --- 10b. Preprocess Stage Group: Limit to top 20 posts ---
         "preprocess_stage_group_limit_posts": {
             "node_id": "preprocess_stage_group_limit_posts",
+            "node_category": "system",
             "node_name": "merge_aggregate",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -443,6 +456,7 @@ workflow_graph_schema = {
         # --- 10. Analyze Each Funnel Stage Group ---
         "construct_analysis_prompt": {
             "node_id": "construct_analysis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -473,6 +487,7 @@ workflow_graph_schema = {
 
         "analyze_funnel_stage_group": {
             "node_id": "analyze_funnel_stage_group",
+            "node_category": "analysis",
             "node_name": "llm",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -493,6 +508,7 @@ workflow_graph_schema = {
         # --- 11. Combine All Analysis Reports ---
         "combine_funnel_reports": {
             "node_id": "combine_funnel_reports",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "mappings": [
@@ -505,6 +521,7 @@ workflow_graph_schema = {
         # --- New: 11b. Portfolio Batch Router (50 posts per batch) ---
         "portfolio_batch_router": {
             "node_id": "portfolio_batch_router",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["construct_portfolio_analysis_prompt"],
@@ -522,6 +539,7 @@ workflow_graph_schema = {
         # --- New: 11c. Construct Portfolio Analysis Prompt (per batch) ---
         "construct_portfolio_analysis_prompt": {
             "node_id": "construct_portfolio_analysis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -552,6 +570,7 @@ workflow_graph_schema = {
         # --- New: 11d. Run Portfolio Batch Analysis (LLM with code execution) ---
         "run_portfolio_batch_analysis": {
             "node_id": "run_portfolio_batch_analysis",
+            "node_category": "analysis",
             "node_name": "llm",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -573,6 +592,7 @@ workflow_graph_schema = {
         # --- New: 11e. Construct Final Synthesis Prompt ---
         "construct_final_synthesis_prompt": {
             "node_id": "construct_final_synthesis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             # "private_input_mode": True,
             # "output_private_output_to_central_state": True,
@@ -603,6 +623,7 @@ workflow_graph_schema = {
         # --- New: 11f. Run Final Synthesis (LLM with code execution) ---
         "run_final_synthesis": {
             "node_id": "run_final_synthesis",
+            "node_category": "analysis",
             "node_name": "llm",
             # "private_input_mode": True,
             # "output_private_output_to_central_state": True,
@@ -624,6 +645,7 @@ workflow_graph_schema = {
         # --- New: 12b. Store Portfolio Analysis Results ---
         "store_portfolio_analysis": {
             "node_id": "store_portfolio_analysis",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": False, "operation": "upsert"},
@@ -646,6 +668,7 @@ workflow_graph_schema = {
         # --- 12. Store Analysis Results ---
         "store_analysis": {
             "node_id": "store_analysis",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": False, "operation": "upsert"},
@@ -668,6 +691,7 @@ workflow_graph_schema = {
         # --- 13. Technical SEO Analysis (LLM) ---
         "construct_technical_analysis_prompt": {
             "node_id": "construct_technical_analysis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -695,6 +719,7 @@ workflow_graph_schema = {
 
         "run_technical_analysis": {
             "node_id": "run_technical_analysis",
+            "node_category": "analysis",
             "node_name": "llm",
             # "private_input_mode": True,
             # "output_private_output_to_central_state": True,
@@ -714,6 +739,7 @@ workflow_graph_schema = {
 
         "store_technical_analysis": {
             "node_id": "store_technical_analysis",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": False, "operation": "upsert"},
@@ -736,6 +762,7 @@ workflow_graph_schema = {
         # --- 14. Output Node ---
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "enable_node_fan_in": True,
             "node_config": {}

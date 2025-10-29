@@ -34,7 +34,7 @@ DEFAULT_LLM_MODEL = "gpt-4.1"
 # 4. Feedback Analysis - Process user feedback
 # 5. Content Update - Apply feedback to content
 
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 # =============================================================================
@@ -471,10 +471,10 @@ The blog brief contains strategic elements that guide your writing:
 3. **Value-Driven**: Every paragraph should provide value to the reader
 4. **Strategic Alignment**: Each section serves its documented purpose from the brief
 
-### AI OPTIMIZATION ELEMENTS :
+### AI OPTIMIZATION ELEMENTS (MUST BE INCLUDED IN MAIN CONTENT):
 1. **Answer Modules**: Add 2-3 sentence answers after each question/heading throughout the content
-2. **TL;DR Box**: Include a 3-5 bullet summary after the introduction
-3. **FAQ Section**: Add 5 questions and answers at the end of the content
+2. **TL;DR Box**: Include a 3-5 bullet summary after the introduction AS PART OF THE MAIN CONTENT
+3. **FAQ Section**: Add 5 questions and answers at the end AS PART OF THE MAIN CONTENT
 
 ### WHAT NOT TO WRITE:
 1. **NO Scripts or Code**: Never include any programming scripts, code snippets, or technical markup at the end or anywhere in the content
@@ -604,10 +604,10 @@ For each section in `content_structure`:
 4. Use relevant enrichment from the knowledge context
 5. Ensure smooth transitions to the next section
 
-**AI OPTIMIZATION ELEMENTS [HIGH PRIORITY]:**
+**AI OPTIMIZATION ELEMENTS [HIGH PRIORITY - INCLUDE IN MAIN CONTENT]:**
 1. **Answer Modules**: After each question/heading, provide 2-3 sentence answers that directly address the question
-2. **TL;DR Box**: After the introduction, include a 3-5 bullet summary of key points
-3. **FAQ Section**: At the end of the content, add 5 questions and answers that address common user questions
+2. **TL;DR Box**: After the introduction, include a 3-5 bullet summary of key points AS PART OF THE MAIN CONTENT
+3. **FAQ Section**: At the end of the content, add 5 questions and answers that address common user questions AS PART OF THE MAIN CONTENT
 
 **Information Integration:**
 - Weave company data naturally into your narrative
@@ -638,10 +638,11 @@ For each section in `content_structure`:
 Regular paragraphs with no special formatting
 ```
 
-**AI Optimization Element Formatting:**
+**AI Optimization Element Formatting (INCLUDE IN MAIN CONTENT):**
 ```
 ## TL;DR
 A concise summary of the entire blog post, highlighting the most important insights and takeaways. Use a format that best fits the content—this could be a short paragraph, a set of bullet points, or a mix of both, as appropriate for the material.
+**NOTE: This TL;DR section should be included directly in the main_content field, not as a separate field.**
 
 ## FAQ
 **Q: Question 1?**
@@ -651,6 +652,7 @@ A: Answer 1
 A: Answer 2
 
 [Continue for 5 total Q&A pairs]
+**NOTE: This FAQ section should be included directly in the main_content field, not as a separate field.**
 ```
 
 **Writing Style:**
@@ -680,10 +682,10 @@ A: Answer 2
 - Headers are keyword-optimized
 - Content satisfies search intent
 
-✓ **AI Optimization Elements:**
-- Answer modules (2-3 sentences) after each question/heading
-- TL;DR box (3-5 bullets) after introduction
-- FAQ section (5 Q&A pairs) at the end
+✓ **AI Optimization Elements (MUST BE IN MAIN CONTENT):**
+- Answer modules (2-3 sentences) after each question/heading - included in main_content
+- TL;DR box (3-5 bullets) after introduction - included in main_content
+- FAQ section (5 Q&A pairs) at the end - included in main_content
 
 ✓ **Brand Alignment:**
 - Tone and voice are consistent
@@ -714,17 +716,10 @@ Variables that go into the Content Generation prompts:
 """
 
 # Content Generation Output Schema
-class FAQItemSchema(BaseModel):
-    """Schema for individual FAQ items."""
-    question: str = Field(description="The FAQ question")
-    answer: str = Field(description="The FAQ answer")
-
 class BlogContentSchema(BaseModel):
     """Enhanced schema for generated blog content."""
     title: str = Field(description="SEO-optimized blog post title")
-    main_content: str = Field(description="Main blog content with proper formatting and structure")
-    tldr_summary: str = Field(description="3-5 bullet summary after the introduction")
-    faq_section: List[FAQItemSchema] = Field(description="5 questions and answers at the end of the content")
+    main_content: str = Field(description="Complete blog content including TL;DR summary (3-5 bullets after introduction) and FAQ section (5 Q&A pairs at the end), with proper formatting and structure. All content should be in markdown format.")
 
 CONTENT_GENERATION_OUTPUT_SCHEMA = BlogContentSchema.model_json_schema()
 

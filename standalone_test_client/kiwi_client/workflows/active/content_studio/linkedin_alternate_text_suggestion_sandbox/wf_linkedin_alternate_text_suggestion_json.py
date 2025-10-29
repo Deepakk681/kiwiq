@@ -99,6 +99,7 @@ workflow_graph_schema = {
         # --- 1. Input Node ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -109,6 +110,7 @@ workflow_graph_schema = {
         # --- 2. Load User DNA ---
         "load_all_context_docs": {
             "node_id": "load_all_context_docs",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -130,6 +132,7 @@ workflow_graph_schema = {
         # --- 3. Construct Prompt ---
         "construct_prompt": {
             "node_id": "construct_prompt",
+            "node_category": "content_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -152,6 +155,7 @@ workflow_graph_schema = {
         # --- 4. Generate Alternatives ---
         "generate_content": {
             "node_id": "generate_content",
+            "node_category": "content_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -169,6 +173,7 @@ workflow_graph_schema = {
         # --- 5. Capture Approval ---
         "capture_approval": {
             "node_id": "capture_approval",
+            "node_category": "content_generation",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -191,6 +196,7 @@ workflow_graph_schema = {
         # --- 6. Route Based on Approval ---
         "route_on_approval": {
             "node_id": "route_on_approval",
+            "node_category": "content_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["check_iteration_limit", "output_node"],
@@ -213,6 +219,7 @@ workflow_graph_schema = {
         # --- 7. Check Iteration Limit ---
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "feedback_refinement",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -236,6 +243,7 @@ workflow_graph_schema = {
         # --- 8. Route Based on Iteration Limit ---
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["route_to_initial_or_additional_prompt", "output_node"],
@@ -258,6 +266,7 @@ workflow_graph_schema = {
         # --- 9. Route to Appropriate Prompt Constructor ---
         "route_to_initial_or_additional_prompt": {
             "node_id": "route_to_initial_or_additional_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_user_feedback_initial_prompt", "construct_user_feedback_additional_prompt"],
@@ -276,6 +285,7 @@ workflow_graph_schema = {
         # --- 10. Construct Initial Feedback Prompt ---
         "construct_user_feedback_initial_prompt": {
             "node_id": "construct_user_feedback_initial_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -302,6 +312,7 @@ workflow_graph_schema = {
         # --- 11. Construct Additional Feedback Prompt ---
         "construct_user_feedback_additional_prompt": {
             "node_id": "construct_user_feedback_additional_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -326,6 +337,7 @@ workflow_graph_schema = {
         # --- 12. Interpret Feedback ---
         "interpret_feedback": {
             "node_id": "interpret_feedback",
+            "node_category": "feedback_refinement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -347,6 +359,7 @@ workflow_graph_schema = {
         # --- 13. Output Node ---
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {
             }

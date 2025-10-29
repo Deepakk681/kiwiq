@@ -63,6 +63,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -93,6 +94,7 @@ workflow_graph_schema = {
         # 2. Load All Context Documents  
         "load_all_context_docs": {
             "node_id": "load_all_context_docs",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 # Global defaults
@@ -137,6 +139,7 @@ workflow_graph_schema = {
         # 3. Transform Additional User Files Format (if provided)
         "transform_additional_files_config": {
             "node_id": "transform_additional_files_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -153,7 +156,8 @@ workflow_graph_schema = {
         
         # 5. Load Additional User Files (conditional)
         "load_additional_user_files_node": {
-            "node_id": "load_additional_user_files_node", 
+            "node_id": "load_additional_user_files_node",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -191,6 +195,7 @@ workflow_graph_schema = {
         # 4. Knowledge Enrichment LLM with Document Tools
         "knowledge_enrichment_llm": {
             "node_id": "knowledge_enrichment_llm",
+            "node_category": "knowledge_enrichment",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -233,6 +238,7 @@ workflow_graph_schema = {
         # 5a. Check Conditions for Knowledge Enrichment Tool Use
         "check_conditions": {
             "node_id": "check_conditions",
+            "node_category": "knowledge_enrichment",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -272,6 +278,7 @@ workflow_graph_schema = {
         # 5b. Route Based on Conditions (no HITL)
         "route_from_conditions": {
             "node_id": "route_from_conditions",
+            "node_category": "knowledge_enrichment",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["tool_executor", "construct_content_generation_prompt"],
@@ -300,6 +307,7 @@ workflow_graph_schema = {
         # 5c. Tool Executor (executes document tools)
         "tool_executor": {
             "node_id": "tool_executor",
+            "node_category": "knowledge_enrichment",
             "node_name": "tool_executor",
             "node_config": {
                 "default_timeout": 30.0,
@@ -315,6 +323,7 @@ workflow_graph_schema = {
         # 7. Construct Content Generation Prompt
         "construct_content_generation_prompt": {
             "node_id": "construct_content_generation_prompt",
+            "node_category": "content_generation",
             "node_name": "prompt_constructor",
             "defer_node": True,
             "node_config": {
@@ -352,6 +361,7 @@ workflow_graph_schema = {
         # 7. Content Generation LLM
         "content_generation_llm": {
             "node_id": "content_generation_llm",
+            "node_category": "content_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -372,6 +382,7 @@ workflow_graph_schema = {
         # 7b. Store Initial Draft
         "store_draft": {
             "node_id": "store_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -412,6 +423,7 @@ workflow_graph_schema = {
         # 7c. Save Draft (manual upsert)
         "save_draft": {
             "node_id": "save_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -451,6 +463,7 @@ workflow_graph_schema = {
         # 7d. Save Final Draft
         "save_final_draft": {
             "node_id": "save_final_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -490,6 +503,7 @@ workflow_graph_schema = {
         # 8. HITL Approval Node
         "content_approval": {
             "node_id": "content_approval",
+            "node_category": "feedback_refinement",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -523,6 +537,7 @@ workflow_graph_schema = {
         # 8b. Delete Draft on Cancel
         "delete_draft_on_cancel": {
             "node_id": "delete_draft_on_cancel",
+            "node_category": "system",
             "node_name": "delete_customer_data",
             "node_config": {
                 "search_params": {
@@ -537,6 +552,7 @@ workflow_graph_schema = {
         # 9. Route from HITL (content approval)
         "route_content_approval": {
             "node_id": "route_content_approval",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["save_final_draft", "check_iteration_limit", "delete_draft_on_cancel", "save_draft"],
@@ -570,6 +586,7 @@ workflow_graph_schema = {
         # 10. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "feedback_refinement",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -593,6 +610,7 @@ workflow_graph_schema = {
         # 11. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_feedback_analysis_prompt", "output_node"],
@@ -615,6 +633,7 @@ workflow_graph_schema = {
         # 12. Transform HITL Additional Files Format
         "transform_hitl_additional_files_config": {
             "node_id": "transform_hitl_additional_files_config",
+            "node_category": "feedback_refinement",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -632,6 +651,7 @@ workflow_graph_schema = {
         # 13. Load HITL Additional User Files
         "load_hitl_additional_user_files_node": {
             "node_id": "load_hitl_additional_user_files_node",
+            "node_category": "feedback_refinement",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -670,6 +690,7 @@ workflow_graph_schema = {
         # 13. Feedback Analysis LLM with Tools
         "feedback_analysis_llm": {
             "node_id": "feedback_analysis_llm",
+            "node_category": "feedback_refinement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -690,6 +711,7 @@ workflow_graph_schema = {
         # 14. Construct Feedback-based Content Update Prompt
         "construct_content_update_prompt": {
             "node_id": "construct_content_update_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -714,6 +736,7 @@ workflow_graph_schema = {
         # 16. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

@@ -92,6 +92,7 @@ workflow_graph_schema = {
         # 1. Input Node - Receives selected topic and user input
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -135,6 +136,7 @@ workflow_graph_schema = {
         # 2. Transform Additional User Files Format (if provided)
         "transform_additional_files_config": {
             "node_id": "transform_additional_files_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -151,7 +153,8 @@ workflow_graph_schema = {
         
         # 3. Load Additional User Files (conditional)
         "load_additional_user_files_node": {
-            "node_id": "load_additional_user_files_node", 
+            "node_id": "load_additional_user_files_node",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -161,6 +164,7 @@ workflow_graph_schema = {
         # 4. Load Company and Content Strategy Documents
         "load_company_and_playbook": {
             "node_id": "load_company_and_playbook",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "global_is_shared": False,
@@ -190,6 +194,7 @@ workflow_graph_schema = {
         # 2.5 Google Research - Prompt Constructor
         "construct_google_research_prompt": {
             "node_id": "construct_google_research_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -221,6 +226,7 @@ workflow_graph_schema = {
         # 2.6 Google Research - LLM Node (Perplexity)
         "google_research_llm": {
             "node_id": "google_research_llm",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -241,6 +247,7 @@ workflow_graph_schema = {
         # 2.7 Reddit Research - Prompt Constructor
         "construct_reddit_research_prompt": {
             "node_id": "construct_reddit_research_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -274,6 +281,7 @@ workflow_graph_schema = {
         # 2.8 Reddit Research - LLM Node (Perplexity)
         "reddit_research_llm": {
             "node_id": "reddit_research_llm",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -300,6 +308,7 @@ workflow_graph_schema = {
         # 3. Knowledge Enrichment - Prompt Constructor
         "construct_knowledge_enrichment_prompt": {
             "node_id": "construct_knowledge_enrichment_prompt",
+            "node_category": "knowledge_enrichment",
             "node_name": "prompt_constructor",
             "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
@@ -338,6 +347,7 @@ workflow_graph_schema = {
         # 3.1 Knowledge Enrichment - LLM Node with Document Tools
         "knowledge_enrichment_llm": {
             "node_id": "knowledge_enrichment_llm",
+            "node_category": "knowledge_enrichment",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -380,6 +390,7 @@ workflow_graph_schema = {
         # 3.2 Check Conditions for Knowledge Enrichment Tool Use
         "check_conditions": {
             "node_id": "check_conditions",
+            "node_category": "knowledge_enrichment",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -419,6 +430,7 @@ workflow_graph_schema = {
         # 3.3 Route Based on Conditions (no HITL)
         "route_from_conditions": {
             "node_id": "route_from_conditions",
+            "node_category": "knowledge_enrichment",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["tool_executor", "construct_brief_generation_prompt"],
@@ -447,6 +459,7 @@ workflow_graph_schema = {
         # 3.4 Tool Executor (executes document tools)
         "tool_executor": {
             "node_id": "tool_executor",
+            "node_category": "system",
             "node_name": "tool_executor",
             "node_config": {
                 "default_timeout": 30.0,
@@ -462,6 +475,7 @@ workflow_graph_schema = {
         # 4. Brief Generation - Prompt Constructor
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "defer_node": True,
             "node_config": {
@@ -504,6 +518,7 @@ workflow_graph_schema = {
         # 4. Brief Generation - LLM Node
         "brief_generation_llm": {
             "node_id": "brief_generation_llm",
+            "node_category": "brief_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -524,6 +539,7 @@ workflow_graph_schema = {
         # 5. Save as Draft After Generation
         "save_as_draft_after_generation": {
             "node_id": "save_as_draft_after_generation",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -564,20 +580,21 @@ workflow_graph_schema = {
         # 6. Brief Approval - HITL Node
         "brief_approval_hitl": {
             "node_id": "brief_approval_hitl",
+            "node_category": "brief_generation",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
                 "fields": {
                     "user_brief_action": {
                         "type": "enum",
-                        "enum_values": ["complete", "revise_brief", "cancel_workflow", "draft"],
+                        "enum_values": ["complete", "provide_feedback", "cancel_workflow", "draft"],
                         "required": True,
                         "description": "User's decision on brief approval"
                     },
                     "revision_feedback": {
                         "type": "str",
                         "required": False,
-                        "description": "Feedback for brief revision (required if revise_brief)"
+                        "description": "Feedback for brief revision (required if provide_feedback)"
                     },
                     "updated_content_brief": {
                         "type": "dict",
@@ -597,6 +614,7 @@ workflow_graph_schema = {
         # 6.5 Transform Brief HITL Additional Files Format
         "transform_brief_hitl_additional_files_config": {
             "node_id": "transform_brief_hitl_additional_files_config",
+            "node_category": "brief_generation",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -614,6 +632,7 @@ workflow_graph_schema = {
         # 6.7 Load Brief HITL Additional User Files
         "load_brief_hitl_additional_user_files_node": {
             "node_id": "load_brief_hitl_additional_user_files_node",
+            "node_category": "brief_generation",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -623,6 +642,7 @@ workflow_graph_schema = {
         # 7. Route Brief Approval
         "route_brief_approval": {
             "node_id": "route_brief_approval",
+            "node_category": "brief_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["save_brief", "check_iteration_limit", "delete_on_cancel", "save_as_draft"],
@@ -636,7 +656,7 @@ workflow_graph_schema = {
                     {
                         "choice_id": "check_iteration_limit",
                         "input_path": "user_brief_action",
-                        "target_value": "revise_brief"
+                        "target_value": "provide_feedback"
                     },
                     {
                         "choice_id": "delete_on_cancel",
@@ -656,6 +676,7 @@ workflow_graph_schema = {
         # 8. Save Brief as Draft
         "save_as_draft": {
             "node_id": "save_as_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -696,6 +717,7 @@ workflow_graph_schema = {
         # 9. Delete on Cancel - Delete the saved brief document
         "delete_on_cancel": {
             "node_id": "delete_on_cancel",
+            "node_category": "system",
             "node_name": "delete_customer_data",
             "node_config": {
                 "search_params": {
@@ -710,6 +732,7 @@ workflow_graph_schema = {
         # 10. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "brief_generation",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -733,6 +756,7 @@ workflow_graph_schema = {
         # 11. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
+            "node_category": "brief_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_brief_feedback_prompt", "output_node"],
@@ -755,6 +779,7 @@ workflow_graph_schema = {
         # 12. Brief Feedback Prompt Constructor
         "construct_brief_feedback_prompt": {
             "node_id": "construct_brief_feedback_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
@@ -797,6 +822,7 @@ workflow_graph_schema = {
         # 13. Brief Feedback Analysis
         "analyze_brief_feedback": {
             "node_id": "analyze_brief_feedback",
+            "node_category": "brief_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -817,6 +843,7 @@ workflow_graph_schema = {
         # 14. Brief Revision - Enhanced Prompt Constructor
         "construct_brief_revision_prompt": {
             "node_id": "construct_brief_revision_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -839,6 +866,7 @@ workflow_graph_schema = {
         # 16. Save Brief - Store Customer Data
         "save_brief": {
             "node_id": "save_brief",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -879,6 +907,7 @@ workflow_graph_schema = {
         # 18. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

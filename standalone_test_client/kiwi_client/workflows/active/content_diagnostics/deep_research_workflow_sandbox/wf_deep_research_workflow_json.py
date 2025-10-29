@@ -61,6 +61,7 @@ workflow_graph_schema = {
         # --- 1. Input Node with routing options ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -75,6 +76,7 @@ workflow_graph_schema = {
 
         "document_router": {
             "node_id": "document_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -93,6 +95,7 @@ workflow_graph_schema = {
         # --- 2. Load Company Data ---
         "load_company_data": {
             "node_id": "load_company_data",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -114,6 +117,7 @@ workflow_graph_schema = {
         # --- 3. Load LinkedIn Data (conditional) ---
         "load_linkedin_data": {
             "node_id": "load_linkedin_data",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -143,6 +147,7 @@ workflow_graph_schema = {
         # --- 5. Prompt Constructors for Different Research Types ---
         "construct_content_strategy_prompt": {
             "node_id": "construct_content_strategy_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -171,6 +176,7 @@ workflow_graph_schema = {
         
         "construct_linkedin_prompt": {
             "node_id": "construct_linkedin_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -202,6 +208,7 @@ workflow_graph_schema = {
         # --- 7. Deep Research LLM Nodes for different research types ---
         "deep_researcher_content_strategy": {
             "node_id": "deep_researcher_content_strategy",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -230,6 +237,7 @@ workflow_graph_schema = {
         
         "deep_researcher_linkedin": {
             "node_id": "deep_researcher_linkedin",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -259,6 +267,7 @@ workflow_graph_schema = {
         # --- 9. Store Research Results - Separate nodes for each report type ---
         "store_blog_research": {
             "node_id": "store_blog_research",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": BLOG_DEEP_RESEARCH_REPORT_IS_VERSIONED, "operation": "upsert"},
@@ -281,6 +290,7 @@ workflow_graph_schema = {
         
         "store_linkedin_research": {
             "node_id": "store_linkedin_research",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": LINKEDIN_DEEP_RESEARCH_REPORT_IS_VERSIONED, "operation": "upsert"},
@@ -304,6 +314,7 @@ workflow_graph_schema = {
         # --- 10. Output Node ---
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "defer_node": True,
             "node_config": {}

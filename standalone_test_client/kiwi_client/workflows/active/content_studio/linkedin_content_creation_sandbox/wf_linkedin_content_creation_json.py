@@ -43,6 +43,7 @@ workflow_graph_schema = {
     # --- 1. Input Node ---
     "input_node": {
       "node_id": "input_node",
+      "node_category": "system",
       "node_name": "input_node",
       "node_config": {
       },
@@ -65,6 +66,7 @@ workflow_graph_schema = {
     # --- 2. Transform Additional Files Config ---
     "transform_additional_files_config": {
         "node_id": "transform_additional_files_config",
+        "node_category": "system",
         "node_name": "transform_data",
         "node_config": {
             "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -82,6 +84,7 @@ workflow_graph_schema = {
     # --- 3. Load Additional User Files (conditional) ---
     "load_additional_user_files_node": {
         "node_id": "load_additional_user_files_node",
+        "node_category": "system",
         "node_name": "load_customer_data",
         "node_config": {
             "load_configs_input_path": "transformed_data"
@@ -91,6 +94,7 @@ workflow_graph_schema = {
     # --- 4. Load Customer Context Documents and Scraped Posts (Single Node) ---
     "load_all_context_docs": {
         "node_id": "load_all_context_docs",
+        "node_category": "system",
         "node_name": "load_customer_data",
         "node_config": {
             "load_paths": [
@@ -128,6 +132,7 @@ workflow_graph_schema = {
     # --- 5. Construct Initial Prompt ---
     "construct_initial_prompt": {
       "node_id": "construct_initial_prompt",
+      "node_category": "content_generation",
       "node_name": "prompt_constructor",
       "enable_node_fan_in": True, # Wait for all inputs before running
       "node_config": {
@@ -166,6 +171,7 @@ workflow_graph_schema = {
     # --- 4. Generate Content (Structured) ---
     "generate_content": {
       "node_id": "generate_content",
+      "node_category": "content_generation",
       "node_name": "llm",
       "node_config": {
         "llm_config": {
@@ -184,8 +190,9 @@ workflow_graph_schema = {
     },
 
     # --- 5. Store Draft ---
-    "store_draft": {  
+    "store_draft": {
       "node_id": "store_draft",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
         "global_versioning": {
@@ -228,6 +235,7 @@ workflow_graph_schema = {
     # --- 5b. Save Draft (manual save similar to save_brief) ---
     "save_draft": {
       "node_id": "save_draft",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
         "global_versioning": {
@@ -268,6 +276,7 @@ workflow_graph_schema = {
     # --- 5c. Save Final Draft (similar to save_final_brief) ---
     "save_final_draft": {
       "node_id": "save_final_draft",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
         "global_versioning": {
@@ -306,8 +315,9 @@ workflow_graph_schema = {
     },
 
     # --- 6. Human Review ---
-    "capture_approval": {  
+    "capture_approval": {
       "node_id": "capture_approval",
+      "node_category": "feedback_refinement",
       "node_name": "hitl_node__default",
       "node_config": {},
       "dynamic_output_schema": {
@@ -328,6 +338,7 @@ workflow_graph_schema = {
     # --- 7. Route Based on Approval ---
     "route_on_approval": {
       "node_id": "route_on_approval",
+      "node_category": "feedback_refinement",
       "node_name": "router_node",
       "node_config": {
         "choices": ["check_iteration_limit", "delete_draft_on_cancel", "save_draft", "save_final_draft"], # Node IDs to route to
@@ -361,6 +372,7 @@ workflow_graph_schema = {
     # --- 7b. Delete Draft on Cancel ---
     "delete_draft_on_cancel": {
         "node_id": "delete_draft_on_cancel",
+        "node_category": "system",
         "node_name": "delete_customer_data",
         "node_config": {
             "search_params": {
@@ -375,6 +387,7 @@ workflow_graph_schema = {
     # --- 8. Check Iteration Limit ---
     "check_iteration_limit": {
         "node_id": "check_iteration_limit",
+        "node_category": "feedback_refinement",
         "node_name": "if_else_condition",
         "node_config": {
             "tagged_conditions": [
@@ -398,6 +411,7 @@ workflow_graph_schema = {
     # --- 8b. Route Based on Iteration Limit Check ---
     "route_on_limit_check": {  # NOTE: this demonstrates 3 diff ways of checking IFElse outputs to perform routing -> check tag or check overall result (via condition or branch name) across all tags!
         "node_id": "route_on_limit_check",
+        "node_category": "feedback_refinement",
         "node_name": "router_node",
         "node_config": {
             "choices": ["route_to_initial_or_additional_prompt", "output_node"], # Node IDs to route to
@@ -420,6 +434,7 @@ workflow_graph_schema = {
     # --- 7. Route Based on Approval ---
     "route_to_initial_or_additional_prompt": {
         "node_id": "route_to_initial_or_additional_prompt",
+        "node_category": "feedback_refinement",
         "node_name": "router_node",
         "node_config": {
             "choices": ["construct_user_feedback_initial_prompt", "construct_user_feedback_additional_prompt"],
@@ -438,6 +453,7 @@ workflow_graph_schema = {
     # --- Transform HITL Additional Files Config ---
     "transform_hitl_additional_files_config": {
         "node_id": "transform_hitl_additional_files_config",
+        "node_category": "feedback_refinement",
         "node_name": "transform_data",
         "node_config": {
             "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -455,6 +471,7 @@ workflow_graph_schema = {
     # --- Load HITL Additional User Files ---
     "load_hitl_additional_user_files_node": {
         "node_id": "load_hitl_additional_user_files_node",
+        "node_category": "feedback_refinement",
         "node_name": "load_customer_data",
         "node_config": {
             "load_configs_input_path": "transformed_data"
@@ -464,6 +481,7 @@ workflow_graph_schema = {
     # --- Construct Initial Feedback Prompt ---
     "construct_user_feedback_initial_prompt": {
         "node_id": "construct_user_feedback_initial_prompt",
+        "node_category": "feedback_refinement",
         "node_name": "prompt_constructor",
         "node_config": {
             "prompt_templates": {
@@ -498,6 +516,7 @@ workflow_graph_schema = {
     # --- Construct Additional Brief Prompt ---
     "construct_user_feedback_additional_prompt": {
         "node_id": "construct_user_feedback_additional_prompt",
+        "node_category": "feedback_refinement",
         "node_name": "prompt_constructor",
         "node_config": {
             "prompt_templates": {
@@ -524,6 +543,7 @@ workflow_graph_schema = {
     # --- 9. Interpret Feedback (Structured) ---
     "interpret_feedback": {
         "node_id": "interpret_feedback",
+        "node_category": "content_generation",
         "node_name": "llm",
         "node_config": {
             "llm_config": {
@@ -549,6 +569,7 @@ workflow_graph_schema = {
     # --- 10. Construct Rewrite Prompt ---
     "construct_rewrite_prompt": {  # NOTE: we don't need a system prompt since LLM will have access to message history with preexisting system prompt!
       "node_id": "construct_rewrite_prompt",
+      "node_category": "content_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -575,6 +596,7 @@ workflow_graph_schema = {
     # --- 12. Output Node ---
     "output_node": {
       "node_id": "output_node",
+      "node_category": "system",
       "node_name": "output_node",
       "node_config": {}
     }

@@ -76,6 +76,7 @@ workflow_graph_schema = {
         # --- 1. Input Node ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -102,6 +103,7 @@ workflow_graph_schema = {
         # --- 2. Load All Company Documents ---
         "load_company_documents": {
             "node_id": "load_company_documents",
+            "node_category": "system",
             "node_name": "load_multiple_customer_data",
             "node_config": {
                 "namespace_pattern": BLOG_UPLOADED_FILES_NAMESPACE_TEMPLATE,
@@ -119,6 +121,7 @@ workflow_graph_schema = {
         # --- 3. Load Company Goals Document ---
         "load_company_context": {
             "node_id": "load_company_context",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -137,6 +140,7 @@ workflow_graph_schema = {
                 # --- 3.7. Construct Perplexity Research Prompt (for sufficient content path) ---
         "construct_perplexity_research_prompt": {
             "node_id": "construct_perplexity_research_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -162,6 +166,7 @@ workflow_graph_schema = {
         # --- 3.8. Execute Perplexity Research (for sufficient content path) ---
         "execute_perplexity_research": {
             "node_id": "execute_perplexity_research",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -182,6 +187,7 @@ workflow_graph_schema = {
         # --- 3.5. Route Based on Content Sufficiency ---
         "route_content_path": {
             "node_id": "route_content_path",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["merge_document_lists", "batch_company_documents"],
@@ -205,6 +211,7 @@ workflow_graph_schema = {
         # --- 3.6. Merge Document Lists (for insufficient content path) ---
         "merge_document_lists": {
             "node_id": "merge_document_lists",
+            "node_category": "system",
             "node_name": "merge_aggregate",
             "node_config": {
                 "operations": [
@@ -233,6 +240,7 @@ workflow_graph_schema = {
         # --- 4a. Batch Documents for Insufficient Content Path ---
         "batch_merged_documents": {
             "node_id": "batch_merged_documents",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["construct_analysis_prompt"],
@@ -250,6 +258,7 @@ workflow_graph_schema = {
         # --- 4b. Batch Documents for Sufficient Content Path ---
         "batch_company_documents": {
             "node_id": "batch_company_documents",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["construct_analysis_prompt"],
@@ -267,6 +276,7 @@ workflow_graph_schema = {
         # --- 5. Construct Document Analysis Prompt ---
         "construct_analysis_prompt": {
             "node_id": "construct_analysis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -297,6 +307,7 @@ workflow_graph_schema = {
         # --- 6. Analyze Document Batch with LLM ---
         "analyze_documents": {
             "node_id": "analyze_documents",
+            "node_category": "analysis",
             "node_name": "llm",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -319,6 +330,7 @@ workflow_graph_schema = {
         # --- 7. Construct Unique Report Prompt ---
         "construct_unique_report_prompt": {
             "node_id": "construct_unique_report_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -347,6 +359,7 @@ workflow_graph_schema = {
         # --- 8. Generate Unique Report ---
         "generate_unique_report": {
             "node_id": "generate_unique_report",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -368,6 +381,7 @@ workflow_graph_schema = {
         # --- 9. Construct Reddit Query Generation Prompt ---
         "construct_query_generation_prompt": {
             "node_id": "construct_query_generation_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -393,6 +407,7 @@ workflow_graph_schema = {
         # --- 10. Generate Reddit Queries ---
         "generate_reddit_queries": {
             "node_id": "generate_reddit_queries",
+            "node_category": "research",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -414,6 +429,7 @@ workflow_graph_schema = {
         # --- 11. Route Reddit Queries for Individual Processing ---
         "route_reddit_queries": {
             "node_id": "route_reddit_queries",
+            "node_category": "system",
             "node_name": "map_list_router_node",
             "node_config": {
                 "choices": ["construct_reddit_search_prompt"],
@@ -431,6 +447,7 @@ workflow_graph_schema = {
         # --- 12. Construct Reddit Search Prompt ---
         "construct_reddit_search_prompt": {
             "node_id": "construct_reddit_search_prompt",
+            "node_category": "research",
             "node_name": "prompt_constructor",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -461,6 +478,7 @@ workflow_graph_schema = {
         # --- 13. Execute Reddit Research ---
         "reddit_research_llm": {
             "node_id": "reddit_research_llm",
+            "node_category": "research",
             "node_name": "llm",
             "private_input_mode": True,
             "output_private_output_to_central_state": True,
@@ -496,6 +514,7 @@ workflow_graph_schema = {
         # --- 14. Construct Final Insights Prompt ---
         "construct_final_insights_prompt": {
             "node_id": "construct_final_insights_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -526,6 +545,7 @@ workflow_graph_schema = {
         # --- 15. Generate Final Market Insights ---
         "generate_final_insights": {
             "node_id": "generate_final_insights",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -547,6 +567,7 @@ workflow_graph_schema = {
         # --- 16. Aggregate Both Reports ---
         "aggregate_reports": {
             "node_id": "aggregate_reports",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "mappings": [
@@ -565,6 +586,7 @@ workflow_graph_schema = {
         # --- 17. Store Aggregated Report ---
         "store_final_insights_report": {
             "node_id": "store_final_insights_report",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -589,6 +611,7 @@ workflow_graph_schema = {
         # --- 18. Output Node ---
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "enable_node_fan_in": True,
             "node_config": {}

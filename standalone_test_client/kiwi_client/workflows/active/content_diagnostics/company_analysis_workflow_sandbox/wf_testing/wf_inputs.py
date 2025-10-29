@@ -11,7 +11,7 @@ test_scenario = {
     "initial_inputs": {
         "company_name": test_sandbox_company_name,
         "scraped_data": [],  # Will be populated from web scraping
-        "has_insufficient_blog_and_page_count": True  # Test insufficient content path
+        "has_insufficient_blog_and_page_count": False  # Test insufficient content path
     }
 }
 

@@ -117,6 +117,7 @@ workflow_graph_schema = {
     # --- 1. Input Node ---
     "input_node": {
       "node_id": "input_node",
+      "node_category": "system",
       "node_name": "input_node",
       "node_config": {},
       "dynamic_output_schema": {
@@ -155,6 +156,7 @@ workflow_graph_schema = {
         # --- 5. Load Customer Context Documents ---
     "load_all_context_docs": {
         "node_id": "load_all_context_docs",
+        "node_category": "system",
         "node_name": "load_customer_data",
         "node_config": {
             "load_paths": [
@@ -184,6 +186,7 @@ workflow_graph_schema = {
     # --- 2. Load Previous Posts ---
     "load_previous_posts": {
         "node_id": "load_previous_posts",
+        "node_category": "system",
         "node_name": "load_multiple_customer_data",
         "node_config": {
             "namespace_pattern": BLOG_POST_NAMESPACE_TEMPLATE,
@@ -201,6 +204,7 @@ workflow_graph_schema = {
     # --- 3. Load Previous Topics ---
     "load_previous_topics": {
         "node_id": "load_previous_topics",
+        "node_category": "system",
         "node_name": "load_multiple_customer_data",
         "node_config": {
             "namespace_pattern": BLOG_TOPIC_IDEAS_CARD_NAMESPACE_TEMPLATE,
@@ -220,6 +224,7 @@ workflow_graph_schema = {
     # --- 4. Prepare Generation Context (Extract posts_per_week from playbook) ---
     "prepare_generation_context": {
       "node_id": "prepare_generation_context",
+      "node_category": "system",
       "node_name": "merge_aggregate",
       "enable_node_fan_in": True,
       "node_config": {
@@ -264,6 +269,7 @@ workflow_graph_schema = {
     # --- 5. Construct Theme Suggestion Prompt ---
     "construct_theme_prompt": {
       "node_id": "construct_theme_prompt",
+      "node_category": "theme_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -293,6 +299,7 @@ workflow_graph_schema = {
     # --- 6. Theme Suggestion LLM ---
     "theme_suggestion_llm": {
       "node_id": "theme_suggestion_llm",
+      "node_category": "theme_generation",
       "node_name": "llm",
       "node_config": {
         "llm_config": {
@@ -310,6 +317,7 @@ workflow_graph_schema = {
     # --- 7. Construct Research Prompt ---
     "construct_research_prompt": {
       "node_id": "construct_research_prompt",
+      "node_category": "theme_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -341,6 +349,7 @@ workflow_graph_schema = {
     # --- 8. Research LLM (Perplexity - Reddit only) ---
     "research_llm": {
       "node_id": "research_llm",
+      "node_category": "theme_generation",
       "node_name": "llm",
       "node_config": {
           "llm_config": {
@@ -361,6 +370,7 @@ workflow_graph_schema = {
     # --- 8.1 Check Theme Iteration ---
     "check_theme_iteration": {
       "node_id": "check_theme_iteration",
+      "node_category": "theme_generation",
       "node_name": "if_else_condition",
       "node_config": {
         "tagged_conditions": [
@@ -384,6 +394,7 @@ workflow_graph_schema = {
     # --- 8.2 Router Based on Theme Iteration ---
     "route_on_theme_iteration": {
       "node_id": "route_on_theme_iteration",
+      "node_category": "theme_generation",
       "node_name": "router_node",
       "node_config": {
         "choices": ["construct_topic_prompt", "construct_additional_topic_prompt"],
@@ -406,6 +417,7 @@ workflow_graph_schema = {
     # --- 8.3 Construct Additional Topic Prompt ---
     "construct_additional_topic_prompt": {
       "node_id": "construct_additional_topic_prompt",
+      "node_category": "topic_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -431,6 +443,7 @@ workflow_graph_schema = {
     # --- 9. Construct Topic Prompt ---
     "construct_topic_prompt": {
       "node_id": "construct_topic_prompt",
+      "node_category": "topic_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -469,6 +482,7 @@ workflow_graph_schema = {
     # --- 10. Generate Topics (LLM) ---
     "generate_topics": {
       "node_id": "generate_topics",
+      "node_category": "topic_generation",
       "node_name": "llm",
       "node_config": {
           "llm_config": {
@@ -486,6 +500,7 @@ workflow_graph_schema = {
     # --- 11. Check Topic Count ---
     "check_topic_count": {
       "node_id": "check_topic_count",
+      "node_category": "topic_generation",
       "node_name": "if_else_condition",
       "node_config": {
         "tagged_conditions": [
@@ -509,6 +524,7 @@ workflow_graph_schema = {
     # --- 12. Router Based on Topic Count Check ---
     "route_on_topic_count": {
       "node_id": "route_on_topic_count",
+      "node_category": "topic_generation",
       "node_name": "router_node",
       "node_config": {
         "choices": ["construct_additional_theme_prompt", "construct_delete_search_params"],
@@ -531,6 +547,7 @@ workflow_graph_schema = {
     # --- 13. Construct Additional Theme Prompt ---
     "construct_additional_theme_prompt": {
       "node_id": "construct_additional_theme_prompt",
+      "node_category": "theme_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -553,6 +570,7 @@ workflow_graph_schema = {
     # --- Construct Delete Search Params ---
     "construct_delete_search_params": {
       "node_id": "construct_delete_search_params",
+      "node_category": "system",
       "node_name": "transform_data",
       "node_config": {
         "merge_conflicting_paths_as_list": False,
@@ -569,6 +587,7 @@ workflow_graph_schema = {
     # --- Delete Existing Entries in Window ---
     "delete_previous_entries": {
       "node_id": "delete_previous_entries",
+      "node_category": "system",
       "node_name": "delete_customer_data",
       "node_config": {
         "search_params_input_path": "search_params"
@@ -578,6 +597,7 @@ workflow_graph_schema = {
     # --- 14. Store All Generated Topics ---
     "store_all_topics": {
       "node_id": "store_all_topics",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
           "global_versioning": { 
@@ -605,6 +625,7 @@ workflow_graph_schema = {
     # --- 15. Output Node ---
     "output_node": {
       "node_id": "output_node",
+      "node_category": "system",
       "node_name": "output_node",
       "node_config": {},
     },

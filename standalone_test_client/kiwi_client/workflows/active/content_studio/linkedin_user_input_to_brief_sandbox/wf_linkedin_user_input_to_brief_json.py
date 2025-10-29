@@ -98,6 +98,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -136,6 +137,7 @@ workflow_graph_schema = {
         # 2. Transform Additional User Files Format (if provided)
         "transform_additional_files_config": {
             "node_id": "transform_additional_files_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -153,6 +155,7 @@ workflow_graph_schema = {
         # 3. Load Additional User Files (conditional)
         "load_additional_user_files_node": {
             "node_id": "load_additional_user_files_node",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -162,6 +165,7 @@ workflow_graph_schema = {
         # 4. Load Customer Documents (Content Strategy and Executive Profile)
         "load_customer_documents": {
             "node_id": "load_customer_documents",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "global_is_shared": False,
@@ -191,6 +195,7 @@ workflow_graph_schema = {
         # 3. Topic Generation - Prompt Constructor
         "construct_topic_generation_prompt": {
             "node_id": "construct_topic_generation_prompt",
+            "node_category": "topic_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -220,6 +225,7 @@ workflow_graph_schema = {
         # 4. Topic Generation - LLM Node
         "topic_generation_llm": {
             "node_id": "topic_generation_llm",
+            "node_category": "topic_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -240,6 +246,7 @@ workflow_graph_schema = {
         # 5. Topic Selection - HITL Node
         "topic_selection_hitl": {
             "node_id": "topic_selection_hitl",
+            "node_category": "topic_generation",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -273,6 +280,7 @@ workflow_graph_schema = {
         # 6.1. Transform Topic HITL Additional Files Format
         "transform_topic_hitl_additional_files_config": {
             "node_id": "transform_topic_hitl_additional_files_config",
+            "node_category": "topic_generation",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -290,6 +298,7 @@ workflow_graph_schema = {
         # 6.2. Load Topic HITL Additional User Files
         "load_topic_hitl_additional_user_files_node": {
             "node_id": "load_topic_hitl_additional_user_files_node",
+            "node_category": "topic_generation",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -299,6 +308,7 @@ workflow_graph_schema = {
         # 6.3. Topic Feedback Prompt Constructor
         "construct_topic_feedback_prompt": {
             "node_id": "construct_topic_feedback_prompt",
+            "node_category": "topic_generation",
             "node_name": "prompt_constructor",
             "defer_node": True,  # Wait for all data loads before proceeding
             "node_config": {
@@ -335,6 +345,7 @@ workflow_graph_schema = {
         # 6.4. Topic Feedback Analysis - Analyze user feedback before topic regeneration
         "analyze_topic_feedback": {
             "node_id": "analyze_topic_feedback",
+            "node_category": "topic_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -355,6 +366,7 @@ workflow_graph_schema = {
         # 6.5. Route Topic Selection
         "route_topic_selection": {
             "node_id": "route_topic_selection",
+            "node_category": "topic_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["filter_selected_topic", "check_topic_iteration_limit", "output_node"],
@@ -383,6 +395,7 @@ workflow_graph_schema = {
         # 6.5. Check Topic Iteration Limit
         "check_topic_iteration_limit": {
             "node_id": "check_topic_iteration_limit",
+            "node_category": "topic_generation",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -406,6 +419,7 @@ workflow_graph_schema = {
         # 6.6. Route Based on Topic Iteration Limit Check
         "route_on_topic_limit_check": {
             "node_id": "route_on_topic_limit_check",
+            "node_category": "topic_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_topic_feedback_prompt", "output_node"],
@@ -428,6 +442,7 @@ workflow_graph_schema = {
         # 7. Topic Regeneration - Enhanced Prompt Constructor
         "construct_topic_regeneration_prompt": {
             "node_id": "construct_topic_regeneration_prompt",
+            "node_category": "topic_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -463,6 +478,7 @@ workflow_graph_schema = {
         # 8. Topic Regeneration - LLM Node
         "topic_regeneration_llm": {
             "node_id": "topic_regeneration_llm",
+            "node_category": "topic_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -483,6 +499,7 @@ workflow_graph_schema = {
         # 9. Filter Selected Topic
         "filter_selected_topic": {
             "node_id": "filter_selected_topic",
+            "node_category": "topic_generation",
             "node_name": "filter_data",
             "node_config": {
                 "targets": [
@@ -508,6 +525,7 @@ workflow_graph_schema = {
         # 10. Knowledge Base Query - Prompt Constructor
         "construct_knowledge_base_query_prompt": {
             "node_id": "construct_knowledge_base_query_prompt",
+            "node_category": "knowledge_enrichment",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -537,6 +555,7 @@ workflow_graph_schema = {
         # 11. Knowledge Base Query - LLM Node
         "knowledge_base_query_llm": {
             "node_id": "knowledge_base_query_llm",
+            "node_category": "knowledge_enrichment",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -557,6 +576,7 @@ workflow_graph_schema = {
         # 12. Brief Generation - Prompt Constructor
         "construct_brief_generation_prompt": {
             "node_id": "construct_brief_generation_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -590,6 +610,7 @@ workflow_graph_schema = {
         # 13. Brief Generation - LLM Node
         "brief_generation_llm": {
             "node_id": "brief_generation_llm",
+            "node_category": "brief_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -609,6 +630,7 @@ workflow_graph_schema = {
 
         "save_as_draft_after_brief_generation": {
             "node_id": "save_as_draft_after_brief_generation",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -649,6 +671,7 @@ workflow_graph_schema = {
         # 14. Brief Approval - HITL Node
         "brief_approval_hitl": {
             "node_id": "brief_approval_hitl",
+            "node_category": "brief_generation",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -682,6 +705,7 @@ workflow_graph_schema = {
         # 14.1. Transform Brief HITL Additional Files Format
         "transform_brief_hitl_additional_files_config": {
             "node_id": "transform_brief_hitl_additional_files_config",
+            "node_category": "brief_generation",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -699,6 +723,7 @@ workflow_graph_schema = {
         # 14.2. Load Brief HITL Additional User Files
         "load_brief_hitl_additional_user_files_node": {
             "node_id": "load_brief_hitl_additional_user_files_node",
+            "node_category": "brief_generation",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -708,6 +733,7 @@ workflow_graph_schema = {
         # 15. Route Brief Approval
         "route_brief_approval": {
             "node_id": "route_brief_approval",
+            "node_category": "brief_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["check_iteration_limit", "delete_draft_brief", "save_brief", "save_final_brief"],
@@ -740,6 +766,7 @@ workflow_graph_schema = {
 
         "save_brief": {
             "node_id": "save_brief",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -776,6 +803,7 @@ workflow_graph_schema = {
         # 16. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "brief_generation",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -799,6 +827,7 @@ workflow_graph_schema = {
         # 17. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
+            "node_category": "brief_generation",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_brief_feedback_prompt", "output_node"],
@@ -821,6 +850,7 @@ workflow_graph_schema = {
         # 18. Brief Feedback Prompt Constructor
         "construct_brief_feedback_prompt": {
             "node_id": "construct_brief_feedback_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -856,6 +886,7 @@ workflow_graph_schema = {
         # 19. Brief Feedback Analysis - Analyze user feedback before revision
         "analyze_brief_feedback": {
             "node_id": "analyze_brief_feedback",
+            "node_category": "brief_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -876,6 +907,7 @@ workflow_graph_schema = {
         # 20. Brief Revision - Enhanced Prompt Constructor
         "construct_brief_revision_prompt": {
             "node_id": "construct_brief_revision_prompt",
+            "node_category": "brief_generation",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -903,6 +935,7 @@ workflow_graph_schema = {
         # 21. Brief Revision - LLM Node
         "brief_revision_llm": {
             "node_id": "brief_revision_llm",
+            "node_category": "brief_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -923,6 +956,7 @@ workflow_graph_schema = {
         # 22. Save Brief - Store Customer Data
         "save_final_brief": {
             "node_id": "save_final_brief",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -962,7 +996,8 @@ workflow_graph_schema = {
         
         # 22.5. Delete Draft Brief - When user cancels at brief approval
         "delete_draft_brief": {
-            "node_id": "delete_draft_brief", 
+            "node_id": "delete_draft_brief",
+            "node_category": "system", 
             "node_name": "delete_customer_data",
             "node_config": {
                 "search_params": {
@@ -977,6 +1012,7 @@ workflow_graph_schema = {
         # 23. Extract Document Name - Transform Node
         "extract_document_name": {
             "node_id": "extract_document_name",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "mappings": [
@@ -991,6 +1027,7 @@ workflow_graph_schema = {
         # 24. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

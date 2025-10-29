@@ -103,6 +103,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -141,6 +142,7 @@ workflow_graph_schema = {
         # 2. Load Company Document
         "load_company_doc": {
             "node_id": "load_company_doc",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -162,6 +164,7 @@ workflow_graph_schema = {
         # 3. Analysis Trigger Router
         "analysis_trigger_router": {
             "node_id": "analysis_trigger_router",
+            "node_category": "content_analysis",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -193,6 +196,7 @@ workflow_graph_schema = {
         # 4a. Content Analyzer - Prompt Constructor
         "construct_content_analyzer_prompt": {
             "node_id": "construct_content_analyzer_prompt",
+            "node_category": "content_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -222,6 +226,7 @@ workflow_graph_schema = {
         # 4b. Content Analyzer - LLM Node
         "content_analyzer_llm": {
             "node_id": "content_analyzer_llm",
+            "node_category": "content_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -242,6 +247,7 @@ workflow_graph_schema = {
         # 5a. SEO Intent Analyzer - Prompt Constructor
         "construct_seo_intent_analyzer_prompt": {
             "node_id": "construct_seo_intent_analyzer_prompt",
+            "node_category": "content_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -273,6 +279,7 @@ workflow_graph_schema = {
         # 5b. SEO Intent Analyzer - LLM Node
         "seo_intent_analyzer_llm": {
             "node_id": "seo_intent_analyzer_llm",
+            "node_category": "content_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -293,6 +300,7 @@ workflow_graph_schema = {
         # 6a. Content Gap Finder - Prompt Constructor
         "construct_content_gap_finder_prompt": {
             "node_id": "construct_content_gap_finder_prompt",
+            "node_category": "content_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -318,6 +326,7 @@ workflow_graph_schema = {
         # 6b. Content Gap Finder - LLM Node (with web search)
         "content_gap_finder_llm": {
             "node_id": "content_gap_finder_llm",
+            "node_category": "content_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -338,6 +347,7 @@ workflow_graph_schema = {
         # 7. Analysis Review - HITL Node (receives all three analysis results directly)
         "analysis_review_hitl": {
             "node_id": "analysis_review_hitl",
+            "node_category": "content_analysis",
             "node_name": "hitl_node__default",
             "enable_node_fan_in": True,
             "node_config": {},
@@ -380,6 +390,7 @@ workflow_graph_schema = {
         # 8a. Content Gap Improvement - Prompt Constructor
         "construct_content_gap_improvement_prompt": {
             "node_id": "construct_content_gap_improvement_prompt",
+            "node_category": "content_improvement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -409,6 +420,7 @@ workflow_graph_schema = {
         # 8b. Content Gap Improvement - LLM Node
         "content_gap_improvement_llm": {
             "node_id": "content_gap_improvement_llm",
+            "node_category": "content_improvement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -425,6 +437,7 @@ workflow_graph_schema = {
         # 9a. SEO Intent Improvement - Prompt Constructor
         "construct_seo_intent_improvement_prompt": {
             "node_id": "construct_seo_intent_improvement_prompt",
+            "node_category": "content_improvement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -454,6 +467,7 @@ workflow_graph_schema = {
         # 9b. SEO Intent Improvement - LLM Node
         "seo_intent_improvement_llm": {
             "node_id": "seo_intent_improvement_llm",
+            "node_category": "content_improvement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -470,6 +484,7 @@ workflow_graph_schema = {
         # 10a. Structure Readability Improvement - Prompt Constructor
         "construct_structure_readability_improvement_prompt": {
             "node_id": "construct_structure_readability_improvement_prompt",
+            "node_category": "content_improvement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -499,6 +514,7 @@ workflow_graph_schema = {
         # 10b. Structure Readability Improvement - LLM Node
         "structure_readability_improvement_llm": {
             "node_id": "structure_readability_improvement_llm",
+            "node_category": "content_improvement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -519,6 +535,7 @@ workflow_graph_schema = {
         # 11. Final Approval - HITL Node
         "final_approval_hitl": {
             "node_id": "final_approval_hitl",
+            "node_category": "feedback_refinement",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -546,6 +563,7 @@ workflow_graph_schema = {
         # 12. Route Final Approval
         "route_final_approval": {
             "node_id": "route_final_approval",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["save_blog_post", "check_iteration_limit", "delete_blog_post", "save_draft"],
@@ -579,6 +597,7 @@ workflow_graph_schema = {
         # 13. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "feedback_refinement",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -602,6 +621,7 @@ workflow_graph_schema = {
         # 14. Route Based on Iteration Limit Check
         "route_on_limit_check": {
             "node_id": "route_on_limit_check",
+            "node_category": "feedback_refinement",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["construct_feedback_analysis_prompt", "output_node"],
@@ -624,6 +644,7 @@ workflow_graph_schema = {
         # 15. Feedback Analysis - Prompt Constructor
         "construct_feedback_analysis_prompt": {
             "node_id": "construct_feedback_analysis_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -651,6 +672,7 @@ workflow_graph_schema = {
         # 13b. Feedback Analysis - LLM Node
         "feedback_analysis_llm": {
             "node_id": "feedback_analysis_llm",
+            "node_category": "feedback_refinement",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -671,6 +693,7 @@ workflow_graph_schema = {
         # 14. Save Blog Post
         "save_blog_post": {
             "node_id": "save_blog_post",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -712,6 +735,7 @@ workflow_graph_schema = {
         # 14a. Save as Draft (Store Customer Data)
         "save_draft": {
             "node_id": "save_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {
@@ -751,6 +775,7 @@ workflow_graph_schema = {
         # 14b. Delete Blog Post on Cancel
         "delete_blog_post": {
             "node_id": "delete_blog_post",
+            "node_category": "system",
             "node_name": "delete_customer_data",
             "node_config": {
                 "search_params": {
@@ -765,6 +790,7 @@ workflow_graph_schema = {
         # 15. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

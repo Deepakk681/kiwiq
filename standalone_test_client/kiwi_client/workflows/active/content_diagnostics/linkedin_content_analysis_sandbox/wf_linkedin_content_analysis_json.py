@@ -64,6 +64,7 @@ workflow_graph_schema = {
     # --- 1. Input Node ---
     "input_node": {
       "node_id": "input_node",
+      "node_category": "system",
       "node_name": "input_node",
       "node_config": {},
       "dynamic_output_schema": {
@@ -76,6 +77,7 @@ workflow_graph_schema = {
     # --- 2. Load Posts ---
     "load_posts": {
       "node_id": "load_posts",
+      "node_category": "system",
       "node_name": "load_customer_data",
       "node_config": {
           # Assumes posts were saved unversioned by the scraping workflow
@@ -105,6 +107,7 @@ workflow_graph_schema = {
     # --- 4. Extract Themes (using LLM) ---
     "construct_theme_extraction_prompt": {
       "node_id": "construct_theme_extraction_prompt",
+      "node_category": "analysis",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -133,6 +136,7 @@ workflow_graph_schema = {
     },
     "extract_themes": {
         "node_id": "extract_themes",
+        "node_category": "analysis",
         "node_name": "llm",
         "node_config": {
             "llm_config": {
@@ -153,6 +157,7 @@ workflow_graph_schema = {
     # --- 5. Batch Posts (using MapListRouterNode) ---
     "batch_and_route_posts": {
         "node_id": "batch_and_route_posts",
+        "node_category": "system",
         "node_name": "map_list_router_node",
         "node_config": {
             "choices": ["construct_classification_prompt"], # Target node for each batch
@@ -173,6 +178,7 @@ workflow_graph_schema = {
     # --- 6. Classify Posts per Batch (using LLM) ---
     "construct_classification_prompt": {
       "node_id": "construct_classification_prompt",
+      "node_category": "analysis",
       "node_name": "prompt_constructor",
       "private_input_mode": True, # Receives input from batch_and_route_posts
       "output_private_output_to_central_state": True,
@@ -205,6 +211,7 @@ workflow_graph_schema = {
     },
     "classify_batch": {
         "node_id": "classify_batch",
+        "node_category": "analysis",
         "node_name": "llm",
         "private_input_mode": True, # Receives input from construct_classification_prompt
         "output_private_output_to_central_state": True,
@@ -229,6 +236,7 @@ workflow_graph_schema = {
     # Using merge_aggregate node to flatten the list.
     "flatten_classifications": {
         "node_id": "flatten_classifications",
+        "node_category": "system",
         "node_name": "merge_aggregate", # Use merge_aggregate for list operations
         "node_config": {
             "operations": [
@@ -259,6 +267,7 @@ workflow_graph_schema = {
     # --- 7b. Join Classifications to Posts ---
     "join_classifications_to_posts": {
         "node_id": "join_classifications_to_posts",
+        "node_category": "system",
         "node_name": "data_join_data", # Use the DataJoinNode
         "node_config": {
             "joins": [
@@ -279,6 +288,7 @@ workflow_graph_schema = {
     # --- 7c. Group Posts under Themes ---
     "group_posts_under_themes": {
         "node_id": "group_posts_under_themes",
+        "node_category": "system",
         "node_name": "data_join_data",
         "node_config": {
             "joins": [
@@ -301,6 +311,7 @@ workflow_graph_schema = {
     # --- 8. Analyze Each Theme Group (Map/Reduce Pattern) ---
     "route_theme_groups": {
         "node_id": "route_theme_groups",
+        "node_category": "system",
         "node_name": "map_list_router_node",
         "node_config": {
             "choices": ["construct_analysis_prompt"], # Target for each theme group
@@ -320,6 +331,7 @@ workflow_graph_schema = {
     },
     "construct_analysis_prompt": {
       "node_id": "construct_analysis_prompt",
+      "node_category": "analysis",
       "node_name": "prompt_constructor",
       "private_input_mode": True,
       "output_private_output_to_central_state": True,
@@ -357,6 +369,7 @@ workflow_graph_schema = {
     },
     "analyze_theme_group": {
         "node_id": "analyze_theme_group",
+        "node_category": "analysis",
         "node_name": "llm",
         "private_input_mode": True,
         "output_private_output_to_central_state": True,
@@ -378,6 +391,7 @@ workflow_graph_schema = {
     # --- 9. Combine All Reports ---
     "combine_reports": {
         "node_id": "combine_reports",
+        "node_category": "system",
         "node_name": "transform_data", # Or a custom node
         "node_config": {
             "mappings": [
@@ -391,6 +405,7 @@ workflow_graph_schema = {
     # --- 10. Store Combined Results ---
     "store_analysis": {
       "node_id": "store_analysis",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
         "global_versioning": { "is_versioned": False, "operation": "upsert" },
@@ -415,6 +430,7 @@ workflow_graph_schema = {
     # --- 11. Output Node ---
     "output_node": {
       "node_id": "output_node",
+      "node_category": "system",
       "node_name": "output_node",
       "enable_node_fan_in": True,
       "node_config": {},

@@ -176,38 +176,6 @@ class ICP(BaseModel):
         description="Key challenges and pain points this ICP faces that our content should address"
     )
 
-# class ContentDistributionMix(BaseModel):
-#     """Content marketing funnel distribution strategy defining what percentage of content 
-#     should target each stage of the customer journey.
-    
-#     This mix ensures balanced content that nurtures prospects from awareness through retention.
-#     Total percentages may not sum to 100% if some stages are not prioritized.
-#     """
-#     awareness_percent: Optional[float] = Field(
-#         None, 
-#         ge=0, 
-#         le=100,
-#         description="Percentage of content focused on brand awareness and top-of-funnel education (0-100%)"
-#     )
-#     consideration_percent: Optional[float] = Field(
-#         None, 
-#         ge=0, 
-#         le=100,
-#         description="Percentage of content for prospects evaluating solutions (0-100%)"
-#     )
-#     purchase_percent: Optional[float] = Field(
-#         None, 
-#         ge=0, 
-#         le=100,
-#         description="Percentage of content supporting purchase decisions and conversion (0-100%)"
-#     )
-#     retention_percent: Optional[float] = Field(
-#         None, 
-#         ge=0, 
-#         le=100,
-#         description="Percentage of content for existing customers focused on retention and expansion (0-100%)"
-#     )
-
 class Competitor(BaseModel):
     """Competitive intelligence for content differentiation and market positioning.
     

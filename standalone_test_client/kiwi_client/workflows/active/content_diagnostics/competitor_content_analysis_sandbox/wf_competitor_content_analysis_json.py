@@ -50,6 +50,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -66,6 +67,7 @@ workflow_graph_schema = {
         # 2. Load Company Document
         "load_company_doc": {
             "node_id": "load_company_doc",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 # Use dynamic configuration from input
@@ -88,6 +90,7 @@ workflow_graph_schema = {
                  # 3. Distribute Competitors for Parallel Processing
          "distribute_competitors": {
              "node_id": "distribute_competitors",
+             "node_category": "system",
              "node_name": "map_list_router_node",
              "node_config": {
                  "choices": ["construct_analysis_prompt"],
@@ -105,6 +108,7 @@ workflow_graph_schema = {
          # 4. Construct Analysis Prompt
          "construct_analysis_prompt": {
              "node_id": "construct_analysis_prompt",
+             "node_category": "analysis",
              "node_name": "prompt_constructor",
              "private_input_mode": True,
              "output_private_output_to_central_state": True,
@@ -134,6 +138,7 @@ workflow_graph_schema = {
          # 5. Analyze Competitor Content Using Perplexity
          "analyze_competitor_content": {
              "node_id": "analyze_competitor_content",
+             "node_category": "analysis",
              "node_name": "llm",
              "private_input_mode": True,
              "output_private_output_to_central_state": True,
@@ -156,6 +161,7 @@ workflow_graph_schema = {
         # 7. Route Structured Data for Saving
         "route_for_saving": {
             "node_id": "route_for_saving",
+            "node_category": "system",
             "enable_node_fan_in": True,
             "node_name": "map_list_router_node",
             "node_config": {
@@ -174,6 +180,7 @@ workflow_graph_schema = {
         # 8. Save Competitor Analysis to Shared Documents
         "save_competitor_analysis": {
             "node_id": "save_competitor_analysis",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_is_shared": False,
@@ -204,6 +211,7 @@ workflow_graph_schema = {
                  # 6. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "enable_node_fan_in": True,
             "node_config": {}

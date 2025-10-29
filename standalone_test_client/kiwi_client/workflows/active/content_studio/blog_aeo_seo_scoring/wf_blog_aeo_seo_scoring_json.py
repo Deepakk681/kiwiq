@@ -55,6 +55,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -81,6 +82,7 @@ workflow_graph_schema = {
         # 2. Transform Document Config for Loading
         "transform_document_config": {
             "node_id": "transform_document_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "base_object": {
@@ -97,6 +99,7 @@ workflow_graph_schema = {
         # 3. Load Document Content
         "load_document": {
             "node_id": "load_document",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -106,6 +109,7 @@ workflow_graph_schema = {
         # 4. Construct B2B Blog Scoring Prompt
         "construct_seo_analysis_prompt": {
             "node_id": "construct_seo_analysis_prompt",
+            "node_category": "scoring_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -126,6 +130,7 @@ workflow_graph_schema = {
         # 5. B2B Blog Content Scoring LLM
         "seo_analysis_llm": {
             "node_id": "seo_analysis_llm",
+            "node_category": "scoring_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -148,6 +153,7 @@ workflow_graph_schema = {
         # 6. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

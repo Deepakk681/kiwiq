@@ -545,48 +545,69 @@ async def main():
     
     # Define multiple workflow configurations
     workflow_configs = [
-        # First workflow - content creation workflow
-        # {
-        #     "workflow_key": "concept_brainstorm_workflow",
-        #     "module_path": "kiwi_client.workflows.wf_concept_brainstorm_from_scratch",
-        # },
-        # {
-        #     "workflow_key": "linkedin_brief_to_blog_draft_workflow",
-        #     "module_path": "kiwi_client.workflows.wf_content_creation_workflow",
-        # },
-
+        # Content Diagnostics Workflows (10 workflows - ALREADY INGESTED)
         # {
         #     "workflow_key": "company_ai_visibility_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.company_ai_visibility_workflow_sandbox.wf_company_ai_visibility_workflow_json",
         # },
 
         # {
         #     "workflow_key": "linkedin_linkedin_scraping_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_linkedin_scraping",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.linkedin_scraping_sandbox.wf_linkedin_scraping_json",
         # },
-
 
         # {
         #     "workflow_key": "linkedin_linkedin_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_linkedin_content_analysis",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.linkedin_content_analysis_sandbox.wf_linkedin_content_analysis_json",
         # },
-        
 
         # {
         #     "workflow_key": "deep_research_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_deep_research_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.deep_research_workflow_sandbox.wf_deep_research_workflow_json",
         # },
 
         # {
         #     "workflow_key": "blog_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_blog_content_analysis",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.blog_content_analysis_sandbox.wf_blog_content_analysis_json",
         # },
 
         # {
         #     "workflow_key": "executive_ai_visibility_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_executive_ai_visibility",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.executive_ai_visibility_sandbox.wf_executive_ai_visibility_json",
         # },
 
+        # {
+        #     "workflow_key": "blog_competitor_content_analysis_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.competitor_content_analysis_sandbox.wf_competitor_content_analysis_json",
+        # },
+
+        # {
+        #     "workflow_key": "orchestrator_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.orchestrator_workflow_sandbox.wf_orchestrator_workflow_json",
+        # },
+
+        # {
+        #     "workflow_key": "company_ai_visibility_edge_case_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.company_ai_visibility_edge_case_sandbox.wf_company_ai_visibility_edge_case_json",
+        # },
+
+        # {
+        #     "workflow_key": "blog_company_analysis_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.company_analysis_workflow_sandbox.wf_company_analysis_workflow_json",
+        # },
+
+        # Labs Workflows (2 workflows - ALREADY INGESTED)
+        # {
+        #     "workflow_key": "file_summarisation_workflow",
+        #     "module_path": "kiwi_client.workflows.active.labs.file_summarisation_workflow.wf_file_summarisation_workflow_json",
+        # },
+
+        # {
+        #     "workflow_key": "on_demand_external_research_workflow",
+        #     "module_path": "kiwi_client.workflows.active.labs.on_demand_external_research.wf_on_demand_external_research_json",
+        # },
+
+        # Content Studio Workflows (8 workflows - ALREADY INGESTED)
         # {
         #     "workflow_key": "blog_content_calendar_entry",
         #     "module_path": "kiwi_client.workflows.active.content_studio.blog_content_calendar_entry_sandbox.wf_blog_content_calendar_entry_json",
@@ -598,70 +619,9 @@ async def main():
         # },
 
         # {
-        #     "workflow_key": "blog_competitor_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_competitor_content_analysis",
+        #     "workflow_key": "linkedin_brief_to_post_draft_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.linkedin_content_creation_sandbox.wf_linkedin_content_creation_json",
         # },
-
-        # {
-        #     "workflow_key": "orchestrator_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_orchestrator_workflow",
-        # },
-
-        # {
-        #     "workflow_key": "company_ai_visibility_edge_case_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_ai_visibility_edge_case",
-        # },
-
-        # {
-        #     "workflow_key": "blog_company_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics.wf_company_analysis_workflow",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_linkedin_linkedin_scraping_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_linkedin_scraping",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_linkedin_linkedin_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_linkedin_content_analysis",
-        # },
-        
-
-        # {
-        #     "workflow_key": "LITE_deep_research_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_deep_research_workflow",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_blog_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_blog_content_analysis",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_company_ai_visibility_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_company_ai_visibility_workflow",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_executive_ai_visibility_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_executive_ai_visibility",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_blog_competitor_content_analysis_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_competitor_content_analysis",
-        # },
-
-        # {
-        #     "workflow_key": "LITE_orchestrator_workflow",
-        #     "module_path": "kiwi_client.workflows.active.content_diagnostics_LITE_version.LITE_wf_orchestrator_workflow",
-        # },
-
-        {
-            "workflow_key": "linkedin_brief_to_post_draft_workflow",
-            "module_path": "kiwi_client.workflows.active.content_studio.linkedin_content_creation_sandbox.wf_linkedin_content_creation_json",
-        },
 
         # {
         #     "workflow_key": "linkedin_user_input_to_brief_workflow",
@@ -693,60 +653,33 @@ async def main():
         #     "module_path": "kiwi_client.workflows.active.content_studio.blog_calendar_selected_topic_to_brief_sandbox.wf_calendar_selected_topic_to_brief_json",
         # },
 
+        # NOTE: Following workflows commented out - modules don't exist yet
         # {
-        #     "workflow_key": "blog_content_playbook_workflow",
-        #     "module_path": "kiwi_client.workflows.active.playbook.wf_blog_content_playbook_generation",
+        #     "workflow_key": "blog_aeo_seo_scoring_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_blog_aeo_seo_scoring_json",
+        # },
+        # {
+        #     "workflow_key": "linkedin_content_calendar_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.linkedin_content_calendar_sandbox.wf_linkedin_content_calendar_json",
+        # },
+        # {
+        #     "workflow_key": "blog_content_calendar_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.blog_content_calendar_sandbox.wf_blog_content_calendar_json",
+        # },
+        # {
+        #     "workflow_key": "linkedin_content_backlog_workflow",
+        #     "module_path": "kiwi_client.workflows.active.content_studio.linkedin_content_backlog_sandbox.wf_linkedin_content_backlog_json",
         # },
 
-        # {
-        #     "workflow_key": "linkedin_content_playbook_workflow",
-        #     "module_path": "kiwi_client.workflows.active.playbook.wf_linkedin_content_playbook_generation",
-        # },
-
-
-        # {
-        #     "workflow_key": "content_creation_workflow",
-        #     "module_path": "kiwi_client.workflows.wf_content_generation",
-        #     "run_test": True,
-        #     "test_inputs_override": {
-        #         "post_uuid": "test_post_uuid",
-        #         "brief_docname": "brief_docname",
-        #         "entity_username": "example-user",
-        #     },
-        #     "hitl_inputs": [
-        #         # First HITL step - request revisions
-        #         {
-        #             "approval_status": "needs_work",
-        #             "feedback_text": "The content is good but needs to be more specific to SaaS companies. Also, can you add more statistics to back up the claims and make the call to action stronger?"
-        #         },
-        #         # Second HITL step - approve
-        #         {
-        #             "approval_status": "approved",
-        #             "feedback_text": ""
-        #         }
-        #     ]
-        # },
-        # Second workflow - example of another workflow (commented out for now)
-        # {
-        #     "workflow_key": "user_dna_workflow",
-        #     "module_path": "kiwi_client.workflows.wf_user_dna",
-        #     "run_test": False,
-        # }
-
-        # {
-        #     "workflow_key": "linkedin_content_strategy_workflow",
-        #     "module_path": "kiwi_client.workflows.deprecated.wf_content_strategy_workflow",
-        # },
-
-        # {
-        #     "workflow_key": "external_research_workflow",
-        #     "module_path": "kiwi_client.workflows.active.labs.wf_on_demand_external_research",
-        # },
-
+        # Playbook Workflows (2 workflows - READY TO INGEST with node_category updates)
         {
-            "workflow_key": "blog_aeo_seo_scoring_workflow",
-            "module_path": "kiwi_client.workflows.active.content_studio.blog_aeo_seo_scoring.wf_blog_aeo_seo_scoring_json",
-        }
+            "workflow_key": "blog_content_playbook_workflow",
+            "module_path": "kiwi_client.workflows.active.playbook.blog_content_playbook_generation.wf_blog_content_playbook_generation_json",
+        },
+        {
+            "workflow_key": "linkedin_content_playbook_workflow",
+            "module_path": "kiwi_client.workflows.active.playbook.linkedin_content_playbook_generation.wf_linkedin_content_playbook_generation_json",
+        },
     ]
     
     try:

@@ -62,6 +62,7 @@ workflow_graph_schema = {
         # 1. Input Node
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -105,6 +106,7 @@ workflow_graph_schema = {
         # 2. Check if docname is provided
         "check_docname_provided": {
             "node_id": "check_docname_provided",
+            "node_category": "system",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -125,6 +127,7 @@ workflow_graph_schema = {
         # 3. Route based on docname check
         "route_docname_check": {
             "node_id": "route_docname_check",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["generate_save_config", "construct_summary_name_prompt"],
@@ -148,6 +151,7 @@ workflow_graph_schema = {
         # 4. Construct Summary Name Prompt
         "construct_summary_name_prompt": {
             "node_id": "construct_summary_name_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -168,6 +172,7 @@ workflow_graph_schema = {
         # 5. Generate Summary Name (GPT-5-mini with structured output)
         "generate_summary_name": {
             "node_id": "generate_summary_name",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -190,6 +195,7 @@ workflow_graph_schema = {
         # 3a. Transform Additional User Files Format (if provided)
         "transform_additional_files_config": {
             "node_id": "transform_additional_files_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -206,7 +212,8 @@ workflow_graph_schema = {
 
         # 3b. Load Additional User Files (conditional)
         "load_additional_user_files_node": {
-            "node_id": "load_additional_user_files_node", 
+            "node_id": "load_additional_user_files_node",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -216,6 +223,7 @@ workflow_graph_schema = {
         # 6. Generate Save Config with UUID
         "generate_save_config": {
             "node_id": "generate_save_config",
+            "node_category": "system",
             "node_name": "code_runner",
             "node_config": {
                 "timeout_seconds": 30,
@@ -229,6 +237,7 @@ workflow_graph_schema = {
         # 7. Construct Summary Prompt
         "construct_summary_prompt": {
             "node_id": "construct_summary_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "defer_node": True,
             "node_config": {
@@ -249,9 +258,10 @@ workflow_graph_schema = {
             }
         },
 
-        # 8. Construct Feedback Prompt  
+        # 8. Construct Feedback Prompt
         "construct_feedback_prompt": {
             "node_id": "construct_feedback_prompt",
+            "node_category": "feedback_refinement",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -274,6 +284,7 @@ workflow_graph_schema = {
         # 9. Conduct Document Summarization with GPT-5
         "conduct_summarization": {
             "node_id": "conduct_summarization",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -291,6 +302,7 @@ workflow_graph_schema = {
         # 10. Save Summary Draft
         "save_summary_draft": {
             "node_id": "save_summary_draft",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "store_configs_input_path": "save_config",
@@ -300,6 +312,7 @@ workflow_graph_schema = {
         # 11. HITL Summary Approval
         "summary_approval": {
             "node_id": "summary_approval",
+            "node_category": "system",
             "node_name": "hitl_node__default",
             "node_config": {},
             "dynamic_output_schema": {
@@ -328,6 +341,7 @@ workflow_graph_schema = {
         # 12. Route from HITL approval
         "route_summary_approval": {
             "node_id": "route_summary_approval",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": ["check_iteration_limit", "output_node"],  # "save_final_research", 
@@ -356,6 +370,7 @@ workflow_graph_schema = {
         # 13. Check Iteration Limit
         "check_iteration_limit": {
             "node_id": "check_iteration_limit",
+            "node_category": "system",
             "node_name": "if_else_condition",
             "node_config": {
                 "tagged_conditions": [
@@ -379,6 +394,7 @@ workflow_graph_schema = {
         # 14. Route based on iteration limit check
         "route_iteration_check": {
             "node_id": "route_iteration_check",
+            "node_category": "system",
             "node_name": "router_node",
             # "defer_node": True,
             "node_config": {
@@ -404,6 +420,7 @@ workflow_graph_schema = {
         # 15. Transform HITL Additional Files Format
         "transform_hitl_additional_files_config": {
             "node_id": "transform_hitl_additional_files_config",
+            "node_category": "system",
             "node_name": "transform_data",
             "node_config": {
                 "apply_transform_to_each_item_in_list_at_path": "load_additional_user_files",
@@ -421,6 +438,7 @@ workflow_graph_schema = {
         # 16. Load HITL Additional User Files
         "load_hitl_additional_user_files_node": {
             "node_id": "load_hitl_additional_user_files_node",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_configs_input_path": "transformed_data"
@@ -430,6 +448,7 @@ workflow_graph_schema = {
         # 17. Output Node
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "node_config": {}
         }

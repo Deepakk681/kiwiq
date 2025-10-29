@@ -100,6 +100,7 @@ workflow_graph_schema = {
         # --- 1. Input Node ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -117,6 +118,7 @@ workflow_graph_schema = {
     # --- 2. Load Customer Context Documents and Scraped Posts (Single Node) ---
     "load_all_context_docs": {
         "node_id": "load_all_context_docs",
+        "node_category": "system",
         "node_name": "load_customer_data",
         "node_config": {
             "load_paths": [
@@ -154,6 +156,7 @@ workflow_graph_schema = {
     # --- 3. Load Latest User Draft Posts ---
     "load_draft_posts": {
       "node_id": "load_draft_posts",
+      "node_category": "system",
       "node_name": "load_multiple_customer_data", # Use the multi-loader node
       "node_config": {
           "namespace_pattern": LINKEDIN_DRAFT_NAMESPACE_TEMPLATE,
@@ -179,6 +182,7 @@ workflow_graph_schema = {
     # --- 4. Merge Posts, Compute Limit, Prepare Generation Context ---
     "prepare_generation_context": {
       "node_id": "prepare_generation_context",
+      "node_category": "system",
       "node_name": "merge_aggregate", # Use merge_aggregate to combine multiple sources
       "enable_node_fan_in": True, # Wait for all data loads before proceeding
       "node_config": {
@@ -234,6 +238,7 @@ workflow_graph_schema = {
     # --- 9. Construct Topic Prompt (Inside Map Branch) ---
     "construct_topic_prompt": {
       "node_id": "construct_topic_prompt",
+      "node_category": "topic_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -267,6 +272,7 @@ workflow_graph_schema = {
     # --- 10. Generate Topics (LLM - Inside Map Branch) ---
     "generate_topics": {
       "node_id": "generate_topics",
+      "node_category": "topic_generation",
       "node_name": "llm",
       "node_config": {
           "llm_config": {
@@ -286,6 +292,7 @@ workflow_graph_schema = {
     # --- Check Topic Count Node (after first topic generation) ---
     "check_topic_count": {
       "node_id": "check_topic_count",
+      "node_category": "topic_generation",
       "node_name": "if_else_condition",
       "node_config": {
         "tagged_conditions": [
@@ -311,6 +318,7 @@ workflow_graph_schema = {
     # --- Router Based on Topic Count Check ---
     "route_on_topic_count": {
       "node_id": "route_on_topic_count",
+      "node_category": "topic_generation",
       "node_name": "router_node",
       "node_config": {
         "choices": ["construct_additional_topic_prompt", "construct_delete_search_params"],
@@ -335,6 +343,7 @@ workflow_graph_schema = {
     # --- Construct Additional Topic Prompt ---
     "construct_additional_topic_prompt": {
       "node_id": "construct_additional_topic_prompt",
+      "node_category": "topic_generation",
       "node_name": "prompt_constructor",
       "node_config": {
         "prompt_templates": {
@@ -350,6 +359,7 @@ workflow_graph_schema = {
     # --- Construct Delete Search Params ---
     "construct_delete_search_params": {
       "node_id": "construct_delete_search_params",
+      "node_category": "system",
       "node_name": "transform_data",
       "node_config": {
         "merge_conflicting_paths_as_list": False,
@@ -366,6 +376,7 @@ workflow_graph_schema = {
     # --- Delete Existing Entries in Window ---
     "delete_previous_entries": {
       "node_id": "delete_previous_entries",
+      "node_category": "system",
       "node_name": "delete_customer_data",
       "node_config": {
         "search_params_input_path": "search_params"
@@ -376,6 +387,7 @@ workflow_graph_schema = {
     # --- 11. Store All Generated Topics (After Map Completes) ---
     "store_all_topics": {
       "node_id": "store_all_topics",
+      "node_category": "system",
       "node_name": "store_customer_data", # Store the final list
       "node_config": {
           "global_versioning": { "is_versioned": LINKEDIN_IDEA_IS_VERSIONED, "operation": "upsert_versioned"},
@@ -406,6 +418,7 @@ workflow_graph_schema = {
     # --- 12. Output Node ---
     "output_node": {
       "node_id": "output_node",
+      "node_category": "system",
       "node_name": "output_node",
       "node_config": {},
 

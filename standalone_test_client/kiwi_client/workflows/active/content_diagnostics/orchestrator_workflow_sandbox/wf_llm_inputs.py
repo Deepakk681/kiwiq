@@ -2638,3 +2638,1269 @@ Generate the Executive Summary now, ensuring all insights relate to building con
 
 # Variables Used:
 # (Extract from prompt above - identify {variable_name} patterns)
+
+
+# Schemas
+
+# Enums for LinkedIn schemas
+class LinkedInHealthStatus(str, Enum):
+    EXCELLENT = "EXCELLENT"
+    GOOD = "GOOD"
+    NEEDS_IMPROVEMENT = "NEEDS_IMPROVEMENT"
+    CRITICAL = "CRITICAL"
+
+class CompetitivePositioning(str, Enum):
+    LEADING = "Leading"
+    COMPETITIVE = "Competitive"
+    LAGGING = "Lagging"
+    INVISIBLE = "Invisible"
+
+class PriorityLevel(str, Enum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+
+class EngagementPotential(str, Enum):
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+
+class ImplementationComplexity(str, Enum):
+    EASY = "Easy"
+    MEDIUM = "Medium"
+    COMPLEX = "Complex"
+
+class ImplementationEffort(str, Enum):
+    LOW = "Low"
+    MEDIUM = "Medium"
+    HIGH = "High"
+
+class ExpectedImpact(str, Enum):
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+
+class TimingConsiderations(str, Enum):
+    EMERGING = "Emerging"
+    PEAKING = "Peaking"
+    ESTABLISHED = "Established"
+
+class ImplementationPriority(str, Enum):
+    CRITICAL = "Critical"
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+
+# LinkedIn Competitive Intelligence Schema Models
+class LinkedInExecutiveSummary(BaseModel):
+    industry_content_maturity: str = Field(description="Assessment of how sophisticated peer content strategies are in AI/tech space")
+    biggest_competitive_threat: str = Field(description="Name and brief description of peer who poses greatest content strategy threat")
+    highest_opportunity_area: str = Field(description="Content area with most potential for competitive advantage")
+    strategic_positioning_gap: str = Field(description="Key positioning opportunity not being addressed by peers")
+    urgency_factor: str = Field(description="Why immediate action is needed in content strategy")
+
+class CopyableTactic(BaseModel):
+    tactic_name: str = Field(description="Short name for specific tactic")
+    tactic_description: str = Field(description="Detailed explanation of how this tactic works")
+    success_citations: str = Field(description="Metrics or engagement citations showing this works")
+    implementation_approach: str = Field(description="How to adapt this for our executive")
+    content_examples: List[str] = Field(description="Example content pieces")
+    posting_frequency: str = Field(description="How often to use this tactic")
+    audience_appeal_factor: str = Field(description="Why this resonates with target audience")
+
+class IndustryLeadingPeer(BaseModel):
+    name: str = Field(description="Full name of peer executive")
+    title_company: str = Field(description="Current role and company, e.g. 'CEO @ TechCorp'")
+    linkedin_profile_url: str = Field(description="Direct link to LinkedIn profile")
+    follower_count_range: str = Field(description="e.g. '10K-25K', '50K+', etc.")
+    posting_frequency: str = Field(description="e.g. '3-4x per week', 'Daily', etc.")
+    content_strategy_strengths: List[str] = Field(description="Top content advantages")
+    signature_content_types: List[str] = Field(description="Content formats they use")
+    engagement_patterns: str = Field(description="Observable engagement levels and interaction quality")
+    unique_positioning_angle: str = Field(description="Distinctive narrative or thought leadership approach")
+    content_themes: List[str] = Field(description="Primary topics they cover")
+    why_they_succeed: str = Field(description="Analysis of what makes their content strategy effective")
+    copyable_tactics: List[CopyableTactic] = Field(description="Tactics that can be adapted")
+
+class HighImpactContentTactic(BaseModel):
+    tactic_name: str = Field(description="Name of proven content tactic")
+    tactic_description: str = Field(description="Detailed explanation of the tactic")
+    success_citations: str = Field(description="Peer examples and engagement metrics showing effectiveness")
+    implementation_approach: str = Field(description="Step-by-step guide to execute this tactic")
+    content_examples: List[str] = Field(description="Specific examples")
+    posting_frequency: str = Field(description="Recommended frequency for using this tactic")
+    audience_appeal_factor: str = Field(description="Why this works with our target audience")
+    peers_using_this: List[str] = Field(description="Peer names using this tactic")
+
+class ContentFormatOpportunity(BaseModel):
+    format_name: str = Field(description="Content format type, e.g. 'Multi-slide carousels'")
+    industry_adoption_rate: str = Field(description="How widely used by industry peers")
+    engagement_potential: EngagementPotential = Field(description="Engagement potential level")
+    peer_success_examples: List[str] = Field(description="Peers who excel at this format")
+    content_adaptation_strategy: str = Field(description="How to adapt this format for our executive")
+    posting_cadence_recommendation: str = Field(description="Recommended frequency")
+    topic_alignment: List[str] = Field(description="Content pillars this format supports")
+    implementation_complexity: ImplementationComplexity = Field(description="Difficulty level")
+
+class IndustryContentTrend(BaseModel):
+    trend_name: str = Field(description="Name of content trend")
+    trend_description: str = Field(description="What this trend involves in LinkedIn content")
+    adoption_by_peers: str = Field(description="How many/which peers are leveraging this")
+    audience_resonance: str = Field(description="Why this resonates with AI/tech professionals")
+    content_opportunity: str = Field(description="Specific content opportunities this creates")
+    implementation_examples: List[str] = Field(description="Concrete examples")
+    timing_considerations: TimingConsiderations = Field(description="Trend timing status")
+    differentiation_potential: str = Field(description="How this can set us apart")
+
+class CompetitiveContentGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this gap (e.g., 'LinkedIn Competitive Intelligence Report > Peer Analysis > Content Strategies' or 'Content Performance Analysis > Theme Performance')")
+    reasoning_why_this_is_a_gap: str = Field(description="Specific data showing this gap exists (e.g., 'Top 3 competitors post video content 40% of time with 2.3x engagement vs our 8% video content usage, their video posts average 45 comments vs our 12')")
+    gap_area: str = Field(description="Specific content area where we're underperforming")
+    peer_advantages: List[str] = Field(description="How peers excel in this area")
+    current_weakness: str = Field(description="How our strategy falls short")
+    audience_impact: str = Field(description="How this gap affects perception/engagement")
+    content_solution: str = Field(description="Specific content strategy to address gap")
+    success_metrics: List[str] = Field(description="Metrics to track improvement")
+    implementation_priority: ImplementationPriority = Field(description="Priority level")
+
+class ThoughtLeadershipOpportunity(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section where this opportunity was identified (e.g., 'LinkedIn Deep Research Report > Industry Analysis > Underserved Topics' or 'Competitive Intelligence Report > Market Gap Analysis')")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Specific data points showing why this is a valuable opportunity (e.g., '15 industry peers analyzed, only 2 cover AI ethics regularly, yet 67% of target audience searches show interest in this topic')")
+    opportunity_area: str = Field(description="Specific thought leadership territory to claim")
+    market_gap_citations: str = Field(description="Why this area is underserved")
+    expertise_alignment: str = Field(description="How this aligns with our executive's background")
+    content_approach: str = Field(description="Content strategy to establish authority")
+    differentiation_angle: str = Field(description="Unique perspective that sets us apart")
+    content_pillars: List[str] = Field(description="Key themes to develop")
+    timeline_to_authority: str = Field(description="Expected time to establish leadership")
+    competitive_moat_potential: str = Field(description="How this creates sustainable advantage")
+    information_source: str = Field(description="Source of data supporting this opportunity - specific industry reports, competitor posts, or market research findings")
+
+class AudienceIntelligence(BaseModel):
+    insight: str = Field(description="Key insight about what resonates with target audience")
+    citations_source: str = Field(description="Where this insight comes from - peer analysis/engagement patterns")
+    content_implication: str = Field(description="How this should influence content strategy")
+    implementation_tactics: List[str] = Field(description="Specific tactics to apply this insight")
+    peer_validation: str = Field(description="Which peers successfully leverage this insight")
+
+class ImmediateImplementationPriority(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this priority (e.g., 'Content Performance Analysis > Top Performing Themes' or 'LinkedIn Competitive Intelligence > High-Impact Tactics')")
+    reasoning_why_this_is_priority: str = Field(description="Specific data justifying this priority ranking (e.g., 'Current thought leadership posts get 3.2x engagement vs other content types, but only 15% of content is thought leadership vs 45% for top-performing peers')")
+    priority_rank: str = Field(description="Priority ranking 1-5")
+    action_item: str = Field(description="Specific tactic to implement immediately")
+    implementation_effort: ImplementationEffort = Field(description="Effort level required")
+    expected_impact: ExpectedImpact = Field(description="Expected impact level")
+    success_metrics: List[str] = Field(description="How to measure success")
+
+class ContentMixStrategy(BaseModel):
+    thought_leadership_posts: str = Field(description="Percentage/frequency for thought leadership content")
+    industry_insights: str = Field(description="Percentage/frequency for industry insights")
+    personal_stories: str = Field(description="Percentage/frequency for personal stories")
+    engagement_posts: str = Field(description="Percentage/frequency for engagement content")
+
+class PeakEngagementTiming(BaseModel):
+    best_days: List[str] = Field(description="Best days to post")
+    best_times: str = Field(description="Time range based on peer success")
+
+class SeasonalContentOpportunity(BaseModel):
+    timing: str = Field(description="When to execute")
+    opportunity: str = Field(description="Content opportunity description")
+    peer_examples: List[str] = Field(description="Peers who do this well")
+
+class ContentCalendarRecommendations(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section for calendar recommendations (e.g., 'LinkedIn Competitive Intelligence Report > Peer Analysis > Posting Patterns' or 'Content Performance Analysis > Engagement Timing Data')")
+    reasoning_why_these_calendar_recommendations: str = Field(description="Specific data supporting these recommendations (e.g., 'Top 5 industry peers post 4-5x weekly with 23% higher engagement than 2-3x weekly posters, peak engagement occurs Tuesday-Thursday 9-11am based on 200+ post analysis')")
+    optimal_posting_frequency: str = Field(description="Posts per week based on peer analysis")
+    content_mix_strategy: ContentMixStrategy = Field(description="Content mix distribution")
+    peak_engagement_timing: PeakEngagementTiming = Field(description="Optimal timing data")
+    seasonal_content_opportunities: List[SeasonalContentOpportunity] = Field(description="Seasonal opportunities")
+    information_source: str = Field(description="Source of timing and frequency data - specific competitor posting patterns, engagement studies, or platform analytics")
+
+class LinkedInCompetitiveIntelligenceSchema(BaseModel):
+    """LinkedIn Competitive Intelligence report schema"""
+    executive_summary: LinkedInExecutiveSummary = Field(description="Executive summary of competitive landscape")
+    industry_leading_peers: List[IndustryLeadingPeer] = Field(description="Analysis of leading peers")
+    high_impact_content_tactics: List[HighImpactContentTactic] = Field(description="Proven content tactics")
+    content_format_opportunities: List[ContentFormatOpportunity] = Field(description="Format opportunities")
+    industry_content_trends: List[IndustryContentTrend] = Field(description="Industry content trends")
+    competitive_content_gaps: List[CompetitiveContentGap] = Field(description="Content gaps to address")
+    thought_leadership_opportunities: List[ThoughtLeadershipOpportunity] = Field(description="Thought leadership opportunities")
+    audience_intelligence: List[AudienceIntelligence] = Field(description="Audience insights")
+    immediate_implementation_priorities: List[ImmediateImplementationPriority] = Field(description="Immediate priorities")
+    content_calendar_recommendations: ContentCalendarRecommendations = Field(description="Content calendar guidance")
+
+# LinkedIn Content Performance Analysis Schema (reuses same models as above)
+
+# Content Gap Severity and other enums for LinkedIn Content Strategy Gaps
+class ContentGapSeverity(str, Enum):
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH" 
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+class ContentFormat(str, Enum):
+    TEXT_ONLY = "Text-only"
+    CAROUSEL = "Multi-image carousel"
+    VIDEO = "Native video"
+    DOCUMENT = "Document/PDF"
+    POLL = "LinkedIn poll"
+    ARTICLE = "LinkedIn article"
+    NEWSLETTER = "LinkedIn newsletter"
+
+class FunnelStage(str, Enum):
+    AWARENESS = "Awareness"
+    CONSIDERATION = "Consideration" 
+    CONVERSION = "Conversion"
+    RETENTION = "Retention"
+
+class ContentPillar(str, Enum):
+    THOUGHT_LEADERSHIP = "Thought Leadership"
+    INDUSTRY_INSIGHTS = "Industry Insights"
+    PERSONAL_BRAND = "Personal Brand"
+    COMPANY_UPDATES = "Company Updates"
+    EDUCATIONAL = "Educational Content"
+
+class PersonaAlignmentGap(BaseModel):
+    """Gap between content and target persona needs."""
+    
+    source_path_of_information: str = Field(description="Exact document path and section identifying this persona gap (e.g., 'LinkedIn User Profile > Target Personas' or 'Content Strategy Gaps > Persona Analysis')")
+    reasoning_why_this_is_a_persona_gap: str = Field(description="Specific data showing persona misalignment (e.g., 'VP of Sales persona needs tactical implementation content but 78% of current content is high-level strategy vs competitors who provide 45% tactical content for this persona')")
+    persona_title: str = Field(description="Specific job title/role from target persona (e.g., 'VP of Sales', 'Chief Revenue Officer')")
+    persona_pain_point: str = Field(description="Specific pain point this persona faces that content should address")
+    current_content_coverage: str = Field(description="How well current content addresses this persona's needs (percentage or qualitative assessment)")
+    content_preference_mismatch: str = Field(description="How current content format/style doesn't match this persona's preferences")
+    competitor_advantage: str = Field(description="How competitors better serve this persona through content")
+    gap_severity: ContentGapSeverity = Field(description="Severity of this persona alignment gap")
+    recommended_content_adjustments: List[str] = Field(description="Specific content changes needed to better serve this persona")
+
+class ContentGoalAlignment(BaseModel):
+    """Analysis of how content aligns with stated user goals."""
+    
+    source_path_of_information: str = Field(description="Exact document path and section for goal alignment analysis (e.g., 'LinkedIn User Profile > Content Goals' or 'Content Performance Analysis > Goal Achievement Assessment')")
+    reasoning_why_goal_alignment_gap_exists: str = Field(description="Specific data showing goal-content misalignment (e.g., 'Goal is thought leadership in AI but only 22% of content covers AI topics vs 60% needed for industry authority, competitors average 55% AI-focused content')")
+    stated_goal: str = Field(description="Specific goal from user profile (e.g., 'Build thought leadership in AI space')")
+    current_content_support: str = Field(description="How current content themes and topics support this goal")
+    goal_achievement_gap: str = Field(description="Specific ways current content falls short of achieving this goal") 
+    content_theme_misalignment: List[str] = Field(description="Content themes that don't support this goal")
+    missing_content_types: List[ContentFormat] = Field(description="Content formats that would better support this goal")
+    competitor_goal_execution: str = Field(description="How competitors better execute content for similar goals")
+    strategic_content_recommendations: List[str] = Field(description="Specific content strategies to better achieve this goal")
+
+class ContentFormatGap(BaseModel):
+    """Gaps in content format distribution and effectiveness."""
+    
+    format_type: ContentFormat = Field(description="Specific LinkedIn content format")
+    current_usage_percentage: float = Field(description="Current percentage of content in this format")
+    recommended_usage_percentage: float = Field(description="Recommended percentage based on peer benchmarks and goals")
+    effectiveness_for_goals: str = Field(description="How effective this format is for user's specific goals")
+    peer_benchmark_comparison: str = Field(description="How user's usage compares to successful peers")
+    audience_engagement_potential: str = Field(description="Engagement potential of this format for user's audience")
+    implementation_complexity: str = Field(description="Difficulty level of implementing this format effectively")
+
+class ContentPillarGap(BaseModel):
+    """Gaps in content pillar distribution and depth."""
+    
+    pillar_name: ContentPillar = Field(description="Content pillar category")
+    current_coverage: str = Field(description="Current level of coverage for this pillar")
+    recommended_coverage: str = Field(description="Recommended level based on user goals and persona needs")
+    content_depth_assessment: str = Field(description="Quality and depth of current content in this pillar")
+    unique_angle_opportunity: str = Field(description="Unique perspective user could bring to this pillar")
+    competitor_pillar_execution: str = Field(description="How competitors handle this content pillar")
+    specific_content_needs: List[str] = Field(description="Specific content pieces needed in this pillar")
+
+class FunnelStageGap(BaseModel):
+    """Gaps in funnel stage content distribution."""
+    
+    funnel_stage: FunnelStage = Field(description="Specific funnel stage")
+    current_content_percentage: float = Field(description="Current percentage of content targeting this stage")
+    recommended_percentage: float = Field(description="Recommended percentage based on user goals")
+    content_quality_in_stage: str = Field(description="Quality assessment of current content for this stage")
+    persona_alignment_in_stage: str = Field(description="How well content serves target personas at this stage")
+    competitor_stage_execution: str = Field(description="How competitors execute content for this funnel stage")
+    stage_specific_gaps: List[str] = Field(description="Specific content gaps within this funnel stage")
+
+class NarrativeConsistencyGap(BaseModel):
+    """Gaps in messaging and narrative consistency."""
+    
+    narrative_theme: str = Field(description="Specific narrative or messaging theme")
+    consistency_issue: str = Field(description="How current content is inconsistent with this theme")
+    brand_positioning_impact: str = Field(description="How inconsistency affects personal brand positioning")
+    audience_confusion_risk: str = Field(description="Risk of audience confusion from inconsistent messaging")
+    competitor_consistency_advantage: str = Field(description="How competitors maintain better narrative consistency")
+    recommended_narrative_focus: str = Field(description="Specific narrative approach to maintain consistency")
+
+class ContentVelocityGap(BaseModel):
+    """Gaps in posting frequency and content production."""
+    
+    current_posting_frequency: str = Field(description="Current posting schedule (e.g., '3 posts per week')")
+    recommended_frequency: str = Field(description="Recommended frequency based on goals and peer benchmarks")
+    content_quality_vs_quantity_balance: str = Field(description="Assessment of current quality vs quantity balance")
+    peer_velocity_comparison: str = Field(description="How user's velocity compares to successful peers")
+    engagement_impact_of_frequency: str = Field(description="How current frequency affects engagement rates")
+    capacity_constraints: str = Field(description="User's capacity limitations affecting posting frequency")
+    optimization_recommendations: List[str] = Field(description="Specific ways to optimize content production")
+
+class EngagementStrategyGap(BaseModel):
+    """Gaps in content designed to drive engagement."""
+    
+    current_engagement_approach: str = Field(description="Current approach to driving engagement")
+    engagement_rate_assessment: str = Field(description="Current engagement performance analysis")
+    call_to_action_effectiveness: str = Field(description="Assessment of current CTAs in content")
+    conversation_starter_usage: str = Field(description="How well content initiates meaningful conversations")
+    community_building_impact: str = Field(description="How content contributes to building professional community")
+    peer_engagement_strategies: str = Field(description="Engagement strategies used by successful peers")
+    recommended_engagement_tactics: List[str] = Field(description="Specific tactics to improve engagement")
+
+class ContentStrategyGapsReport(BaseModel):
+    """
+    Comprehensive LinkedIn content strategy gaps analysis focused on specific, actionable improvements
+    for the executive's LinkedIn content based on their goals, personas, and performance data.
+    """
+    
+    executive_summary: str = Field(description="2-3 sentence summary of the most critical content strategy gaps affecting goal achievement")
+    
+    persona_alignment_gaps: List[PersonaAlignmentGap] = Field(
+        description="Specific gaps between content and target persona needs",
+        max_items=5
+    )
+    
+    goal_alignment_analysis: List[ContentGoalAlignment] = Field(
+        description="Analysis of how current content aligns with stated user goals",
+        max_items=4  
+    )
+    
+    content_format_gaps: List[ContentFormatGap] = Field(
+        description="Gaps in content format distribution and utilization",
+        max_items=6
+    )
+    
+    content_pillar_gaps: List[ContentPillarGap] = Field(
+        description="Gaps in content pillar coverage and depth",
+        max_items=5
+    )
+    
+    funnel_stage_gaps: List[FunnelStageGap] = Field(
+        description="Gaps in funnel stage content distribution",
+        max_items=4
+    )
+    
+    narrative_consistency_gaps: List[NarrativeConsistencyGap] = Field(
+        description="Gaps in messaging and narrative consistency",
+        max_items=4
+    )
+    
+    content_velocity_analysis: ContentVelocityGap = Field(
+        description="Analysis of posting frequency and content production gaps"
+    )
+    
+    engagement_strategy_gaps: List[EngagementStrategyGap] = Field(
+        description="Gaps in engagement-driving content strategies",
+        max_items=4
+    )
+    
+    priority_content_actions: List[str] = Field(
+        description="Top 5-7 most impactful content actions to address critical gaps",
+        max_items=7
+    )
+    
+    success_metrics_for_gaps: List[str] = Field(
+        description="Specific metrics to track improvement in identified gaps",
+        max_items=5
+    )
+
+# LinkedIn Strategic Recommendations Schema Models
+class LinkedInStrategicExecutiveSummary(BaseModel):
+    linkedin_health_status: LinkedInHealthStatus = Field(description="Overall LinkedIn content strategy health assessment")
+    primary_strategic_opportunity: str = Field(description="Biggest opportunity for LinkedIn thought leadership growth")
+    competitive_positioning: CompetitivePositioning = Field(description="Current position vs industry peers on LinkedIn")
+    urgency_rationale: str = Field(description="Why immediate action is needed for LinkedIn content strategy")
+    top_strategic_priorities: List[str] = Field(description="Top 3 strategic priorities for LinkedIn content based on all analysis", max_items=3)
+
+class SupportingCitations(BaseModel):
+    citations_point: str = Field(description="Specific finding supporting this recommendation")
+    source_report: str = Field(description="Which LinkedIn analysis report this citations comes from")
+
+class ImplementationApproach(BaseModel):
+    content_tactics: List[str] = Field(description="Specific content creation tactics to implement")
+    posting_strategy: str = Field(description="Recommended posting frequency and timing approach")
+    format_recommendations: List[str] = Field(description="Specific LinkedIn content formats to prioritize")
+    content_themes: List[str] = Field(description="Key content themes to develop and maintain")
+
+class ContentStrategyRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this recommendation (e.g., 'LinkedIn Content Performance Analysis > Theme Performance' or 'LinkedIn Competitive Intelligence > Content Gaps')")
+    reasoning_why_this_recommendation: str = Field(description="Specific data justifying this recommendation (e.g., 'Current video content gets 2.8x engagement vs text posts but represents only 12% of content vs industry leader at 35%, gap costs estimated 40% potential engagement')")
+    recommendation_title: str = Field(description="Clear, specific LinkedIn content strategy recommendation")
+    priority_level: PriorityLevel = Field(description="Priority ranking based on business impact")
+    strategic_gap_addressed: str = Field(description="Specific gap in current LinkedIn strategy this addresses")
+    business_rationale: str = Field(description="Why this recommendation is critical for achieving LinkedIn goals")
+    supporting_citations: List[SupportingCitations] = Field(description="Citations supporting this recommendation")
+    implementation_approach: ImplementationApproach = Field(description="How to implement this recommendation")
+    competitive_context: str = Field(description="How peers/competitors handle this area and why we need to respond")
+    expected_outcomes: List[str] = Field(description="Expected improvements to LinkedIn presence and thought leadership")
+    success_metrics: List[str] = Field(description="Specific metrics to track success of this recommendation")
+
+class NarrativeHook(BaseModel):
+    hook_theme: str = Field(description="Narrative hook theme")
+    relevance_to_expertise: str = Field(description="How this relates to user's expertise")
+    content_opportunity: str = Field(description="Content opportunity this creates")
+
+class NarrativeStrategy(BaseModel):
+    recommended_thought_leadership_angle: str = Field(description="Unique thought leadership positioning for LinkedIn")
+    narrative_hooks: List[NarrativeHook] = Field(description="Top narrative hooks from deep research to leverage")
+    competitive_differentiation: str = Field(description="How this positioning differentiates from industry peers")
+    messaging_consistency_strategy: str = Field(description="How to maintain consistent messaging across all LinkedIn content")
+
+class ContentAuthorityBuilding(BaseModel):
+    expertise_area: str = Field(description="Area of expertise to build authority in")
+    authority_building_approach: str = Field(description="Approach to build authority")
+    content_proof_points: List[str] = Field(description="Content proof points")
+    timeline_to_recognition: str = Field(description="Timeline to achieve recognition")
+
+class ThoughtLeadershipPositioning(BaseModel):
+    narrative_strategy: NarrativeStrategy = Field(description="Narrative strategy for thought leadership")
+    content_authority_building: List[ContentAuthorityBuilding] = Field(description="Strategies to build recognized expertise in key areas")
+
+class PersonaSpecificStrategy(BaseModel):
+    target_persona: str = Field(description="Specific persona from user profile")
+    current_alignment_gap: str = Field(description="How current content fails to serve this persona")
+    content_optimization_strategy: str = Field(description="Specific approach to better serve this persona")
+    engagement_tactics: List[str] = Field(description="Specific tactics to drive engagement from this persona")
+
+class EngagementAmplificationTactic(BaseModel):
+    tactic_name: str = Field(description="Name of engagement tactic")
+    implementation_method: str = Field(description="How to implement this tactic")
+    expected_engagement_lift: str = Field(description="Expected engagement improvement")
+    peer_success_citations: str = Field(description="Citations of peer success with this tactic")
+
+class AudienceEngagementOptimization(BaseModel):
+    persona_specific_strategies: List[PersonaSpecificStrategy] = Field(description="Strategies for specific personas")
+    engagement_amplification_tactics: List[EngagementAmplificationTactic] = Field(description="Proven tactics to increase LinkedIn engagement", max_items=6)
+
+class PeerAdvantageResponse(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying competitor advantage (e.g., 'LinkedIn Competitive Intelligence > Industry Leading Peers' or 'Content Performance Analysis > Competitive Context')")
+    reasoning_why_response_needed: str = Field(description="Specific data showing competitor advantage impact (e.g., 'Competitor A posts 3x weekly with 45% engagement rate vs our 1.5x weekly with 18% rate, their consistent posting drives 2.3x follower growth')")
+    competitor_advantage: str = Field(description="Specific advantage competitors have on LinkedIn")
+    response_strategy: str = Field(description="How to match or exceed competitor's approach")
+    content_differentiation: str = Field(description="How to differentiate while addressing the competitive gap")
+    implementation_priority: ImplementationPriority = Field(description="Implementation priority level")
+
+class MarketPositioningMove(BaseModel):
+    positioning_opportunity: str = Field(description="Positioning opportunity")
+    content_strategy: str = Field(description="Content strategy for this positioning")
+    competitive_moat_potential: str = Field(description="Potential for competitive advantage")
+
+class CompetitiveResponseStrategy(BaseModel):
+    peer_advantage_responses: List[PeerAdvantageResponse] = Field(description="Responses to competitor advantages")
+    market_positioning_moves: List[MarketPositioningMove] = Field(description="Strategic positioning moves through LinkedIn content", max_items=4)
+
+class ContentThemeDistribution(BaseModel):
+    thought_leadership_percentage: float = Field(description="Percentage for thought leadership content")
+    industry_insights_percentage: float = Field(description="Percentage for industry insights")
+    personal_brand_percentage: float = Field(description="Percentage for personal brand content")
+    engagement_content_percentage: float = Field(description="Percentage for engagement content")
+
+class ContentCalendarStrategy(BaseModel):
+    recommended_posting_frequency: str = Field(description="Optimal posting frequency based on goals and peer benchmarks")
+    content_theme_distribution: ContentThemeDistribution = Field(description="Content theme distribution")
+    optimal_posting_times: List[str] = Field(description="Best times to post based on audience and performance analysis")
+
+class ContentFormatOptimization(BaseModel):
+    format_type: str = Field(description="Content format type")
+    current_usage_gap: str = Field(description="Current usage gap")
+    optimization_opportunity: str = Field(description="Optimization opportunity")
+    implementation_approach: str = Field(description="Implementation approach")
+
+class ContentProductionOptimization(BaseModel):
+    content_calendar_strategy: ContentCalendarStrategy = Field(description="Content calendar strategy")
+    content_format_optimization: List[ContentFormatOptimization] = Field(description="Format-specific optimization opportunities")
+
+class SuccessMeasurementPlan(BaseModel):
+    key_performance_indicators: List[str] = Field(description="Key performance indicators")
+    tracking_frequency: str = Field(description="How often to track progress")
+    success_benchmarks: List[str] = Field(description="Success benchmarks")
+
+class ImmediateActionPlan(BaseModel):
+    thirty_day_priorities: List[str] = Field(description="Top 5 actions to take in the next 30 days", max_items=5)
+    ninety_day_strategic_moves: List[str] = Field(description="Strategic content initiatives for 90-day horizon", max_items=4)
+    success_measurement_plan: SuccessMeasurementPlan = Field(description="Success measurement plan")
+
+class ContentStrategyRisk(BaseModel):
+    risk_factor: str = Field(description="Risk factor")
+    potential_impact: str = Field(description="Potential impact")
+    mitigation_strategy: str = Field(description="Mitigation strategy")
+
+class RiskMitigation(BaseModel):
+    content_strategy_risks: List[ContentStrategyRisk] = Field(description="Potential risks in implementing recommendations and how to mitigate")
+    brand_consistency_safeguards: List[str] = Field(description="Ways to ensure brand consistency during strategy implementation")
+
+class LinkedInStrategicRecommendationsSchema(BaseModel):
+    """LinkedIn Strategic Recommendations report schema"""
+    executive_summary: LinkedInStrategicExecutiveSummary = Field(description="Executive summary")
+    content_strategy_recommendations: List[ContentStrategyRecommendation] = Field(description="Core LinkedIn content strategy recommendations", min_items=4, max_items=8)
+    thought_leadership_positioning: ThoughtLeadershipPositioning = Field(description="Thought leadership positioning strategy")
+    audience_engagement_optimization: AudienceEngagementOptimization = Field(description="Audience engagement optimization")
+    competitive_response_strategy: CompetitiveResponseStrategy = Field(description="Competitive response strategy")
+    content_production_optimization: ContentProductionOptimization = Field(description="Content production optimization")
+    immediate_action_plan: ImmediateActionPlan = Field(description="Immediate action plan")
+    risk_mitigation: RiskMitigation = Field(description="Risk mitigation strategies")
+
+# Blog AI Visibility Report Schema Models
+class BlogAIVisibilitySnapshot(BaseModel):
+    overall_score: str = Field(description="0-10 scale based on AI platform presence")
+    score_level: str = Field(description="Leading/Competing/Lagging/Invisible")
+    industry_position: str = Field(description="Market position relative to competitors on AI platforms")
+    biggest_win: str = Field(description="Primary strength in AI visibility - if any")
+    biggest_threat: str = Field(description="Primary vulnerability or competitive threat")
+    market_context: str = Field(description="Industry AI visibility trends and importance")
+
+class AIMetric(BaseModel):
+    name: str = Field(description="Metric name")
+    level: str = Field(description="Performance level: excellent/good/poor/invisible")
+    score: str = Field(description="Score 0-10")
+    insight: str = Field(description="Analysis insight")
+
+class AISearchPresence(AIMetric):
+    benchmark_comparison: str = Field(description="Performance vs industry average")
+
+class ContentCitationRate(AIMetric):
+    top_cited_content: List[str] = Field(description="List of most-referenced content pieces")
+
+class QueryCoverage(AIMetric):
+    missing_query_types: List[str] = Field(description="Categories of queries where company is absent")
+
+class CompetitiveShareOfVoice(AIMetric):
+    voice_share_percentage: str = Field(description="Actual percentage vs competitors")
+
+class BlogAIKeyMetrics(BaseModel):
+    ai_search_presence: AISearchPresence = Field(description="AI Search Results Presence")
+    content_citation_rate: ContentCitationRate = Field(description="Content Citation by AI Platforms")
+    query_coverage: QueryCoverage = Field(description="Industry Query Coverage")
+    competitive_share_of_voice: CompetitiveShareOfVoice = Field(description="AI Platform Share of Voice")
+
+class PlatformPerformance(BaseModel):
+    platform: str = Field(description="Platform name")
+    score: str = Field(description="Score 0-10")
+    status: str = Field(description="Winning/Competing/Losing/Invisible")
+    key_insight: str = Field(description="Platform-specific performance analysis")
+    top_queries_present: List[str] = Field(description="List of queries where company appears")
+    major_gaps: List[str] = Field(description="Key areas where company is missing")
+
+class BlogAIPlatformPerformance(BaseModel):
+    chatgpt: PlatformPerformance = Field(description="ChatGPT/OpenAI performance")
+    gemini: PlatformPerformance = Field(description="Google Gemini performance")
+    perplexity: PlatformPerformance = Field(description="Perplexity AI performance")
+
+class TopCompetitor(BaseModel):
+    name: str = Field(description="Competitor name")
+    ai_visibility_score: str = Field(description="Their 0-10 AI platform score")
+    advantage: str = Field(description="Their key competitive advantage on AI platforms")
+    dominant_query_types: List[str] = Field(description="Types of queries they dominate")
+    opportunity: str = Field(description="Specific strategies to compete and win against them")
+    content_strategy_insights: str = Field(description="What makes their content AI-platform friendly")
+
+class BlogAITopCompetitors(BaseModel):
+    competitor_1: TopCompetitor = Field(description="Top competitor analysis")
+    competitor_2: TopCompetitor = Field(description="Second competitor analysis")
+    competitor_3: TopCompetitor = Field(description="Third competitor analysis")
+
+class CriticalGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this critical gap (e.g., 'Blog AI Visibility Analysis > Query Coverage Analysis' or 'Company AI Visibility Report > Competitive Performance Data')")
+    reasoning_why_this_is_critical: str = Field(description="Specific data showing criticality (e.g., 'Company appears in 0 of 28 industry queries while top competitor appears in 19, missing 68% of high-intent search opportunities worth estimated $2.3M annual pipeline')")
+    area: str = Field(description="Specific gap area")
+    impact: str = Field(description="Business impact")
+    current_performance: str = Field(description="Current state vs ideal state")
+    quick_win: str = Field(description="Immediate 30-60 day solution")
+    long_term_strategy: str = Field(description="6-12 month strategic approach")
+
+class BlogAICriticalGaps(BaseModel):
+    gap_1: CriticalGap = Field(description="First critical gap")
+    gap_2: CriticalGap = Field(description="Second critical gap")
+    gap_3: CriticalGap = Field(description="Third critical gap")
+
+class HighIntentQueries(BaseModel):
+    queries_missed: List[str] = Field(description="List of buying-intent queries where company is absent")
+    competitor_dominance: List[str] = Field(description="Which competitors own these queries")
+    revenue_impact: str = Field(description="Estimated impact of missing these opportunities")
+
+class ContentConsumptionPatterns(BaseModel):
+    preferred_content_types: List[str] = Field(description="What content types AI platforms favor for citations")
+    optimal_content_structure: str = Field(description="Content structure that gets cited most")
+    citation_triggers: List[str] = Field(description="What makes content get referenced by AI")
+
+class BuyerIntentAnalysis(BaseModel):
+    high_intent_queries: HighIntentQueries = Field(description="High intent queries analysis")
+    content_consumption_patterns: ContentConsumptionPatterns = Field(description="Content consumption patterns")
+
+class ImmediateOptimization(BaseModel):
+    existing_content_upgrades: str = Field(description="How to optimize current content for AI platforms")
+    structural_improvements: str = Field(description="Schema, formatting, structure changes needed")
+    quick_citation_wins: str = Field(description="Content pieces most likely to get AI citations with minor updates")
+
+class NetNewContentNeeds(BaseModel):
+    missing_topic_areas: str = Field(description="Content topics that need to be created")
+    format_gaps: str = Field(description="Content formats missing from current portfolio")
+    authority_building_content: str = Field(description="Content needed to establish thought leadership")
+
+class ContentOptimizationOpportunities(BaseModel):
+    immediate_optimization: ImmediateOptimization = Field(description="Immediate optimization opportunities")
+    net_new_content_needs: NetNewContentNeeds = Field(description="New content needs")
+
+class PriorityRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this priority recommendation (e.g., 'Blog AI Visibility Report > Platform Performance > ChatGPT Analysis' or 'Company AI Visibility Report > Critical Gaps')")
+    reasoning_why_this_is_priority: str = Field(description="Specific data justifying priority level (e.g., 'Competitor dominates 15 of 20 key industry queries with 85% citation rate while company has 0% presence, representing $4.2M missed pipeline opportunity based on query volume analysis')")
+    title: str = Field(description="Specific problem identification title")
+    priority: str = Field(description="critical/high/medium/low")
+    problem_citations: str = Field(description="Data and citations proving this is a real issue")
+    business_case: str = Field(description="Why this problem matters to business outcomes")
+    competitive_context: str = Field(description="How competitors are capitalizing on this gap")
+    market_opportunity: str = Field(description="Size and value of the opportunity being missed")
+    risk_of_inaction: str = Field(description="What happens if this problem isn't addressed")
+
+class BlogAIPriorityRecommendations(BaseModel):
+    recommendation_1: PriorityRecommendation = Field(description="First priority recommendation")
+    recommendation_2: PriorityRecommendation = Field(description="Second priority recommendation")
+    recommendation_3: PriorityRecommendation = Field(description="Third priority recommendation")
+
+class HighAuthoritySite(BaseModel):
+    site_name: str = Field(description="Name of the high authority site (e.g., 'TechCrunch', 'Forbes', 'Harvard Business Review')")
+    domain_authority: str = Field(description="Domain authority score or high/medium designation")
+    competitor_mention_frequency: str = Field(description="How often this competitor gets cited/mentioned on this site")
+    content_type_cited: List[str] = Field(description="Types of content that get cited (research reports, case studies, expert quotes, etc.)", max_items=3)
+    citation_context: str = Field(description="Context in which competitor gets mentioned (expert source, case study subject, research citation, etc.)")
+    pr_strategy_insight: str = Field(description="Insight into how competitor likely secured this coverage (thought leadership, PR outreach, newsworthy content, etc.)")
+    opportunity_for_client: str = Field(description="How client could potentially get similar coverage on this site")
+
+class BlogAIAuthorityAnalysis(BaseModel):
+    competitor_authority_profiles: List[HighAuthoritySite] = Field(description="Authority profiles for top competitors", max_items=3)
+    strategic_pr_insights: List[str] = Field(description="Strategic insights about competitor PR and authority building tactics", max_items=4)
+
+class BlogAIVisibilityReportSchema(BaseModel):
+    """Blog AI Visibility Report schema"""
+    visibility_snapshot: BlogAIVisibilitySnapshot = Field(description="Visibility snapshot")
+    key_metrics: BlogAIKeyMetrics = Field(description="Key performance metrics")
+    platform_performance: BlogAIPlatformPerformance = Field(description="Platform-specific performance")
+    top_competitors: BlogAITopCompetitors = Field(description="Top competitors analysis")
+    critical_gaps: BlogAICriticalGaps = Field(description="Critical gaps analysis")
+    buyer_intent_analysis: BuyerIntentAnalysis = Field(description="Buyer intent analysis")
+    content_optimization_opportunities: ContentOptimizationOpportunities = Field(description="Content optimization opportunities")
+    authority_analysis: BlogAIAuthorityAnalysis = Field(description="High authority sites and competitor backlink/PR strategy analysis")
+    priority_recommendations: BlogAIPriorityRecommendations = Field(description="Priority recommendations")
+
+# Blog Competitive Intelligence Report Schema Models
+class BlogCompetitiveMarketPosition(BaseModel):
+    your_position: str = Field(description="leading/competitive/behind")
+    position_citations: str = Field(description="Specific metrics proving current position")
+    market_leader: str = Field(description="Competitor name")
+    leader_advantage: str = Field(description="Why they lead - specific content strategy")
+    biggest_threat: str = Field(description="Competitor threatening your position")
+    threat_reasoning: str = Field(description="Why they're dangerous - specific capabilities")
+
+class CompetitorAnalysis(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section for competitor analysis (e.g., 'Competitive Intelligence Report > Competitor Content Analysis' or 'Deep Research Report > Competitor Strategies')")
+    reasoning_why_this_is_threat: str = Field(description="Specific data showing competitive threat (e.g., 'Competitor publishes 12 posts/month vs our 4, achieves 3.2x engagement rate, dominates 8 of 10 key industry keywords we target')")
+    competitor_name: str = Field(description="Competitor name")
+    threat_level: str = Field(description="critical/high/moderate/low")
+    ai_visibility_score: str = Field(description="0-100 score")
+    content_velocity: str = Field(description="Posts per month")
+    winning_strategy: str = Field(description="What they do better than you")
+    strategy_citations: str = Field(description="Proof their strategy works")
+    exploitable_weakness: str = Field(description="Their vulnerability you can attack")
+    audience_overlap: str = Field(description="High/Medium/Low")
+    why_we_should_copy: str = Field(description="Specific tactics to adopt from them")
+
+class BlogCompetitiveCriticalGap(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this gap (e.g., 'Competitive Intelligence Report > Critical Gaps Analysis' or 'Blog Performance Report > Content Quality Breakdown')")
+    reasoning_why_this_gap_is_critical: str = Field(description="Specific data showing gap criticality (e.g., 'Competitor has 45 technical guides vs our 8, captures 73% of technical query traffic in our space, their guides average 2.8K shares vs our 340')")
+    gap_name: str = Field(description="Specific content gap")
+    business_risk: str = Field(description="Revenue/market share impact")
+    competitor_exploiting: str = Field(description="Who's winning in this area")
+    gap_citations: str = Field(description="Proof this gap exists and matters")
+    urgency_reasoning: str = Field(description="Why this must be fixed now")
+
+class UntappedOpportunity(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying this opportunity (e.g., 'Deep Research Report > Market Opportunity Analysis' or 'Competitive Intelligence Report > Untapped Opportunities')")
+    reasoning_why_this_is_opportunity: str = Field(description="Specific data showing opportunity potential (e.g., '12K monthly searches for AI implementation guides, top 3 competitors have 0 comprehensive guides, market gap represents 35% of target audience needs based on survey data')")
+    opportunity: str = Field(description="Market opportunity")
+    size_indicator: str = Field(description="Search volume/demand citations")
+    competitor_weakness: str = Field(description="Why competitors can't capture this")
+    first_mover_advantage: str = Field(description="Window for early leadership")
+    success_reasoning: str = Field(description="Why you can win here")
+
+class BlogCompetitiveStrategicRecommendation(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section supporting this recommendation (e.g., 'Competitive Intelligence Report > Strategic Recommendations' or 'Deep Research Report > Successful Content Patterns')")
+    reasoning_why_this_recommendation: str = Field(description="Specific data justifying this recommendation (e.g., 'Competitor X increased organic traffic 340% using this approach, their case study content gets 4.2x engagement vs industry average, represents $1.8M pipeline opportunity')")
+    recommendation: str = Field(description="Specific action to take")
+    competitive_reasoning: str = Field(description="Which competitor success inspired this")
+    business_impact: str = Field(description="Why this will move the needle")
+    supporting_citations: str = Field(description="Data proving this approach works")
+    priority_level: str = Field(description="P0/P1/P2")
+
+class BlogCompetitiveIntelligenceReportSchema(BaseModel):
+    """Blog Competitive Intelligence Report schema"""
+    market_position: BlogCompetitiveMarketPosition = Field(description="Market position analysis")
+    competitor_analysis: List[CompetitorAnalysis] = Field(description="Competitor analysis")
+    critical_gaps: List[BlogCompetitiveCriticalGap] = Field(description="Critical gaps")
+    untapped_opportunities: List[UntappedOpportunity] = Field(description="Untapped opportunities")
+    strategic_recommendations: List[BlogCompetitiveStrategicRecommendation] = Field(description="Strategic recommendations")
+    immediate_actions: List[str] = Field(description="Top 3 actions to take this quarter based on competitive intelligence")
+
+# Blog Performance Report Schema Models
+class BlogPerformanceSnapshot(BaseModel):
+    overall_health_score: str = Field(description="Calculated from average_readability, average_clarity, average_depth, average_originality, overall_eeat_score")
+    content_strength: str = Field(description="Based on highest-scoring topic_authority_analysis areas")
+    critical_weakness: str = Field(description="Based on lowest funnel_stage avg_quality_score or content_gaps_priority")
+    portfolio_size: str = Field(description="Total posts analyzed across all funnel stages")
+    quality_distribution: str = Field(description="Distribution across readability/clarity/depth/originality scores")
+
+class ContentHealthAlert(BaseModel):
+    issue: str = Field(description="From strategic_recommendations or content_gaps_priority")
+    citations: str = Field(description="Specific metrics from content_portfolio_health")
+    affected_content_count: str = Field(description="From topic analysis total_posts or funnel post_count")
+    severity: str = Field(description="Based on whether it appears in strategic_recommendations priority")
+
+class FunnelStageDiagnosis(BaseModel):
+    content_count: str = Field(description="From funnel_stage_insights post_count")
+    avg_quality_score: str = Field(description="From funnel_stage_insights avg_quality_score")
+    content_themes: List[str] = Field(description="From funnel_analysis primary_narratives and topic_clusters")
+    eeat_strength: str = Field(description="From eeat_analysis expertise_signals, authority_indicators, trust_elements")
+
+class BlogFunnelStageDiagnosis(BaseModel):
+    awareness_stage: FunnelStageDiagnosis = Field(description="Awareness stage diagnosis")
+    consideration_stage: FunnelStageDiagnosis = Field(description="Consideration stage diagnosis")
+    purchase_stage: FunnelStageDiagnosis = Field(description="Purchase stage diagnosis")
+    retention_stage: FunnelStageDiagnosis = Field(description="Retention stage diagnosis")
+
+class TopicAuthorityAssessment(BaseModel):
+    topic_name: str = Field(description="From topic_authority_analysis topic_name")
+    authority_level: str = Field(description="From topic_authority_analysis authority_level")
+    content_volume: str = Field(description="From topic_authority_analysis total_posts")
+    funnel_coverage: str = Field(description="From topic_authority_analysis funnel_coverage")
+    identified_gaps: List[str] = Field(description="From topic_authority_analysis coverage_gaps")
+
+class ContentQualityBreakdown(BaseModel):
+    readability_score: str = Field(description="From content_portfolio_health average_readability")
+    clarity_score: str = Field(description="From content_portfolio_health average_clarity")
+    depth_score: str = Field(description="From content_portfolio_health average_depth")
+    originality_score: str = Field(description="From content_portfolio_health average_originality")
+    eeat_score: str = Field(description="From content_portfolio_health overall_eeat_score")
+    structure_adoption: str = Field(description="From content_portfolio_health content_structure_adoption")
+    quality_patterns: str = Field(description="From content_quality_scoring information_density and writing_quality across funnel stages")
+
+class StructuralContentAnalysis(BaseModel):
+    featured_snippet_readiness: str = Field(description="Count of question_answer_extraction featured_snippet_potential across stages")
+    content_structure_gaps: str = Field(description="Analysis of content_structure_elements usage patterns")
+    storytelling_effectiveness: str = Field(description="Assessment of storytelling_elements across funnel stages")
+    supporting_citations_strength: str = Field(description="Analysis of supporting_citations_types quality")
+
+class FunnelPerformanceReality(BaseModel):
+    stage_investment_distribution: str = Field(description="Percentage breakdown of content across awareness/consideration/purchase/retention")
+    performance_by_stage: str = Field(description="Avg_quality_score comparison across funnel stages")
+    conversion_bottlenecks: str = Field(description="Stages with lowest post_count relative to funnel needs")
+    content_flow_issues: str = Field(description="Gaps between funnel stages based on post distribution")
+
+class StrategicContentFinding(BaseModel):
+    finding: str = Field(description="From strategic_recommendations items")
+    supporting_data: str = Field(description="Specific metrics from reports that validate this finding")
+    portfolio_impact: str = Field(description="How this affects overall content performance")
+    urgency_indicator: str = Field(description="Whether this appears in content_gaps_priority")
+
+class ContentMessagingAnalysis(BaseModel):
+    primary_narratives_consistency: str = Field(description="Analysis of primary_narratives alignment across funnel stages")
+    unique_positioning_strength: str = Field(description="Assessment of unique_angles across content")
+    brand_voice_coherence: str = Field(description="Evaluation of content_strategy consistency")
+    differentiation_effectiveness: str = Field(description="How well content distinguishes from competitors")
+
+class PortfolioEfficiencyAssessment(BaseModel):
+    high_performing_content_patterns: str = Field(description="Content types/topics with highest quality scores")
+    underperforming_content_areas: str = Field(description="Topics/stages with lowest performance")
+    content_redundancy_issues: str = Field(description="Areas with overlapping or redundant content")
+    resource_allocation_insights: str = Field(description="How current content investment maps to performance")
+
+class ImmediateAttentionPriority(BaseModel):
+    priority_area: str = Field(description="From content_gaps_priority or strategic_recommendations")
+    current_performance_data: str = Field(description="Specific metrics showing current state")
+    business_risk_level: str = Field(description="Impact assessment based on strategic importance")
+    citations_of_urgency: str = Field(description="Data proving this needs immediate focus")
+
+class BlogPerformanceReportSchema(BaseModel):
+    """Blog Performance Report schema"""
+    performance_snapshot: BlogPerformanceSnapshot = Field(description="Performance snapshot")
+    content_health_alerts: List[ContentHealthAlert] = Field(description="Content health alerts")
+    funnel_stage_diagnosis: BlogFunnelStageDiagnosis = Field(description="Funnel stage diagnosis")
+    topic_authority_assessment: List[TopicAuthorityAssessment] = Field(description="Topic authority assessment")
+    content_quality_breakdown: ContentQualityBreakdown = Field(description="Content quality breakdown")
+    structural_content_analysis: StructuralContentAnalysis = Field(description="Structural content analysis")
+    funnel_performance_reality: FunnelPerformanceReality = Field(description="Funnel performance reality")
+    strategic_content_findings: List[StrategicContentFinding] = Field(description="Strategic content findings")
+    content_messaging_analysis: ContentMessagingAnalysis = Field(description="Content messaging analysis")
+    portfolio_efficiency_assessment: PortfolioEfficiencyAssessment = Field(description="Portfolio efficiency assessment")
+    immediate_attention_priorities: List[ImmediateAttentionPriority] = Field(description="Immediate attention priorities")
+
+# Blog Gap Analysis Validation Schema Models
+class BlogGapExecutiveOverview(BaseModel):
+    opportunity_rating: str = Field(description="Excellent/Good/Fair/Poor")
+    competitive_position: str = Field(description="Leading/Competitive/Lagging/Invisible")
+    research_confidence: str = Field(description="High/Medium/Low")
+    portfolio_health_summary: str = Field(description="Overall assessment based on quality metrics")
+    urgency_rationale: str = Field(description="Why immediate action is needed")
+
+class CriticalFunnelImbalance(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying funnel imbalance (e.g., 'Blog Portfolio Analysis > Funnel Stage Insights' or 'Blog Content Analysis > Funnel Analysis')")
+    reasoning_why_this_imbalance_is_critical: str = Field(description="Specific data showing imbalance impact (e.g., 'Awareness stage has 45 posts vs recommended 25, but Consideration stage has only 8 posts vs recommended 20, causing 67% drop-off between stages vs industry average 35%')")
+    funnel_stage: str = Field(description="Awareness/Consideration/Purchase/Retention")
+    current_post_count: str = Field(description="Actual number from data")
+    current_quality_score: str = Field(description="Actual score from data")
+    imbalance_severity: str = Field(description="Critical/High/Medium/Low")
+    business_impact_citations: str = Field(description="How this imbalance hurts conversions/growth")
+    competitor_advantage: str = Field(description="How competitors leverage better balance")
+    content_gap_specifics: str = Field(description="What specific content types are missing")
+    audience_journey_disruption: str = Field(description="How this affects user experience")
+    why_this_stage_matters: str = Field(description="Business reasoning for prioritizing this stage")
+
+class TopicAuthorityVulnerability(BaseModel):
+    source_path_of_information: str = Field(description="Exact document path and section identifying topic vulnerability (e.g., 'Blog Portfolio Analysis > Topic Authority Analysis' or 'Competitive Intelligence Report > Topic Dominance Analysis')")
+    reasoning_why_this_is_vulnerable: str = Field(description="Specific data showing vulnerability (e.g., 'AI Implementation topic has only 6 posts vs competitor leader with 23 posts, our average engagement 45 vs their 180, they rank #1-3 for 12 of 15 key queries in this space')")
+    topic_name: str = Field(description="Topic area from analysis")
+    current_post_count: str = Field(description="Actual post count")
+    authority_level: str = Field(description="Current authority level from data")
+    coverage_gaps: str = Field(description="Specific gaps from analysis")
+    funnel_coverage_weakness: str = Field(description="Missing funnel stages")
+    competitor_dominance_threat: str = Field(description="Which competitors own this space")
+    content_quality_deficit: str = Field(description="Specific quality issues identified")
+    structural_deficiencies: str = Field(description="Structural elements missing")
+    business_relevance: str = Field(description="Why this topic matters for business goals")
+    market_positioning_risk: str = Field(description="How gaps affect market perception")
+
+class BlogContentQualityGap(BaseModel):
+    quality_dimension: str = Field(description="Depth/Originality/Structure/E-E-A-T")
+    current_score: str = Field(description="Actual score from data")
+    performance_gap: str = Field(description="How far below optimal/competitor performance")
+    affected_content_percentage: str = Field(description="Percentage of content with this issue")
+    seo_visibility_impact: str = Field(description="How this hurts search performance")
+    audience_engagement_cost: str = Field(description="How this reduces engagement")
+    competitor_quality_advantage: str = Field(description="How competitors outperform in this area")
+    credibility_implications: str = Field(description="How this affects brand credibility")
+    content_examples: List[str] = Field(description="Specific examples of the quality issue")
+
+class CompetitorContentAdvantage(BaseModel):
+    competitor_name: str = Field(description="Competitor name from analysis")
+    their_strength: str = Field(description="Specific content advantage they have")
+    our_current_weakness: str = Field(description="How we fall short in comparison")
+    content_strategy_difference: str = Field(description="How their approach differs")
+    audience_appeal_factor: str = Field(description="Why their content resonates better")
+    market_share_impact: str = Field(description="Citations of their content driving results")
+    positioning_threat: str = Field(description="How they're winning mindshare")
+    content_format_superiority: str = Field(description="Specific formats they execute better")
+    our_vulnerable_topics: List[str] = Field(description="Topics where they consistently outperform us")
+
+class StructuralContentDeficiency(BaseModel):
+    deficiency_type: str = Field(description="TOC/FAQ/Schema/Structure issue")
+    adoption_rate: str = Field(description="Current percentage from data")
+    industry_standard: str = Field(description="What competitors/best practices show")
+    seo_performance_cost: str = Field(description="How this hurts search visibility")
+    user_experience_impact: str = Field(description="How this affects content consumption")
+    content_discoverability_risk: str = Field(description="How poor structure reduces findability")
+    competitor_structural_advantage: str = Field(description="How competitors structure content better")
+    scalability_implications: str = Field(description="How this limits content program growth")
+
+class MessagingConsistencyIssue(BaseModel):
+    inconsistency_area: str = Field(description="Specific messaging issue identified")
+    content_affected: str = Field(description="Types/volume of content with inconsistent messaging")
+    brand_confusion_risk: str = Field(description="How inconsistency affects brand perception")
+    competitor_clarity_advantage: str = Field(description="How competitors message more consistently")
+    audience_understanding_barrier: str = Field(description="What this prevents audiences from grasping")
+    conversion_friction: str = Field(description="How messaging gaps create purchase hesitation")
+    market_positioning_weakness: str = Field(description="How this affects competitive positioning")
+
+class UntappedContentTerritory(BaseModel):
+    territory_name: str = Field(description="Content area/topic not covered")
+    opportunity_citations: str = Field(description="Why this is valuable based on competitor analysis")
+    competitor_presence: str = Field(description="How competitors are winning in this area")
+    content_theme_alignment: str = Field(description="How this fits our existing themes")
+    audience_demand_indicators: str = Field(description="Citations of audience interest")
+    authority_building_potential: str = Field(description="How this could establish thought leadership")
+    business_goal_alignment: str = Field(description="How this supports business objectives")
+    content_gap_specifics: str = Field(description="Exactly what content is missing")
+    first_mover_opportunity: str = Field(description="Whether we can be first/early in this space")
+
+class BlogGapStrategicContentRecommendation(BaseModel):
+    recommendation_type: str = Field(description="Fix/Build/Optimize/Restructure")
+    priority_level: str = Field(description="Critical/High/Medium/Low")
+    gap_addressed: str = Field(description="Which specific gap this solves")
+    citations_basis: str = Field(description="Data supporting this recommendation")
+    competitive_response: str = Field(description="How this addresses competitor advantages")
+    business_case_summary: str = Field(description="Why this matters for business goals")
+    content_scope: str = Field(description="What content work is involved")
+    success_indicators: List[str] = Field(description="How to measure if this works")
+
+class ValidationSummary(BaseModel):
+    analysis_methodology: str = Field(description="How the analysis was conducted")
+    data_confidence_level: str = Field(description="High/Medium/Low confidence in findings")
+    competitive_benchmark_scope: str = Field(description="Number and type of competitors analyzed")
+    content_volume_analyzed: str = Field(description="Total content pieces reviewed")
+    key_assumptions: List[str] = Field(description="Important assumptions underlying recommendations")
+
+class BlogGapAnalysisValidationSchema(BaseModel):
+    """Blog Gap Analysis Validation schema"""
+    executive_overview: BlogGapExecutiveOverview = Field(description="Executive overview")
+    critical_funnel_imbalances: List[CriticalFunnelImbalance] = Field(description="Critical funnel imbalances")
+    topic_authority_vulnerabilities: List[TopicAuthorityVulnerability] = Field(description="Topic authority vulnerabilities")
+    content_quality_gaps: List[BlogContentQualityGap] = Field(description="Content quality gaps")
+    competitor_content_advantages: List[CompetitorContentAdvantage] = Field(description="Competitor content advantages")
+    structural_content_deficiencies: List[StructuralContentDeficiency] = Field(description="Structural content deficiencies")
+    messaging_consistency_issues: List[MessagingConsistencyIssue] = Field(description="Messaging consistency issues")
+    untapped_content_territories: List[UntappedContentTerritory] = Field(description="Untapped content territories")
+    strategic_content_recommendations: List[BlogGapStrategicContentRecommendation] = Field(description="Strategic content recommendations")
+    validation_summary: ValidationSummary = Field(description="Validation summary")
+
+# Blog Strategic Recommendations Schema Models
+class BlogStrategicExecutiveSummary(BaseModel):
+    content_health_status: str = Field(description="Overall content portfolio health: EXCELLENT/GOOD/NEEDS_IMPROVEMENT/CRITICAL")
+    source_path_of_information: str = Field(description="Source path of information for this content priority")
+    reasoning_why_this_is_a_top_content_priority: str = Field(description="Citations and data supporting why this is a top content priority")
+    top_content_priority: str = Field(description="Most critical content issue requiring immediate attention")
+    key_findings_summary: List[str] = Field(description="Top 3 content findings from analysis", max_items=3)
+
+class BlogSupportingCitations(BaseModel):
+    citations_point: str = Field(description="Specific finding or metric supporting this recommendation")
+    source_report: str = Field(description="Source of information - specific content analysis, competitor research, or performance data rather than internal report names")
+
+class BlogContentSolution(BaseModel):
+    what_to_create: str = Field(description="Specific content types, topics, or formats to develop")
+    content_approach: str = Field(description="How to approach creating this content")
+    content_volume: str = Field(description="Recommended volume or frequency")
+    source_path_of_information: str = Field(description="Source path of information for this content solution")
+    reasoning_why_this_is_a_solution: str = Field(description="Citations and data supporting why this is a solution")
+
+class BlogContentRecommendation(BaseModel):
+    recommendation_title: str = Field(description="Clear, specific content recommendation")
+    priority_level: PriorityLevel = Field(description="Priority ranking")
+    content_gap_identified: str = Field(description="Specific content gap or issue this addresses")
+    content_solution: BlogContentSolution = Field(description="Content solution details")
+    competitor_context: str = Field(description="How competitors are handling this content area differently/better")
+    expected_content_outcomes: List[str] = Field(description="Expected content performance improvements")
+
+class AIContentPriority(BaseModel):
+    content_focus_area: str = Field(description="Content area to optimize for AI platforms")
+    current_ai_visibility: str = Field(description="Current performance on AI platforms")
+    optimization_strategy: str = Field(description="How to make content more AI-friendly")
+    competitor_advantage: str = Field(description="How competitors are winning in this area")
+
+class ContentQualityFix(BaseModel):
+    quality_issue: str = Field(description="Specific content quality problem identified")
+    current_performance: str = Field(description="Current metrics showing the quality issue")
+    reasoning_why_this_method_will_fix_the_quality_issue: str = Field(description="Citations and data supporting why this method will fix the quality issue")
+    improvement_method: str = Field(description="How to fix this quality issue")
+
+class BlogStrategicRecommendationsSchema(BaseModel):
+    """Blog Strategic Recommendations schema"""
+    executive_summary: BlogStrategicExecutiveSummary = Field(description="Executive summary")
+    content_recommendations: List[BlogContentRecommendation] = Field(description="Core content strategy recommendations", min_items=3, max_items=6)
+    ai_content_priorities: List[AIContentPriority] = Field(description="AI-specific content optimization priorities", max_items=4)
+    content_quality_fixes: List[ContentQualityFix] = Field(description="Specific content quality improvements needed", max_items=5)
+
+# NEW: LinkedIn Content Performance Analysis Schema
+class LinkedInPerformanceOverview(BaseModel):
+    """Overall LinkedIn content performance metrics"""
+    total_themes_analyzed: int = Field(description="Number of distinct content themes identified")
+    total_posts_analyzed: int = Field(description="Total number of posts analyzed across all themes")
+    overall_engagement_health: str = Field(description="Overall content health assessment: Excellent/Good/Needs Improvement/Poor")
+    average_engagement_rate: float = Field(description="Average engagement rate across all content")
+    posting_consistency: str = Field(description="Assessment of posting frequency and consistency")
+    content_diversity_score: float = Field(description="Score indicating variety in content themes and formats (0-100)")
+
+class ThemePerformanceMetrics(BaseModel):
+    """Performance metrics for a specific content theme"""
+    theme_name: str = Field(description="Name of the content theme")
+    theme_description: str = Field(description="Brief description of what this theme covers")
+    posts_in_theme: int = Field(description="Number of posts in this theme")
+    avg_likes: float = Field(description="Average likes per post in this theme")
+    avg_comments: float = Field(description="Average comments per post in this theme")
+    avg_reposts: float = Field(description="Average reposts per post in this theme")
+    engagement_rate: float = Field(description="Engagement rate for this theme")
+    performance_trend: str = Field(description="Trending up/down/stable")
+    key_success_factors: List[str] = Field(description="What makes this theme successful (provide exactly 3 items)", max_items=2)
+    source_path_of_information: str = Field(description="Source path of information for the these improvements")
+    reasoning_why_these_improvements_are_needed: str = Field(description="Citations and data supporting why these improvements are needed")
+    improvement_opportunities: List[str] = Field(description="Areas for improvement in this theme (provide exactly 3 items)", max_items=3)
+
+class ContentFormatPerformance(BaseModel):
+    """Performance analysis for different content formats"""
+    format_type: str = Field(description="Type of content format (Text-only, Image, Video, Article, Carousel, etc.)")
+    usage_percentage: float = Field(description="Percentage of total content using this format")
+    avg_engagement: float = Field(description="Average engagement for this format")
+    effectiveness_score: float = Field(description="Effectiveness score (0-100) based on engagement and reach")
+    best_use_cases: List[str] = Field(description="When this format works best (provide exactly 3 items)", max_items=2)
+    optimization_tips: List[str] = Field(description="How to improve this format's performance (provide exactly 3 items)", max_items=3)
+
+class ContentQualityAssessment(BaseModel):
+    """Assessment of content quality metrics"""
+    avg_readability_score: float = Field(description="Average readability score across all content (0-100)")
+    avg_clarity_score: float = Field(description="Average clarity score (0-100)")
+    avg_uniqueness_score: float = Field(description="Average uniqueness/originality score (0-100)")
+    avg_value_proposition_strength: float = Field(description="Average strength of value propositions (0-100)")
+    content_depth_analysis: str = Field(description="Assessment of content depth and substance")
+    quality_improvement_priorities: List[str] = Field(description="Top priorities for quality improvement", max_items=5)
+
+class TopPerformingContent(BaseModel):
+    """Details about top performing content"""
+    post_id: str = Field(description="Identifier for the post")
+    theme: str = Field(description="Theme this post belongs to")
+    engagement_metrics: str = Field(description="Engagement metrics (likes, comments, reposts)")
+    success_factors: List[str] = Field(description="Why this content performed well (provide exactly 3 items)", max_items=3)
+    replicable_elements: List[str] = Field(description="Elements that can be replicated (provide exactly 3 items)", max_items=3)
+
+class ContentOptimizationOpportunity(BaseModel):
+    """Specific opportunity for content optimization"""
+    opportunity_area: str = Field(description="Area where optimization is needed")
+    current_performance: str = Field(description="Current performance in this area")
+    improvement_potential: str = Field(description="Potential improvement if optimized")
+    source_path_of_information: str = Field(description="Source path of information for this content optimization recommendation")
+    reasoning_why_this_is_an_recommendation: str = Field(description="Citations and data supporting why this is an recommendation")
+    recommended_actions: List[str] = Field(description="Specific actions to take (provide exactly 3 items)", max_items=3)
+    expected_impact: str = Field(description="Expected impact on overall performance")
+    priority_level: str = Field(description="High/Medium/Low priority")
+
+class ContentGoalAlignment(BaseModel):
+    """How well content aligns with stated goals"""
+    business_goal: str = Field(description="Specific business goal from user profile")
+    supporting_themes: List[str] = Field(description="Themes that support this goal")
+    alignment_score: float = Field(description="How well content aligns with goal (0-100)")
+    content_gaps: List[str] = Field(description="Content gaps preventing goal achievement", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this content goal recommendation")
+    reasoning_why_this_is_a_good_alignment: str = Field(description="Citations and data supporting why this is a good recommendation")
+    recommended_content_focus: List[str] = Field(description="Content to create for this goal", max_items=3)
+
+class LinkedInContentPerformanceAnalysisSchema(BaseModel):
+    """Comprehensive LinkedIn content performance analysis based on theme analysis data"""
+    
+    # Overview
+    performance_overview: LinkedInPerformanceOverview = Field(description="Overall performance metrics and health assessment")
+    
+    # Theme Performance
+    theme_performance: List[ThemePerformanceMetrics] = Field(description="Performance breakdown by content theme", max_items=3)
+    
+    # Format Analysis
+    format_performance: List[ContentFormatPerformance] = Field(description="Performance by content format", max_items=3)
+    
+    # Quality Assessment
+    content_quality: ContentQualityAssessment = Field(description="Overall content quality assessment")
+    
+    # Top Content
+    top_performing_posts: List[TopPerformingContent] = Field(description="Top performing content examples", max_items=3)
+    
+    # Goal Alignment (Optional - only if goals provided)
+    goal_alignment: Optional[List[ContentGoalAlignment]] = Field(None, description="How content aligns with business goals", max_items=3)
+    
+    # Optimization Opportunities
+    optimization_opportunities: List[ContentOptimizationOpportunity] = Field(description="Prioritized optimization opportunities", min_items=3, max_items=4)
+    
+    # Key Insights
+    key_strengths: List[str] = Field(description="Top content strengths to maintain", min_items=3, max_items=5)
+    critical_weaknesses: List[str] = Field(description="Critical weaknesses to address", min_items=3, max_items=5)
+    immediate_actions: List[str] = Field(description="Immediate actions to improve performance", min_items=3, max_items=4)
+
+# Export all schemas for use in workflows
+LINKEDIN_COMPETITIVE_INTELLIGENCE_SCHEMA = LinkedInCompetitiveIntelligenceSchema.model_json_schema()
+LINKEDIN_CONTENT_PERFORMANCE_ANALYSIS_SCHEMA = LinkedInContentPerformanceAnalysisSchema.model_json_schema()
+LINKEDIN_CONTENT_STRATEGY_GAPS_SCHEMA = ContentStrategyGapsReport.model_json_schema()
+LINKEDIN_STRATEGIC_RECOMMENDATIONS_SCHEMA = LinkedInStrategicRecommendationsSchema.model_json_schema()
+BLOG_AI_VISIBILITY_REPORT_SCHEMA = BlogAIVisibilityReportSchema.model_json_schema()
+BLOG_COMPETITIVE_INTELLIGENCE_REPORT_SCHEMA = BlogCompetitiveIntelligenceReportSchema.model_json_schema()
+BLOG_PERFORMANCE_REPORT_SCHEMA = BlogPerformanceReportSchema.model_json_schema()
+BLOG_GAP_ANALYSIS_VALIDATION_SCHEMA = BlogGapAnalysisValidationSchema.model_json_schema()
+BLOG_STRATEGIC_RECOMMENDATIONS_SCHEMA = BlogStrategicRecommendationsSchema.model_json_schema()
+
+
+# Blog Executive Summary Schema Models
+class BlogExecutiveOverallContentAssessment(BaseModel):
+    content_health_status: str = Field(description="Overall content portfolio health across all analysis areas", enum=["EXCELLENT", "GOOD", "NEEDS_IMPROVEMENT", "CRITICAL"])
+    primary_content_strength: str = Field(description="Biggest content advantage identified across all reports")
+    primary_content_weakness: str = Field(description="Most critical content issue requiring immediate attention")
+    content_competitive_position: str = Field(description="Overall content competitive position vs competitors", enum=["LEADING", "COMPETITIVE", "LAGGING", "BEHIND"])
+
+class BlogExecutiveCriticalContentGap(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this content gap")
+    reasoning_why_this_is_a_critical_gap: str = Field(description="Citations and data supporting why this is a critical gap")
+    gap_area: str = Field(description="Specific content gap identified (topic, format, funnel stage)")
+    gap_severity: str = Field(description="Severity of this content gap", enum=["CRITICAL", "HIGH", "MEDIUM"])
+
+class BlogExecutiveContentGapSummary(BaseModel):
+    critical_content_gaps: List[BlogExecutiveCriticalContentGap] = Field(description="Top content gaps requiring immediate attention", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this content opportunity summary")
+    reasoning_why_these_are_content_opportunities: str = Field(description="Citations and data supporting why these are the content opportunities")
+    content_opportunity_areas: List[str] = Field(description="Content areas with highest improvement potential", max_items=3)
+
+class BlogExecutiveContentQualityOverview(BaseModel):
+    overall_quality_score: str = Field(description="Overall content quality assessment from blog performance analysis")
+    source_path_of_information: str = Field(description="Source path of information for this content quality overview")
+    quality_strengths: List[str] = Field(description="Top content quality strengths", max_items=2)
+    source_path_of_information: str = Field(description="Source path of information for this content quality weaknesses")
+    quality_weaknesses: List[str] = Field(description="Primary content quality issues", max_items=2)
+
+class BlogExecutiveContentStructureStatus(BaseModel):
+    structural_adoption_rate: str = Field(description="Content structure best practices adoption rate")
+    source_path_of_information: str = Field(description="Source path of information for this content structure status")
+    reasoning_why_this_is_a_deficiency: str = Field(description="Citations and data supporting why this is a deficiency")
+    structural_gaps: List[str] = Field(description="Key structural content improvements needed", max_items=3)
+
+class BlogExecutiveContentPerformanceSummary(BaseModel):
+    content_quality_overview: BlogExecutiveContentQualityOverview = Field(description="Content quality overview")
+    content_structure_status: BlogExecutiveContentStructureStatus = Field(description="Content structure status")
+
+class BlogExecutiveCompetitorContentThreat(BaseModel):
+    competitor_name: str = Field(description="Competitor name")
+    source_path_of_information: str = Field(description="Source path of information ")
+    reasoning_why_this_is_acting_in_their_favor: str = Field(description="Citations and data supporting why this is a content advantage")
+    their_content_advantage: str = Field(description="Specific content area where this competitor outperforms us")
+
+class BlogExecutiveCompetitiveContentPosition(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this competitive content position")
+    reasoning_why_this_is_an_advantage: str = Field(description="Citations and data supporting why this is an advantage")
+    content_advantages_vs_competitors: List[str] = Field(description="Content areas where we outperform competitors", max_items=2)
+    competitor_content_threats: List[BlogExecutiveCompetitorContentThreat] = Field(description="Key competitor content advantages threatening our position", max_items=3)
+    source_path_of_information: str = Field(description="Source path of information for this competitive content position")
+    reasoning_why_this_can_be_a_differentiation_opportunity: str = Field(description="Citations and data supporting why this is a differentiation opportunity")
+    content_differentiation_opportunities: List[str] = Field(description="Content opportunities where we can differentiate from competitors", max_items=2)
+
+class BlogExecutiveAIContentReadiness(BaseModel):
+    ai_visibility_status: str = Field(description="Overall content visibility on AI platforms", enum=["EXCELLENT", "GOOD", "POOR", "INVISIBLE"])
+    source_path_of_information: str = Field(description="Source query or analysis of information for this AI visibility gap")
+    reasoning_why_this_is_the_critical_gap: str = Field(description="Citations and data supporting why this is the critical gap")
+    ai_content_gaps: List[str] = Field(description="Key content gaps for AI platform optimization", max_items=3)
+    ai_content_opportunities: List[str] = Field(description="Content opportunities to improve AI platform presence", max_items=3)
+
+class BlogExecutiveCriticalTechnicalContentIssue(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this technical content issue")
+    reasoning_why_this_issue_is_critical: str = Field(description="Citations and data supporting why this issue is critical for content performance")
+    issue: str = Field(description="Specific technical content issue")
+    impact_on_content: str = Field(description="How this technical issue affects content performance")
+    information_source: str = Field(description="Source of technical issue identification - site audit, SEO analysis, or performance testing")
+
+class BlogExecutiveTechnicalContentHealth(BaseModel):
+    technical_content_score: str = Field(description="Overall technical health of content from SEO perspective")
+    critical_technical_content_issues: List[BlogExecutiveCriticalTechnicalContentIssue] = Field(description="Most critical technical issues affecting content", max_items=3)
+
+class BlogExecutiveContentPriorityAction(BaseModel):
+    priority_level: str = Field(description="Priority level for this content action", enum=["P0", "P1", "P2"])
+    source_path_of_information: str = Field(description="Source path of information for this content action")
+    reasoning_why_this_is_a_priority: str = Field(description="Citations and data supporting why this is a priority")
+    content_action: str = Field(description="Specific content action needed")
+
+class BlogExecutiveSummarySchema(BaseModel):
+    """Blog Executive Summary schema"""
+    overall_content_assessment: BlogExecutiveOverallContentAssessment = Field(description="Overall content assessment")
+    content_gap_summary: BlogExecutiveContentGapSummary = Field(description="Content gap summary")
+    content_performance_summary: BlogExecutiveContentPerformanceSummary = Field(description="Content performance summary")
+    competitive_content_position: BlogExecutiveCompetitiveContentPosition = Field(description="Competitive content position")
+    ai_content_readiness: BlogExecutiveAIContentReadiness = Field(description="AI content readiness")
+    technical_content_health: BlogExecutiveTechnicalContentHealth = Field(description="Technical content health")
+    content_priority_actions: List[BlogExecutiveContentPriorityAction] = Field(description="Top priority content actions across all analysis areas", min_items=3, max_items=5)
+
+BLOG_EXECUTIVE_SUMMARY_SCHEMA_PYDANTIC = BlogExecutiveSummarySchema.model_json_schema()
+
+
+# LinkedIn Executive Summary Schema Models
+class LinkedInExecutiveOverview(BaseModel):
+    linkedin_content_health_score: int = Field(description="Overall LinkedIn content strategy health score (0-100)", ge=0, le=100)
+    content_maturity_level: str = Field(description="Current sophistication level of LinkedIn content strategy", enum=["ADVANCED", "DEVELOPING", "BASIC", "NASCENT"])
+    reasoning_why_this_is_should_be_prioritized: str = Field(description="Citations and data supporting why this content maturity level is accurate")
+    primary_content_opportunity: str = Field(description="Single biggest content opportunity for LinkedIn growth and engagement")
+    content_competitive_position: str = Field(description="Position relative to industry peers in LinkedIn content excellence", enum=["Content Leader", "Content Competitor", "Content Follower", "Content Absent"])
+    critical_content_insight: str = Field(description="Most important insight about current LinkedIn content performance and potential")
+
+class LinkedInTopPerformingContentTheme(BaseModel):
+    theme_name: str = Field(description="Name of the top performing content theme")
+    avg_engagement_rate: float = Field(description="Average engagement rate for this theme")
+    source_path_of_information: str = Field(description="Source path of information for this top performing content theme")
+    reasoning_why_this_theme_is_top_performing: str = Field(description="Citations and data supporting why this theme is top performing")
+    replication_opportunity: str = Field(description="How to replicate this success")
+
+class LinkedInBiggestContentWeakness(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this biggest content weakness")
+    reasoning_why_this_weakness_is_critical: str = Field(description="Citations and data supporting why this weakness is critical")
+    weakness_area: str = Field(description="Area of content weakness")
+    impact_on_goals: str = Field(description="How this weakness affects LinkedIn goals")
+    content_solution: str = Field(description="Content solution to address this weakness")
+
+class LinkedInContentConsistencyAssessment(BaseModel):
+    posting_frequency_status: str = Field(description="Assessment of posting frequency consistency")
+    content_quality_consistency: str = Field(description="Assessment of content quality consistency")
+    source_path_of_information: str = Field(description="Source path of information for this content consistency assessment")
+    reasoning_why_this_improvement_is_needed: str = Field(description="Citations and data supporting why this improvement is needed")
+    improvement_needed: str = Field(description="Areas where consistency improvements are needed")
+
+class LinkedInContentPerformanceSnapshot(BaseModel):
+    top_performing_content_theme: LinkedInTopPerformingContentTheme = Field(description="Best performing content theme with engagement metrics and success factors")
+    biggest_content_weakness: LinkedInBiggestContentWeakness = Field(description="Most critical content weakness affecting LinkedIn performance")
+    content_consistency_assessment: LinkedInContentConsistencyAssessment = Field(description="Assessment of content consistency in posting and quality")
+
+class LinkedInPeerContentAdvantage(BaseModel):
+    competitor_name: str = Field(description="Name of the competitor")
+    their_content_strength: str = Field(description="Their content strength")
+    our_content_gap: str = Field(description="Our gap in this area")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
+    catch_up_strategy: str = Field(description="Strategy to catch up")
+
+class LinkedInUntappedContentOpportunity(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this untapped content opportunity")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
+    opportunity_area: str = Field(description="Content opportunity area")
+    content_approach: str = Field(description="Recommended content approach, keep it short and concise")
+    competitive_advantage_potential: str = Field(description="Potential competitive advantage")
+
+class LinkedInIndustryContentTrend(BaseModel):
+    trend_name: str = Field(description="Name of the content trend")
+    adoption_by_peers: str = Field(description="How peers are adopting this trend")
+    source_path_of_information: str = Field(description="Source path of information for this industry content trend")
+    reasoning_why_this_is_an_opportunity: str = Field(description="Citations and data supporting why this is an opportunity")
+    our_opportunity: str = Field(description="Our opportunity to leverage this trend")
+
+class LinkedInCompetitiveContentIntelligence(BaseModel):
+    peer_content_advantage: LinkedInPeerContentAdvantage = Field(description="Biggest competitive content advantage we need to address")
+    untapped_content_opportunity: LinkedInUntappedContentOpportunity = Field(description="Content opportunity area not being fully utilized by competitors")
+    industry_content_trend: Optional[LinkedInIndustryContentTrend] = Field(None, description="Key content trend in the industry and our opportunity to leverage it")
+
+class LinkedInContentGapPriority(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this content gap priority")
+    reasoning_for_content_gap_priority: str = Field(description="Citations and data supporting why this is a content gap priority")
+    gap_area: str = Field(description="Specific content gap (e.g., 'Lack of video content', 'Missing thought leadership posts')")
+    gap_severity: str = Field(description="Severity of this content gap")
+    impact_on_goals: str = Field(description="How this content gap affects achieving LinkedIn goals")
+    content_solution: str = Field(description="Specific content creation solution to address this gap")
+
+class LinkedInAIVisibilityContentInsights(BaseModel):
+    current_ai_content_visibility: str = Field(description="How well current content performs on AI platforms and search")
+    content_citation_opportunities: str = Field(description="Content areas where executive could be more frequently cited by AI platforms")
+    competitor_ai_content_advantages: str = Field(description="How competitors' content strategies make them more visible on AI platforms")
+    source_path_of_information_for_ai_visibility_content_insights: str = Field(description="Source path of information for this AI visibility content insight")
+    reasoning_for_ai_visibility_content_insights: str = Field(description="Citations from AI platform analysis showing specific content gaps and optimization opportunities")
+    ai_optimized_content_recommendations: List[str] = Field(description="Top 3 content recommendations to improve AI platform visibility", max_items=3)
+
+class LinkedInContentQuickWin(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this quick win")
+    reasoning_for_quick_win: str = Field(description="Citations and data supporting why this is a quick win opportunity")
+    quick_win: str = Field(description="Quick win content optimization")
+    information_source: str = Field(description="Source of quick win identification - performance data, competitor analysis, or engagement patterns")
+
+class LinkedInContentInvestmentPriority(BaseModel):
+    source_path_of_information: str = Field(description="Source path of information for this investment priority")
+    reasoning_for_investment: str = Field(description="Citations-based reasoning for investing in this content area")
+    content_area: str = Field(description="Content area for investment")
+    information_source: str = Field(description="Source supporting investment priority - market analysis, competitor performance, or engagement data")
+
+class LinkedInImmediateContentPriorities(BaseModel):
+    content_quick_wins: List[LinkedInContentQuickWin] = Field(description="Content optimizations that can be implemented quickly for immediate impact", max_items=3)
+    content_investment_priorities: List[LinkedInContentInvestmentPriority] = Field(description="Content areas that deserve immediate strategic investment", max_items=3)
+
+
+class LinkedInExecutiveSummarySchema(BaseModel):
+    """LinkedIn Executive Summary schema"""
+    executive_overview: LinkedInExecutiveOverview = Field(description="Executive overview of LinkedIn content strategy")
+    content_performance_snapshot: LinkedInContentPerformanceSnapshot = Field(description="Content performance snapshot")
+    competitive_content_intelligence: LinkedInCompetitiveContentIntelligence = Field(description="Competitive content intelligence")
+    content_gap_priorities: List[LinkedInContentGapPriority] = Field(description="Top 3-5 content gaps prioritized by content impact", min_items=3, max_items=5)
+    ai_visibility_content_insights: LinkedInAIVisibilityContentInsights = Field(description="AI visibility content insights")
+    immediate_content_priorities: LinkedInImmediateContentPriorities = Field(description="Immediate content priorities")
+
+LINKEDIN_EXECUTIVE_SUMMARY_SCHEMA = LinkedInExecutiveSummarySchema.model_json_schema()

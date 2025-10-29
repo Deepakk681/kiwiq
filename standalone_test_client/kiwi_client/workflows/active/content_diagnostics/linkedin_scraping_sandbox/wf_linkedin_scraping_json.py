@@ -90,6 +90,7 @@ workflow_graph_schema = {
     # --- 1. Input Node ---
     "input_node": {
       "node_id": "input_node",
+      "node_category": "system",
       "node_name": "input_node",
       "node_config": {},
       "dynamic_output_schema": {
@@ -103,6 +104,7 @@ workflow_graph_schema = {
     # --- 2. Scrape LinkedIn Data ---
     "scrape_entity": {
       "node_id": "scrape_entity",
+      "node_category": "scraping",
       "node_name": "linkedin_scraping",
       "node_config": {
         "test_mode": False, # Set to True for testing without API calls/credits
@@ -132,6 +134,7 @@ workflow_graph_schema = {
     # --- 3. Store Raw Scraped Data ---
     "store_raw_data": {
       "node_id": "store_raw_data",
+      "node_category": "system",
       "node_name": "store_customer_data",
       "node_config": {
         # Use upsert unversioned for simplicity in this example
@@ -172,6 +175,7 @@ workflow_graph_schema = {
     # --- 5. Filter Posts Data ---
     "filter_scraped_data": {
       "node_id": "filter_scraped_data",
+      "node_category": "system",
       "node_name": "filter_data",
       "node_config": {
         "non_target_fields_mode": "deny",
@@ -695,6 +699,7 @@ workflow_graph_schema = {
     # --- 6. Store Filtered Data ---
     "store_filtered_data": {
       "node_id": "store_filtered_data",
+      "node_category": "system",
       "node_name": "store_customer_data",
       # "enable_node_fan_in": True,
       "node_config": {
@@ -732,6 +737,7 @@ workflow_graph_schema = {
     "output_node": {
       "enable_node_fan_in": True,
       "node_id": "output_node",
+      "node_category": "system",
       "node_name": "output_node",
       "node_config": {},
     }

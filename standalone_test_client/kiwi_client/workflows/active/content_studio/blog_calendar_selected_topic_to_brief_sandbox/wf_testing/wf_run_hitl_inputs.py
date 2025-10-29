@@ -2,7 +2,7 @@
 hitl_inputs = [
         # First HITL: Request revision
         {
-            "user_brief_action": "revise_brief",
+            "user_brief_action": "provide_feedback",
             "revision_feedback": "The brief needs more focus on specific cost categories and should include more concrete examples. Please add a section about hidden costs like opportunity cost of sales reps not selling.",
             "load_additional_user_files": [
                 {
@@ -153,7 +153,7 @@ hitl_inputs = [
         },
         # Third HITL: Request another revision after draft
         {
-            "user_brief_action": "revise_brief",
+            "user_brief_action": "provide_feedback",
             "revision_feedback": "The brief looks good but needs a stronger executive summary section and should include more industry-specific examples. Also, please add a section about implementation considerations from a CFO perspective.",
             "load_additional_user_files": [
                 {

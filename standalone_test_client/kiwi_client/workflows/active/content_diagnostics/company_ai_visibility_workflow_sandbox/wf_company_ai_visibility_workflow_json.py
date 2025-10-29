@@ -54,6 +54,8 @@ workflow_graph_schema = {
         # 1) Input
         "input_node": {
             "node_id": "input_node",
+
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -68,6 +70,8 @@ workflow_graph_schema = {
         # 2) Load required context docs
         "load_context_docs": {
             "node_id": "load_context_docs",
+
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -89,6 +93,8 @@ workflow_graph_schema = {
         # --- Blog Path: 3. Competitive Analysis ---
         "construct_competitive_analysis_prompt": {
             "node_id": "construct_competitive_analysis_prompt",
+
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -105,6 +111,8 @@ workflow_graph_schema = {
         },
         "competitive_analysis_llm": {
             "node_id": "competitive_analysis_llm",
+
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -119,6 +127,8 @@ workflow_graph_schema = {
         # --- 4.1 Blog Coverage Query Generation ---
         "construct_blog_queries_prompt": {
             "node_id": "construct_blog_queries_prompt",
+
+            "node_category": "query_generation",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -141,6 +151,8 @@ workflow_graph_schema = {
         },
         "generate_blog_queries": {
             "node_id": "generate_blog_queries",
+
+            "node_category": "query_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -155,6 +167,8 @@ workflow_graph_schema = {
         # --- 4.2 Company & Competitor Query Generation ---
         "construct_company_comp_queries_prompt": {
             "node_id": "construct_company_comp_queries_prompt",
+
+            "node_category": "query_generation",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -174,6 +188,8 @@ workflow_graph_schema = {
         },
         "generate_company_comp_queries": {
             "node_id": "generate_company_comp_queries",
+
+            "node_category": "query_generation",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -188,6 +204,8 @@ workflow_graph_schema = {
         # --- 5. LLM Analysis Phase: Execute queries on answer engines ---
         "blog_coverage_ai_query": {
             "node_id": "blog_coverage_ai_query",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "ai_answer_engine_scraper",
             "node_config": {
                 "return_nested_entity_results": True,
@@ -196,6 +214,8 @@ workflow_graph_schema = {
         },
         "company_comp_ai_query": {
             "node_id": "company_comp_ai_query",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "ai_answer_engine_scraper",
             "node_config": {
                 "return_nested_entity_results": True,
@@ -206,6 +226,8 @@ workflow_graph_schema = {
         # Store raw scraper results to uploaded_files namespace
         "store_blog_raw_scraper_results": {
             "node_id": "store_blog_raw_scraper_results",
+
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "store_configs": [
@@ -228,6 +250,8 @@ workflow_graph_schema = {
         },
         "store_company_comp_raw_scraper_results": {
             "node_id": "store_company_comp_raw_scraper_results",
+
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "store_configs": [
@@ -253,6 +277,8 @@ workflow_graph_schema = {
         # 6.1 Blog Coverage Report
         "construct_blog_coverage_report_prompt": {
             "node_id": "construct_blog_coverage_report_prompt",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -268,6 +294,8 @@ workflow_graph_schema = {
         },
         "generate_blog_coverage_report": {
             "node_id": "generate_blog_coverage_report",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -280,6 +308,8 @@ workflow_graph_schema = {
         },
         "store_blog_coverage_report": {
             "node_id": "store_blog_coverage_report",
+
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": True, "operation": "upsert_versioned"},
@@ -301,6 +331,8 @@ workflow_graph_schema = {
         # 6.2 Company & Competitor Report
         "construct_company_comp_report_prompt": {
             "node_id": "construct_company_comp_report_prompt",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -316,6 +348,8 @@ workflow_graph_schema = {
         },
         "generate_company_comp_report": {
             "node_id": "generate_company_comp_report",
+
+            "node_category": "ai_visibility_analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -328,6 +362,8 @@ workflow_graph_schema = {
         },
         "store_company_comp_report": {
             "node_id": "store_company_comp_report",
+
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_versioning": {"is_versioned": True, "operation": "upsert_versioned"},
@@ -349,6 +385,8 @@ workflow_graph_schema = {
         # Final output
         "output_node": {
             "node_id": "output_node",
+
+            "node_category": "system",
             "node_name": "output_node",
             "enable_node_fan_in": True,
             "node_config": {},

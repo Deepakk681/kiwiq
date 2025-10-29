@@ -57,7 +57,7 @@ from kiwi_client.workflows.active.document_models.customer_docs import (
     BLOG_CONTENT_DIAGNOSTIC_REPORT_NAMESPACE_TEMPLATE,
 )
 
-from kiwi_client.workflows.active.content_diagnostics.llm_inputs.orchestrator_final_reports import (
+from kiwi_client.workflows.active.content_diagnostics.orchestrator_workflow_sandbox.wf_llm_inputs import (
     # LinkedIn Executive Reports
     LINKEDIN_COMPETITIVE_INTELLIGENCE_USER_PROMPT,
     LINKEDIN_COMPETITIVE_INTELLIGENCE_SYSTEM_PROMPT,
@@ -142,6 +142,7 @@ workflow_graph_schema = {
         # --- 1. Input Node ---
         "input_node": {
             "node_id": "input_node",
+            "node_category": "system",
             "node_name": "input_node",
             "node_config": {},
             "dynamic_output_schema": {
@@ -243,6 +244,7 @@ workflow_graph_schema = {
         # --- 2. Data Collection Router ---
         "data_collection_router": {
             "node_id": "data_collection_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -262,6 +264,7 @@ workflow_graph_schema = {
         # --- 3a. Run LinkedIn Scraping Workflow ---
         "run_linkedin_scraping": {
             "node_id": "run_linkedin_scraping",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": LINKEDIN_SCRAPING_WORKFLOW_NAME,
@@ -273,6 +276,7 @@ workflow_graph_schema = {
         # --- 3b. Blog Crawler Node ---
         "run_blog_crawler": {
             "node_id": "run_blog_crawler",
+            "node_category": "scraping",
             "node_name": "crawler_scraper",
             "node_config": {
                 # Using defaults; blog classification is enabled by default
@@ -282,6 +286,7 @@ workflow_graph_schema = {
         # --- 4. Initial Router - Routes to appropriate workflow groups ---
         "initial_router": {
             "node_id": "initial_router",
+            "node_category": "system",
             "node_name": "router_node",
             "defer_node": True,
             "node_config": {
@@ -329,6 +334,7 @@ workflow_graph_schema = {
         # --- 5. Deep Research Workflow ---
         "run_deep_research": {
             "node_id": "run_deep_research",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": DEEP_RESEARCH_WORKFLOW_NAME,
@@ -340,6 +346,7 @@ workflow_graph_schema = {
         # --- 6. Blog Content Analysis Workflow ---
         "run_blog_content_analysis": {
             "node_id": "run_blog_content_analysis",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": BLOG_CONTENT_ANALYSIS_WORKFLOW_NAME,
@@ -351,6 +358,7 @@ workflow_graph_schema = {
         # --- 7. Executive AI Visibility Workflow ---
         "run_executive_ai_visibility": {
             "node_id": "run_executive_ai_visibility",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": EXECUTIVE_AI_VISIBILITY_WORKFLOW_NAME,
@@ -363,6 +371,7 @@ workflow_graph_schema = {
         # --- 8. Company AI Visibility Workflow ---
         "run_company_ai_visibility": {
             "node_id": "run_company_ai_visibility",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": COMPANY_AI_VISIBILITY_WORKFLOW_NAME,
@@ -375,6 +384,7 @@ workflow_graph_schema = {
         # --- 9. No Blog Post Company AI Visibility Workflow ---
         "run_no_blog_post_company_ai_visibility": {
             "node_id": "run_no_blog_post_company_ai_visibility",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": NO_BLOG_POST_COMPANY_AI_VISIBILITY_WORKFLOW_NAME,
@@ -387,6 +397,7 @@ workflow_graph_schema = {
         # --- 10. Company Analysis Workflow ---
         "run_company_analysis": {
             "node_id": "run_company_analysis",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": COMPANY_ANALYSIS_WORKFLOW_NAME,
@@ -399,6 +410,7 @@ workflow_graph_schema = {
         # --- 11. Run LinkedIn Content Analysis Workflow ---
         "run_linkedin_analysis": {
             "node_id": "run_linkedin_analysis",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": LINKEDIN_ANALYSIS_WORKFLOW_NAME,
@@ -410,6 +422,7 @@ workflow_graph_schema = {
         # --- 12. Run Competitor Content Analysis Workflow ---
         "run_competitor_content_analysis": {
             "node_id": "run_competitor_content_analysis",
+            "node_category": "system",
             "node_name": "workflow_runner",
             "node_config": {
                 "workflow_name": BLOG_COMPETITOR_CONTENT_ANALYSIS_WORKFLOW_NAME,
@@ -421,6 +434,7 @@ workflow_graph_schema = {
         # --- 13. Wait for Core Workflows - Synchronization point ---
         "wait_for_core_workflows": {
             "node_id": "wait_for_core_workflows",
+            "node_category": "system",
             "node_name": "transform_data",
             "defer_node": True,
             "node_config": {
@@ -436,6 +450,7 @@ workflow_graph_schema = {
         # --- 14. Load Document Router - Routes to document loading nodes ---
         "load_document_router": {
             "node_id": "load_document_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -456,6 +471,7 @@ workflow_graph_schema = {
         # --- 15. Load LinkedIn-related documents ---
         "load_linkedin_documents": {
             "node_id": "load_linkedin_documents",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -509,6 +525,7 @@ workflow_graph_schema = {
         # --- 16. Load Company/Blog-related documents ---
         "load_company_documents": {
             "node_id": "load_company_documents",
+            "node_category": "system",
             "node_name": "load_customer_data",
             "node_config": {
                 "load_paths": [
@@ -586,6 +603,7 @@ workflow_graph_schema = {
         # --- 17. Load Multiple Competitor Content Analysis documents (list) ---
         "load_competitor_content_docs": {
             "node_id": "load_competitor_content_docs",
+            "node_category": "system",
             "node_name": "load_multiple_customer_data",
             "node_config": {
                 "namespace_pattern": BLOG_COMPETITOR_CONTENT_ANALYSIS_NAMESPACE_TEMPLATE,
@@ -605,6 +623,7 @@ workflow_graph_schema = {
         # --- 18. Wait for All Documents ---
         "wait_for_documents": {
             "node_id": "wait_for_documents",
+            "node_category": "system",
             "node_name": "transform_data",
             "defer_node": True,
             "node_config": {
@@ -620,6 +639,7 @@ workflow_graph_schema = {
         # --- 19. Report Generation Router ---
         "report_generation_router": {
             "node_id": "report_generation_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -638,6 +658,7 @@ workflow_graph_schema = {
         # --- 20. Executive Reports Router ---
         "generate_executive_reports_router": {
             "node_id": "generate_executive_reports_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -658,6 +679,7 @@ workflow_graph_schema = {
         # --- 21. Company Reports Router ---
         "generate_company_reports_router": {
             "node_id": "generate_company_reports_router",
+            "node_category": "system",
             "node_name": "router_node",
             "node_config": {
                 "choices": [
@@ -682,6 +704,7 @@ workflow_graph_schema = {
         # --- 22. LinkedIn Competitive Intelligence Prompt Constructor ---
         "construct_linkedin_competitive_intelligence_prompt": {
             "node_id": "construct_linkedin_competitive_intelligence_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -710,6 +733,7 @@ workflow_graph_schema = {
         # --- 23. LinkedIn Competitive Intelligence Report ---
         "generate_linkedin_competitive_intelligence": {
             "node_id": "generate_linkedin_competitive_intelligence",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -724,6 +748,7 @@ workflow_graph_schema = {
         # --- 24. Content Performance Analysis Prompt Constructor ---
         "construct_content_performance_analysis_prompt": {
             "node_id": "construct_content_performance_analysis_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -752,6 +777,7 @@ workflow_graph_schema = {
         # --- 25. Content Performance Analysis Report ---
         "generate_content_performance_analysis": {
             "node_id": "generate_content_performance_analysis",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -766,6 +792,7 @@ workflow_graph_schema = {
         # --- 26. Content Strategy Gaps Prompt Constructor ---
         "construct_content_strategy_gaps_prompt": {
             "node_id": "construct_content_strategy_gaps_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -796,6 +823,7 @@ workflow_graph_schema = {
         # --- 27. Content Strategy Gaps Report ---
         "generate_content_strategy_gaps": {
             "node_id": "generate_content_strategy_gaps",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -810,6 +838,7 @@ workflow_graph_schema = {
         # --- 28. Strategic LinkedIn Recommendations Prompt Constructor ---
         "construct_strategic_linkedin_recommendations_prompt": {
             "node_id": "construct_strategic_linkedin_recommendations_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -845,6 +874,7 @@ workflow_graph_schema = {
         # --- 29. Strategic LinkedIn Recommendations Report ---
         "generate_strategic_linkedin_recommendations": {
             "node_id": "generate_strategic_linkedin_recommendations",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -860,6 +890,7 @@ workflow_graph_schema = {
         # --- 30. LinkedIn Executive Summary Prompt Constructor ---
         "construct_linkedin_executive_summary_prompt": {
             "node_id": "construct_linkedin_executive_summary_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -895,6 +926,7 @@ workflow_graph_schema = {
         # --- 31. LinkedIn Executive Summary Report ---
         "generate_linkedin_executive_summary": {
             "node_id": "generate_linkedin_executive_summary",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -910,6 +942,7 @@ workflow_graph_schema = {
         # --- 32. Executive Reports Aggregator ---
         "aggregate_executive_reports": {
             "node_id": "aggregate_executive_reports",
+            "node_category": "system",
             "node_name": "transform_data",
             "enable_node_fan_in": True,
             "node_config": {
@@ -947,6 +980,7 @@ workflow_graph_schema = {
         # --- 33. AI Visibility Report Prompt Constructor ---
         "construct_ai_visibility_report_prompt": {
             "node_id": "construct_ai_visibility_report_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -977,6 +1011,7 @@ workflow_graph_schema = {
         # --- 34. AI Visibility Report ---
         "generate_ai_visibility_report": {
             "node_id": "generate_ai_visibility_report",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -991,6 +1026,7 @@ workflow_graph_schema = {
         # --- 35. Competitive Intelligence Report Prompt Constructor ---
         "construct_competitive_intelligence_report_prompt": {
             "node_id": "construct_competitive_intelligence_report_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -1021,6 +1057,7 @@ workflow_graph_schema = {
         # --- 36. Competitive Intelligence Report ---
         "generate_competitive_intelligence_report": {
             "node_id": "generate_competitive_intelligence_report",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -1035,6 +1072,7 @@ workflow_graph_schema = {
         # --- 37. Blog Performance Report Prompt Constructor ---
         "construct_blog_performance_report_prompt": {
             "node_id": "construct_blog_performance_report_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -1063,6 +1101,7 @@ workflow_graph_schema = {
         # --- 38. Blog Performance Report ---
         "generate_blog_performance_report": {
             "node_id": "generate_blog_performance_report",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -1077,6 +1116,7 @@ workflow_graph_schema = {
         # --- 39. Gap Analysis and Validation Prompt Constructor ---
         "construct_gap_analysis_validation_prompt": {
             "node_id": "construct_gap_analysis_validation_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "node_config": {
                 "prompt_templates": {
@@ -1109,6 +1149,7 @@ workflow_graph_schema = {
         # --- 40. Gap Analysis and Validation Report ---
         "generate_gap_analysis_validation": {
             "node_id": "generate_gap_analysis_validation",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -1123,6 +1164,7 @@ workflow_graph_schema = {
         # --- 41. Wait for Company Reports ---
         "wait_for_company_reports": {
             "node_id": "wait_for_company_reports",
+            "node_category": "system",
             "node_name": "transform_data",
             "defer_node": True,
             "node_config": {
@@ -1138,6 +1180,7 @@ workflow_graph_schema = {
         # --- 42. Blog Content Availability Router ---
         "blog_content_availability_router": {
             "node_id": "blog_content_availability_router",
+            "node_category": "system",
             "node_name": "router_node",
             # "defer_node": True,
             "node_config": {
@@ -1177,6 +1220,7 @@ workflow_graph_schema = {
         # --- 43. Strategic Recommendations Prompt Constructor ---
         "construct_strategic_recommendations_prompt": {
             "node_id": "construct_strategic_recommendations_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -1214,6 +1258,7 @@ workflow_graph_schema = {
         # --- 44. Blog Executive Summary Prompt Constructor ---
         "construct_blog_executive_summary_prompt": {
             "node_id": "construct_blog_executive_summary_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -1251,6 +1296,7 @@ workflow_graph_schema = {
         # --- 45. No Blog Content Executive Summary Prompt Constructor ---
         "construct_blog_executive_summary_no_blog_prompt": {
             "node_id": "construct_blog_executive_summary_no_blog_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -1282,6 +1328,7 @@ workflow_graph_schema = {
         # --- 46. No Blog Content Strategic Recommendations Prompt Constructor ---
         "construct_strategic_recommendations_no_blog_prompt": {
             "node_id": "construct_strategic_recommendations_no_blog_prompt",
+            "node_category": "analysis",
             "node_name": "prompt_constructor",
             "enable_node_fan_in": True,
             "node_config": {
@@ -1313,6 +1360,7 @@ workflow_graph_schema = {
         # --- 47. Strategic Recommendations & Action Plan Report ---
         "generate_strategic_recommendations": {
             "node_id": "generate_strategic_recommendations",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -1328,6 +1376,7 @@ workflow_graph_schema = {
         # --- 48. Blog Executive Summary ---
         "generate_blog_executive_summary": {
             "node_id": "generate_blog_executive_summary",
+            "node_category": "analysis",
             "node_name": "llm",
             "node_config": {
                 "llm_config": {
@@ -1343,6 +1392,7 @@ workflow_graph_schema = {
         # --- 49. Company Reports Aggregator ---
         "aggregate_company_reports": {
             "node_id": "aggregate_company_reports",
+            "node_category": "system",
             "node_name": "transform_data",
             "enable_node_fan_in": True,
             "node_config": {
@@ -1386,6 +1436,7 @@ workflow_graph_schema = {
         # --- 50. Store Executive Reports ---
         "store_executive_diagnostic_report": {
             "node_id": "store_executive_diagnostic_report",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_is_shared": False,
@@ -1408,6 +1459,7 @@ workflow_graph_schema = {
         # --- 51. Store Company Reports ---
         "store_company_diagnostic_report": {
             "node_id": "store_company_diagnostic_report",
+            "node_category": "system",
             "node_name": "store_customer_data",
             "node_config": {
                 "global_is_shared": False,
@@ -1436,6 +1488,7 @@ workflow_graph_schema = {
         # --- 52. Output Node ---
         "output_node": {
             "node_id": "output_node",
+            "node_category": "system",
             "node_name": "output_node",
             "enable_node_fan_in": True,
             "node_config": {}
