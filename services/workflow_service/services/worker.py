@@ -12,6 +12,7 @@ from prefect import flow, Flow
 from prefect.deployments import run_deployment
 # from prefect import resume_flow_run, pause_flow_run, suspend_flow_run
 from prefect.client.schemas import FlowRun, State
+from prefect.states import Cancelling
 from prefect import get_client
 # from prefect.filesystems import S3, GitHub, LocalFileSystem
 # from prefect.cache_policies import NO_CACHE
@@ -70,7 +71,7 @@ from workflow_service.services.cron_flows import billing_expire_organization_cre
 from linkedin_integration.models import *
 
 # --- Core Workflow Execution Flow ---
-
+WORKFLOW_RETRIES = 1
 
 # TODO: mount logs volume to persist logs!
 # get_logger(
@@ -111,7 +112,7 @@ prefect-agent-dev  |
     name="workflow-execution",
     description="Orchestrates the execution of a LangGraph workflow",
     log_prints=True,  # global_settings.DEBUG 
-    retries=1,
+    retries=WORKFLOW_RETRIES,
     retry_delay_seconds=30,
     # cache_result_in_memory=True, # by default, True
     # cache_policy=NO_CACHE,
@@ -205,9 +206,19 @@ async def workflow_execution_flow(
 
 @workflow_execution_flow.on_crashed
 @workflow_execution_flow.on_cancellation
+@workflow_execution_flow.on_failure
 async def handle_flow_crash(flow: Flow, flow_run: FlowRun, state: State, crashed: bool = False):
     """
-    Handle a flow crash by logging the error and suspending the flow run.
+    Handle a flow crash, cancellation, or failure by logging the error and updating the workflow run status.
+    
+    This handler also cancels all child workflow runs (subflows) if retries are not exhausted,
+    preventing orphaned child workflows from continuing to run when their parent has failed.
+    
+    Args:
+        flow: The Prefect Flow instance
+        flow_run: The FlowRun object containing run information
+        state: The State object representing the current state
+        crashed: True if the flow crashed (error), False if it was cancelled
     """
     logger = get_prefect_or_regular_python_logger(name="workflow-execution-flow-crash-handler")
     workflow_run_job = flow_run.parameters.get("run_job")
@@ -219,20 +230,247 @@ async def handle_flow_crash(flow: Flow, flow_run: FlowRun, state: State, crashed
     is_sub_workflow = workflow_run_job.parent_run_id is not None
     log_prefix = f"{workflow_run_job.workflow_name}: " if is_sub_workflow else ""
 
-    # if parent_run_id is not None:
     status = wf_schemas.WorkflowRunStatus.FAILED if crashed else wf_schemas.WorkflowRunStatus.CANCELLED
     status_message = "crashed" if crashed else "cancelled"
 
     logger.error(log_prefix + f"Flow {status_message}: {flow_run.state.message}")
+    
     async with get_async_db_as_manager() as db:
-        await workflow_run_dao.update_status(
+        # Update the status of the current workflow run
+        if not state.is_failed:
+            await workflow_run_dao.update_status(
+                db=db,
+                run_id=run_id,
+                status=status,
+                ended_at=datetime.now(tz=timezone.utc),
+                error_message=f"Flow {status_message}! State message: {flow_run.state.message}",
+                outputs=None,
+            )
+
+        start_retry_count = workflow_run_job.retry_count or 0
+        
+        # Check if retries are exhausted
+        # flow_run.run_count indicates how many times this flow has been executed (1 = first run, 2 = first retry, etc.)
+        # WORKFLOW_RETRIES is the maximum number of retries allowed (not counting the initial run)
+        # So total allowed runs = WORKFLOW_RETRIES + 1
+        retries_exhausted = flow_run.run_count - start_retry_count > WORKFLOW_RETRIES
+        
+        # Only cancel child workflows if retries are NOT exhausted
+        # Rationale: If the parent will be retried, we should cancel the old children from the failed attempt
+        # to prevent orphaned subflows. The retry will create fresh child workflows.
+        # If retries ARE exhausted (no more retries), we skip child cancellation as requested.
+        if retries_exhausted:
+            logger.info(log_prefix + f"Retries exhausted (run_count={flow_run.run_count}, max_retries={WORKFLOW_RETRIES}). Skipping child workflow cancellation as per design.")
+            return  # Exit early - don't cancel children when retries are exhausted
+        
+        logger.info(log_prefix + f"Retries not exhausted (run_count={flow_run.run_count}, max_retries={WORKFLOW_RETRIES}). Parent will be retried, so cancelling child workflows from this failed attempt.")
+        
+        # Cancel child workflows since the parent will be retried
+        try:
+            # Fetch all child workflow runs using the existing DAO method
+            child_runs = await workflow_run_dao.get_children_by_parent_run_id(
+                db=db,
+                parent_run_id=run_id,
+                owner_org_id=workflow_run_job.owner_org_id,
+                order_by="created_at",
+                order_dir="desc"
+            )
+            
+            if child_runs:
+                logger.info(log_prefix + f"Found {len(child_runs)} child workflow(s) to cancel")
+                
+                # Cancel each child workflow that is still running
+                cancelled_count = 0
+                for child_run in child_runs:
+                    # Only cancel if the child is in a running/waiting state
+                    if child_run.status in [
+                        wf_schemas.WorkflowRunStatus.RUNNING,
+                        wf_schemas.WorkflowRunStatus.SCHEDULED,
+                        wf_schemas.WorkflowRunStatus.WAITING_HITL
+                    ]:
+                        try:
+                            # First, cancel the Prefect flow runs if they exist
+                            if child_run.prefect_run_ids:
+                                await _cancel_prefect_flow_runs(
+                                    prefect_run_ids=child_run.prefect_run_ids,
+                                    logger=logger,
+                                    log_prefix=log_prefix + f"[{child_run.workflow_name}] "
+                                )
+                            
+                            # Then update the database status
+                            await workflow_run_dao.update_status(
+                                db=db,
+                                run_id=child_run.id,
+                                status=wf_schemas.WorkflowRunStatus.CANCELLED,
+                                ended_at=datetime.now(tz=timezone.utc),
+                                error_message=f"Cancelled due to parent workflow {status_message}: {run_id}",
+                            )
+                            cancelled_count += 1
+                            logger.info(log_prefix + f"Cancelled child workflow: {child_run.id} ({child_run.workflow_name})")
+                            
+                            # Recursively cancel grandchildren by calling this handler for each cancelled child
+                            # This ensures deeply nested subflows are also cancelled
+                            await _cancel_child_workflows_recursive(
+                                db=db,
+                                parent_run_id=child_run.id,
+                                workflow_run_dao=workflow_run_dao,
+                                owner_org_id=workflow_run_job.owner_org_id,
+                                reason=f"Ancestor workflow {run_id} {status_message}",
+                                logger=logger,
+                                log_prefix=f"{log_prefix}[{child_run.workflow_name}] "
+                            )
+                        except Exception as child_cancel_err:
+                            logger.error(log_prefix + f"Failed to cancel child workflow {child_run.id}: {child_cancel_err}", exc_info=True)
+                
+                logger.info(log_prefix + f"Successfully cancelled {cancelled_count}/{len(child_runs)} child workflow(s)")
+            else:
+                logger.info(log_prefix + "No child workflows found to cancel")
+                
+        except Exception as e:
+            logger.error(log_prefix + f"Error while cancelling child workflows: {e}", exc_info=True)
+
+
+async def _cancel_child_workflows_recursive(
+    db: AsyncSession,
+    parent_run_id: uuid.UUID,
+    workflow_run_dao: wf_crud.WorkflowRunDAO,
+    owner_org_id: uuid.UUID,
+    reason: str,
+    logger,
+    log_prefix: str = ""
+) -> None:
+    """
+    Recursively cancel all child workflows of a parent workflow.
+    
+    This helper function is used to ensure deeply nested subflows are properly cancelled
+    when an ancestor workflow fails or is cancelled.
+    
+    Args:
+        db: Database session
+        parent_run_id: UUID of the parent workflow run
+        workflow_run_dao: WorkflowRunDAO instance
+        owner_org_id: Organization ID for scoping the query
+        reason: Reason for cancellation (for error message)
+        logger: Logger instance
+        log_prefix: Prefix for log messages (for nested indentation)
+    """
+    try:
+        # Fetch child workflows
+        child_runs = await workflow_run_dao.get_children_by_parent_run_id(
             db=db,
-            run_id=run_id,
-            status=status,
-            ended_at=datetime.now(tz=timezone.utc),
-            error_message=f"Flow {status_message}! State message: {flow_run.state.message}",
-            outputs=None,
+            parent_run_id=parent_run_id,
+            owner_org_id=owner_org_id,
+            order_by="created_at",
+            order_dir="desc"
         )
+        
+        if not child_runs:
+            return
+        
+        logger.info(log_prefix + f"Found {len(child_runs)} grandchild workflow(s) to cancel")
+        
+        for child_run in child_runs:
+            # Only cancel if still in a running/waiting state
+            # First, cancel the Prefect flow runs if they exist
+            if child_run.prefect_run_ids:
+                await _cancel_prefect_flow_runs(
+                    prefect_run_ids=child_run.prefect_run_ids,
+                    logger=logger,
+                    log_prefix=log_prefix + f"[{child_run.workflow_name}] "
+                )
+            if child_run.status in [
+                wf_schemas.WorkflowRunStatus.RUNNING,
+                wf_schemas.WorkflowRunStatus.SCHEDULED,
+                wf_schemas.WorkflowRunStatus.WAITING_HITL
+            ]:
+                try:
+                    
+                    # Then update the database status
+                    await workflow_run_dao.update_status(
+                        db=db,
+                        run_id=child_run.id,
+                        status=wf_schemas.WorkflowRunStatus.CANCELLED,
+                        ended_at=datetime.now(tz=timezone.utc),
+                        error_message=f"Cancelled due to {reason}",
+                    )
+                    logger.info(log_prefix + f"Cancelled grandchild workflow: {child_run.id} ({child_run.workflow_name})")
+                    
+                    # Recursively cancel deeper nested children
+                    await _cancel_child_workflows_recursive(
+                        db=db,
+                        parent_run_id=child_run.id,
+                        workflow_run_dao=workflow_run_dao,
+                        owner_org_id=owner_org_id,
+                        reason=reason,
+                        logger=logger,
+                        log_prefix=f"{log_prefix}  "  # Indent further for nested levels
+                    )
+                except Exception as cancel_err:
+                    logger.error(log_prefix + f"Failed to cancel grandchild workflow {child_run.id}: {cancel_err}", exc_info=True)
+                    
+    except Exception as e:
+        logger.error(log_prefix + f"Error in recursive child cancellation: {e}", exc_info=True)
+
+
+async def _cancel_prefect_flow_runs(
+    prefect_run_ids: str,
+    logger,
+    log_prefix: str = ""
+) -> None:
+    """
+    Cancel Prefect flow runs using the Prefect API.
+    
+    This helper function extracts flow run IDs from the comma-separated string
+    stored in the database and cancels each one using the Prefect client.
+    
+    Args:
+        prefect_run_ids: Comma-separated string of Prefect flow run UUIDs
+        logger: Logger instance
+        log_prefix: Prefix for log messages
+    """
+    if not prefect_run_ids:
+        return
+    
+    # Parse the comma-separated flow run IDs
+    # The prefect_run_ids field stores IDs as "uuid1,uuid2,uuid3"
+    flow_run_id_list = [fid.strip() for fid in prefect_run_ids.split(",") if fid.strip()]
+    flow_run_id_str = flow_run_id_list[-1]
+    
+    if not flow_run_id_list:
+        return
+    
+    try:
+        async with get_client() as prefect_client:
+            # for flow_run_id_str in flow_run_id_list:
+            try:
+                # Convert string to UUID
+                flow_run_uuid = uuid.UUID(flow_run_id_str)
+                
+                # Create a Cancelling state with a message
+                cancelling_state = Cancelling(message="Cancelled by parent workflow failure/cancellation")
+                
+                # Cancel the Prefect flow run by setting its state to Cancelling
+                # The Prefect worker will then attempt to terminate the flow run's infrastructure
+                result = await prefect_client.set_flow_run_state(
+                    flow_run_id=flow_run_uuid,
+                    state=cancelling_state
+                )
+                
+                # Check if the cancellation was accepted
+                if result.status == "ABORT":
+                    logger.warning(log_prefix + f"Prefect flow run {flow_run_id_str} could not be cancelled: {result.details.reason if hasattr(result, 'details') else 'Unknown reason'}")
+                else:
+                    logger.info(log_prefix + f"Prefect flow run {flow_run_id_str} scheduled for cancellation")
+                
+            except ValueError as ve:
+                # Invalid UUID format
+                logger.warning(log_prefix + f"Invalid Prefect flow run ID format: {flow_run_id_str} - {ve}")
+            except Exception as cancel_err:
+                # Prefect API error (flow might not exist, already finished, etc.)
+                logger.warning(log_prefix + f"Failed to cancel Prefect flow run {flow_run_id_str}: {cancel_err}")
+                    
+    except Exception as e:
+        logger.error(log_prefix + f"Error while cancelling Prefect flow runs: {e}", exc_info=True)
 
 
 async def run_graph(
@@ -291,12 +529,12 @@ async def run_graph(
             obj_in=obj_in,
         )
         is_sub_workflow = parent_run_id is not None
-        log_prefix = f"{workflow_run.workflow_name}: " if is_sub_workflow else ""
+        log_prefix = f"{workflow_run_job.workflow_name}: " if is_sub_workflow else ""
 
         if is_sub_workflow:
             # Rename the flow run to include the subworkflow name for better identification
             try:
-                new_flow_run_name = f"[SUBFLOW] {workflow_run.workflow_name}:--{run_id} (Parent: {workflow_run.parent_run_id})" + "--(HITL-RESUMED)" if workflow_run_job.resume_after_hitl else ""
+                new_flow_run_name = f"[SUBFLOW] {workflow_run_job.workflow_name}:--{run_id} (Parent: {workflow_run_job.parent_run_id})" + "--(HITL-RESUMED)" if workflow_run_job.resume_after_hitl else ""
                 
                 async with get_client() as prefect_client:
                     await prefect_client.update_flow_run(
@@ -396,7 +634,7 @@ async def run_graph(
         builder = GraphBuilder(external_context.db_registry)
         # Pass run job directly for context if builder needs it
         runtime_metadata = {
-            "workflow_name": workflow_run.workflow_name,
+            "workflow_name": workflow_run_job.workflow_name,
             "is_sub_workflow": is_sub_workflow,
         }
         graph_entities = builder.build_graph_entities(workflow_run_job.graph_schema, prefect_mode=True, allow_non_user_editable_fields=True, runtime_metadata=runtime_metadata)
