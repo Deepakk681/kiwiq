@@ -261,3 +261,15 @@ CONTAINER ID   NAME                               CPU %     MEM USAGE / LIMIT   
 c4d4c93a6996   kiwiq_prod_weaviate                0.48%     231.2MiB / 4.75GiB   4.75%     62.9MB / 21.6MB   88.3MB / 255MB    13
 
 
+
+
+# Memory profiling and optimization basics
+```python
+# import timing
+# PYTHONPROFILEIMPORTTIME=1 | PYTHONPATH=$(pwd):$(pwd)/services poetry run python -X importtime services/workflow_service/services/test_clients/test_worker_job.py 2> importtime.log
+# poetry run tuna importtime.log
+
+# memory flamegraph
+# PYTHONPATH=$(pwd):$(pwd)/services poetry run python -m memray run -o memray.bin services/workflow_service/services/test_clients/test_worker_job.py
+# poetry run memray flamegraph memray.bin -o memray.html
+```

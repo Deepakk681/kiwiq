@@ -171,14 +171,12 @@ services:
       # Remove this line if using a dedicated Dockerfile.prod that copies the code.
       - ./:/app
     depends_on:
-      # Explicitly depend on backend services and wait for postgres to be healthy
+      # Explicitly depend on backend services
       weaviate:
         # condition: service_healthy
         condition: service_started
-      mongo:
-        condition: service_started
-      postgres:
-        condition: service_healthy
+      # mongo dependency removed - using managed MongoDB cluster
+      # postgres dependency removed - using managed PostgreSQL database
       rabbitmq:
         condition: service_started
       redis:
@@ -214,58 +212,58 @@ services:
     #   driver: "awslogs"
     #   ...
 
-  # MongoDB Database Service
-  mongo:
-    # Use a specific version tag in production (e.g., mongo:6.0)
-    image: mongo:latest
-    container_name: kiwiq_prod_mongo
-    restart: unless-stopped
-    # Needed for MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD
-    env_file:
-      - .env
-    environment:
-      # Load credentials from .env.prod
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
-    # Persist data
-    volumes:
-      - mongo_data:/data/db
-      - mongo_config:/data/configdb
-    networks:
-      - prod_network
-    command: |
-      mongod
-      --wiredTigerCacheSizeGB=5
-      --wiredTigerJournalCompressor=snappy
-      --wiredTigerCollectionBlockCompressor=snappy
-      --journalCommitInterval=50
-      --maxConns=800
-      --quiet
-    # ⬆️ from 2.5GB (optimized for 8GB memory)
-    # ⬆️ from 200 (4x for 60 concurrent workflows) 
-    # No ports exposed externally
-    # Optional: Add basic healthcheck for Mongo if needed
-    # healthcheck:
-    #   test: echo 'db.runCommand("ping").ok' | mongosh --quiet
-    #   interval: 10s
-    #   timeout: 10s
-    #   retries: 5
-    # Optional: Add production logging
-    # Resource limits (Upgraded for 4x workflow concurrency)
-    deploy:
-      resources:
-        limits:
-          memory: 8G         # ⬆️ from 4G (doubled for higher concurrency)
-          cpus: '2.5'        # ⬆️ from 2 (25% increase)
-        reservations:
-          memory: 5G         # ⬆️ from 3.5G
-          cpus: '1.5'
-    # Logging
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+  # # MongoDB Database Service
+  # mongo:
+  #   # Use a specific version tag in production (e.g., mongo:6.0)
+  #   image: mongo:latest
+  #   container_name: kiwiq_prod_mongo
+  #   restart: unless-stopped
+  #   # Needed for MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     # Load credentials from .env.prod
+  #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+  #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+  #   # Persist data
+  #   volumes:
+  #     - mongo_data:/data/db
+  #     - mongo_config:/data/configdb
+  #   networks:
+  #     - prod_network
+  #   command: |
+  #     mongod
+  #     --wiredTigerCacheSizeGB=5
+  #     --wiredTigerJournalCompressor=snappy
+  #     --wiredTigerCollectionBlockCompressor=snappy
+  #     --journalCommitInterval=50
+  #     --maxConns=800
+  #     --quiet
+  #   # ⬆️ from 2.5GB (optimized for 8GB memory)
+  #   # ⬆️ from 200 (4x for 60 concurrent workflows) 
+  #   # No ports exposed externally
+  #   # Optional: Add basic healthcheck for Mongo if needed
+  #   # healthcheck:
+  #   #   test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+  #   #   interval: 10s
+  #   #   timeout: 10s
+  #   #   retries: 5
+  #   # Optional: Add production logging
+  #   # Resource limits (Upgraded for 4x workflow concurrency)
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 8G         # ⬆️ from 4G (doubled for higher concurrency)
+  #         cpus: '2.5'        # ⬆️ from 2 (25% increase)
+  #       reservations:
+  #         memory: 5G         # ⬆️ from 3.5G
+  #         cpus: '1.5'
+  #   # Logging
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "100m"
+  #       max-file: "3"
 
 
   # # MongoDB Backup Service (Scheduled)
@@ -307,81 +305,81 @@ services:
   #       max-size: "50m"
   #       max-file: "2"
 
-  # PostgreSQL Database Service
-  postgres:
-    # Use a specific version tag in production (e.g., postgres:15)
-    image: postgres:latest
-    container_name: kiwiq_prod_postgres
-    restart: unless-stopped
-    # Needed for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      # Main DB, others created by setup.sh if needed
-      POSTGRES_DB: ${POSTGRES_DB}
-      # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
-      # Ensure it's defined in .env.prod
-      # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
-    # Optimized production configuration (4x workflow concurrency)
-    command: [
-      "postgres",
-      # Connection settings (increased for 60 concurrent workflows)
-      "-c", "max_connections=600",            # ⬆️ from 300 (4x workflows need more connections)
-      "-c", "shared_buffers=1GB",             # ⬆️ from 640MB
-      "-c", "effective_cache_size=3GB",       # ⬆️ from 1.5GB
-      "-c", "work_mem=4MB",
-      "-c", "maintenance_work_mem=512MB",
-      # Checkpoint settings
-      "-c", "checkpoint_completion_target=0.9",
-      "-c", "wal_buffers=16MB",
-      "-c", "default_statistics_target=100",
-      # Write performance
-      "-c", "synchronous_commit=on",
-      "-c", "wal_level=replica",
-      "-c", "max_wal_size=4GB",
-      "-c", "min_wal_size=1GB",
-      # Query performance (increased for higher concurrency)
-      "-c", "random_page_cost=1.1",
-      "-c", "effective_io_concurrency=400",   # ⬆️ from 200 (doubled for higher concurrent I/O)
-      # Logging
-      "-c", "log_min_duration_statement=5000",
-      "-c", "log_connections=on",
-      "-c", "log_disconnections=on",
-      "-c", "log_statement=mod",
-      "-c", "log_line_prefix='%t [%p]: [%l-1] db=%d,user=%u '",
-    ]
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 4G       # ⬆️ from 2.5G (+500MB)
-          cpus: '2.0'      # unchanged
-        reservations:
-          memory: 3G       # ⬆️ from 1.5G
-          cpus: '0.75'     # unchanged
-    # Production logging
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
-    # Persist data
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - prod_network
-    # No ports exposed externally
-    healthcheck:
-      # Test if Postgres is ready to accept connections
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      # Give some time for initialization
-      start_period: 10s
-    # Optional: Add production logging
+  # # PostgreSQL Database Service
+  # postgres:
+  #   # Use a specific version tag in production (e.g., postgres:15)
+  #   image: postgres:latest
+  #   container_name: kiwiq_prod_postgres
+  #   restart: unless-stopped
+  #   # Needed for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     # Main DB, others created by setup.sh if needed
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #     # POSTGRES_DATABASES is needed if setup.sh in the app container creates multiple DBs.
+  #     # Ensure it's defined in .env.prod
+  #     # POSTGRES_DATABASES: ${POSTGRES_DATABASES}
+  #   # Optimized production configuration (4x workflow concurrency)
+  #   command: [
+  #     "postgres",
+  #     # Connection settings (increased for 60 concurrent workflows)
+  #     "-c", "max_connections=600",            # ⬆️ from 300 (4x workflows need more connections)
+  #     "-c", "shared_buffers=1GB",             # ⬆️ from 640MB
+  #     "-c", "effective_cache_size=3GB",       # ⬆️ from 1.5GB
+  #     "-c", "work_mem=4MB",
+  #     "-c", "maintenance_work_mem=512MB",
+  #     # Checkpoint settings
+  #     "-c", "checkpoint_completion_target=0.9",
+  #     "-c", "wal_buffers=16MB",
+  #     "-c", "default_statistics_target=100",
+  #     # Write performance
+  #     "-c", "synchronous_commit=on",
+  #     "-c", "wal_level=replica",
+  #     "-c", "max_wal_size=4GB",
+  #     "-c", "min_wal_size=1GB",
+  #     # Query performance (increased for higher concurrency)
+  #     "-c", "random_page_cost=1.1",
+  #     "-c", "effective_io_concurrency=400",   # ⬆️ from 200 (doubled for higher concurrent I/O)
+  #     # Logging
+  #     "-c", "log_min_duration_statement=5000",
+  #     "-c", "log_connections=on",
+  #     "-c", "log_disconnections=on",
+  #     "-c", "log_statement=mod",
+  #     "-c", "log_line_prefix='%t [%p]: [%l-1] db=%d,user=%u '",
+  #   ]
+  #   # Resource limits
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 4G       # ⬆️ from 2.5G (+500MB)
+  #         cpus: '2.0'      # unchanged
+  #       reservations:
+  #         memory: 3G       # ⬆️ from 1.5G
+  #         cpus: '0.75'     # unchanged
+  #   # Production logging
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "100m"
+  #       max-file: "3"
+  #   # Persist data
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - prod_network
+  #   # No ports exposed externally
+  #   healthcheck:
+  #     # Test if Postgres is ready to accept connections
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     # Give some time for initialization
+  #     start_period: 10s
+  #   # Optional: Add production logging
   
   # # PostgreSQL Backup Service
   # postgres-backup:
@@ -528,7 +526,7 @@ services:
       # IMPORTANT: For production, consider using an external managed database (like RDS)
       # instead of the postgres container for Prefect's backend for better reliability/scalability.
       # If using the postgres container:
-      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${PREFECT_DB}"
+      PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}/${PREFECT_DB}"
       # If using external DB, ensure PREFECT_API_DATABASE_CONNECTION_URL is set correctly in .env.prod
       # Updated for subdomain approach (HTTPS via nginx + certbot)
       PREFECT_API_URL: "https://kq-prefect-server.prod.kiwiq.ai/api"
@@ -544,10 +542,7 @@ services:
     volumes:
       - prefect_data:/root/.prefect
     depends_on:
-      # Only if using the internal postgres container for Prefect DB
-      postgres:
-        # Wait for postgres healthcheck
-        condition: service_healthy
+      # postgres dependency removed - using managed PostgreSQL database
       app:
         condition: service_started
     networks:
@@ -594,11 +589,8 @@ services:
       weaviate:
         # condition: service_healthy
         condition: service_started
-      postgres:
-        # Wait for postgres healthcheck
-        condition: service_healthy
-      mongo:
-        condition: service_started
+      # postgres dependency removed - using managed PostgreSQL database
+      # mongo dependency removed - using managed MongoDB cluster
       rabbitmq:
         condition: service_started
       redis:
@@ -622,15 +614,15 @@ services:
       # This tells CodeRunner how /app inside prefect-agent maps to the host filesystem
       HOST_PROJECT_PATH: "/home/ec2-user/stealth-backend"  # In production, /app in container maps to /app on host
     
-    # Resource limits
+    # Resource limits (includes MongoDB and PostgreSQL resources from managed services migration)
     deploy:
       resources:
         limits:
-          memory: 35.5G
-          cpus: '8.0'
+          memory: 47.5G     # 35.5G + 8G (mongo) + 4G (postgres)
+          cpus: '12.5'      # 8.0 + 2.5 (mongo) + 2.0 (postgres)
         reservations:
-          memory: 26G
-          cpus: '6.0'
+          memory: 34G       # 26G + 5G (mongo) + 3G (postgres)
+          cpus: '8.25'      # 6.0 + 1.5 (mongo) + 0.75 (postgres)
     # Logging
     logging:
       driver: "json-file"
@@ -653,12 +645,8 @@ services:
 volumes:
   weaviate_data:
     driver: local
-  mongo_data:
-    driver: local
-  mongo_config:
-    driver: local
-  postgres_data:
-    driver: local
+  # mongo_data and mongo_config removed - using managed MongoDB cluster
+  # postgres_data removed - using managed PostgreSQL database
   rabbitmq_data:
     driver: local
   redis_data:

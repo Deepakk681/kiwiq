@@ -114,6 +114,7 @@ services:
       # Database connection URL using other service names (requires postgres service)
       # Format: postgresql+driver://user:password@host:port/database
       PREFECT_API_DATABASE_CONNECTION_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${PREFECT_DB}"
+      # PREFECT_API_DATABASE_CONNECTION_URL: ${PREFECT_API_DATABASE_CONNECTION_URL}
       # Note: this is in ~/.prefect/storage directory by default! https://docs.prefect.io/v3/develop/results
       PREFECT_TASKS_DEFAULT_PERSIST_RESULT: ${PREFECT_TASKS_DEFAULT_PERSIST_RESULT}
       # Optional: Set UI API URL if needed explicitly
@@ -147,12 +148,15 @@ services:
       # Ensure these env vars match what your application expects
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST: "postgres"
+      # POSTGRES_HOST: "postgres"
+      POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DATABASES: ${POSTGRES_DATABASES}
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      # DATABASE_URL: ${DATABASE_URL}
       # /?authSource=admin" # Added authSource
       MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
+      # MONGO_URL: "mongodb+srv://kiwiq_db_user:LYVDmQ9tumnCIwVJ@kiwiq-prod-cluster.opzj8.mongodb.net/?appName=kiwiq-prod-cluster"
       RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
       WEAVIATE_HOST: "weaviate"
@@ -194,12 +198,15 @@ services:
       PREFECT_LOGGING_LEVEL: INFO
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_HOST: "postgres"
+      # POSTGRES_HOST: "postgres"
+      POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DATABASES: ${POSTGRES_DATABASES}
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      # DATABASE_URL: ${DATABASE_URL}
       # /?authSource=admin" # Added authSource
       MONGO_URL: "mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017"
+      # MONGO_URL: "mongodb+srv://kiwiq_db_user:LYVDmQ9tumnCIwVJ@kiwiq-prod-cluster.opzj8.mongodb.net/?appName=kiwiq-prod-cluster"
       RABBITMQ_URL: "amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/"
       REDIS_URL: "redis://default:${REDIS_PASSWORD}@redis:6379/0" # Use 'default' user for Redis 6+
       WEAVIATE_HOST: "weaviate"
