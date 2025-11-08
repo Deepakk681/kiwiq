@@ -1181,7 +1181,10 @@ class TestWeaviateChunkClient(unittest.IsolatedAsyncioTestCase):
         ]
         
         await self.client.ingest_chunks(chunks)
-        
+
+        # Add small delay to allow for vector indexing
+        await asyncio.sleep(1)
+
         # Filter for specific version
         version_filter = self.client.build_filter(version="1.0")
         results = await self.client.vector_search(

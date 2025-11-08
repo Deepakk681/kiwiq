@@ -1032,7 +1032,7 @@ async def get_workflow_effective_config(
     "",
     response_model=schemas.WorkflowRunRead,
     status_code=status.HTTP_202_ACCEPTED, # Indicate async processing started
-    summary="Submit Workflow Run. If resuming after HITL, provide the `run_id` of the run to resume and the `inputs` to resume with. If not resuming, provide `workflow_id` to run an existing saved workflow or `graph_schema` to define and run an ad-hoc workflow.",
+    summary="Submit Workflow Run. Supports: new run, HITL resume (provide `run_id` + `resume_after_hitl=true`), or manual retry (provide `run_id` of FAILED/CANCELLED run with `is_manual_retry=true`).",
     dependencies=[Depends(wf_deps.RequireWorkflowExecuteActiveOrg)] # Check execute perm on active org
 )
 async def submit_workflow_run(
@@ -1044,13 +1044,26 @@ async def submit_workflow_run(
     user_dao: auth_crud.UserDAO = Depends(auth_deps.get_user_dao),
 ):
     """
-    Submits a new workflow run for execution.
+    Submits a new workflow run for execution, resumes after HITL, or retries a failed/cancelled run.
 
+    **New Workflow Run:**
     - Provide `workflow_id` to run an existing saved workflow.
     - **OR** provide `graph_schema` to define and run an ad-hoc workflow
       (an associated workflow record will be created automatically).
     - Provide `inputs` required by the workflow.
-    - Returns the initial `WorkflowRun` record (usually in `SCHEDULED` state).
+
+    **HITL Resume:**
+    - Provide `run_id` of the run to resume
+    - Set `resume_after_hitl=true`
+    - Provide `inputs` with HITL response data
+
+    **Manual Retry (FAILED/CANCELLED runs):**
+    - Provide `run_id` of the failed/cancelled run
+    - Set `is_manual_retry=true`
+    - Original inputs and configuration are automatically reused
+    - Retry count is automatically incremented
+
+    - Returns the `WorkflowRun` record (usually in `SCHEDULED` state).
     - Requires `workflow:execute` permission on the active organization.
     """
     try:

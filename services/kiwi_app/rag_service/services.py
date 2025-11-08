@@ -23,7 +23,7 @@ from kiwi_app.data_jobs.ingestion.ingestion_pipeline import (
     ingest_single_document,
     ingest_multiple_documents
 )
-from weaviate_client.weaviate_client import WeaviateChunkClient, ChunkSchema
+from weaviate_client import WeaviateChunkClient, ChunkSchema
 from kiwi_app.rag_service.schemas import (
     RAGSearchRequest, RAGSearchResponse, RAGSearchResult,
     RAGDocumentDeleteRequest, RAGDocumentDeleteResponse,

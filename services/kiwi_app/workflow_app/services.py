@@ -28,7 +28,7 @@ from sqlmodel import or_, select
 from kiwi_app.auth.dependencies import _check_permissions_for_org, get_user_dao
 from kiwi_app.auth.exceptions import PermissionDeniedException
 from kiwi_app.workflow_app.constants import WorkflowPermissions
-from kiwi_app.workflow_app import models, schemas, crud
+from kiwi_app.workflow_app import models, schemas, crud, exceptions
 from kiwi_app.workflow_app.constants import WorkflowRunStatus, NotificationType, HITLJobStatus, LaunchStatus # Import LaunchStatus
 from kiwi_app.auth.models import User, Organization # For type hinting and context
 from kiwi_app.settings import settings # Import settings for Mongo paths etc.
@@ -278,6 +278,33 @@ class WorkflowService:
         workflow_id = run_submit.workflow_id
         graph_schema_dict = None
 
+        # Handle Manual Retry: detect when is_manual_retry=True with run_id of FAILED/CANCELLED run
+        if run_submit.is_manual_retry:
+            if run_submit.run_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Must provide run_id when is_manual_retry=True"
+                )
+            if run_submit.workflow_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot provide workflow_id when retrying (is_manual_retry=True). Workflow is determined from the existing run."
+                )
+            if run_submit.graph_schema is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot provide graph_schema when retrying (is_manual_retry=True)"
+                )
+
+            # Use the dedicated retry logic
+            return await self.retry_workflow_run(
+                db=db,
+                run_id=run_submit.run_id,
+                owner_org_id=owner_org_id,
+                user=user,
+                reset_retry_count=False  # Default behavior: increment retry count
+            )
+
         if run_submit.resume_after_hitl:
             if workflow_id is not None:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot provide both workflow_id and resume_after_hitl in the same request")
@@ -353,51 +380,28 @@ class WorkflowService:
             
             workflow = await self.get_workflow(db, workflow_id=workflow_run.workflow_id, user=user, owner_org_id=owner_org_id, include_system_entities=True)
 
-            effective_graph_schema = workflow.graph_config
-
             if (not run_submit.reset_overrides_on_hitl_resume) and run_submit.include_override_tags:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reset_overrides_on_hitl_resume must be True when include_override_tags is provided when resuming after HITL")
 
+            # Build effective graph config with overrides
+            effective_graph_schema, overrides = await self._build_effective_graph_config_with_overrides(
+                db=db,
+                workflow=workflow,
+                workflow_run=workflow_run,
+                owner_org_id=owner_org_id,
+                user=user,
+                apply_new_overrides=run_submit.reset_overrides_on_hitl_resume,
+                include_active_overrides=run_submit.include_active_overrides,
+                include_override_tags=run_submit.include_override_tags,
+            )
+
+            # Update workflow run with new overrides if reset was requested
             if run_submit.reset_overrides_on_hitl_resume:
-
-                overrides, effective_graph_schema = await self.list_workflow_specific_overrides_and_optional_apply(
-                    db=db,
-                    include_active=run_submit.include_active_overrides,
-                    include_tags=run_submit.include_override_tags,
-                    active_org_id=owner_org_id,
-                    requesting_user=user,
-                    base_workflow_to_apply_overrides_to=workflow
-                )
-
                 workflow_run.applied_workflow_config_overrides = ",".join([str(override.id) for override in overrides]) if overrides else None
                 workflow_run.applied_workflow_config_override_tags = ",".join([str(tag) for tag in run_submit.include_override_tags]) if run_submit.include_override_tags else None
-
                 db.add(workflow_run)
                 await db.commit()
                 await db.refresh(workflow_run)
-
-            elif workflow_run.applied_workflow_config_overrides:
-                override_ids = workflow_run.applied_workflow_config_overrides.split(",")
-                if override_ids:
-                    overrides = None
-                    try:
-                        overrides = await self.workflow_config_override_dao.get_overrides_by_ids(
-                            db=db,
-                            override_ids=override_ids
-                        )
-                    except Exception as e:
-                        logger.error(f"ERROR: Failed to get overrides for run {workflow_run.id}: {e}")
-                        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get overrides for run")
-                    if overrides:
-                        try:
-                            effective_graph_schema = await self.apply_list_of_overrides(
-                                overrides=overrides,
-                                base_graph_schema=workflow.graph_config,
-                                workflow_id=workflow.id
-                            )
-                        except Exception as e:
-                            logger.error(f"ERROR: Failed to apply overrides for run {workflow_run.id}: {e}")
-                            # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to apply overrides for run")
             
         else:
             if run_submit.graph_schema:
@@ -483,56 +487,20 @@ class WorkflowService:
             # )
 
         # 3. Trigger the actual execution via Prefect worker/helper
-        try:
-            # Ensure we have the graph schema to pass to the worker
-            graph_schema_dict = effective_graph_schema
-
-            # Trigger the workflow run via the helper function
-            flow_run_or_run_job_with_name: Union[FlowRun, Tuple[schemas.WorkflowRunJobCreate, str]] = await trigger_workflow_run(
-                workflow_id=workflow_run.workflow_id,
-                workflow_name=workflow_run.workflow_name,
-                owner_org_id=owner_org_id,
-                triggered_by_user_id=user.id,
-                inputs=run_submit.inputs,
-                run_id=workflow_run.id, # Pass the created run_id
-                thread_id=workflow_run.thread_id, # Pass thread_id
-                graph_schema=GraphSchema.model_validate(graph_schema_dict), # Pass the graph schema
-                resume_after_hitl=run_submit.resume_after_hitl, # This is a new submission
-                prefect_run_ids=workflow_run.prefect_run_ids, # Pass the prefect run_id if provided
-                streaming_mode=run_submit.streaming_mode,
-                # is_subflow=run_submit.parent_run_id is not None,
-                parent_run_id=run_submit.parent_run_id,
-                retry_count=workflow_run.retry_count or 0,
-                reset_overrides_on_hitl_resume=run_submit.reset_overrides_on_hitl_resume,
-                include_active_overrides=run_submit.include_active_overrides,
-                include_override_tags=workflow_run.applied_workflow_config_override_tags.split(",") if workflow_run.applied_workflow_config_override_tags else None,
-                return_job_object_no_submit=return_job_object_no_submit,
-            )
-            
-            if return_job_object_no_submit:
-                return flow_run_or_run_job_with_name
-
-            workflow_run = await self.workflow_run_dao.update(
-                db,
-                db_obj=workflow_run,
-                obj_in={
-                    "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_run_or_run_job_with_name.id)]) if workflow_run.prefect_run_ids else str(flow_run_or_run_job_with_name.id)
-                }
-            )
-        except Exception as e:
-            # If triggering fails, mark the run as failed immediately
-            await self.workflow_run_dao.update_status(
-                db,
-                run_id=workflow_run.id,
-                status=WorkflowRunStatus.FAILED,
-                error_message=f"Failed to trigger execution: {e}",
-                ended_at=datetime_now_utc()
-            )
-            # Re-raise or log appropriately
-            # Consider logging the full traceback: import traceback; traceback.print_exc()
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to trigger workflow execution: {e}")
-
-        return workflow_run
+        return await self._trigger_workflow_execution(
+            db=db,
+            workflow_run=workflow_run,
+            effective_graph_schema=effective_graph_schema,
+            inputs=run_submit.inputs,
+            owner_org_id=owner_org_id,
+            user=user,
+            resume_after_hitl=run_submit.resume_after_hitl,
+            is_manual_retry=False,
+            streaming_mode=run_submit.streaming_mode,
+            reset_overrides_on_hitl_resume=run_submit.reset_overrides_on_hitl_resume,
+            include_active_overrides=run_submit.include_active_overrides,
+            return_job_object_no_submit=return_job_object_no_submit,
+        )
 
     # Internal helper to bypass unique name check for ad-hoc workflows
     async def _create_workflow_internal(
@@ -547,6 +515,170 @@ class WorkflowService:
         return await self.workflow_dao.create(
             db, obj_in=workflow_in, owner_org_id=owner_org_id, user_id=user_id
         )
+
+    async def _build_effective_graph_config_with_overrides(
+        self,
+        db: AsyncSession,
+        *,
+        workflow: models.Workflow,
+        workflow_run: models.WorkflowRun,
+        owner_org_id: uuid.UUID,
+        user: User,
+        apply_new_overrides: bool = False,
+        include_active_overrides: bool = True,
+        include_override_tags: Optional[List[str]] = None,
+    ) -> Tuple[GraphSchema, Optional[List[models.WorkflowConfigOverride]]]:
+        """
+        Builds effective graph configuration by applying overrides.
+        
+        This helper method handles two scenarios:
+        1. Apply new overrides (for new runs or HITL reset)
+        2. Reapply existing overrides (for HITL resume or retry)
+        
+        Args:
+            db: Database session
+            workflow: The workflow model with base graph_config
+            workflow_run: The workflow run (may have existing overrides)
+            owner_org_id: Organization ID
+            user: User context
+            apply_new_overrides: If True, fetch and apply new overrides. If False, reapply existing.
+            include_active_overrides: Whether to include active overrides (when applying new)
+            include_override_tags: Tags to include (when applying new)
+        
+        Returns:
+            Tuple of (effective_graph_schema, applied_overrides_list)
+        """
+        effective_graph_schema = workflow.graph_config
+        applied_overrides = None
+        
+        if apply_new_overrides:
+            # Fetch and apply new overrides
+            applied_overrides, effective_graph_schema = await self.list_workflow_specific_overrides_and_optional_apply(
+                db=db,
+                include_active=include_active_overrides,
+                include_tags=include_override_tags,
+                active_org_id=owner_org_id,
+                requesting_user=user,
+                base_workflow_to_apply_overrides_to=workflow
+            )
+        elif workflow_run.applied_workflow_config_overrides:
+            # Reapply existing overrides from the run
+            override_ids = workflow_run.applied_workflow_config_overrides.split(",")
+            if override_ids:
+                applied_overrides = None
+                try:
+                    applied_overrides = await self.workflow_config_override_dao.get_overrides_by_ids(
+                        db=db,
+                        override_ids=override_ids
+                    )
+                except Exception as e:
+                    logger.error(f"ERROR: Failed to get overrides for run {workflow_run.id}: {e}")
+                    
+                if applied_overrides:
+                    try:
+                        effective_graph_schema = await self.apply_list_of_overrides(
+                            overrides=applied_overrides,
+                            base_graph_schema=workflow.graph_config,
+                            workflow_id=workflow.id
+                        )
+                    except Exception as e:
+                        logger.error(f"ERROR: Failed to apply overrides for run {workflow_run.id}: {e}")
+        
+        return effective_graph_schema, applied_overrides
+
+    async def _trigger_workflow_execution(
+        self,
+        db: AsyncSession,
+        *,
+        workflow_run: models.WorkflowRun,
+        effective_graph_schema: GraphSchema,
+        inputs: Dict[str, Any],
+        owner_org_id: uuid.UUID,
+        user: User,
+        resume_after_hitl: bool = False,
+        is_manual_retry: bool = False,
+        streaming_mode: bool = True,
+        reset_overrides_on_hitl_resume: bool = False,
+        include_active_overrides: bool = True,
+        return_job_object_no_submit: bool = False,
+    ) -> Union[models.WorkflowRun, Tuple[schemas.WorkflowRunJobCreate, str]]:
+        """
+        Common helper to trigger workflow execution via Prefect.
+        
+        Handles the actual triggering and updating of the WorkflowRun record with
+        the new Prefect flow run ID.
+        
+        Args:
+            db: Database session
+            workflow_run: The workflow run record
+            effective_graph_schema: The final graph schema to execute
+            inputs: Workflow inputs
+            owner_org_id: Organization ID
+            user: User triggering the workflow
+            resume_after_hitl: Whether this is HITL resume
+            is_manual_retry: Whether this is a manual retry
+            streaming_mode: Whether to enable streaming
+            reset_overrides_on_hitl_resume: For HITL resume logic
+            include_active_overrides: For override reapplication
+            return_job_object_no_submit: Whether to return job object without submitting
+        
+        Returns:
+            Updated WorkflowRun or job object tuple
+        """
+        try:
+            # Extract override tags from the run if they exist
+            include_override_tags = None
+            if workflow_run.applied_workflow_config_override_tags:
+                include_override_tags = workflow_run.applied_workflow_config_override_tags.split(",")
+            
+            # Trigger the workflow run via the helper function
+            flow_run_or_run_job_with_name: Union[FlowRun, Tuple[schemas.WorkflowRunJobCreate, str]] = await trigger_workflow_run(
+                workflow_id=workflow_run.workflow_id,
+                workflow_name=workflow_run.workflow_name,
+                owner_org_id=owner_org_id,
+                triggered_by_user_id=user.id,
+                inputs=inputs,
+                run_id=workflow_run.id,
+                thread_id=workflow_run.thread_id,
+                graph_schema=GraphSchema.model_validate(effective_graph_schema),
+                resume_after_hitl=resume_after_hitl,
+                prefect_run_ids=workflow_run.prefect_run_ids,
+                streaming_mode=streaming_mode,
+                parent_run_id=workflow_run.parent_run_id,
+                retry_count=workflow_run.retry_count or 0,
+                reset_overrides_on_hitl_resume=reset_overrides_on_hitl_resume,
+                include_active_overrides=include_active_overrides,
+                include_override_tags=include_override_tags,
+                is_manual_retry=is_manual_retry,
+                return_job_object_no_submit=return_job_object_no_submit,
+            )
+            
+            if return_job_object_no_submit:
+                return flow_run_or_run_job_with_name
+
+            # Update the run with the new Prefect flow run ID
+            workflow_run = await self.workflow_run_dao.update(
+                db,
+                db_obj=workflow_run,
+                obj_in={
+                    "prefect_run_ids": ",".join([workflow_run.prefect_run_ids, str(flow_run_or_run_job_with_name.id)]) if workflow_run.prefect_run_ids else str(flow_run_or_run_job_with_name.id)
+                }
+            )
+            return workflow_run
+            
+        except Exception as e:
+            # If triggering fails, mark the run as failed immediately
+            await self.workflow_run_dao.update_status(
+                db,
+                run_id=workflow_run.id,
+                status=WorkflowRunStatus.FAILED,
+                error_message=f"Failed to trigger execution: {e}",
+                ended_at=datetime_now_utc()
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to trigger workflow execution: {e}"
+            )
 
     async def get_run(
         self, 
@@ -1024,6 +1156,120 @@ class WorkflowService:
         return run
 
     # Add Pause/Resume similarly if needed, requiring engine interaction
+
+    async def retry_workflow_run(
+        self,
+        db: AsyncSession,
+        *,
+        run_id: uuid.UUID,
+        owner_org_id: uuid.UUID,
+        user: User,
+        reset_retry_count: bool = False
+    ) -> models.WorkflowRun:
+        """
+        Retries a failed or cancelled workflow run.
+        
+        This method:
+        1. Fetches the workflow run and validates it's in FAILED or CANCELLED state
+        2. Retrieves the original workflow configuration and inputs
+        3. Increments the retry count (unless reset_retry_count=True)
+        4. Triggers a new Prefect flow run with the same configuration
+        5. Updates the WorkflowRun record with new Prefect run ID and resets state
+        
+        The retry reuses the same WorkflowRun database record but creates a new Prefect flow run.
+        All original configuration including inputs, applied overrides, and parent relationships
+        are preserved.
+        
+        Args:
+            db: Database session
+            run_id: ID of the workflow run to retry
+            owner_org_id: Organization ID (for permission validation)
+            user: User performing the retry
+            reset_retry_count: If True, resets retry_count to 0; otherwise increments it
+        
+        Returns:
+            Updated WorkflowRun model with new Prefect run ID and SCHEDULED status
+            
+        Raises:
+            WorkflowRunNotFoundException: If run doesn't exist in the specified organization
+            HTTPException 400: If run is not in FAILED or CANCELLED state
+            HTTPException 404: If the associated workflow is not found
+            HTTPException 500: If Prefect flow submission fails
+        """
+        from prefect import get_client
+        from workflow_service.services.worker import trigger_workflow_run
+        
+        # Fetch the workflow run and validate it belongs to the organization
+        run = await self.workflow_run_dao.get_run_by_id_and_org(
+            db, run_id=run_id, org_id=owner_org_id
+        )
+        if not run:
+            raise exceptions.WorkflowRunNotFoundException(
+                f"Workflow run {run_id} not found in organization {owner_org_id}"
+            )
+        
+        # Validate run state - only FAILED or CANCELLED runs can be retried
+        if run.status not in [WorkflowRunStatus.FAILED, WorkflowRunStatus.CANCELLED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot retry workflow run in status '{run.status}'. "
+                       f"Only FAILED or CANCELLED runs can be retried."
+            )
+        
+        # Fetch the workflow to ensure it still exists
+        workflow = await self.workflow_dao.get(db, id=run.workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow {run.workflow_id} not found for run {run_id}"
+            )
+        
+        # Calculate new retry count
+        new_retry_count = 0 if reset_retry_count else (run.retry_count or 0) + 1
+        
+        # Update retry count on the run
+        run.retry_count = new_retry_count
+        run.status = WorkflowRunStatus.SCHEDULED
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        
+        # Prepare inputs from the original run
+        inputs = run.inputs or {}
+        
+        # Build effective graph config by reapplying existing overrides
+        effective_graph_schema, _ = await self._build_effective_graph_config_with_overrides(
+            db=db,
+            workflow=workflow,
+            workflow_run=run,
+            owner_org_id=owner_org_id,
+            user=user,
+            apply_new_overrides=False,  # Reapply existing overrides
+        )
+        
+        # Trigger workflow execution using the common helper
+        result = await self._trigger_workflow_execution(
+            db=db,
+            workflow_run=run,
+            effective_graph_schema=effective_graph_schema,
+            inputs=inputs,
+            owner_org_id=owner_org_id,
+            user=user,
+            resume_after_hitl=False,
+            is_manual_retry=True,
+            streaming_mode=True,
+            reset_overrides_on_hitl_resume=False,
+            include_active_overrides=True,
+            return_job_object_no_submit=False,
+        )
+        
+        logger.info(
+            f"Successfully retried workflow run {run_id} for user {user.id}. "
+            f"New Prefect flow run created. Retry count: {new_retry_count}. "
+            f"New status: {run.status}"
+        )
+        
+        return result
 
     # --- Template Operations --- #
 

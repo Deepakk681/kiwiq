@@ -34,7 +34,7 @@ from faststream.rabbit import RabbitBroker, RabbitQueue
 from workflow_service.services.events import WorkflowBaseEvent # Assuming path for event schemas
 
 from kiwi_app.workflow_app.service_customer_data import CustomerDataService
-from weaviate_client.weaviate_client import WeaviateChunkClient
+from weaviate_client import WeaviateChunkClient
 from linkedin_integration.models import *
 from kiwi_app.rag_service.services import RAGService
 from kiwi_app.data_jobs.ingestion.ingestion_pipeline import DocumentIngestionPipeline

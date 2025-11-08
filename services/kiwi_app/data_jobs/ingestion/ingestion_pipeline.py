@@ -25,7 +25,7 @@ from uuid import UUID, uuid4
 
 from kiwi_app.workflow_app.schemas import CustomerDocumentSearchResult, CustomerDocumentSearchResultMetadata
 from kiwi_app.data_jobs.ingestion.chunking import JSONSplitter
-from weaviate_client.weaviate_client import WeaviateChunkClient, ChunkSchema
+from weaviate_client import WeaviateChunkClient, ChunkSchema
 from kiwi_app.workflow_app.constants import CustomerDataServiceConstants
 
 # Configure logging

@@ -155,7 +155,14 @@ async def workflow_execution_flow(
     configure_database(pool_tier_size=db_concurrent_pool_tier)
     if db_concurrent_pool_tier != "small":
         logger.info(f"Configured database with larger pool tier size: {db_concurrent_pool_tier}")
-    logger.info(f"Starting workflow execution for Run ID: {run_job.run_id}, Workflow ID: {run_job.workflow_id}")
+    
+    # Log manual retry information
+    retry_info = ""
+    if run_job.is_manual_retry:
+        retry_info = f" [MANUAL RETRY - Retry Count: {run_job.retry_count or 0}]"
+        logger.info(f"Executing MANUAL RETRY for Run ID: {run_job.run_id}, Retry Count: {run_job.retry_count or 0}")
+    
+    logger.info(f"Starting workflow execution for Run ID: {run_job.run_id}, Workflow ID: {run_job.workflow_id}{retry_info}")
     
     # Create application context for the LangGraph workflow
     # This is now less critical as run_job is passed directly, but kept for potential future use
@@ -729,7 +736,7 @@ async def run_graph(
                 output_node_id=final_output_node_id,
                 interrupt_handler=None, # Adapter handles internal interrupt loop
                 resume_with_hitl=workflow_run_job.resume_after_hitl,
-                is_retry=is_retry_of_run,
+                is_retry=is_retry_of_run or workflow_run_job.is_manual_retry,
                 logger=logger,
                 log_prefix=log_prefix,
             ):
@@ -1186,6 +1193,7 @@ async def trigger_workflow_run(
     reset_overrides_on_hitl_resume: Optional[bool] = False,
     include_active_overrides: Optional[bool] = True,
     include_override_tags: Optional[List[str]] = None,
+    is_manual_retry: Optional[bool] = False,
     return_job_object_no_submit: bool = False,
 ) -> Union[FlowRun, Tuple[wf_schemas.WorkflowRunJobCreate, str]]:
     """
@@ -1205,6 +1213,10 @@ async def trigger_workflow_run(
         streaming_mode: Optional flag to enable/disable streaming mode
         parent_run_id: Optional parent run ID for subflows
         retry_count: Optional retry count for the workflow run
+        reset_overrides_on_hitl_resume: Optional flag to reset overrides on HITL resume
+        include_active_overrides: Optional flag to include active overrides
+        include_override_tags: Optional list of override tags to include
+        is_manual_retry: Optional flag indicating this is a manual retry of a failed/cancelled run
         return_job_object_no_submit: Optional flag to return the job object without submitting it
 
     Returns:
@@ -1236,6 +1248,7 @@ async def trigger_workflow_run(
         reset_overrides_on_hitl_resume=reset_overrides_on_hitl_resume,
         include_active_overrides=include_active_overrides,
         include_override_tags=include_override_tags,
+        is_manual_retry=is_manual_retry,
     )
     
     # # Trigger the workflow as a deployment
@@ -1246,7 +1259,8 @@ async def trigger_workflow_run(
     #     )
     # else:
     hitl_suffix = "--(HITL-RESUMED)" if resume_after_hitl else ""
-    flow_run_name = f"{workflow_name}:--run_id:{run_id}" + hitl_suffix
+    retry_suffix = f"--(MANUAL-RETRY-{retry_count})" if is_manual_retry else ""
+    flow_run_name = f"{workflow_name}:--run_id:{run_id}" + hitl_suffix + retry_suffix
     flow_run_name = f"{flow_run_name}:--user_id:{triggered_by_user_id}"
     
     if return_job_object_no_submit:

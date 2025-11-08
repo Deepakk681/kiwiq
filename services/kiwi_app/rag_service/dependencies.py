@@ -32,7 +32,7 @@ from kiwi_app.rag_service.exceptions import (
     RAGPermissionException
 )
 
-from weaviate_client.weaviate_client import WeaviateChunkClient
+from weaviate_client import WeaviateChunkClient
 from kiwi_app.data_jobs.ingestion.ingestion_pipeline import DocumentIngestionPipeline
 
 # Get logger for RAG operations

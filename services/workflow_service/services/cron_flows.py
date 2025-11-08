@@ -40,7 +40,7 @@ from workflow_service.services.external_context_manager import (
 # Data ingestion imports
 from kiwi_app.data_jobs.ingestion.ingestion_pipeline import DocumentIngestionPipeline
 from kiwi_app.data_jobs import schemas as data_job_schemas
-from weaviate_client.weaviate_client import WeaviateChunkClient
+from weaviate_client import WeaviateChunkClient
 
 # Export important functions for external use
 __all__ = [
