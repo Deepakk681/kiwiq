@@ -1062,6 +1062,7 @@ async def submit_workflow_run(
     - Set `is_manual_retry=true`
     - Original inputs and configuration are automatically reused
     - Retry count is automatically incremented
+    - If `manual_retry_search_by_workflow_name=true`, the workflow will be searched by name too if ID is not found to find the latest version of the workflow to retry. Useful for retrying a newly ingested workflow even though workflow ID changed.
 
     - Returns the `WorkflowRun` record (usually in `SCHEDULED` state).
     - Requires `workflow:execute` permission on the active organization.

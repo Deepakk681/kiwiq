@@ -132,6 +132,7 @@ class WorkflowRunCreate(BaseModel):
     reset_overrides_on_hitl_resume: Optional[bool] = Field(default=False, description="Whether to reset overrides on HITL resume. If this is False, on resume, the same overrides applied in previous session of this run will be reapplied.")
     streaming_mode: Optional[bool] = Field(default=True, description="Whether to stream the LLM tokens")
     is_manual_retry: Optional[bool] = Field(default=False, description="Whether this is a manual retry of a failed/cancelled workflow run")
+    manual_retry_search_by_workflow_name: Optional[bool] = Field(default=False, description="Whether to search for the workflow by name when retrying a failed/cancelled workflow run; so it will retry a newly ingested workflow even though workflow ID changed.")
 
 
 class WorkflowRunJobCreate(WorkflowRunCreate):

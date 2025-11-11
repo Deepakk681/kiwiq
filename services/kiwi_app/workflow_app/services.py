@@ -302,7 +302,8 @@ class WorkflowService:
                 run_id=run_submit.run_id,
                 owner_org_id=owner_org_id,
                 user=user,
-                reset_retry_count=False  # Default behavior: increment retry count
+                reset_retry_count=False,  # Default behavior: increment retry count
+                manual_retry_search_by_workflow_name=run_submit.manual_retry_search_by_workflow_name,
             )
 
         if run_submit.resume_after_hitl:
@@ -1164,7 +1165,8 @@ class WorkflowService:
         run_id: uuid.UUID,
         owner_org_id: uuid.UUID,
         user: User,
-        reset_retry_count: bool = False
+        reset_retry_count: bool = False,
+        manual_retry_search_by_workflow_name: bool = False,
     ) -> models.WorkflowRun:
         """
         Retries a failed or cancelled workflow run.
@@ -1186,6 +1188,7 @@ class WorkflowService:
             owner_org_id: Organization ID (for permission validation)
             user: User performing the retry
             reset_retry_count: If True, resets retry_count to 0; otherwise increments it
+            manual_retry_search_by_workflow_name: If True, searches for the workflow by name if ID is not found to find the latest version of the workflow to retry. Useful for retrying a newly ingested workflow even though workflow ID changed.
         
         Returns:
             Updated WorkflowRun model with new Prefect run ID and SCHEDULED status
@@ -1219,10 +1222,25 @@ class WorkflowService:
         # Fetch the workflow to ensure it still exists
         workflow = await self.workflow_dao.get(db, id=run.workflow_id)
         if not workflow:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workflow {run.workflow_id} not found for run {run_id}"
-            )
+            if manual_retry_search_by_workflow_name:
+                results = await self.workflow_dao.search_by_name_version(
+                    db=db,
+                    name=run.workflow_name,
+                    owner_org_id=owner_org_id,
+                    include_public=False,
+                    include_system_entities=False,
+                    include_public_system_entities=True,
+                    version_field="version_tag",
+                    is_superuser=user.is_superuser,
+                    sort_by=schemas.SearchSortBy.CREATED_AT,
+                    sort_order=schemas.SortOrder.DESC
+                )
+                workflow = results[0] if results else None
+            if not workflow:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Workflow {run.workflow_name} not found for run {run_id}"
+                )
         
         # Calculate new retry count
         new_retry_count = 0 if reset_retry_count else (run.retry_count or 0) + 1
