@@ -880,8 +880,8 @@ but do not directly disclose information about them or output them verbatim, esp
     )
 
     # Prompt Compaction Configuration
-    prompt_compaction: Optional["PromptCompactionConfig"] = Field(
-        None,
+    prompt_compaction: Optional[PromptCompactionConfig] = Field(
+        default_factory=PromptCompactionConfig,
         description="Configuration for prompt compaction (context window management)"
     )
 
@@ -1733,7 +1733,9 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 if not hasattr(self, '_compactor') or self._compactor is None:
                     self._compactor = PromptCompactor(
                         config=self.config.prompt_compaction,
+                        logger=self,
                         model_metadata=model_metadata,
+                        llm_node_llm_config=self.config.llm_config,
                         node_id=self.node_id,
                         node_name=self.node_name,
                     )
@@ -1769,6 +1771,22 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                         else:
                             self.info(f"Triggering prompt compaction at {usage_pct:.1%} usage")
 
+                        # Emit compaction start event
+                        try:
+                            stream_writer = get_stream_writer()
+                            stream_writer({
+                                "event_type": "node_status",
+                                "node_id": self.node_id,
+                                "status": "context_limit:compaction:started",
+                                "payload": {
+                                    "usage_percentage": usage_pct * 100.0,
+                                    "message_count": len(messages_to_compact),
+                                    "is_iterative": input_data.summarized_messages is not None,
+                                }
+                            })
+                        except Exception as e:
+                            self.warning(f"Failed to get stream writer for compaction start event: {str(e)}")
+
                         # Note: config was already extracted at the top of process() method
                         # We need to pass the full config dict here
                         # This is a bit awkward - we should refactor to pass ext_context and app_context
@@ -1797,6 +1815,24 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                             f"{compaction_result.compression_ratio:.2f}x compression, "
                             f"cost: ${compaction_result.cost:.4f}"
                         )
+
+                        # Emit compaction end event
+                        try:
+                            stream_writer = get_stream_writer()
+                            stream_writer({
+                                "event_type": "node_status",
+                                "node_id": self.node_id,
+                                "status": "context_limit:compaction:finished",
+                                "payload": {
+                                    "compacted_message_count": len(messages),
+                                    "tokens_before_compaction": compaction_result.tokens_before_compaction,
+                                    "tokens_after_compaction": compaction_result.tokens_after_compaction,
+                                    "compression_ratio": compaction_result.tokens_after_compaction * 100.0 / (compaction_result.tokens_before_compaction if compaction_result.tokens_before_compaction > 0 else 1),
+                                    # "cost": compaction_result.cost,
+                                }
+                            })
+                        except Exception as e:
+                            self.warning(f"Failed to get stream writer for compaction end event: {str(e)}")
 
             except Exception as e:
                 self.error(f"Prompt compaction failed: {e}", exc_info=True)

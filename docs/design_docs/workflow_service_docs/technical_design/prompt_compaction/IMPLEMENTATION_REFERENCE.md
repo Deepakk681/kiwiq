@@ -302,15 +302,16 @@ def should_compact(
     """Check if compaction needed (>80% usage)."""
     # Returns: (should_compact, usage_info)
 
-async def compact_if_needed(
+async def test_compact_if_needed(
     messages: List[BaseMessage],
     model_metadata: ModelMetadata,
     ext_context: Any,
 ) -> CompactionResult:
     """Main entry point: compact if threshold exceeded."""
-    # Two-round compaction:
-    # - Round 1: Historical + old tools
-    # - Round 2: Latest tools (if still over budget)
+    # v2.5 Single-round compaction:
+    # - Classify messages (tools merged into recent/historical)
+    # - Dynamic budget adjustment (expand recent if has latest tools)
+    # - Compact historical only (recent always preserved)
 
 async def compact(
     messages: List[BaseMessage],
@@ -738,7 +739,7 @@ class LLMNode:
 
         # Check if compaction needed
         if self.compactor.should_compact(messages, self.model_metadata):
-            compaction_result = await self.compactor.compact_if_needed(
+            compaction_result = await self.compactor.test_compact_if_needed(
                 messages=messages,
                 model_metadata=self.model_metadata,
                 ext_context=self.ext_context,

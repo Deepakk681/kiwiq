@@ -61,6 +61,7 @@ class TestMultiTurnWorkflowWithCompaction(PromptCompactionIntegrationTestBase):
             node_id="test_node",
             node_name="test_node",
             model_metadata=self._create_test_model_metadata(),
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
         # Simulate multi-turn conversation - create 44 messages
@@ -82,7 +83,7 @@ class TestMultiTurnWorkflowWithCompaction(PromptCompactionIntegrationTestBase):
         self.assertEqual(len(conversation_history), 44)
 
         # Test compaction with multi-turn history
-        result = await compactor.compact_if_needed(
+        result = await compactor.test_compact_if_needed(
             messages=conversation_history,
             ext_context=self.ext_context,
         )
@@ -153,12 +154,13 @@ class TestLargeConversationHistory(PromptCompactionIntegrationTestBase):
             node_id="test_node",
             node_name="test_node",
             model_metadata=self._create_test_model_metadata(),
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
         # Measure compaction time
         start_time = time.time()
 
-        result = await compactor.compact_if_needed(
+        result = await compactor.test_compact_if_needed(
             messages=messages,
             model_metadata=self._create_test_model_metadata(),
             ext_context=self.ext_context,
@@ -227,7 +229,7 @@ class TestMixedToolCallsAndMessages(PromptCompactionIntegrationTestBase):
             content="I'll search for that information.",
             id="ai_1",
         )
-        ai_with_tool.additional_kwargs = {
+        ai_with_tool.response_metadata = {
             "tool_calls": [
                 {
                     "id": "tool_call_1",
@@ -278,9 +280,10 @@ class TestMixedToolCallsAndMessages(PromptCompactionIntegrationTestBase):
             node_id="test_node",
             node_name="test_node",
             model_metadata=self._create_test_model_metadata(),
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
-        result = await compactor.compact_if_needed(
+        result = await compactor.test_compact_if_needed(
             messages=messages,
             model_metadata=self._create_test_model_metadata(),
             ext_context=self.ext_context,
@@ -342,6 +345,7 @@ class TestConcurrentWorkflowExecution(PromptCompactionIntegrationTestBase):
                 node_id=f"test_node_{i}",
                 node_name=f"test_node_{i}",
                 model_metadata=self._create_test_model_metadata(),
+                llm_node_llm_config=self._create_test_llm_config(),
             )
             compactors.append(compactor)
 
@@ -356,7 +360,7 @@ class TestConcurrentWorkflowExecution(PromptCompactionIntegrationTestBase):
 
         # Run compaction concurrently
         async def compact_workflow(compactor, messages):
-            return await compactor.compact_if_needed(
+            return await compactor.test_compact_if_needed(
                 messages=messages,
                 model_metadata=self._create_test_model_metadata(),
                 ext_context=self.ext_context,
@@ -481,9 +485,10 @@ class TestEndToEndExtraction(PromptCompactionIntegrationTestBase):
             node_id="test_extraction_node",
             node_name="test_extraction_node",
             model_metadata=self._create_test_model_metadata(),
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
-        result = await compactor.compact_if_needed(
+        result = await compactor.test_compact_if_needed(
             messages=messages,
             model_metadata=self._create_test_model_metadata(),
             ext_context=self.ext_context,

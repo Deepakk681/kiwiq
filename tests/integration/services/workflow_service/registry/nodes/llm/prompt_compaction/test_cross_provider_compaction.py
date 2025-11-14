@@ -533,35 +533,46 @@ class TestCrossProviderCompaction(PromptCompactionIntegrationTestBase):
                 if "model" in compaction_meta:
                     self.assertIn("claude", compaction_meta["model"].lower())
 
-    async def test_fallback_in_summarization_strategy(self):
+    async def test_perplexity_to_openai_fallback(self):
         """
-        Test: Verify OpenAI summarization works correctly.
+        Test: Verify Perplexity messages with OpenAI fallback for summarization.
         
-        Note: This test doesn't actually test fallback behavior (would need Perplexity config),
-        but verifies that summarization produces valid AI messages when summaries are created.
+        Perplexity doesn't support prompt compaction, so when the main model is Perplexity,
+        we should fall back to OpenAI (or other configured provider) for summarization.
         """
-        thread_id = f"test-summ-strategy-{uuid4()}"
+        thread_id = f"test-perplexity-openai-fallback-{uuid4()}"
         self.test_thread_ids.append(thread_id)
 
-        # Use Anthropic history
+        # Use REAL Perplexity history
         messages = load_sample_message_history(
-            "anthropic_claude_sonnet_4_5_regular_conversation.json"
+            "perplexity_sonar_pro_regular.json"
         )
         add_linkedin_metadata(messages)
 
-        # Use OpenAI for summarization
-        # Normal budget - summaries created only if needed
+        # Create config with OpenAI fallback
         config = self._create_test_config(
             strategy=CompactionStrategyType.SUMMARIZATION,
             mode=SummarizationMode.FROM_SCRATCH,
             max_tokens=15000,
             target_tokens=10000,
         )
+        
+        # Configure LLM config with OpenAI fallback for Perplexity
+        from workflow_service.registry.nodes.llm.prompt_compaction.compactor import CompactionLLMConfig
+        config.llm_config = CompactionLLMConfig(
+            default_provider="openai",
+            default_model="gpt-4o-mini",
+            perplexity_fallback_provider="openai",
+            perplexity_fallback_model="gpt-4o-mini",
+        )
 
-        result = await self._run_compaction(
+        # Run compaction with Perplexity provider
+        result = await self._run_compaction_with_provider(
             messages=messages,
             config=config,
             thread_id=thread_id,
+            provider="perplexity",
+            model_name="sonar-pro",
         )
 
         compacted = result.get("summarized_messages", []) or []
@@ -570,14 +581,82 @@ class TestCrossProviderCompaction(PromptCompactionIntegrationTestBase):
         self.assertIsNotNone(compacted, "Compaction should return messages")
         self.assertGreater(len(compacted), 0, "Should have compacted messages")
         
-        # If summaries were created, verify they are AIMessages
+        # Verify summaries use OpenAI (fallback)
         summary_msgs = [
             msg for msg in compacted
             if "SUMMARY" in msg.response_metadata.get("compaction", {}).get("section_label", "")
         ]
         
         if summary_msgs:
-            verify_all_ai_messages(summary_msgs, "summarization strategy")
+            verify_all_ai_messages(summary_msgs, "perplexity->openai fallback")
+            # Check that OpenAI was used
+            for msg in summary_msgs:
+                compaction_meta = msg.response_metadata.get("compaction", {})
+                if "provider" in compaction_meta:
+                    self.assertEqual(compaction_meta["provider"], "openai", 
+                                   "Should use OpenAI fallback for Perplexity")
+
+    async def test_perplexity_to_anthropic_fallback(self):
+        """
+        Test: Verify Perplexity messages with Anthropic fallback for summarization.
+        
+        Tests the default Perplexity fallback behavior (Anthropic/Claude).
+        """
+        thread_id = f"test-perplexity-anthropic-fallback-{uuid4()}"
+        self.test_thread_ids.append(thread_id)
+
+        # Use REAL Perplexity history
+        messages = load_sample_message_history(
+            "perplexity_sonar_pro_regular.json"
+        )
+        add_linkedin_metadata(messages)
+
+        # Create config with Anthropic fallback (default)
+        config = self._create_test_config(
+            strategy=CompactionStrategyType.SUMMARIZATION,
+            mode=SummarizationMode.FROM_SCRATCH,
+            max_tokens=15000,
+            target_tokens=10000,
+        )
+        
+        # Configure LLM config with Anthropic fallback for Perplexity (default behavior)
+        from workflow_service.registry.nodes.llm.prompt_compaction.compactor import CompactionLLMConfig
+        config.llm_config = CompactionLLMConfig(
+            default_provider="openai",
+            default_model="gpt-4o-mini",
+            perplexity_fallback_provider="anthropic",  # Default
+            perplexity_fallback_model="claude-sonnet-4-5",  # Default
+        )
+
+        # Run compaction with Perplexity provider
+        result = await self._run_compaction_with_provider(
+            messages=messages,
+            config=config,
+            thread_id=thread_id,
+            provider="perplexity",
+            model_name="sonar-pro",
+        )
+
+        compacted = result.get("summarized_messages", []) or []
+
+        # Verify compaction succeeded
+        self.assertIsNotNone(compacted, "Compaction should return messages")
+        self.assertGreater(len(compacted), 0, "Should have compacted messages")
+        
+        # Verify summaries use Anthropic (fallback)
+        summary_msgs = [
+            msg for msg in compacted
+            if "SUMMARY" in msg.response_metadata.get("compaction", {}).get("section_label", "")
+        ]
+        
+        if summary_msgs:
+            verify_all_ai_messages(summary_msgs, "perplexity->anthropic fallback")
+            # Check that Anthropic was used
+            for msg in summary_msgs:
+                compaction_meta = msg.response_metadata.get("compaction", {})
+                if "provider" in compaction_meta:
+                    self.assertEqual(compaction_meta["provider"], "anthropic",
+                                   "Should use Anthropic fallback for Perplexity")
 
     async def test_fallback_in_hybrid_strategy(self):
         """

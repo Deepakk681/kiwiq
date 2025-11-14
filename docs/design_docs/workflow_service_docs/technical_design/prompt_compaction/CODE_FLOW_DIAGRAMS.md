@@ -1,49 +1,65 @@
 # Prompt Compaction - Complete Code Flow Diagrams
 
-**Version:** v2.1
-**Last Updated:** 2025-11-12
+**Version:** v2.5
+**Last Updated:** 2025-01-14
 **Purpose:** Comprehensive end-to-end code flow documentation for code review, debugging, and onboarding
 
 ---
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [How to Read These Diagrams](#how-to-read-these-diagrams)
-3. [System Overview](#1-system-overview)
-4. [Main Entry Point: PromptCompactor.compact()](#2-main-entry-point-promptcompactorcompact)
-5. [Two-Round Compaction Algorithm](#3-two-round-compaction-algorithm)
-6. [Message Classification](#4-message-classification)
-7. [Budget Enforcement & Dynamic Reallocation](#5-budget-enforcement--dynamic-reallocation)
-8. [Strategy Execution Flows](#6-strategy-execution-flows)
-   - [6.1 SummarizationStrategy](#61-summarizationstrategy)
-   - [6.2 ExtractionStrategy (v2.1)](#62-extractionstrategy-v21)
-   - [6.3 HybridStrategy (v2.1)](#63-hybridstrategy-v21)
-9. [v2.1 Feature Flows](#7-v21-feature-flows)
-   - [7.1 JIT Ingestion with Chunking](#71-jit-ingestion-with-message-chunking)
-   - [7.2 Chunk Expansion Modes](#72-chunk-expansion-modes)
-   - [7.3 Deduplication & Overflow Handling](#73-deduplication--overflow-handling)
-   - [7.4 Marked Message Overflow & Reattachment](#74-marked-message-overflow--reattachment)
-   - [7.5 Multi-Turn Iterative Summarization](#75-multi-turn-iterative-summarization)
-10. [Integration Points](#8-integration-points)
+- [Prompt Compaction - Complete Code Flow Diagrams](#prompt-compaction---complete-code-flow-diagrams)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [How to Read These Diagrams](#how-to-read-these-diagrams)
+    - [Color Coding](#color-coding)
+    - [Symbols](#symbols)
+    - [File References](#file-references)
+  - [1. System Overview](#1-system-overview)
+  - [2. Main Entry Point: PromptCompactor.compact()](#2-main-entry-point-promptcompactorcompact)
+  - [3. Single-Round Compaction Algorithm (v2.5)](#3-single-round-compaction-algorithm-v25)
+  - [4. Message Classification](#4-message-classification)
+    - [v2.3 MAX SPAN Tool Sequence Grouping](#v23-max-span-tool-sequence-grouping)
+  - [5. Budget Enforcement \& Dynamic Reallocation](#5-budget-enforcement--dynamic-reallocation)
+  - [6. Strategy Execution Flows](#6-strategy-execution-flows)
+    - [6.1 SummarizationStrategy (v3.0 Linear Batching)](#61-summarizationstrategy-v30-linear-batching)
+    - [6.2 ExtractionStrategy (v2.1)](#62-extractionstrategy-v21)
+    - [6.3 HybridStrategy (v2.1)](#63-hybridstrategy-v21)
+  - [7. v2.1 Feature Flows](#7-v21-feature-flows)
+    - [7.1 JIT Ingestion with Message Chunking](#71-jit-ingestion-with-message-chunking)
+    - [7.2 Chunk Expansion Modes](#72-chunk-expansion-modes)
+    - [7.3 Deduplication \& Overflow Handling](#73-deduplication--overflow-handling)
+    - [7.4 Marked Message Overflow \& Reattachment](#74-marked-message-overflow--reattachment)
+    - [7.5 Multi-Turn Iterative Summarization](#75-multi-turn-iterative-summarization)
+      - [Overview](#overview-1)
+      - [3-Turn Workflow Example](#3-turn-workflow-example)
+      - [Dual History Flow](#dual-history-flow)
+      - [Re-Ingestion Prevention](#re-ingestion-prevention)
+      - [Code References](#code-references)
+      - [Workflow State Pattern](#workflow-state-pattern)
+  - [8. Integration Points](#8-integration-points)
     - [8.1 LLM Node Integration](#81-llm-node-integration)
     - [8.2 Weaviate Integration](#82-weaviate-integration)
     - [8.3 Billing Integration](#83-billing-integration)
-11. [Edge Case Handling](#9-edge-case-handling)
-    - [9.1 Tool Compression (Round 2)](#91-tool-compression-round-2)
-    - [9.2 Oversized Single Message](#92-oversized-single-message)
-    - [9.3 Circular Dependencies](#93-circular-dependencies-in-budget-reallocation)
-12. [Code References](#code-references)
+  - [9. Edge Case Handling](#9-edge-case-handling)
+    - [9.1 Oversized Single Message](#91-oversized-single-message)
+    - [9.2 Circular Dependencies in Budget Reallocation](#92-circular-dependencies-in-budget-reallocation)
+    - [9.3 Orphaned Tool Calls (v2.3)](#93-orphaned-tool-calls-v23)
+  - [Code References](#code-references-1)
+    - [Core Files](#core-files)
+    - [Integration Files](#integration-files)
+    - [Test Files](#test-files)
+  - [Summary](#summary)
 
 ---
 
 ## Overview
 
-This document provides comprehensive visual documentation of all major code paths through the Prompt Compaction system. It covers both v2.0 core features and v2.1 enhancements.
+This document provides comprehensive visual documentation of all major code paths through the Prompt Compaction system. It covers v2.0-v2.5 features and enhancements.
 
 **Key Features Documented:**
-- Two-round compaction algorithm (v2.0)
-- Message classification (7 sections, 4-pass algorithm)
+- Single-round compaction with dynamic budget adjustment (v2.5)
+- Message classification with tool integration (v2.5: tools merged into recent/historical)
 - Dynamic budget reallocation with priority-based redistribution
 - Three compaction strategies (Summarization, Extraction, Hybrid)
 - JIT ingestion with message chunking (v2.1)
@@ -60,15 +76,20 @@ This document provides comprehensive visual documentation of all major code path
 
 ```mermaid
 graph LR
-    V20[v2.0 Feature] :::v20
-    V21[v2.1 Feature] :::v21
-    EDGE[Edge Case] :::edge
-    ERROR[Error Path] :::error
+    V20[v2.0 Feature]
+    V21[v2.1 Feature]
+    EDGE[Edge Case]
+    ERROR[Error Path]
 
     classDef v20 fill:#90EE90,stroke:#2F4F2F,stroke-width:2px,color:#000
     classDef v21 fill:#87CEEB,stroke:#1E3A8A,stroke-width:2px,color:#000
     classDef edge fill:#FFD700,stroke:#8B4513,stroke-width:2px,color:#000
     classDef error fill:#FFB6C1,stroke:#8B0000,stroke-width:2px,color:#000
+    
+    class V20 v20
+    class V21 v21
+    class EDGE edge
+    class ERROR error
 ```
 
 - **Green**: v2.0 core features
@@ -100,7 +121,7 @@ High-level architecture showing all components and their interactions.
 
 ```mermaid
 graph TB
-    START([LLM Node Execution]) --> CHECK{Should<br/>Compact?}
+    START([LLM Node Execution]) --> CHECK{Should Compact?}
     CHECK -->|No<br/>< 80%| DIRECT[Direct LLM Call]
     CHECK -->|Yes<br/>≥ 80%| COMPACT[PromptCompactor.compact]
 
@@ -109,7 +130,7 @@ graph TB
 
     TWO_ROUND --> CLASSIFY[MessageClassifier<br/>classify messages]
     CLASSIFY --> ENFORCE[BudgetEnforcer<br/>enforce budget]
-    ENFORCE --> STRATEGY{Strategy<br/>Type?}
+    ENFORCE --> STRATEGY{Strategy Type?}
 
     STRATEGY -->|Summarization| SUM_STRAT[SummarizationStrategy]
     STRATEGY -->|Extraction| EXT_STRAT[ExtractionStrategy]
@@ -167,13 +188,13 @@ Complete flow from entry to exit.
 
 ```mermaid
 graph TB
-    START([compact called]) --> INPUT[/messages: list<br/>thread_id: str<br/>node_id: str/]
+    START([compact called]) --> INPUT[/messages: list, thread_id: str, node_id: str/]
 
     INPUT --> CALC_BUDGET[Calculate Context Budget<br/>📊 = model_context_window × context_window_fraction]
     CALC_BUDGET --> NOTE1[/"Example: 128K × 0.95 = 121.6K tokens"/]
 
-    NOTE1 --> SHOULD_CHECK{should_compact<br/>called?}
-    SHOULD_CHECK -->|Yes| THRESHOLD{Current > 80%<br/>of budget?}
+    NOTE1 --> SHOULD_CHECK{should_compact called?}
+    SHOULD_CHECK -->|Yes| THRESHOLD{Current exceeds 80% of budget?}
     SHOULD_CHECK -->|No| FORCE[Force compaction]
 
     THRESHOLD -->|No| SKIP[Return original messages<br/>CompactionResult success=False]
@@ -182,16 +203,16 @@ graph TB
     FORCE --> TWO_ROUND["⚡ _two_round_compaction()<br/>(see Section 3)"]
 
     TWO_ROUND --> RESULT[CompactionResult]
-    RESULT --> metadata{metadata<br/>exists?}
+    RESULT --> metadata{metadata exists?}
 
-    metadata -->|Yes| COSTS[Extract costs:<br/>- summarization_cost<br/>- extraction_cost<br/>- total_cost]
+    metadata -->|Yes| COSTS[Extract costs:<br/>summarization_cost<br/>extraction_cost<br/>total_cost]
     metadata -->|No| SKIP_BILLING[Skip billing]
 
     COSTS --> BILLING["⚡ Billing Client<br/>add_usage(user_id, workflow_id,<br/>'prompt_compaction', cost)"]
     BILLING --> RETURN
     SKIP_BILLING --> RETURN
 
-    RETURN[/Return CompactionResult:<br/>- compacted_messages<br/>- success: bool<br/>- metadata: dict/]
+    RETURN[/Return CompactionResult:  compacted_messages; success: bool; metadata: dict/]
     RETURN --> END([End])
 
     SKIP --> END
@@ -237,108 +258,115 @@ async def compact(
 
 **Decision Points:**
 
-1. **should_compact() check**: If called via `compact_if_needed()`, checks 80% threshold first
+1. **should_compact() check**: If called via `test_compact_if_needed()`, checks 80% threshold first
 2. **Billing integration**: Only track costs if metadata exists and has cost data
 
 ---
 
-## 3. Two-Round Compaction Algorithm
+## 3. Single-Round Compaction Algorithm (v2.5)
 
-Core v2.0 feature that handles tool compression edge cases.
+Core v2.5 architecture that handles all messages in a single pass with dynamic budget adjustment for tools.
 
-**File**: `compactor.py:1100-1250`
+**File**: `compactor.py:870-1060`
 
 ```mermaid
 graph TB
-    START([_two_round_compaction]) --> INPUT[/messages<br/>context_budget<br/>thread_id, node_id/]
+    START([compact]) --> INPUT[/messages, app_context, ext_context/]
 
-    INPUT --> ROUND1[ROUND 1: Compress Historical]
+    INPUT --> BUDGET[Calculate Context Budget<br/>with dynamic reallocation config]
+    BUDGET --> CHECK_NEEDED{Total tokens > target?}
+    
+    CHECK_NEEDED -->|No| SKIP[Return messages unchanged<br/>compaction_skipped=True]
+    CHECK_NEEDED -->|Yes| CLASSIFY[MessageClassifier.classify]
+    
+    CLASSIFY --> SECTIONS[5 Sections:<br/>System, Summaries, Marked,<br/>Recent with tools, Historical with tools]
+    SECTIONS --> NOTE1[Note: Latest tools merged into Recent<br/>Old tools merged into Historical]
+    
+    NOTE1 --> ENFORCE[BudgetEnforcer.enforce_budget]
+    ENFORCE --> DYNAMIC{Recent contains<br/>latest tool sequence?}
+    
+    DYNAMIC -->|Yes| EXPAND[Expand recent budget:<br/>recent_limit += latest_tools_limit<br/>Up to 50% of context]
+    DYNAMIC -->|No| STANDARD[Use standard budgets]
+    
+    EXPAND --> TRIM_CHECK
+    STANDARD --> TRIM_CHECK{Recent exceeds<br/>its budget?}
+    
+    TRIM_CHECK -->|No| STRATEGY
+    TRIM_CHECK -->|Yes| TRIM[Trim recent atomically<br/>Never split tool sequences<br/>Overflow → Historical]
+    
+    TRIM --> STRATEGY{Strategy Type?}
+    STRATEGY -->|Summarization| SUM[Summarize historical only<br/>Recent passes through]
+    STRATEGY -->|Extraction| EXT[Extract relevant from historical<br/>Recent passes through]
+    STRATEGY -->|Hybrid| HYB[Extract 5% + Summarize 95%<br/>Recent passes through]
+    
+    SUM --> RESULT[CompactionResult]
+    EXT --> RESULT
+    HYB --> RESULT
+    
+    RESULT --> BILL{Cost > 0?}
+    BILL -->|Yes| BILLING[Bill compaction operation]
+    BILL -->|No| END
+    BILLING --> END([Return CompactionResult])
+    SKIP --> END
 
-    ROUND1 --> CLASSIFY1["MessageClassifier.classify()<br/>(see Section 4)"]
-    CLASSIFY1 --> SECTIONS1[7 Sections:<br/>System, Summaries, Marked,<br/>Historical, Old Tools, Latest Tools, Recent]
+    classDef v25 fill:#87CEEB,stroke:#00008B,stroke-width:2px,color:#000
+    classDef dynamic fill:#FFD700,stroke:#8B4513,stroke-width:2px,color:#000
+    classDef strategy fill:#90EE90,stroke:#2F4F2F,stroke-width:2px,color:#000
 
-    SECTIONS1 --> ENFORCE1["BudgetEnforcer.enforce_budget()<br/>(see Section 5)"]
-    ENFORCE1 --> STRATEGY1{Strategy Type?}
-
-    STRATEGY1 -->|Summarization| SUM1[Summarize historical + old tools]
-    STRATEGY1 -->|Extraction| EXT1[Extract relevant from historical]
-    STRATEGY1 -->|Hybrid| HYB1[Extract 5% + Summarize 95%]
-
-    SUM1 --> RESULT1[Round 1 Result]
-    EXT1 --> RESULT1
-    HYB1 --> RESULT1
-
-    RESULT1 --> COUNT1[Count tokens in result]
-    COUNT1 --> CHECK{Still > 80%<br/>of budget?}
-
-    CHECK -->|No| SUCCESS[Return CompactionResult<br/>success=True]
-    CHECK -->|Yes| TOOL_CHECK{Latest Tools<br/>> 30% of budget?}
-
-    TOOL_CHECK -->|No| ERROR[CompactionError:<br/>Cannot compress further]
-    TOOL_CHECK -->|Yes| ROUND2[ROUND 2: Compress Latest Tools]
-
-    ROUND2 --> TOOL_COMPRESS[Summarize latest tool calls<br/>with special prompt]
-    TOOL_COMPRESS --> INCLUDE_USER[Include user message<br/>after last tool call]
-    INCLUDE_USER --> RESULT2[Round 2 Result]
-
-    RESULT2 --> COUNT2[Count tokens again]
-    COUNT2 --> FINAL_CHECK{Still > 80%?}
-
-    FINAL_CHECK -->|Yes| ERROR
-    FINAL_CHECK -->|No| SUCCESS
-
-    ERROR --> END([Raise Error])
-    SUCCESS --> END
-
-    classDef v20 fill:#90EE90,stroke:#2F4F2F,stroke-width:2px,color:#000
-    classDef edge fill:#FFD700,stroke:#8B4513,stroke-width:2px,color:#000
-    classDef error fill:#FFB6C1,stroke:#8B0000,stroke-width:2px,color:#000
-
-    class ROUND1,CLASSIFY1,ENFORCE1,STRATEGY1,RESULT1,CHECK v20
-    class ROUND2,TOOL_CHECK,TOOL_COMPRESS edge
-    class ERROR error
+    class CLASSIFY,SECTIONS,ENFORCE,TRIM v25
+    class DYNAMIC,EXPAND,TRIM_CHECK dynamic
+    class STRATEGY,SUM,EXT,HYB strategy
 ```
 
-**Why Two Rounds?**
+**v2.5 Architecture Changes:**
 
-Round 1 compresses historical messages and old tool calls, but preserves latest tool calls (within tool exception threshold of 30%). This is critical for:
-- Maintaining tool call context for the LLM
-- Preserving recent tool results needed for final response
+**No more separate tool sections.** Tools are integrated into the main message flow:
+- **Latest tool sequences**: Merged into `recent` section (NEVER compressed by strategies)
+- **Old tool sequences**: Merged into `historical` section (compressed normally)
+- **Dynamic budget adjustment**: `recent` limit auto-expands when containing latest tool sequence
 
-Round 2 only triggers if:
-1. After Round 1, still > 80% of budget
-2. Latest tools > 30% of budget (configurable via `tool_exception_threshold`)
+**Key Benefits:**
+1. **Simpler flow**: Single-round instead of two-round edge case handling
+2. **Better tool handling**: Latest tools get up to 50% of context (30% base + 20% tool budget)
+3. **Atomic trimming**: Tool sequences never split, moved to historical if they don't fit
+4. **Semantic relevance**: Oversized tools evaluated for relevance via extraction instead of hard-coded compression
 
 **Code Reference:**
 
 ```python
-# compactor.py:1100-1150
-async def _two_round_compaction(
+# compactor.py:870-1060
+async def compact(
     self,
     messages: List[BaseMessage],
-    context_budget: int,
-    thread_id: Optional[str] = None,
-    node_id: Optional[str] = None,
+    ext_context: Any,
+    app_context: Dict[str, Any],
+    full_history: Optional[List[BaseMessage]] = None,
+    current_messages: Optional[List[BaseMessage]] = None,
 ) -> CompactionResult:
-    """Two-round compaction to handle tool call edge cases."""
-
-    # Round 1: Compress historical + old tools
-    classified = self.classifier.classify(messages, context_budget)
-    enforced = self.enforcer.enforce_budget(classified, context_budget)
-    result = await self.strategy.compact(enforced, context_budget, thread_id, node_id)
-
-    # Check if Round 2 needed
-    result_tokens = count_tokens(result.compacted_messages)
-    threshold = context_budget * 0.8
-
-    if result_tokens > threshold:
-        latest_tools_tokens = count_tokens(classified.latest_tools)
-        tool_threshold = context_budget * self.tool_exception_threshold  # default 0.3
-
-        if latest_tools_tokens > tool_threshold:
-            # Round 2: Compress latest tools
-            result = await self._compress_latest_tools(result, context_budget)
-
+    """Master compaction algorithm (v2.5 single-round)."""
+    
+    # Calculate budget
+    budget = ContextBudget.calculate(
+        total_context=self.model_metadata.context_limit,
+        max_output_tokens=self.llm_node_llm_config.max_tokens,
+        config=self.config.context_budget,
+    )
+    
+    # Check if compaction needed
+    if total_tokens <= budget.target_usage_after_compaction:
+        return CompactionResult(compacted_messages=messages, ...)
+    
+    # v2.5: Single-round compaction (tools handled via dynamic budget)
+    sections = self.classifier.classify(messages, ...)
+    sections = await self.budget_enforcer.enforce_budget(sections, budget, ...)
+    
+    # Compact historical only (recent always passes through)
+    result = await self.strategy.compact(sections, budget, ...)
+    
+    # Bill if needed
+    if result.cost > 0:
+        await self._bill_compaction(result, ...)
+    
     return result
 ```
 
@@ -346,27 +374,29 @@ async def _two_round_compaction(
 
 ## 4. Message Classification
 
-4-pass algorithm that classifies messages into 7 sections with **v2.3 MAX SPAN grouping** for tool sequences.
+Message classification algorithm that classifies messages into 5 sections with **v2.5 tool integration** and **v2.3 MAX SPAN grouping** for tool sequences.
 
-**File**: `context_manager.py:372-474`
+**File**: `context_manager.py:414-544`
+
+**v2.5 Changes**: Tools are no longer separate sections. Latest tool sequences merge into `recent`, old tool sequences merge into `historical`.
 
 ```mermaid
 graph TB
-    START([classify]) --> INPUT[/messages: List<br/>context_budget: int/]
+    START([classify]) --> INPUT[/messages: List, context_budget: int/]
 
     INPUT --> PASS1[PASS 1: Type-Based Classification]
 
     PASS1 --> SYSTEM[Identify System Messages<br/>role == 'system']
     SYSTEM --> SUMMARY[Identify Summary Messages<br/>is_summary_message == True]
     SUMMARY --> MARKED[Identify Marked Messages<br/>is_marked == True]
-    MARKED --> HISTORICAL[Remaining → Historical Pool]
+    MARKED --> HISTORICAL[Remaining -> Historical Pool]
 
     HISTORICAL --> PASS2[PASS 2: Extract Recent Messages]
     PASS2 --> RECENT_COUNT[Count back from end<br/>up to recent_messages_limit]
     RECENT_COUNT --> RECENT_EXTRACT[Extract recent messages<br/>Remove from historical pool]
 
     RECENT_EXTRACT --> PASS3["PASS 3: Tool Sequence Extraction (v2.3)<br/>MAX SPAN grouping"]
-    PASS3 --> EXTRACT_TOOLS["⚡ _extract_tool_sequences()<br/>Captures maximum span:<br/>AIMessage with tool_calls → all messages → responses"]
+    PASS3 --> EXTRACT_TOOLS["⚡ _extract_tool_sequences()<br/>Captures maximum span:<br/>AIMessage with tool_calls -> all messages -> responses"]
     EXTRACT_TOOLS --> SPLIT_TOOLS[Split tool sequences by age]
 
     SPLIT_TOOLS --> OLD_TOOLS[Old Tools Section<br/>All sequences except last]
@@ -375,8 +405,8 @@ graph TB
     OLD_TOOLS --> PASS4[PASS 4: Sort Summaries]
     LATEST_TOOLS --> PASS4
 
-    PASS4 --> SORT_SUM[Sort summaries by generation<br/>oldest → newest]
-    SORT_SUM --> RESULT[/Return ClassifiedSections:<br/>- system: List<br/>- summaries: List<br/>- marked: List<br/>- historical: List<br/>- old_tools: List<br/>- latest_tools: List<br/>- recent: List/]
+    PASS4 --> SORT_SUM[Sort summaries by generation<br/>oldest -> newest]
+    SORT_SUM --> RESULT[/Return ClassifiedSections:  system: List; summaries: List; marked: List; historical: List; old_tools: List; latest_tools: List; recent: List/]
 
     RESULT --> END([End])
 
@@ -500,43 +530,43 @@ BudgetEnforcer ensures each section stays within limits and reallocates surplus.
 
 ```mermaid
 graph TB
-    START([enforce_budget]) --> INPUT[/classified: ClassifiedSections<br/>context_budget: int/]
+    START([enforce_budget]) --> INPUT[/classified: ClassifiedSections, context_budget: int/]
 
-    INPUT --> CALC[Calculate Section Limits:<br/>- system: 10%<br/>- summaries: 20%<br/>- marked: 15%<br/>- historical: 30%<br/>- old_tools: 10%<br/>- latest_tools: 10%<br/>- recent: 5%]
+    INPUT --> CALC[Calculate Section Limits:<br/>system: 10%<br/>summaries: 20%<br/>marked: 15%<br/>historical: 30%<br/>old_tools: 10%<br/>latest_tools: 10%<br/>recent: 5%]
 
     CALC --> SACRED[Mark Sacred Sections<br/>system_limit: never reallocated]
 
     SACRED --> ENFORCE_LOOP[🔄 For each section]
     ENFORCE_LOOP --> COUNT[Count section tokens]
-    COUNT --> CHECK{Tokens ><br/>limit?}
+    COUNT --> CHECK{Tokens exceed limit?}
 
     CHECK -->|Over| TRUNCATE[Truncate section<br/>Keep newest messages]
     CHECK -->|Under| SURPLUS[Calculate surplus<br/>surplus = limit - actual]
 
     TRUNCATE --> NEXT[Next section]
     SURPLUS --> NEXT
-    NEXT --> MORE{More<br/>sections?}
+    NEXT --> MORE{More sections?}
 
     MORE -->|Yes| ENFORCE_LOOP
     MORE -->|No| TOTAL_SURPLUS[Sum all surplus tokens]
 
-    TOTAL_SURPLUS --> REALLOC_CHECK{surplus > 0<br/>AND<br/>any priority sections<br/>were truncated?}
+    TOTAL_SURPLUS --> REALLOC_CHECK{surplus exceeds 0 AND any priority sections were truncated?}
 
     REALLOC_CHECK -->|No| DONE[Return enforced sections]
     REALLOC_CHECK -->|Yes| REALLOC[DYNAMIC REALLOCATION]
 
-    REALLOC --> PRIORITIES[Priority List:<br/>1. summaries (p=3)<br/>2. marked (p=2)<br/>3. historical (p=1)]
+    REALLOC --> PRIORITIES[Priority List:<br/>1. summaries p3<br/>2. marked p2<br/>3. historical p1]
 
-    PRIORITIES --> REALLOC_LOOP[🔄 For each priority level<br/>highest → lowest]
+    PRIORITIES --> REALLOC_LOOP[🔄 For each priority level<br/>highest -> lowest]
     REALLOC_LOOP --> FIND_TRUNC[Find truncated sections<br/>at this priority]
 
-    FIND_TRUNC --> DISTRIBUTE{surplus<br/>available?}
+    FIND_TRUNC --> DISTRIBUTE{surplus available?}
     DISTRIBUTE -->|Yes| ADD_TOKENS[Add tokens to section<br/>up to original limit]
     ADD_TOKENS --> REDUCE_SURPLUS[Reduce surplus]
     REDUCE_SURPLUS --> NEXT_PRIORITY[Next priority]
 
     DISTRIBUTE -->|No| NEXT_PRIORITY
-    NEXT_PRIORITY --> MORE_PRIORITY{More<br/>priorities?}
+    NEXT_PRIORITY --> MORE_PRIORITY{More priorities?}
 
     MORE_PRIORITY -->|Yes| REALLOC_LOOP
     MORE_PRIORITY -->|No| DONE
@@ -566,16 +596,16 @@ graph TB
 
 ```
 Initial State:
-- Summaries: 10K used / 24K limit → 14K surplus
-- Historical: 40K used / 36K limit → truncated to 36K (4K lost)
-- Marked: 5K used / 18K limit → 13K surplus
+- Summaries: 10K used / 24K limit -> 14K surplus
+- Historical: 40K used / 36K limit -> truncated to 36K (4K lost)
+- Marked: 5K used / 18K limit -> 13K surplus
 Total surplus: 27K
 
 Reallocation:
 1. Priority 3 (Summaries): Not truncated, skip
 2. Priority 2 (Marked): Not truncated, skip
 3. Priority 1 (Historical): Truncated! Add 4K back from surplus
-   - Historical: 36K → 40K (restored to original)
+   - Historical: 36K -> 40K (restored to original)
    - Remaining surplus: 23K
 
 Final State:
@@ -641,9 +671,9 @@ Three compaction strategies with different approaches.
 
 ```mermaid
 graph TB
-    START([compact]) --> INPUT[/sections: Dict<br/>budget: ContextBudget/]
+    START([compact]) --> INPUT[/sections: Dict, budget: ContextBudget/]
 
-    INPUT --> CHECK_EMPTY{historical +<br/>old_tools<br/>empty?}
+    INPUT --> CHECK_EMPTY{historical + old_tools empty?}
 
     CHECK_EMPTY -->|Yes| EARLY_EXIT[Return original messages<br/>No compaction needed]
     CHECK_EMPTY -->|No| CONVERT[Convert old_tools to text<br/>check_and_fix_orphaned_tool_responses]
@@ -653,7 +683,7 @@ graph TB
 
     SPLIT --> CALC_BUDGET["📊 Calculate target tokens per batch:<br/>budget.summary_limit / num_batches<br/>(min 500 tokens)"]
 
-    CALC_BUDGET --> LOG["Log: Linear batching<br/>{num_messages} → {num_batches} batches<br/>(NO merging)"]
+    CALC_BUDGET --> LOG["Log: Linear batching<br/>N messages to M batches<br/>(NO merging)"]
 
     LOG --> PARALLEL["⚡ Parallel batch processing<br/>(asyncio.gather all batches)"]
 
@@ -664,15 +694,15 @@ graph TB
 
     LLM_CALL --> CREATE_MSG[Create summary AIMessage<br/>generation=0<br/>linear_batch=True<br/>batch_idx=N]
 
-    CREATE_MSG --> MORE_BATCHES{More<br/>batches?}
+    CREATE_MSG --> MORE_BATCHES{More batches?}
     MORE_BATCHES -->|Yes| BATCH_LOOP
     MORE_BATCHES -->|No| DONE[All summaries complete<br/>NO hierarchical merge]
 
-    DONE --> COMBINE[Combine sections:<br/>System → Summaries →<br/>Marked → Latest Tools → Recent]
+    DONE --> COMBINE[Combine sections:<br/>System -> Summaries -><br/>Marked -> Latest Tools -> Recent]
 
-    COMBINE --> CALC_COST[Calculate costs:<br/>- total_tokens<br/>- compression_ratio]
+    COMBINE --> CALC_COST[Calculate costs:<br/>total_tokens<br/>compression_ratio]
 
-    CALC_COST --> RESULT[/Return CompactionResult:<br/>- compacted_messages<br/>- summaries (all batch summaries)<br/>- metadata/]
+    CALC_COST --> RESULT[/Return CompactionResult:  compacted_messages; summaries from all batches; metadata/]
 
     RESULT --> END([End])
     EARLY_EXIT --> END
@@ -732,7 +762,7 @@ async def compact(
     
     logger.info(
         f"Linear batching: {len(all_messages)} messages "
-        f"→ {len(batches)} batches (no merging)"  # v3.0!
+        f"-> {len(batches)} batches (no merging)"  # v3.0!
     )
     
     # Step 4: Parallel summarization (all batches at once)
@@ -776,12 +806,12 @@ Vector similarity-based extraction with chunking, expansion, and deduplication.
 graph TB
     START([compact]) --> SNAPSHOT["⚡ Snapshot metadata (v2.1)<br/>Store original metadata state"]
 
-    SNAPSHOT --> INPUT[/enforced: EnforcedSections<br/>context_budget: int<br/>thread_id, node_id/]
+    SNAPSHOT --> INPUT[/enforced: EnforcedSections, context_budget: int, thread_id, node_id/]
 
-    INPUT --> CHECK_EMPTY{historical<br/>messages<br/>empty?}
+    INPUT --> CHECK_EMPTY{historical messages empty?}
 
     CHECK_EMPTY -->|Yes| EARLY_EXIT[Return original messages<br/>success=False]
-    CHECK_EMPTY -->|No| CHECK_OVERSIZED{Any single message<br/>> 60% of budget?}
+    CHECK_EMPTY -->|No| CHECK_OVERSIZED{Any single message exceeds 60% of budget?}
 
     CHECK_OVERSIZED -->|Yes| OVERSIZED["⚡ Handle oversized message<br/>(see Section 9.2)"]
     OVERSIZED --> JIT
@@ -796,10 +826,10 @@ graph TB
     EMBED_HIST --> SEARCH["⚡ Vector similarity search<br/>Weaviate query"]
     SEARCH --> TOP_K[Get top_k chunks<br/>default: 5]
 
-    TOP_K --> CONSTRUCTION{Construction<br/>Strategy?}
+    TOP_K --> CONSTRUCTION{Construction Strategy?}
 
     CONSTRUCTION -->|DUMP| DUMP_MODE[Concatenate all chunk texts<br/>Create single extraction summary]
-    CONSTRUCTION -->|EXTRACT_FULL| EXTRACT_MODE[Map chunks → source messages]
+    CONSTRUCTION -->|EXTRACT_FULL| EXTRACT_MODE[Map chunks -> source messages]
     CONSTRUCTION -->|LLM_REWRITE| REWRITE_MODE[LLM rewrite chunks with query]
 
     EXTRACT_MODE --> EXPANSION["⚡ Chunk expansion<br/>(see Section 7.2)"]
@@ -809,14 +839,14 @@ graph TB
     REWRITE_MODE --> COMBINE
     DEDUP --> COMBINE
 
-    COMBINE[Combine sections:<br/>System → Summaries → Extracted →<br/>Marked → Latest Tools → Recent]
+    COMBINE[Combine sections:<br/>System -> Summaries -> Extracted -><br/>Marked -> Latest Tools -> Recent]
 
     COMBINE --> ADD_LABELS["⚡ Add section labels (v2.1)"]
     ADD_LABELS --> UPDATE_META["⚡ Identify messages with<br/>updated metadata (v2.1)"]
 
-    UPDATE_META --> CALC_COST[Calculate costs:<br/>- extraction_cost<br/>- weaviate_cost]
+    UPDATE_META --> CALC_COST[Calculate costs:<br/>extraction_cost<br/>weaviate_cost]
 
-    CALC_COST --> RESULT[/Return CompactionResult:<br/>- compacted_messages<br/>- success: True<br/>- metadata: {costs, updated_messages}/]
+    CALC_COST --> RESULT[/Return CompactionResult:  compacted_messages; success: True; metadata: costs and updated_messages/]
 
     RESULT --> END([End])
     EARLY_EXIT --> END
@@ -958,9 +988,9 @@ async def _extract_relevant_messages(
 graph TB
     START([compact]) --> SNAPSHOT["⚡ Snapshot metadata (v2.1)"]
 
-    SNAPSHOT --> INPUT[/enforced: EnforcedSections<br/>context_budget: int<br/>thread_id, node_id/]
+    SNAPSHOT --> INPUT[/enforced: EnforcedSections, context_budget: int, thread_id, node_id/]
 
-    INPUT --> CHECK_EMPTY{historical<br/>messages<br/>empty?}
+    INPUT --> CHECK_EMPTY{historical messages empty?}
 
     CHECK_EMPTY -->|Yes| EARLY_EXIT[Return original messages<br/>success=False]
     CHECK_EMPTY -->|No| CALC_BUDGETS[Calculate budgets:<br/>extraction_budget = 5%<br/>summarization_budget = 95%]
@@ -976,14 +1006,14 @@ graph TB
 
     SUMMARIZE --> SUMMARY_RESULT[summaries<br/>+ summarization_metadata]
 
-    SUMMARY_RESULT --> COMBINE[Combine sections:<br/>System → Summaries (old + new) →<br/>Extracted → Marked →<br/>Latest Tools → Recent]
+    SUMMARY_RESULT --> COMBINE[Combine sections:<br/>System -> Summaries old and new -><br/>Extracted -> Marked -><br/>Latest Tools -> Recent]
 
     COMBINE --> ADD_LABELS["⚡ Add section labels (v2.1)"]
     ADD_LABELS --> UPDATE_META["⚡ Identify messages with<br/>updated metadata (v2.1)"]
 
-    UPDATE_META --> CALC_COST[Calculate combined costs:<br/>- extraction_cost<br/>- summarization_cost<br/>- total_cost]
+    UPDATE_META --> CALC_COST[Calculate combined costs:<br/>extraction_cost<br/>summarization_cost<br/>total_cost]
 
-    CALC_COST --> RESULT[/Return CompactionResult:<br/>- compacted_messages<br/>- success: True<br/>- metadata: {combined_costs}/]
+    CALC_COST --> RESULT[/Return CompactionResult:  compacted_messages; success: True; metadata: combined_costs/]
 
     RESULT --> END([End])
     EARLY_EXIT --> END
@@ -1103,23 +1133,23 @@ Lazy Weaviate storage only when extraction first needed, with chunking for large
 
 ```mermaid
 graph TB
-    START([_jit_ingest_messages]) --> INPUT[/messages: List<br/>thread_id: str<br/>node_id: str/]
+    START([_jit_ingest_messages]) --> INPUT[/messages: List, thread_id: str, node_id: str/]
 
     INPUT --> FILTER[Filter to non-ingested messages<br/>Check metadata.weaviate_ingested != True]
 
-    FILTER --> CHECK_EMPTY{Any messages<br/>to ingest?}
+    FILTER --> CHECK_EMPTY{Any messages to ingest?}
 
     CHECK_EMPTY -->|No| RETURN_ORIG[Return original messages]
-    CHECK_EMPTY -->|Yes| CHECK_IDS{thread_id AND<br/>node_id<br/>available?}
+    CHECK_EMPTY -->|Yes| CHECK_IDS{thread_id AND node_id available?}
 
     CHECK_IDS -->|No| WARN[Log warning:<br/>'Cannot ingest without IDs']
     WARN --> RETURN_ORIG
     CHECK_IDS -->|Yes| CHUNK_LOOP[🔄 For each message]
 
-    CHUNK_LOOP --> CHECK_SIZE{Message<br/>> 6K tokens?}
+    CHUNK_LOOP --> CHECK_SIZE{Message exceeds 6K tokens?}
 
     CHECK_SIZE -->|No| WHOLE[Treat whole message<br/>as single chunk]
-    CHECK_SIZE -->|Yes| CHUNKING_CHECK{enable_message_chunking<br/>== True?}
+    CHECK_SIZE -->|Yes| CHUNKING_CHECK{enable_message_chunking == True?}
 
     CHUNKING_CHECK -->|No| WHOLE
     CHUNKING_CHECK -->|Yes| CHUNK_STRATEGY{chunk_strategy?}
@@ -1127,23 +1157,23 @@ graph TB
     CHUNK_STRATEGY -->|semantic_overlap| SEMANTIC[Semantic chunking:<br/>Split on sentence boundaries<br/>with overlap]
     CHUNK_STRATEGY -->|fixed_token| FIXED[Fixed token chunking:<br/>Split every N tokens<br/>with overlap]
 
-    SEMANTIC --> CREATE_CHUNKS[Create chunks:<br/>- chunk_id<br/>- chunk_text<br/>- chunk_index<br/>- source_message_id]
+    SEMANTIC --> CREATE_CHUNKS[Create chunks:<br/>chunk_id<br/>chunk_text<br/>chunk_index<br/>source_message_id]
     FIXED --> CREATE_CHUNKS
     WHOLE --> CREATE_CHUNKS
 
     CREATE_CHUNKS --> OVERLAP[Add overlap:<br/>default 200 tokens]
-    OVERLAP --> MORE_MSGS{More<br/>messages?}
+    OVERLAP --> MORE_MSGS{More messages?}
 
     MORE_MSGS -->|Yes| CHUNK_LOOP
     MORE_MSGS -->|No| BATCH_EMBED["⚡ Batch embed all chunks<br/>embedding model (1536 dim)"]
 
     BATCH_EMBED --> WEAVIATE["⚡ Store in Weaviate<br/>ThreadMessageChunks collection"]
 
-    WEAVIATE --> FIELDS[Fields stored:<br/>- thread_id<br/>- node_id<br/>- message_id<br/>- chunk_id<br/>- chunk_index<br/>- chunk_text<br/>- embedding<br/>- metadata]
+    WEAVIATE --> FIELDS[Fields stored:<br/>thread_id<br/>node_id<br/>message_id<br/>chunk_id<br/>chunk_index<br/>chunk_text<br/>embedding<br/>metadata]
 
     FIELDS --> UPDATE_META[Update message metadata:<br/>weaviate_ingested = True<br/>chunk_count = N<br/>ingestion_timestamp]
 
-    UPDATE_META --> RETURN[/Return messages<br/>with updated metadata/]
+    UPDATE_META --> RETURN[/Return messages, with updated metadata/]
 
     RETURN --> END([End])
     RETURN_ORIG --> END
@@ -1275,7 +1305,7 @@ Three modes for reconstructing full messages from relevant chunks.
 
 ```mermaid
 graph TB
-    START([After vector search]) --> INPUT[/results: List of chunks<br/>with relevance scores/]
+    START([After vector search]) --> INPUT[/results: List of chunks, with relevance scores/]
 
     INPUT --> MODE{expansion_mode?}
 
@@ -1287,11 +1317,11 @@ graph TB
     DUMP_CONCAT --> DUMP_SUMMARY[Create extraction summary:<br/>AIMessage with all chunks]
     DUMP_SUMMARY --> DUMP_RETURN[Return single summary message]
 
-    EXTRACT_PATH --> EXT_MAP[Map chunks → source messages]
+    EXTRACT_PATH --> EXT_MAP[Map chunks -> source messages]
     EXT_MAP --> EXT_DEDUP[Deduplicate by message_id]
     EXT_DEDUP --> EXT_SORT[Sort messages by:<br/>1. Max chunk relevance score<br/>2. Chronological order]
 
-    EXT_SORT --> EXT_BUDGET{All messages<br/>fit in budget?}
+    EXT_SORT --> EXT_BUDGET{All messages fit in budget?}
     EXT_BUDGET -->|Yes| EXT_ALL[Return all messages]
     EXT_BUDGET -->|No| EXT_BINARY[Binary search:<br/>Find max messages that fit]
 
@@ -1299,11 +1329,11 @@ graph TB
     EXT_GRAPH --> EXT_RETURN[Return full messages<br/>with metadata]
     EXT_ALL --> EXT_GRAPH
 
-    REWRITE_PATH --> REWRITE_PROMPT[Build prompt:<br/>'Synthesize these chunks<br/>to answer: {query}']
+    REWRITE_PATH --> REWRITE_PROMPT[Build prompt:<br/>'Synthesize these chunks<br/>to answer: query']
     REWRITE_PROMPT --> REWRITE_CHUNKS[Add all chunk texts to prompt]
     REWRITE_CHUNKS --> REWRITE_LLM["⚡ LLM API call<br/>with retry decorator"]
 
-    REWRITE_LLM --> REWRITE_RESULT[Create AIMessage:<br/>- content: LLM response<br/>- metadata: chunk_ids, cost]
+    REWRITE_LLM --> REWRITE_RESULT[Create AIMessage:<br/>content: LLM response<br/>metadata: chunk_ids, cost]
     REWRITE_RESULT --> REWRITE_RETURN[Return single rewritten message]
 
     DUMP_RETURN --> END([End])
@@ -1442,9 +1472,9 @@ Track chunk appearances across extractions and handle overflow with configurable
 
 ```mermaid
 graph TB
-    START([_check_and_handle_duplicates]) --> INPUT[/new_extraction: List<br/>existing_extractions: List<br/>context_budget: int/]
+    START([_check_and_handle_duplicates]) --> INPUT[/new_extraction: List, existing_extractions: List, context_budget: int/]
 
-    INPUT --> CHECK_ENABLED{deduplication<br/>== True?}
+    INPUT --> CHECK_ENABLED{deduplication == True?}
 
     CHECK_ENABLED -->|No| RETURN_ORIG[Return new_extraction<br/>unchanged]
     CHECK_ENABLED -->|Yes| INIT_TRACKER[Initialize appearance tracker<br/>from existing extractions]
@@ -1453,7 +1483,7 @@ graph TB
     LOOP --> GET_ID[Get chunk_id or message_id]
     GET_ID --> INCREMENT[Increment appearance count]
 
-    INCREMENT --> CHECK_LIMIT{count ><br/>max_duplicate_appearances?}
+    INCREMENT --> CHECK_LIMIT{count exceeds max_duplicate_appearances?}
 
     CHECK_LIMIT -->|No| NEXT[Next chunk]
     CHECK_LIMIT -->|Yes| OVERFLOW_STRATEGY{overflow_strategy?}
@@ -1468,13 +1498,13 @@ graph TB
     MARK_OVERFLOW --> NEXT
     RAISE_ERROR --> END_ERROR([Error raised])
 
-    NEXT --> MORE{More<br/>chunks?}
+    NEXT --> MORE{More chunks?}
 
     MORE -->|Yes| LOOP
     MORE -->|No| REMOVE_MARKED[Remove marked extractions<br/>from existing_extractions]
 
     REMOVE_MARKED --> UPDATE_BUDGET[Recalculate token usage]
-    UPDATE_BUDGET --> REFIT{new_extraction +<br/>existing<br/>fit in budget?}
+    UPDATE_BUDGET --> REFIT{new_extraction + existing fit in budget?}
 
     REFIT -->|Yes| RETURN_ALL[Return updated extractions]
     REFIT -->|No| RECURSIVE[Recursive call:<br/>Remove more oldest]
@@ -1618,15 +1648,15 @@ LRU-based overflow for marked messages with FIFO reattachment.
 
 ```mermaid
 graph TB
-    START([Budget Enforcement]) --> INPUT[/marked_messages: List<br/>marked_limit: int/]
+    START([Budget Enforcement]) --> INPUT[/marked_messages: List, marked_limit: int/]
 
-    INPUT --> COUNT{len(marked) ><br/>marked_limit?}
+    INPUT --> COUNT{Marked count exceeds limit?}
 
     COUNT -->|No| NO_OVERFLOW[Keep all marked messages<br/>No overflow]
     COUNT -->|Yes| OVERFLOW_DETECTED[OVERFLOW DETECTED]
 
-    OVERFLOW_DETECTED --> SORT[Sort marked by timestamp<br/>oldest → newest]
-    SORT --> SPLIT[Split:<br/>- Keep: newest N messages<br/>- Overflow: oldest messages]
+    OVERFLOW_DETECTED --> SORT[Sort marked by timestamp<br/>oldest -> newest]
+    SORT --> SPLIT[Split:<br/>Keep: newest N messages<br/>Overflow: oldest messages]
 
     SPLIT --> MARK_FLAG[Mark overflow messages:<br/>originally_marked = True]
     MARK_FLAG --> MOVE_OVERFLOW[Move overflow to<br/>overflow_section in state]
@@ -1634,7 +1664,7 @@ graph TB
     MOVE_OVERFLOW --> COMPACTION_COMPLETE[Compaction complete]
     COMPACTION_COMPLETE --> NEXT_COMPACTION[Next compaction cycle]
 
-    NEXT_COMPACTION --> REATTACH_CHECK{Space available<br/>in marked section?}
+    NEXT_COMPACTION --> REATTACH_CHECK{Space available in marked section?}
 
     REATTACH_CHECK -->|No| KEEP_OVERFLOW[Keep in overflow]
     REATTACH_CHECK -->|Yes| CALC_SPACE[Calculate available space:<br/>space = limit - current_marked]
@@ -1795,28 +1825,28 @@ Each turn's compaction builds on the previous turn's summarized messages, achiev
 graph TB
     START([Workflow Start]) --> TURN1[**Turn 1**: First LLM Call]
 
-    TURN1 --> INPUT1[/Input: messages_history = 50 msgs<br/>summarized_messages = None/]
-    INPUT1 --> CHECK1{Compaction<br/>needed?}
+    TURN1 --> INPUT1[/Input: messages_history = 50 msgs, summarized_messages = None/]
+    INPUT1 --> CHECK1{Compaction needed?}
     CHECK1 -->|Yes<br/>≥80%| COMPACT1[Compact 50 messages]
-    COMPACT1 --> RESULT1[/Output:<br/>current_messages = 5 new msgs<br/>summarized_messages = 25 compacted<br/>messages_history = 55 total/]
+    COMPACT1 --> RESULT1[/Output:, current_messages = 5 new msgs, summarized_messages = 25 compacted, messages_history = 55 total/]
 
     RESULT1 --> TURN2[**Turn 2**: Second LLM Call]
-    TURN2 --> INPUT2[/Input: messages_history = 55 msgs<br/>summarized_messages = 25 msgs/]
-    INPUT2 --> CHECK2{Compaction<br/>needed?}
+    TURN2 --> INPUT2[/Input: messages_history = 55 msgs, summarized_messages = 25 msgs/]
+    INPUT2 --> CHECK2{Compaction needed?}
     CHECK2 -->|Yes| IDENTIFY2[Identify new messages:<br/>55 - 25 = 30 new msgs]
     IDENTIFY2 --> PREVENT2[Re-ingestion prevention:<br/>Skip 25 already-ingested msgs<br/>Ingest only 30 new msgs]
     PREVENT2 --> COMPACT2[Compact 25 summarized<br/>+ 30 new = 55 msgs]
-    COMPACT2 --> RESULT2[/Output:<br/>current_messages = 8 new msgs<br/>summarized_messages = 20 compacted<br/>messages_history = 63 total/]
+    COMPACT2 --> RESULT2[/Output:, current_messages = 8 new msgs, summarized_messages = 20 compacted, messages_history = 63 total/]
 
     RESULT2 --> TURN3[**Turn 3**: Third LLM Call]
-    TURN3 --> INPUT3[/Input: messages_history = 63 msgs<br/>summarized_messages = 20 msgs/]
-    INPUT3 --> CHECK3{Compaction<br/>needed?}
+    TURN3 --> INPUT3[/Input: messages_history = 63 msgs, summarized_messages = 20 msgs/]
+    INPUT3 --> CHECK3{Compaction needed?}
     CHECK3 -->|Yes| IDENTIFY3[Identify new messages:<br/>63 - 20 = 43 new msgs]
     IDENTIFY3 --> PREVENT3[Re-ingestion prevention:<br/>Skip 20 already-ingested msgs<br/>Ingest only 43 new msgs]
     PREVENT3 --> COMPACT3[Compact 20 summarized<br/>+ 43 new = 63 msgs]
-    COMPACT3 --> RESULT3[/Output:<br/>current_messages = 6 new msgs<br/>summarized_messages = 18 compacted<br/>messages_history = 69 total/]
+    COMPACT3 --> RESULT3[/Output:, current_messages = 6 new msgs, summarized_messages = 18 compacted, messages_history = 69 total/]
 
-    RESULT3 --> END([Progressive Reduction:<br/>50 → 25 → 20 → 18 compacted<br/>While full history grows: 50 → 55 → 63 → 69])
+    RESULT3 --> END([Progressive Reduction:<br/>50 -> 25 -> 20 -> 18 compacted<br/>While full history grows: 50 -> 55 -> 63 -> 69])
 
     classDef v21 fill:#87CEEB,stroke:#1E3A8A,stroke-width:2px,color:#000
 
@@ -1829,9 +1859,9 @@ graph TB
 graph LR
     START([LLM Node]) --> INPUT[/Input Data/]
 
-    INPUT --> EXTRACT[Extract from input_data:<br/>- messages_history full<br/>- summarized_messages compacted]
+    INPUT --> EXTRACT[Extract from input_data:<br/>messages_history full<br/>summarized_messages compacted]
 
-    EXTRACT --> DECISION{summarized_messages<br/>provided?}
+    EXTRACT --> DECISION{summarized_messages provided?}
 
     DECISION -->|Yes<br/>Iterative| ITERATIVE[Use summarized as base:<br/>messages_to_compact = summarized<br/>full_history = messages_history]
     DECISION -->|No<br/>First time| FIRST[Use full history:<br/>messages_to_compact = messages_history<br/>full_history = None]
@@ -1841,7 +1871,7 @@ graph LR
 
     COMPACT --> IDENTIFY[Identify current_messages:<br/>IDs in full_history but not in messages]
 
-    IDENTIFY --> REINGEST_CHECK{current_messages<br/>found?}
+    IDENTIFY --> REINGEST_CHECK{current_messages found?}
 
     REINGEST_CHECK -->|Yes| FILTER[Filter to non-ingested:<br/>Check is_message_ingested]
     REINGEST_CHECK -->|No| SKIP_FILTER[No new messages to ingest]
@@ -1850,7 +1880,7 @@ graph LR
     INGEST --> STRATEGIES[Execute Strategy<br/>Extraction/Summarization/Hybrid]
     SKIP_FILTER --> STRATEGIES
 
-    STRATEGIES --> OUTPUT[/Output:<br/>- current_messages<br/>- summarized_messages<br/>- messages_with_updated_metadata/]
+    STRATEGIES --> OUTPUT[/Output:  current_messages; summarized_messages; messages_with_updated_metadata/]
 
     OUTPUT --> WORKFLOW[Workflow State Update]
     WORKFLOW --> NEXT[Next LLM Call]
@@ -1866,11 +1896,11 @@ graph LR
 
 ```mermaid
 graph TB
-    START([JIT Ingestion]) --> INPUT[/messages: List of messages<br/>to potentially ingest/]
+    START([JIT Ingestion]) --> INPUT[/messages: List of messages, to potentially ingest/]
 
-    INPUT --> CHECK_METADATA{For each message:<br/>Check metadata}
+    INPUT --> CHECK_METADATA{For each message: Check metadata}
 
-    CHECK_METADATA --> HAS_FLAG{Has ingestion<br/>metadata?}
+    CHECK_METADATA --> HAS_FLAG{Has ingestion metadata?}
 
     HAS_FLAG -->|Yes| ALREADY_INGESTED[Skip message:<br/>Already ingested in previous turn]
     HAS_FLAG -->|No| TO_INGEST[Add to ingest list:<br/>New message from this turn]
@@ -1985,25 +2015,25 @@ if not to_ingest or not self.store_embeddings:
 ```
 Turn 1: Initial Call
 ├─ Input:  50 messages, 0 compacted
-├─ Compact: 50 → 25 messages
+├─ Compact: 50 -> 25 messages
 └─ Output: Full history = 55 msgs, Summarized = 25 msgs
 
 Turn 2: Iterative Compaction
 ├─ Input:  55 full history, 25 summarized
 ├─ Identify: 55 - 25 = 30 new messages
 ├─ Re-ingestion: Skip 25 already-ingested, ingest 30 new
-├─ Compact: 25 + 30 = 55 → 20 messages
+├─ Compact: 25 + 30 = 55 -> 20 messages
 └─ Output: Full history = 63 msgs, Summarized = 20 msgs (25% reduction)
 
 Turn 3: Further Compaction
 ├─ Input:  63 full history, 20 summarized
 ├─ Identify: 63 - 20 = 43 new messages
 ├─ Re-ingestion: Skip 20 already-ingested, ingest 43 new
-├─ Compact: 20 + 43 = 63 → 18 messages
+├─ Compact: 20 + 43 = 63 -> 18 messages
 └─ Output: Full history = 69 msgs, Summarized = 18 msgs (10% further reduction)
 
-Result: Progressive compaction from 50 → 25 → 20 → 18 messages
-        While maintaining full context: 50 → 55 → 63 → 69 messages
+Result: Progressive compaction from 50 -> 25 -> 20 -> 18 messages
+        While maintaining full context: 50 -> 55 -> 63 -> 69 messages
 ```
 
 **Benefits:**
@@ -2027,11 +2057,11 @@ LLM node calls compaction before API calls.
 
 ```mermaid
 graph TB
-    START([LLM Node Execute]) --> INPUT[/state: dict<br/>config: LLMConfig/]
+    START([LLM Node Execute]) --> INPUT[/state: dict, config: LLMConfig/]
 
-    INPUT --> PREPARE[Prepare messages:<br/>- Get from state<br/>- Apply prompt template<br/>- Add system messages]
+    INPUT --> PREPARE[Prepare messages:<br/>Get from state<br/>Apply prompt template<br/>Add system messages]
 
-    PREPARE --> COMPACTION_CHECK{prompt_compaction_config<br/>exists?}
+    PREPARE --> COMPACTION_CHECK{prompt_compaction_config exists?}
 
     COMPACTION_CHECK -->|No| DIRECT_CALL[Direct LLM API call<br/>No compaction]
     COMPACTION_CHECK -->|Yes| THRESHOLD_CHECK["should_compact()?<br/>Current > 80% of budget?"]
@@ -2053,10 +2083,10 @@ graph TB
     DIRECT_CALL --> API_CALL
 
     API_CALL --> RESPONSE[LLM Response]
-    RESPONSE --> UPDATE_STATE[Update state:<br/>- Add response to messages<br/>- Track total cost<br/>- Update metadata]
+    RESPONSE --> UPDATE_STATE[Update state:<br/>Add response to messages<br/>Track total cost<br/>Update metadata]
 
     UPDATE_STATE --> FUTURE{Future: Dual history?}
-    FUTURE -.->|v2.1 planned| DUAL_UPDATE["Update both:<br/>- messages (original)<br/>- summarized_messages (compacted)"]
+    FUTURE -.->|v2.1 planned| DUAL_UPDATE["Update both:<br/>messages (original)<br/>summarized_messages (compacted)"]
     FUTURE -.-> RETURN
 
     UPDATE_STATE --> RETURN[/Return updated state/]
@@ -2100,7 +2130,7 @@ async def execute(self, state: dict, config: LLMConfig) -> dict:
             if result.success:
                 logger.info(
                     f"Prompt compaction successful: "
-                    f"{len(messages)} → {len(result.compacted_messages)} messages"
+                    f"{len(messages)} -> {len(result.compacted_messages)} messages"
                 )
                 messages = result.compacted_messages
 
@@ -2177,9 +2207,9 @@ Vector database for JIT ingestion and similarity search.
 graph TB
     START([Weaviate Integration]) --> INIT[Initialize Client:<br/>ThreadMessageChunkClient]
 
-    INIT --> SCHEMA_CHECK{Schema<br/>exists?}
+    INIT --> SCHEMA_CHECK{Schema exists?}
 
-    SCHEMA_CHECK -->|No| CREATE_SCHEMA[Create ThreadMessageChunks schema:<br/>- thread_id, node_id<br/>- message_id, chunk_id<br/>- chunk_text<br/>- embedding (1536 dim)<br/>- metadata]
+    SCHEMA_CHECK -->|No| CREATE_SCHEMA[Create ThreadMessageChunks schema:<br/>thread_id, node_id<br/>message_id, chunk_id<br/>chunk_text<br/>embedding - 1536 dimensions<br/>metadata]
 
     SCHEMA_CHECK -->|Yes| OPERATIONS
     CREATE_SCHEMA --> OPERATIONS
@@ -2194,11 +2224,11 @@ graph TB
     BATCH_PREP --> BATCH_ADD[Batch add to Weaviate<br/>with embeddings]
     BATCH_ADD --> BATCH_RESULT[Return: stored chunk IDs]
 
-    SEARCH_PATH --> QUERY_BUILD[Build vector query:<br/>- nearVector: query_embedding<br/>- limit: top_k<br/>- where: {thread_id, node_id}]
+    SEARCH_PATH --> QUERY_BUILD[Build vector query:<br/>nearVector: query_embedding<br/>limit: top_k<br/>where: thread_id and node_id]
     QUERY_BUILD --> SEARCH_EXEC["⚡ Execute similarity search"]
     SEARCH_EXEC --> SEARCH_RESULT[Return: chunks with scores]
 
-    CLEANUP_PATH --> FIND_OLD[Find chunks older than N days:<br/>where: {created_at < threshold}]
+    CLEANUP_PATH --> FIND_OLD[Find chunks older than N days:<br/>where: created_at less than threshold]
     FIND_OLD --> DELETE_BATCH[Batch delete old chunks]
     DELETE_BATCH --> CLEANUP_RESULT[Return: deleted count]
 
@@ -2423,26 +2453,26 @@ Track compaction costs for user billing.
 graph TB
     START([After Compaction]) --> RESULT[CompactionResult received]
 
-    RESULT --> CHECK_META{metadata<br/>exists?}
+    RESULT --> CHECK_META{metadata exists?}
 
     CHECK_META -->|No| SKIP[Skip billing]
-    CHECK_META -->|Yes| EXTRACT[Extract costs from metadata:<br/>- summarization_cost<br/>- extraction_cost<br/>- total_cost]
+    CHECK_META -->|Yes| EXTRACT[Extract costs from metadata:<br/>summarization_cost<br/>extraction_cost<br/>total_cost]
 
-    EXTRACT --> CHECK_COST{total_cost > 0?}
+    EXTRACT --> CHECK_COST{total_cost exceeds 0?}
 
     CHECK_COST -->|No| SKIP
-    CHECK_COST -->|Yes| GET_CONTEXT[Get context:<br/>- user_id<br/>- workflow_id<br/>- node_id]
+    CHECK_COST -->|Yes| GET_CONTEXT[Get context:<br/>user_id<br/>workflow_id<br/>node_id]
 
-    GET_CONTEXT --> BUILD_META[Build metadata:<br/>- strategy<br/>- messages_before<br/>- messages_after<br/>- compression_ratio<br/>- costs breakdown]
+    GET_CONTEXT --> BUILD_META[Build metadata:<br/>strategy<br/>messages_before<br/>messages_after<br/>compression_ratio<br/>costs breakdown]
 
     BUILD_META --> BILLING_CALL["⚡ billing_client.add_usage(<br/>  user_id,<br/>  workflow_id,<br/>  'prompt_compaction',<br/>  total_cost,<br/>  metadata<br/>)"]
 
     BILLING_CALL --> DB_INSERT["⚡ Insert to PostgreSQL:<br/>usage_logs table"]
 
-    DB_INSERT --> CREDIT_CHECK{User has<br/>credits?}
+    DB_INSERT --> CREDIT_CHECK{User has credits?}
 
     CREDIT_CHECK -->|Yes| DEDUCT[Deduct from credits]
-    CREDIT_CHECK -->|No| BILL_STRIPE[Bill via Stripe<br/>(if enabled)]
+    CREDIT_CHECK -->|No| BILL_STRIPE[Bill via Stripe<br/>if enabled]
 
     DEDUCT --> USAGE_UPDATE[Update user usage stats]
     BILL_STRIPE --> USAGE_UPDATE
@@ -2593,182 +2623,7 @@ GROUP BY user_id;
 
 Special handling for unusual scenarios.
 
-### 9.1 Tool Compression (Round 2)
-
-Compress latest tool calls when they exceed 30% of budget.
-
-**File**: `compactor.py:1250-1400`
-
-```mermaid
-graph TB
-    START([Round 2 Triggered]) --> INPUT[/result_after_round_1<br/>latest_tools: List<br/>context_budget: int/]
-
-    INPUT --> CHECK{latest_tools ><br/>30% of budget?}
-
-    CHECK -->|No| NO_COMPRESS[Do not compress tools<br/>Raise CompactionError]
-    CHECK -->|Yes| FIND_USER[Find user message<br/>after last tool call]
-
-    FIND_USER --> BUILD_SEQUENCE[Build tool sequence:<br/>latest_tools + user_message]
-    BUILD_SEQUENCE --> SPECIAL_PROMPT[Build special prompt:<br/>'Summarize these tool calls<br/>preserving critical context']
-
-    SPECIAL_PROMPT --> INCLUDE_TOOLS[Include all tool calls:<br/>- Tool name<br/>- Tool arguments<br/>- Tool result]
-
-    INCLUDE_TOOLS --> INCLUDE_USER[Include user message:<br/>'to answer: {user_message}']
-
-    INCLUDE_USER --> LLM_CALL["⚡ LLM API Call<br/>with retry logic"]
-
-    LLM_CALL --> RETRY{Success?}
-
-    RETRY -->|No| RETRY_LOGIC[Retry with exponential backoff<br/>Max 3 attempts]
-    RETRY_LOGIC --> RETRY
-    RETRY -->|Yes| SUMMARY[Create tool summary:<br/>AIMessage with metadata]
-
-    SUMMARY --> ADD_META[Add metadata:<br/>is_tool_summary = True<br/>original_tool_count = N<br/>compression_round = 2]
-
-    ADD_META --> REPLACE[Replace latest_tools<br/>with summary]
-    REPLACE --> REBUILD[Rebuild message list:<br/>System → Summaries → Marked →<br/>Historical → Old Tools →<br/>Tool Summary → Recent]
-
-    REBUILD --> COUNT[Count tokens]
-    COUNT --> FINAL_CHECK{Still > 80%?}
-
-    FINAL_CHECK -->|Yes| ERROR[CompactionError:<br/>'Cannot compress further']
-    FINAL_CHECK -->|No| SUCCESS[Return CompactionResult]
-
-    NO_COMPRESS --> ERROR
-    ERROR --> END_ERROR([Raise Error])
-    SUCCESS --> END([End])
-
-    classDef edge fill:#FFD700,stroke:#8B4513,stroke-width:2px,color:#000
-    classDef error fill:#FFB6C1,stroke:#8B0000,stroke-width:2px,color:#000
-
-    class CHECK,FIND_USER,BUILD_SEQUENCE,SPECIAL_PROMPT,INCLUDE_TOOLS,LLM_CALL,SUMMARY,REPLACE edge
-    class NO_COMPRESS,ERROR error
-```
-
-**Why Tool Compression Exists:**
-
-Tool calls can consume significant context:
-- Tool arguments (can be large JSON objects)
-- Tool results (API responses, database queries, etc.)
-- Multiple tool calls in sequence
-
-**When to trigger:**
-- After Round 1, still > 80% of budget
-- Latest tools > 30% of budget (configurable via `tool_exception_threshold`)
-
-**Special Prompt:**
-
-```python
-TOOL_COMPRESSION_PROMPT = """You are summarizing a sequence of tool calls to preserve context while reducing token usage.
-
-Tool calls:
-{tool_calls}
-
-User message after tools:
-{user_message}
-
-Provide a concise summary that:
-1. Lists which tools were called and why
-2. Summarizes key results from each tool
-3. Preserves any critical data needed to answer the user's question
-4. Maintains the logical flow of tool execution
-
-Focus on information relevance to answering: "{user_message}"
-"""
-```
-
-**Code Reference:**
-
-```python
-# compactor.py:1250-1350
-async def _compress_latest_tools(
-    self,
-    result_after_round_1: CompactionResult,
-    context_budget: int,
-) -> CompactionResult:
-    """Round 2: Compress latest tool calls (edge case)."""
-
-    # Get classified sections
-    messages = result_after_round_1.compacted_messages
-    classified = self.classifier.classify(messages, context_budget)
-
-    # Check if compression warranted
-    latest_tools_tokens = count_tokens(classified.latest_tools)
-    tool_threshold = context_budget * self.tool_exception_threshold  # 0.3
-
-    if latest_tools_tokens <= tool_threshold:
-        raise CompactionError(
-            f"Cannot compress further: latest tools ({latest_tools_tokens}) "
-            f"<= threshold ({tool_threshold})"
-        )
-
-    # Find user message after last tool
-    user_msg_after_tools = None
-    tool_indices = [messages.index(t) for t in classified.latest_tools]
-    last_tool_idx = max(tool_indices)
-
-    for i in range(last_tool_idx + 1, len(messages)):
-        if messages[i].type == "human":
-            user_msg_after_tools = messages[i]
-            break
-
-    if not user_msg_after_tools:
-        raise CompactionError("Cannot find user message after tool calls")
-
-    # Build compression prompt
-    tool_calls_text = self._format_tool_calls(classified.latest_tools)
-    prompt = TOOL_COMPRESSION_PROMPT.format(
-        tool_calls=tool_calls_text,
-        user_message=user_msg_after_tools.content,
-    )
-
-    # LLM call with retry
-    summary_response = await self._llm_call_with_retry(prompt)
-
-    # Create summary message
-    tool_summary = AIMessage(
-        content=summary_response.content,
-        additional_kwargs={
-            "is_tool_summary": True,
-            "original_tool_count": len(classified.latest_tools),
-            "compression_round": 2,
-            "summarization_cost": summary_response.metadata.get("cost", 0),
-        }
-    )
-
-    # Rebuild message list (replace latest_tools with summary)
-    compacted = (
-        classified.system +
-        classified.summaries +
-        classified.marked +
-        classified.historical +
-        classified.old_tools +
-        [tool_summary] +  # Replace latest_tools
-        classified.recent
-    )
-
-    # Final check
-    compacted_tokens = count_tokens(compacted)
-    if compacted_tokens > context_budget * 0.8:
-        raise CompactionError(
-            f"Still over budget after Round 2: {compacted_tokens} > "
-            f"{context_budget * 0.8}"
-        )
-
-    return CompactionResult(
-        compacted_messages=compacted,
-        success=True,
-        metadata={
-            **result_after_round_1.metadata,
-            "round_2_executed": True,
-            "tool_compression_cost": summary_response.metadata.get("cost", 0),
-        },
-    )
-```
-
----
-
-### 9.2 Oversized Single Message
+### 9.1 Oversized Single Message
 
 Handle messages >60% of budget with chunking and summarization.
 
@@ -2776,9 +2631,9 @@ Handle messages >60% of budget with chunking and summarization.
 
 ```mermaid
 graph TB
-    START([Detect Oversized]) --> INPUT[/message: BaseMessage<br/>context_budget: int/]
+    START([Detect Oversized]) --> INPUT[/message: BaseMessage, context_budget: int/]
 
-    INPUT --> CHECK{message_tokens ><br/>60% of budget?}
+    INPUT --> CHECK{message_tokens exceed 60% of budget?}
 
     CHECK -->|No| NORMAL[Normal extraction flow]
     CHECK -->|Yes| OVERSIZED[OVERSIZED MESSAGE DETECTED]
@@ -2793,7 +2648,7 @@ graph TB
     CHUNK_SUMMARY --> COLLECT[Collect all chunk summaries]
     COLLECT --> COMBINE[Combine summaries chronologically]
 
-    COMBINE --> CHECK_SIZE{Combined summaries<br/>still > 60%?}
+    COMBINE --> CHECK_SIZE{Combined summaries still exceed 60%?}
 
     CHECK_SIZE -->|No| DONE[Return combined summaries]
     CHECK_SIZE -->|Yes| RECURSIVE[RECURSIVE COMPRESSION]
@@ -2817,7 +2672,7 @@ Message: 100K tokens
 Budget: 121K tokens (128K @ 95%)
 Threshold: 72.6K tokens (60% of budget)
 
-100K > 72.6K → OVERSIZED
+100K > 72.6K -> OVERSIZED
 
 Step 1: Chunk into ~10K pieces
 - Chunk 1: 0-10K tokens
@@ -2837,7 +2692,7 @@ Step 3: Combine summaries
 
 If still too large:
 Step 4: Meta-summary
-- Summarize all 10 summaries → Final summary: 3K tokens
+- Summarize all 10 summaries -> Final summary: 3K tokens
 ```
 
 **Code Reference:**
@@ -2923,7 +2778,7 @@ Provide a concise summary preserving key information."""
                 "is_meta_summary": True,
                 "original_message_id": message.id,
                 "chunk_count": len(chunks),
-                "summary_levels": 2,  # Chunks → Summaries → Meta-summary
+                "summary_levels": 2,  # Chunks -> Summaries -> Meta-summary
             }
         )]
 
@@ -2932,7 +2787,7 @@ Provide a concise summary preserving key information."""
 
 ---
 
-### 9.3 Circular Dependencies in Budget Reallocation
+### 9.2 Circular Dependencies in Budget Reallocation
 
 Prevent infinite loops in dynamic reallocation.
 
@@ -2940,19 +2795,19 @@ Prevent infinite loops in dynamic reallocation.
 
 ```mermaid
 graph TB
-    START([Dynamic Reallocation]) --> INPUT[/surplus_tokens: int<br/>truncated_sections: List<br/>iteration: int = 0/]
+    START([Dynamic Reallocation]) --> INPUT[/surplus_tokens: int, truncated_sections: List, iteration: int = 0/]
 
-    INPUT --> CHECK_ITER{iteration ><br/>MAX_ITERATIONS?}
+    INPUT --> CHECK_ITER{iteration exceeds MAX_ITERATIONS?}
 
     CHECK_ITER -->|Yes| DETECT_LOOP[CIRCULAR DEPENDENCY<br/>DETECTED]
     CHECK_ITER -->|No| DISTRIBUTE[Distribute surplus to<br/>priority sections]
 
     DISTRIBUTE --> REALLOC[Add tokens to sections]
     REALLOC --> RECALC[Recalculate totals]
-    RECALC --> CHECK_BUDGET{Still under<br/>budget?}
+    RECALC --> CHECK_BUDGET{Still under budget?}
 
     CHECK_BUDGET -->|Yes| SUCCESS[Return reallocated sections]
-    CHECK_BUDGET -->|No| CHECK_NEW{New sections<br/>truncated?}
+    CHECK_BUDGET -->|No| CHECK_NEW{New sections truncated?}
 
     CHECK_NEW -->|No| SUCCESS
     CHECK_NEW -->|Yes| RECURSIVE[Recursive call:<br/>iteration + 1]
@@ -2977,19 +2832,19 @@ graph TB
 
 ```
 Iteration 1:
-- Historical: 40K (limit 36K) → Truncate to 36K
-- Marked: 10K (limit 18K) → 8K surplus
-- Reallocate 4K to Historical → 40K
+- Historical: 40K (limit 36K) -> Truncate to 36K
+- Marked: 10K (limit 18K) -> 8K surplus
+- Reallocate 4K to Historical -> 40K
 
 Iteration 2:
-- Historical: 40K (limit 40K) → OK
-- But now Summaries: 25K (limit 24K) → Truncate to 24K
+- Historical: 40K (limit 40K) -> OK
+- But now Summaries: 25K (limit 24K) -> Truncate to 24K
 - Historical: 10K surplus now
-- Reallocate to Summaries → 25K
+- Reallocate to Summaries -> 25K
 
 Iteration 3:
-- Summaries: 25K → Truncate to 24K
-- Reallocate to Historical → 40K
+- Summaries: 25K -> Truncate to 24K
+- Reallocate to Historical -> 40K
 ...
 LOOP DETECTED!
 ```
@@ -3129,7 +2984,7 @@ def _enforce_static_limits(
 
 ---
 
-### 9.4 Orphaned Tool Calls (v2.3)
+### 9.3 Orphaned Tool Calls (v2.3)
 
 Prevent tool call pairing errors when old_tools are converted to text for summarization.
 
@@ -3139,9 +2994,9 @@ Prevent tool call pairing errors when old_tools are converted to text for summar
 
 ```mermaid
 graph TB
-    START([check_and_fix_orphaned_tool_responses]) --> INPUT[/old_tools: List<br/>recent: List/]
+    START([check_and_fix_orphaned_tool_responses]) --> INPUT[/old_tools: List, recent: List/]
 
-    INPUT --> CHECK_EMPTY{old_tools<br/>empty?}
+    INPUT --> CHECK_EMPTY{old_tools empty?}
     CHECK_EMPTY -->|Yes| EARLY_RETURN[Return unchanged:<br/>old_tools, recent]
     CHECK_EMPTY -->|No| COLLECT
 
@@ -3149,20 +3004,20 @@ graph TB
     COLLECT --> SCAN[Scan recent section<br/>for ToolMessages]
 
     SCAN --> MATCH_LOOP[🔄 For each ToolMessage in recent]
-    MATCH_LOOP --> CHECK_MATCH{tool_call_id<br/>matches old_tools?}
+    MATCH_LOOP --> CHECK_MATCH{tool_call_id matches old_tools?}
 
     CHECK_MATCH -->|No| KEEP_RECENT[Keep in recent]
     CHECK_MATCH -->|Yes| ORPHAN[ORPHANED TOOL RESPONSE<br/>DETECTED]
 
     ORPHAN --> MOVE[Move ToolMessage<br/>from recent to old_tools]
-    MOVE --> LOG["Log: Moved orphaned response<br/>tool_id={id} to old_tools"]
+    MOVE --> LOG["Log: Moved orphaned response<br/>tool_id to old_tools"]
 
-    LOG --> MORE{More<br/>messages?}
+    LOG --> MORE{More messages?}
     KEEP_RECENT --> MORE
     MORE -->|Yes| MATCH_LOOP
     MORE -->|No| RETURN
 
-    RETURN[Return updated:<br/>old_tools (with orphans), recent (without orphans)]
+    RETURN[Return updated:<br/>old_tools with orphans, recent without orphans]
     RETURN --> END([End])
     EARLY_RETURN --> END
 

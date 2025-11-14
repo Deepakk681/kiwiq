@@ -785,14 +785,15 @@ async def run_graph(
 
                             # NOTE: this will help reconstruct the stream and resume output potentially!
                             # Otherwise this is very high bandwidth potentially!
-                            if mongo_path:
-                                # Persist to Mongo DB
-                                await external_context.mongo.workflow.create_object(
-                                    path=mongo_path,
-                                    data=message_event_dump
-                                    # No need for allowed_prefixes here, internal system operation
-                                )
-                                logger.debug(log_prefix + f"Persisted event {message_event.event_type} (RunID: {message_event.run_id}, SeqID: {message_event.sequence_i}) to MongoDB.")
+                            # disable saving messages in stream in mongo db to prevent data bloat!
+                            # if mongo_path:
+                            #     # Persist to Mongo DB
+                            #     await external_context.mongo.workflow.create_object(
+                            #         path=mongo_path,
+                            #         data=message_event_dump
+                            #         # No need for allowed_prefixes here, internal system operation
+                            #     )
+                            #     logger.debug(log_prefix + f"Persisted event {message_event.event_type} (RunID: {message_event.run_id}, SeqID: {message_event.sequence_i}) to MongoDB.")
 
                             # Publish to RabbitMQ Stream
                             await external_context.rabbit.publish_workflow_event(message_event_dump)
@@ -816,6 +817,9 @@ async def run_graph(
                                         status=data.get("status", ""),
                                     )
                                 elif data.get("event_type") == "node_status":
+                                    # Handle node status events (e.g., LLM streaming, compaction, etc.)
+                                    # Compaction events: "context_limit:compacting", "context_limit:compacted"
+                                    # LLM streaming events: "start_llm_streaming", "end_llm_streaming"
                                     custom_event = NodeStatusEvent(
                                         **base_event_data,
                                         node_id=node_id,

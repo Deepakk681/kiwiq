@@ -224,9 +224,7 @@ class TestSummarizationWithBatching(PromptCompactionIntegrationTestBase):
             "system": [],
             "summaries": [],
             "historical": messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": [],
         }
 
@@ -277,21 +275,21 @@ class TestSummarizationWithBatching(PromptCompactionIntegrationTestBase):
         ])
 
         summary1 = AIMessage(content=summary1_content, id=str(uuid4()))
-        summary1.additional_kwargs = {
+        summary1.response_metadata = {
             "summary": True,
             "summarized_message_ids": ["msg1"],
             "summary_generation": 0,
         }
 
         summary2 = AIMessage(content=summary2_content, id=str(uuid4()))
-        summary2.additional_kwargs = {
+        summary2.response_metadata = {
             "summary": True,
             "summarized_message_ids": ["msg2"],
             "summary_generation": 0,
         }
 
         summary3 = AIMessage(content=summary3_content, id=str(uuid4()))
-        summary3.additional_kwargs = {
+        summary3.response_metadata = {
             "summary": True,
             "summarized_message_ids": ["msg3"],
             "summary_generation": 0,
@@ -303,9 +301,7 @@ class TestSummarizationWithBatching(PromptCompactionIntegrationTestBase):
             "system": [],
             "summaries": [summary1, summary2, summary3],
             "historical": new_messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": [],
         }
 
@@ -358,9 +354,7 @@ class TestExtractionWithBatching(PromptCompactionIntegrationTestBase):
             "system": [],
             "summaries": [],
             "historical": historical_messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": recent_messages,
         }
 
@@ -413,13 +407,13 @@ class TestOversizedMessageBatching(PromptCompactionIntegrationTestBase):
 
         # Verify summary created
         self.assertIsInstance(summary, AIMessage)
-        self.assertIn("oversized_summary", summary.additional_kwargs)
+        self.assertIn("oversized_summary", summary.response_metadata)
 
         # Summary should be much shorter than original
         self.assertLess(len(summary.content), len(large_content))
 
         # Should have metadata about chunking
-        meta = summary.additional_kwargs["oversized_summary"]
+        meta = summary.response_metadata["oversized_summary"]
         self.assertIn("num_chunks", meta)
         self.assertGreater(meta["num_chunks"], 1)
 

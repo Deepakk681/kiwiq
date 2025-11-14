@@ -246,9 +246,9 @@ class TestEdgeCaseScenarios(PromptCompactionIntegrationTestBase):
         messages = generate_token_heavy_messages(count=10, tokens_per_message=200)
         
         # Corrupt metadata
-        messages[0].additional_kwargs["invalid_field"] = {"broken": "data", "nested": None}
+        messages[0].response_metadata["invalid_field"] = {"broken": "data", "nested": None}
         messages[1].response_metadata = "not_a_dict"  # Invalid type
-        messages[2].additional_kwargs = None  # Null metadata
+        messages[2].response_metadata = None  # Null metadata
 
         config = self._create_test_config(
             strategy=CompactionStrategyType.SUMMARIZATION,

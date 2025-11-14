@@ -213,6 +213,15 @@ class PromptCompactionUnitTestBase(unittest.IsolatedAsyncioTestCase):
             output_token_limit=output_token_limit,
         )
 
+    def _create_test_llm_config(self):
+        """Create test LLM config for PromptCompactor initialization."""
+        from workflow_service.registry.nodes.llm.llm_node import LLMModelConfig, ModelSpec
+        return LLMModelConfig(
+            model_spec=ModelSpec(),
+            max_tokens=16384,
+            temperature=0.0,
+        )
+
     def _create_test_runtime_config(
         self,
         thread_id: Optional[str] = None,
@@ -362,6 +371,15 @@ class PromptCompactionIntegrationTestBase(unittest.IsolatedAsyncioTestCase):
             output_token_limit=output_token_limit,
         )
 
+    def _create_test_llm_config(self):
+        """Create test LLM config for PromptCompactor initialization."""
+        from workflow_service.registry.nodes.llm.llm_node import LLMModelConfig, ModelSpec
+        return LLMModelConfig(
+            model_spec=ModelSpec(),
+            max_tokens=16384,
+            temperature=0.0,
+        )
+
     def _generate_test_messages(
         self,
         count: int,
@@ -508,6 +526,7 @@ class PromptCompactionIntegrationTestBase(unittest.IsolatedAsyncioTestCase):
             model_metadata=model_metadata,
             node_id="test_node",
             node_name="test_compaction_node",
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
         # Create app_context matching production expectations
@@ -572,6 +591,7 @@ class PromptCompactionIntegrationTestBase(unittest.IsolatedAsyncioTestCase):
             model_metadata=model_metadata,
             node_id="test_node",
             node_name="test_compaction_node",
+            llm_node_llm_config=self._create_test_llm_config(),
         )
 
         # Create app_context matching production expectations

@@ -193,6 +193,54 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
               "approximate": { "country": "US", "city": "Austin", "region": "Texas" }
           }
         }
+        */,
+
+        // --- Prompt Compaction (Context Window Management) ---
+        "prompt_compaction": null
+        /* Example prompt_compaction configuration:
+        "prompt_compaction": {
+          "enabled": true,  // Master switch for compaction (default: true)
+          "enable_billing": true,  // Track costs of compaction operations (default: true)
+          "strategy": "HYBRID",  // "SUMMARIZATION", "EXTRACTIVE", "HYBRID", or "NOOP"
+          
+          // Context budget allocation
+          "context_budget": {
+            "summary_max_pct": 0.25,  // Max % of context for summaries
+            "marked_messages_max_pct": 0.15,  // Max % for explicitly marked messages
+            "recent_messages_min_pct": 0.30,  // Min % for recent messages (auto-expands for tools)
+            "reserved_buffer_pct": 0.20  // Safety margin (never allocated)
+          },
+          
+          // LLM configuration for compaction operations
+          "llm_config": {
+            "default_provider": "openai",  // "openai" or "anthropic"
+            "default_model": "gpt-4o-mini",  // Model for compaction (fast/cheap recommended)
+            "max_retries": 3,  // Retry attempts for failed operations
+            "retry_wait_exponential_multiplier": 1  // Backoff multiplier (seconds)
+          },
+          
+          // Summarization strategy settings (used by SUMMARIZATION and HYBRID)
+          "summarization": {
+            "mode": "CONTINUED",  // "FROM_SCRATCH" or "CONTINUED"
+            "provider_override": null,  // Override provider for summarization
+            "model_override": null  // Override model for summarization
+          },
+          
+          // Extraction strategy settings (used by EXTRACTIVE and HYBRID)
+          "extraction": {
+            "construction_strategy": "EXTRACT_FULL",  // "EXTRACT_FULL", "DUMP", or "LLM_REWRITE"
+            "embedding_model": "text-embedding-3-small",  // Embedding model for semantic search
+            "store_embeddings": false,  // Whether to cache embeddings in Weaviate
+            "top_k": 10,  // Number of relevant messages to extract
+            "similarity_threshold": 0.5  // Min similarity score (0.0-1.0)
+          },
+          
+          // Hybrid strategy split (if strategy="HYBRID")
+          "hybrid": {
+            "extraction_pct": 0.05,  // 5% of historical via extraction
+            "summarization_pct": 0.95  // 95% of historical via summarization
+          }
+        }
         */
       }
       // dynamic_input_schema / dynamic_output_schema are usually null for LLMNode
@@ -270,6 +318,48 @@ The `LLMNode` has a rich set of configuration options nested within the `node_co
     *   `search_domain_filter`: List of domains to restrict search (e.g., `["arxiv.org"]`).
     *   `search_context_size`: Controls detail level given to LLM (`low`, `medium`, `high`).
     *   `user_location`: (OpenAI specific) Provide location context for better results (see example format).
+
+10. **`prompt_compaction`**: **Optional - Context Window Management**
+    *   Automatically manages conversation history to stay within the model's context limits.
+    *   **When to use it**: Essential for multi-turn conversations that might grow beyond the model's context window (e.g., chatbots, long-running assistants, research workflows).
+    *   **How it works**: When your conversation approaches the context limit, the system automatically compresses old messages while preserving recent ones and critical context.
+    
+    **Key Settings**:
+    
+    *   **`enabled`** (Default: `true`): Master switch. Set to `false` to disable compaction entirely.
+    
+    *   **`strategy`** (Default: `"HYBRID"`): How to compress messages:
+        *   `"SUMMARIZATION"`: LLM creates summaries of old messages (best context preservation)
+        *   `"EXTRACTIVE"`: Semantic search finds most relevant old messages (fastest)
+        *   `"HYBRID"`: Combines both - extracts 5%, summarizes 95% (recommended balance)
+        *   `"NOOP"`: Disabled
+    
+    *   **`context_budget`**: Controls how available context is divided:
+        *   `summary_max_pct` (Default: `0.25`): Max 25% for summaries of old messages
+        *   `recent_messages_min_pct` (Default: `0.30`): Min 30% for recent messages (auto-expands for tool calls)
+        *   `marked_messages_max_pct` (Default: `0.15`): Max 15% for explicitly marked important messages
+        *   `reserved_buffer_pct` (Default: `0.20`): 20% safety margin
+    
+    *   **`llm_config`**: Controls which LLM performs compaction:
+        *   `default_provider` (Default: `"openai"`): Use `"openai"` or `"anthropic"`
+        *   `default_model` (Default: `"gpt-4o-mini"`): Recommended for speed/cost
+        *   Use cheaper models here - compaction quality vs. cost tradeoff
+    
+    *   **`summarization`**: Fine-tune summarization behavior:
+        *   `mode`: `"CONTINUED"` (reuses existing summaries) or `"FROM_SCRATCH"` (re-summarizes from originals)
+    
+    *   **`extraction`**: Fine-tune extraction behavior:
+        *   `construction_strategy`: `"EXTRACT_FULL"` (keep full messages), `"DUMP"` (concatenate), or `"LLM_REWRITE"` (rewrite)
+        *   `embedding_model`: For semantic search (default: `"text-embedding-3-small"`)
+        *   `top_k` (Default: `10`): How many relevant messages to extract
+        *   `similarity_threshold` (Default: `0.5`): Min relevance score (0.0-1.0)
+    
+    **Important Notes**:
+    *   Tool sequences (tool calls + responses) are **never** compressed - they're preserved atomically
+    *   Recent messages are **always** preserved - only historical messages get compacted
+    *   The system automatically expands budget for recent messages when they contain tool sequences (up to 50% of context)
+    *   Compaction costs are tracked separately and billed to your account
+    *   For Perplexity models (which don't support compaction calls), automatically falls back to Anthropic
 
 ## Input (`LLMNodeInputSchema`)
 
@@ -482,6 +572,12 @@ This includes the full response metadata, which for Anthropic models contains th
 
 -   Use `LLMNode` for AI tasks: writing, summarizing, Q&A, extraction, tool selection.
 -   **Pick the Right Model:** `model_spec` is key. Consider cost, speed, and features (reasoning, tools, web search, code execution support).
+-   **Long Conversations:** If your workflow involves many back-and-forth messages (like a chatbot), use `prompt_compaction` to automatically manage the conversation length:
+    *   **What it does:** As your conversation grows, older messages get intelligently compressed (summarized or filtered for relevance) while recent messages stay intact.
+    *   **Why it matters:** AI models have limits on how much text they can process at once. Without compaction, long conversations will eventually fail.
+    *   **Default is good:** The default `"HYBRID"` strategy works well for most cases - it balances quality and speed.
+    *   **Cost aware:** Compaction uses a cheaper AI model (default: `gpt-4o-mini`) to keep costs down. You can change this if needed.
+    *   **Tool calls protected:** If the AI used tools (like web search or database queries), those are never compressed - they're too important.
 -   **Set a Backup Model:** Configure `backup_model` in `model_spec` to automatically retry requests if the primary model refuses (important for Claude Sonnet 4.5 which refuses more often). The system will automatically try the backup model if the first one says no.
 -   **Control Creativity:** Use `temperature` (low=factual, high=creative).
 -   **Control Costs (Deep Research Only):** Use `max_tool_calls` to limit how many tools the AI can use - this is currently only available for OpenAI's Deep Research models.

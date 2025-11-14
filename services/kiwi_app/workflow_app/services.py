@@ -854,7 +854,7 @@ class WorkflowService:
                     allowed_event_keys.remove("payload")
 
             include_fields = [f"data.{k}" for k in allowed_event_keys]
-            allowed_event_types = [event_schemas.WorkflowEvent.NODE_OUTPUT.value, event_schemas.WorkflowEvent.WORKFLOW_RUN_STATUS.value]
+            allowed_event_types = [event_schemas.WorkflowEvent.NODE_OUTPUT.value, event_schemas.WorkflowEvent.WORKFLOW_RUN_STATUS.value, event_schemas.WorkflowEvent.HITL_REQUEST.value, event_schemas.WorkflowEvent.TOOL_CALL.value, event_schemas.WorkflowEvent.NODE_STATUS.value]
 
             # Find all events for this run, sorted by sequence number, respecting permissions
             event_dicts = await self.mongo_client.search_objects(

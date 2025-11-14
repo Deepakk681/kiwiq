@@ -115,28 +115,41 @@ Reallocation:
 
 **Problem (v1.0):** Latest tool call sequences can occupy >30% of context, preventing normal compaction from reaching 50% target.
 
-**Solution (v2.0):** Two-round compaction strategy with intelligent tool sequence handling.
+**Solution (v2.5):** Single-round compaction with dynamic budget adjustment for tool sequences.
 
 **Latest Tool Sequence Definition:**
 - Contiguous tool calls + responses ending with a tool response message
-- If last message is user message after tool response, include user message as part of sequence
+- If last message is user message after tool response, include user message as part of sequence (MAX SPAN)
 
-**Compression Rules:**
-- **Normal Case**: Target 50% post-compaction context usage
-- **Tool Exception Case**: If latest tools >30% context, allow up to 80% post-compaction
-- **Emergency Case**: If still >80% after all other compression, compress tool sequences into summary
+**v2.5 Tool Handling:**
+- **Latest tools**: Merged into `recent` section → NEVER compressed by strategies
+- **Old tools**: Merged into `historical` section → compressed normally  
+- **Dynamic budget**: `recent` limit expands when containing latest tool sequence (up to 50% of context)
+- **Atomic trimming**: If recent exceeds budget, entire tool sequence moves to historical (never split)
 
 **Example Flow:**
 ```
-Round 1: Compress historical → 70% context (summaries maxed, marked maxed)
-Latest Tools: 40% of context
-Total: 110% → OVERFLOW!
+Messages classified:
+- System: 2%
+- Historical (includes old tools): 40% 
+- Recent (includes latest tools): 35%
+Total: 77% → Needs compaction
 
-Round 2: Compress latest tool sequence into summary
-Tool Summary: 15% of context
-Final: 70% + 15% = 85% → Within emergency threshold
+Dynamic budget adjustment:
+- Recent has latest tool sequence → expand recent_limit from 30% to 50%
+- Recent: 35% < 50% limit ✓ (fits, no trimming)
+- Historical: 40% → Compact via strategy
 
-If still >90%: Aggressively truncate oldest summaries
+Post-compaction:
+- System: 2%
+- Summaries: 18% (compressed historical)
+- Recent with tools: 35% (preserved)
+Total: 55% → Within target
+
+If tools too large (>50% recent limit):
+- Tool sequence atomically moved to historical
+- Extraction strategy evaluates semantic relevance
+- Relevant portions extracted back if needed
 ```
 
 #### 4. Infinite Thread Support
@@ -686,9 +699,11 @@ After orphan fix:
 
 #### 4. Tool Sequence Summarization
 
-**Problem (v2.0-v2.1):** When oversized tool sequences must be compressed (Round 2), no specialized summarization logic existed.
+**Problem (v2.0-v2.1):** When oversized tool sequences must be compressed, no specialized summarization logic existed.
 
 **Solution (v2.3):** `compress_tool_sequence_to_summary()` creates flowing narrative summaries of tool sequences.
+
+**Note (v2.5):** This function exists for emergency fallback scenarios but is no longer actively used in the main compaction flow. v2.5 handles oversized tools via atomic trimming + extraction strategy.
 
 **Summarization Approach** (`utils.py:651-750`):
 
@@ -1896,11 +1911,9 @@ flowchart TD
 
     CheckSacred -->|No, buffer safe| Fail[Cannot compress further<br/>────────<br/>Return best effort<br/>Log warning]
 
-    CheckSacred -->|Yes, violates buffer| Round2[Round 2: Tool Compression<br/>────────<br/>LAST RESORT<br/>Compress latest tool sequence]
+    CheckSacred -->|Yes, violates buffer| DynamicBudget[v2.5: Dynamic Budget Adjustment<br/>────────<br/>Expand recent limit for latest tools<br/>If still too large → atomic trim to historical<br/>Extraction strategy evaluates relevance]
 
-    Round2 --> CompressTools[Compress Tool Sequence<br/>────────<br/>AIMessage + ToolCalls + ToolResponses<br/>→ Single Tool Summary Message<br/>────────<br/>Target: 50% of context max]
-
-    CompressTools --> Verify[Verify Final Usage]
+    DynamicBudget --> Verify[Verify Final Usage]
 
     Verify --> Final{Final Usage?}
 
@@ -3119,7 +3132,7 @@ graph LR
 - **Dynamic Reallocation** (v2.0): Real-time budget redistribution based on actual usage
 - **Tool Compression** (v2.0): Emergency compression of latest tool call sequences
 - **Sacred Buffer** (v2.0): Reserved 20% budget never reallocated, ensures safety margin
-- **Two-Round Compaction** (v2.0): Emergency compaction with tool sequence compression
+- **Single-Round Compaction** (v2.5): Unified compaction with dynamic budget adjustment for tools
 
 ---
 

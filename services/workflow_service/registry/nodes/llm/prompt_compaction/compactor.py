@@ -628,6 +628,14 @@ class PromptCompactionConfig(BaseModel):
             ),
         )
     """
+    debug: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable debug mode. "
+            "If True, will log detailed information about the compaction process. "
+            "Disabled by default."
+        ),
+    )
 
     # Enable/disable
     enabled: bool = Field(
@@ -651,7 +659,7 @@ class PromptCompactionConfig(BaseModel):
 
     # Strategy selection
     strategy: CompactionStrategyType = Field(
-        default=CompactionStrategyType.HYBRID,
+        default=CompactionStrategyType.SUMMARIZATION,
         description=(
             "Compaction strategy: SUMMARIZATION (LLM-based), EXTRACTIVE (semantic search), "
             "HYBRID (extract + summarize), or NOOP (disabled). "
@@ -783,6 +791,7 @@ class PromptCompactor:
         llm_node_llm_config: "LLMModelConfig",
         node_id: str,
         node_name: str,
+        logger = None,
     ):
         """
         Initialize prompt compactor.
@@ -793,13 +802,14 @@ class PromptCompactor:
             llm_node_llm_config: LLM configuration for LLM Node
             node_id: Node ID
             node_name: Node name
+            logger: Logger instance
         """
         self.config = config
         self.model_metadata = model_metadata
         self.llm_node_llm_config = llm_node_llm_config
         self.node_id = node_id
         self.node_name = node_name
-
+        self.logger = logger
         # Initialize components
         self.classifier = MessageClassifier(
             preserve_tool_call_sequences=config.preserve_tool_call_sequences
@@ -823,6 +833,7 @@ class PromptCompactor:
         """
         kwargs = {
             "compaction_config": self.config,
+            "logger": self.logger,
         }
         if not self.config.enabled:
             return NoOpStrategy(**kwargs)
@@ -984,6 +995,39 @@ class PromptCompactor:
             token_cache=None,  # Let enforcer create per-section caches as needed
         )
 
+        # Log final section-wise budget after enforcement
+        if self.config.debug:
+            from workflow_service.registry.nodes.llm.prompt_compaction.token_utils import count_tokens
+            
+            section_token_counts = {}
+            for section_name, section_messages in sections.items():
+                if section_messages:
+                    section_token_counts[section_name] = count_tokens(
+                        section_messages,
+                        self.model_metadata
+                    )
+                else:
+                    section_token_counts[section_name] = 0
+            
+            total_after_enforcement = sum(section_token_counts.values())
+            
+            self.logger.info(
+                f"[{self.node_name}] Budget enforcement complete:\n"
+                f"  Current total tokens: {total_after_enforcement}\n"
+                f"  Target tokens (after compaction): {budget.target_usage_after_compaction}\n"
+                f"  Available input tokens: {budget.available_input_tokens}\n"
+                f"  Section-wise budget limits:\n"
+                f"    - system_prompt_limit: {budget.system_prompt_limit} (actual: {section_token_counts.get('system', 0)})\n"
+                f"    - recent_messages_limit: {budget.recent_messages_limit} (actual: {section_token_counts.get('recent', 0)})\n"
+                f"    - marked_messages_limit: {budget.marked_messages_limit} (actual: {section_token_counts.get('marked', 0)})\n"
+                f"    - summary_limit: {budget.summary_limit} (actual: {section_token_counts.get('summaries', 0)})\n"
+                f"    - latest_tools_limit: {budget.latest_tools_limit} (actual: N/A - merged into recent/historical)\n"
+                f"    - reserved_tokens: {budget.reserved_tokens}\n"
+                f"    - historical: no hard limit (actual: {section_token_counts.get('historical', 0)})"
+            )
+
+        
+
         # Compact historical section only (recent section always passes through)
         result = await self.strategy.compact(
             sections=sections,
@@ -1002,6 +1046,24 @@ class PromptCompactor:
                 user_id=user_id,
                 run_id=run_id,
             )
+        
+        tokens_after_compaction = count_tokens(
+            result.compacted_messages,
+            self.model_metadata
+        )
+        result.tokens_after_compaction = tokens_after_compaction
+        
+        if self.config.debug:
+            self.logger.info(
+                f"[{self.node_name}] Compaction result:\n"
+                f"  Tokens before compaction: {total_tokens}\n"
+                f"  Tokens after compaction: {result.tokens_after_compaction}\n"
+                f"  Compression ratio: {tokens_after_compaction / total_tokens if total_tokens > 0 else 1:.2f}\n"
+                f"  Cost: {result.cost}\n"
+            )
+            
+        
+        result.tokens_before_compaction = total_tokens
 
         return result
 

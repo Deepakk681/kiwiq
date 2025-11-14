@@ -11,6 +11,7 @@ v2.1 Features:
 
 from typing import Any, Dict, Optional, Tuple
 from langchain_core.messages import HumanMessage, AIMessage
+from openai import APIError
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -72,13 +73,25 @@ def create_compaction_retry_decorator(llm_config: Any):
         reraise=True,
     )
 
-
+retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(
+            # multiplier=llm_config.retry_wait_exponential_multiplier,
+            # max=llm_config.retry_wait_exponential_max,
+        ),
+        retry=retry_if_exception_type(
+            # (APIError, RateLimitError, APITimeoutError, TimeoutError)
+            Exception
+            ),
+        reraise=True,
+    )
 async def call_llm_for_compaction(
     prompt: str,
     model_metadata: ModelMetadata,
     ext_context: Any,  # ExternalContextManager
     max_tokens: int = 2000,
     temperature: float = 0.0,
+    logger = None,
 ) -> Dict[str, Any]:
     """
     Call LLM for compaction tasks (summarization, salient point extraction, etc.).
@@ -120,11 +133,16 @@ async def call_llm_for_compaction(
         if model_metadata.provider == LLMModelProvider.OPENAI:
             from langchain_openai import ChatOpenAI
 
+            kwargs = {}
+            if model_metadata.reasoning:
+                kwargs["reasoning_effort"] = "minimal" if model_metadata.model_name.startswith("gpt-5") else "low"
+
             model = ChatOpenAI(
                 model=model_metadata.model_name,
                 api_key=settings.OPENAI_API_KEY,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                **kwargs,
             )
 
         elif model_metadata.provider == LLMModelProvider.ANTHROPIC:
@@ -160,28 +178,55 @@ async def call_llm_for_compaction(
         # Call model (non-streaming)
         response = await model.ainvoke(messages)
 
-        # Extract token usage if available
+        # Extract token usage following the same pattern as llm_node.py
+        # This properly handles cached tokens for both OpenAI and Anthropic
+        response_metadata = getattr(response, 'response_metadata', {})
+        usage_metadata = getattr(response, 'usage_metadata', {})
+        
+        # Merge metadata (usage_metadata takes precedence)
+        if not response_metadata:
+            response_metadata = usage_metadata
+        elif usage_metadata and isinstance(usage_metadata, dict):
+            response_metadata = {**response_metadata, **usage_metadata}
+        
+        # Extract token usage with provider-specific logic
         token_usage = {}
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            usage = response.usage_metadata
-            token_usage = {
-                "input_tokens": usage.get('input_tokens', 0),
-                "output_tokens": usage.get('output_tokens', 0),
-                "total_tokens": usage.get('total_tokens', 0),
-            }
-        elif hasattr(response, 'response_metadata') and response.response_metadata:
-            # Try alternative location
-            usage = response.response_metadata.get('usage', {})
-            token_usage = {
-                "input_tokens": usage.get('prompt_tokens', 0),
-                "output_tokens": usage.get('completion_tokens', 0),
-                "total_tokens": usage.get('total_tokens', 0),
-            }
+        if response_metadata:
+            if model_metadata.provider == LLMModelProvider.OPENAI:
+                # OpenAI format - extract cached tokens from input_token_details
+                token_usage = {
+                    "input_tokens": response_metadata.get("input_tokens", 0),
+                    "output_tokens": response_metadata.get("output_tokens", 0),
+                    "total_tokens": response_metadata.get("total_tokens", 0),
+                    "cached_tokens": response_metadata.get("input_token_details", {}).get("cache_read", 0),
+                }
+            elif model_metadata.provider == LLMModelProvider.ANTHROPIC:
+                # Anthropic format - extract cached tokens
+                token_usage = {
+                    "input_tokens": response_metadata.get("input_tokens", 0),
+                    "output_tokens": response_metadata.get("output_tokens", 0),
+                    "total_tokens": response_metadata.get("total_tokens", 0),
+                    "cached_tokens": response_metadata.get("input_token_details", {}).get("cache_read", 0),
+                }
+            else:
+                # Fallback for other providers (shouldn't happen for compaction)
+                token_usage = {
+                    "input_tokens": response_metadata.get("input_tokens", 0),
+                    "output_tokens": response_metadata.get("output_tokens", 0),
+                    "total_tokens": response_metadata.get("total_tokens", 0),
+                    "cached_tokens": 0,
+                }
 
-        # Calculate cost using model metadata
-        input_cost = (token_usage.get("input_tokens", 0) / 1_000_000) * model_metadata.input_token_price_per_M
-        output_cost = (token_usage.get("output_tokens", 0) / 1_000_000) * model_metadata.output_token_price_per_M
-        cost = input_cost + output_cost
+        # Calculate cost using sophisticated tokencost library (same as main LLM node)
+        # This handles cached tokens and provides accurate up-to-date pricing
+        from workflow_service.registry.nodes.llm.prompt_compaction.cost_utils import calculate_compaction_llm_cost
+        
+        cost = calculate_compaction_llm_cost(
+            token_usage=token_usage,
+            provider=model_metadata.provider,
+            model_name=model_metadata.model_name,
+            model_metadata=model_metadata,
+        )
 
         return {
             "content": response.content,

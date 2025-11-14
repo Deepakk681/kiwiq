@@ -10,8 +10,7 @@ Never be lazy and ask me obvious questions, just to stop in between completing y
 
 DON"T USE SED for EDITING!!
 
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Never duplicate, redundant code, keep it modular and reuse it, maybe create shared helper utils which is better maintainable in the long term.
 
 ## Project Overview
 

@@ -121,7 +121,7 @@ class TestRealProviderMessageHistories(PromptCompactionIntegrationTestBase):
             if len(compacted_history) > 10:  # Only expect summarization for histories that need it
                 summary_msgs = [
                     m for m in compacted
-                    if m.additional_kwargs.get("llm_call_made") or
+                    if m.response_metadata.get("llm_call_made") or
                        "SUMMARY" in m.response_metadata.get("compaction", {}).get("section_label", "")
                 ]
                 self.assertGreater(len(summary_msgs), 0, 
@@ -130,9 +130,9 @@ class TestRealProviderMessageHistories(PromptCompactionIntegrationTestBase):
             else:
                 print(f"[TEST] ⚠ Skipping summarization verification ({len(compacted_history)} messages < 10 threshold)")
 
-            # Verify tool call pairing in both latest_tools AND recent sections
+            # Verify tool call pairing in recent section (v2.5: tools merged into recent/historical)
             # Orphaned tool responses should be converted to plain text, so all tool structures must be paired
-            # Old tool sequences are converted to text entirely (no tool structures remain)
+            # Old tool sequences in historical are converted to text entirely (no tool structures remain)
             latest_and_recent = [
                 msg for msg in compacted 
                 if "tool" in msg.response_metadata.get("compaction", {}).get("section_label", "").lower() or
@@ -142,7 +142,7 @@ class TestRealProviderMessageHistories(PromptCompactionIntegrationTestBase):
             pairing_errors = verify_tool_call_pairing(latest_and_recent)
             self.assertEqual(
                 len(pairing_errors), 0,
-                f"{strategy_type.value}: Anthropic tool call pairing broken in latest_tools/recent: {pairing_errors}"
+                f"{strategy_type.value}: Anthropic tool call pairing broken in recent: {pairing_errors}"
             )
 
             # Verify all compaction outputs are AIMessages

@@ -370,28 +370,25 @@ def load_sample_message_history(filename: str) -> List[BaseMessage]:
         msg_type = msg_data.get("type")
         content = msg_data.get("content", "")
         msg_id = msg_data.get("id")
-        additional_kwargs = msg_data.get("additional_kwargs", {})
+        response_metadata = msg_data.get("response_metadata", {})
         response_metadata = msg_data.get("response_metadata", {})
 
         if msg_type == "human":
             msg = HumanMessage(
                 content=content,
                 id=msg_id,
-                additional_kwargs=additional_kwargs,
                 response_metadata=response_metadata,
             )
         elif msg_type == "ai":
             msg = AIMessage(
                 content=content,
                 id=msg_id,
-                additional_kwargs=additional_kwargs,
                 response_metadata=response_metadata,
             )
         elif msg_type == "system":
             msg = SystemMessage(
                 content=content,
                 id=msg_id,
-                additional_kwargs=additional_kwargs,
                 response_metadata=response_metadata,
             )
         elif msg_type == "tool":
@@ -400,7 +397,6 @@ def load_sample_message_history(filename: str) -> List[BaseMessage]:
                 content=content,
                 tool_call_id=tool_call_id,
                 id=msg_id,
-                additional_kwargs=additional_kwargs,
                 response_metadata=response_metadata,
             )
         else:
@@ -430,8 +426,8 @@ def add_linkedin_metadata(messages: List[BaseMessage]) -> List[BaseMessage]:
             "timestamp": "2025-11-11T00:00:00Z",
         }
 
-        # Create new message with linkedin_data in additional_kwargs
-        new_kwargs = dict(msg.additional_kwargs) if msg.additional_kwargs else {}
+        # Create new message with linkedin_data in response_metadata
+        new_kwargs = dict(msg.response_metadata) if msg.response_metadata else {}
         if "linkedin_data" not in new_kwargs:
             new_kwargs["linkedin_data"] = linkedin_data
 
@@ -440,27 +436,27 @@ def add_linkedin_metadata(messages: List[BaseMessage]) -> List[BaseMessage]:
             new_msg = HumanMessage(
                 content=msg.content,
                 id=msg.id,
-                additional_kwargs=new_kwargs,
+                response_metadata=new_kwargs,
             )
         elif isinstance(msg, AIMessage):
             new_msg = AIMessage(
                 content=msg.content,
                 id=msg.id,
-                additional_kwargs=new_kwargs,
+                response_metadata=new_kwargs,
                 tool_calls=msg.tool_calls if hasattr(msg, 'tool_calls') else None,
             )
         elif isinstance(msg, SystemMessage):
             new_msg = SystemMessage(
                 content=msg.content,
                 id=msg.id,
-                additional_kwargs=new_kwargs,
+                response_metadata=new_kwargs,
             )
         elif isinstance(msg, ToolMessage):
             new_msg = ToolMessage(
                 content=msg.content,
                 tool_call_id=msg.tool_call_id,
                 id=msg.id,
-                additional_kwargs=new_kwargs,
+                response_metadata=new_kwargs,
             )
         else:
             # Fallback: just use the message as is

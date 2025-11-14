@@ -70,9 +70,7 @@ class TestHybridWithOversizedMessages(PromptCompactionIntegrationTestBase):
             "system": [],
             "summaries": [],
             "historical": messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": recent_messages,
         }
 
@@ -148,9 +146,7 @@ class TestHybridWithCollectiveOverflow(PromptCompactionIntegrationTestBase):
             "system": [],
             "summaries": [],
             "historical": messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": recent_messages,
         }
 
@@ -246,9 +242,7 @@ class TestHybridEndToEndComplex(PromptCompactionIntegrationTestBase):
             "system": system_messages,
             "summaries": [],
             "historical": messages,
-            "old_tools": [],
             "marked": [],
-            "latest_tools": [],
             "recent": recent_messages,
         }
 
@@ -304,6 +298,142 @@ class TestHybridEndToEndComplex(PromptCompactionIntegrationTestBase):
         from workflow_service.registry.nodes.llm.prompt_compaction.token_utils import count_tokens
         total_tokens = count_tokens(result.compacted_messages, metadata)
         self.assertLess(total_tokens, budget.available_input_tokens)
+
+
+class TestHybridMetadataIntegration(PromptCompactionIntegrationTestBase):
+    """Test hybrid strategy preserves metadata from both extraction and summarization (v3.1)."""
+
+    @unittest.skipIf(not os.getenv("OPENAI_API_KEY"), "Requires OPENAI_API_KEY")
+    async def test_hybrid_preserves_both_strategy_metadata(self):
+        """Verify hybrid strategy preserves metadata from both extraction and summarization."""
+        from workflow_service.registry.nodes.llm.prompt_compaction.utils import get_message_metadata
+        
+        metadata = self._create_test_model_metadata(
+            model_name="gpt-4o-mini",
+            context_limit=128000,
+        )
+
+        budget = ContextBudget.calculate(
+            total_context=128000,
+            max_output_tokens=16384,
+            config=ContextBudgetConfig(),
+        )
+
+        # Create messages
+        messages = [
+            HumanMessage(content=f"Message {i} with some content for testing", id=str(uuid4()))
+            for i in range(15)
+        ]
+
+        recent_messages = [
+            HumanMessage(content="What are the main themes?", id=str(uuid4())),
+        ]
+
+        sections = {
+            "system": [],
+            "summaries": [],
+            "historical": messages,
+            "marked": [],
+            "recent": recent_messages,
+        }
+
+        # Create hybrid strategy
+        extraction_strategy = ExtractionStrategy(
+            construction_strategy=ExtractionStrategyType.EXTRACT_FULL,
+            top_k=5,
+            store_embeddings=False,
+        )
+        summarization_strategy = SummarizationStrategy(mode=SummarizationMode.FROM_SCRATCH)
+
+        strategy = HybridStrategy(
+            extraction_pct=0.05,
+            extraction_strategy=extraction_strategy,
+            summarization_strategy=summarization_strategy,
+        )
+
+        result = await strategy.compact(
+            sections=sections,
+            budget=budget,
+            model_metadata=metadata,
+            ext_context=self.ext_context,
+        )
+
+        # Verify extraction messages have extraction metadata (v3.1)
+        if result.extracted_messages:
+            for msg in result.extracted_messages:
+                extraction_performed = get_message_metadata(msg, "extraction_performed")
+                self.assertEqual(extraction_performed, True, "Extracted messages should have extraction_performed=True")
+                
+                embedding_model = get_message_metadata(msg, "embedding_model")
+                self.assertIsNotNone(embedding_model, "Extracted messages should have embedding_model")
+                
+                construction_strategy = get_message_metadata(msg, "construction_strategy")
+                self.assertIsNotNone(construction_strategy, "Extracted messages should have construction_strategy")
+
+        # Verify result metadata contains both extraction and summarization costs
+        self.assertIn("extraction_cost", result.metadata, "Result metadata should include extraction_cost")
+        self.assertIn("summarization_cost", result.metadata, "Result metadata should include summarization_cost")
+        self.assertEqual(result.metadata.get("strategy"), "hybrid", "Strategy should be hybrid")
+
+    @unittest.skipIf(not os.getenv("OPENAI_API_KEY"), "Requires OPENAI_API_KEY")
+    async def test_hybrid_with_different_construction_strategies(self):
+        """Test hybrid strategy with DUMP and LLM_REWRITE construction strategies."""
+        from workflow_service.registry.nodes.llm.prompt_compaction.utils import get_message_metadata
+        
+        for construction_type in [ExtractionStrategyType.DUMP, ExtractionStrategyType.LLM_REWRITE]:
+            with self.subTest(construction_strategy=construction_type):
+                metadata = self._create_test_model_metadata(
+                    model_name="gpt-4o-mini",
+                    context_limit=128000,
+                )
+
+                budget = ContextBudget.calculate(
+                    total_context=128000,
+                    max_output_tokens=16384,
+                    config=ContextBudgetConfig(),
+                )
+
+                messages = [
+                    HumanMessage(content=f"Content {i}", id=str(uuid4()))
+                    for i in range(10)
+                ]
+
+                sections = {
+                    "system": [],
+                    "summaries": [],
+                    "historical": messages,
+                    "marked": [],
+                    "recent": [HumanMessage(content="Query", id=str(uuid4()))],
+                }
+
+                extraction_strategy = ExtractionStrategy(
+                    construction_strategy=construction_type,
+                    top_k=3,
+                    store_embeddings=False,
+                )
+                summarization_strategy = SummarizationStrategy(mode=SummarizationMode.FROM_SCRATCH)
+
+                strategy = HybridStrategy(
+                    extraction_pct=0.05,
+                    extraction_strategy=extraction_strategy,
+                    summarization_strategy=summarization_strategy,
+                )
+
+                result = await strategy.compact(
+                    sections=sections,
+                    budget=budget,
+                    model_metadata=metadata,
+                    ext_context=self.ext_context,
+                )
+
+                # Verify extraction messages have correct construction_strategy metadata
+                if result.extracted_messages:
+                    for msg in result.extracted_messages:
+                        construction_strategy_meta = get_message_metadata(msg, "construction_strategy")
+                        self.assertIsNotNone(construction_strategy_meta)
+                        # Enum value is lowercase
+                        self.assertIn(construction_type.value, str(construction_strategy_meta).lower(),
+                                     f"Should reflect {construction_type.value} strategy")
 
 
 if __name__ == "__main__":

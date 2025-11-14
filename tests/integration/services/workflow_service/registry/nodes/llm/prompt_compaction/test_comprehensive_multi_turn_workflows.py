@@ -229,7 +229,7 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
         """
         Test: Verify all section types can be present in a complex workflow.
         
-        Sections: system, marked, summaries, latest_tools, old_tools, recent, historical
+        Sections: system, marked, summaries, recent, historical
         
         Verify each section type appears when appropriate.
         """
@@ -286,8 +286,8 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
         
         Verify:
         - Tool pairs stay together across sections
-        - Latest tools identified correctly
-        - Old tools handled properly
+        - Tool sequences in recent/historical maintain atomicity
+        - Tool sequences handled properly in boundary splitting
         """
         thread_id = f"test-section-transitions-{uuid4()}"
         self.test_thread_ids.append(thread_id)
@@ -346,7 +346,7 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
 
         # Mark some messages (simulate marking)
         for i in range(5):
-            messages[i].additional_kwargs["marked"] = True
+            messages[i].response_metadata["marked"] = True
 
         config = self._create_test_config(
             strategy=CompactionStrategyType.HYBRID,
@@ -407,7 +407,7 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
         # Note: LinkedIn metadata may be stripped during compaction summarization
         # This test verifies the system doesn't crash when metadata is present
         # Actual preservation depends on strategy configuration
-        linkedin_count = sum(1 for m in history if m.additional_kwargs.get("linkedin_metadata"))
+        linkedin_count = sum(1 for m in history if m.response_metadata.get("linkedin_metadata"))
         # Test passes if system handled LinkedIn metadata without crashing
         self.assertGreaterEqual(linkedin_count, 0, "System handled LinkedIn metadata")
 
@@ -668,7 +668,7 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
             # v3.0: Verify linear batching (no hierarchy)
             summaries = [m for m in compacted if "SUMMARY" in (get_section_label(m) or "").upper()]
             for summary in summaries:
-                generation = summary.additional_kwargs.get("generation", 0)
+                generation = summary.response_metadata.get("generation", 0)
                 self.assertEqual(
                     generation, 0,
                     f"Turn {turn}: All summaries should have generation=0 (got {generation})"
@@ -694,7 +694,7 @@ class TestComprehensiveMultiTurnWorkflows(PromptCompactionIntegrationTestBase):
             
             # Mark some messages
             for i in range(min(5, len(new_messages))):
-                new_messages[i].additional_kwargs["marked"] = True
+                new_messages[i].response_metadata["marked"] = True
             
             history.extend(new_messages)
 

@@ -15,7 +15,7 @@ Created 3 comprehensive integration test files with 41 new tests to validate the
   - `test_budget_reduction_progressive_8_turns`: Progressively tighter budgets over 8 turns
 
 - **All Section Types (3 tests)**:
-  - `test_all_sections_present_5_turns`: Verify system, marked, summaries, latest_tools, old_tools, recent, historical
+  - `test_all_sections_present_5_turns`: Verify system, marked, summaries, recent, historical (v2.5: tools merged)
   - `test_section_transitions_with_tool_calls`: Tool pairs staying together across sections
   - `test_overflow_and_reattachment_complex`: Marked messages overflow handling
 
@@ -36,9 +36,9 @@ Created 3 comprehensive integration test files with 41 new tests to validate the
   - `test_empty_sections_handling`: Empty sections handling
 
 **Architecture Alignment**:
-- ✅ Tool handling: Tests expect old_tools to be converted to text
+- ✅ Tool handling (v2.5): Tools merged into recent/historical sections, atomic boundary handling
 - ✅ Linear batching: Updated `test_linear_batch_stress_8_turns` to verify generation=0
-- ✅ Priority handling: Tests cover latest_tools, recent, marked, summaries priority
+- ✅ Priority handling: Tests cover recent (includes tools), marked, summaries priority
 - ✅ Max span tool sequences: Tests include tool sequences with interleaved messages
 
 ### 2. test_edge_case_scenarios.py (15 tests)
@@ -125,21 +125,22 @@ Created 3 comprehensive integration test files with 41 new tests to validate the
 
 ### Tool Handling ✅
 - **Implementation** (strategies.py:497-505, context_manager.py:441-460):
-  - `old_tools` converted to text via `convert_tool_sequence_to_text()`
-  - Only `latest_tools` retain structured format
+  - Tool sequences in historical may be converted to text for compaction
+  - Tool sequences in recent retain structured format (atomic handling)
   - Safety check: `check_and_fix_orphaned_tool_responses()`
   - Max span tool sequences (all messages between opening call and closing response)
 
 - **Tests**:
-  - Tests use tool sequences but don't expect structured old_tools in output
-  - Tests verify tool pairing in latest_tools/recent only
+  - Tests use tool sequences in recent/historical sections
+  - Tests verify tool pairing and atomic boundary handling
+  - v2.5: Tool sequences maintain atomicity across section boundaries
   - Edge case tests handle orphaned tools gracefully
 
 ### Priority Handling ✅
-- **Implementation** (context_manager.py:1006-1192):
-  - System > Latest Tools > Recent > Marked > Summaries
-  - `latest_tools` can push out historical/old_tools
-  - If `latest_tools` too large: `needs_tool_summarization=True`
+- **Implementation** (context_manager.py v2.5):
+  - System > Recent (includes tools) > Marked > Summaries
+  - Dynamic budget: recent_limit += latest_tools_limit when recent contains latest tool sequence
+  - Tool sequences in recent get priority through dynamic budget adjustment
 
 - **Tests**:
   - Tests cover overflow and reattachment scenarios
@@ -161,7 +162,7 @@ PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest \
 ### Expected Pass Rate
 - All 41 tests should pass with the updated v3.0 architecture
 - Tests verify linear batching (no hierarchical merging)
-- Tests verify tool handling (old_tools as text)
+- Tests verify tool handling (v2.5: atomic boundaries in recent/historical)
 - Tests verify metadata tracking and deduplication
 
 ## Key Changes from Initial Implementation
@@ -188,8 +189,8 @@ PYTHONPATH=$(pwd):$(pwd)/services poetry run pytest \
 - ✅ All files compile successfully
 - ✅ Architecture alignment verified:
   - ✅ v3.0 linear batching (no hierarchy)
-  - ✅ Tool handling (old_tools as text)
-  - ✅ Priority handling (latest_tools priority)
+  - ✅ Tool handling (v2.5: merged into recent/historical, atomic boundaries)
+  - ✅ Priority handling (v2.5: dynamic budget for tools in recent)
   - ✅ Max span tool sequences
   - ✅ Parallel processing (asyncio.gather)
   - ✅ Metadata tracking (linear_batch, llm_call_made, batch_idx, generation=0)

@@ -182,6 +182,8 @@ class CompactionResult(BaseModel):
     token_usage: Dict[str, Any] = Field(default_factory=dict)
     cost: float = 0.0
     compression_ratio: float = 1.0
+    tokens_before_compaction: int = 0
+    tokens_after_compaction: int = 0
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -208,6 +210,7 @@ async def check_and_handle_oversized_messages(
     model_metadata: ModelMetadata,
     ext_context: Any,
     token_cache: Optional[MessageTokenCache] = None,
+    logger = None,
 ) -> List[BaseMessage]:
     """
     Detect and handle oversized messages that exceed context window limits.
@@ -307,12 +310,13 @@ async def check_and_handle_oversized_messages(
                     max_tokens_per_chunk=chunk_size_for_splitting,
                     model_metadata=model_metadata,
                     ext_context=ext_context,
+                    logger=logger,
                 )
                 processed_messages.append(summary)
             except Exception as e:
                 # Log error and keep original message (fallback)
                 import logging
-                logger = logging.getLogger(__name__)
+                logger = logger or logging.getLogger(__name__)
                 logger.warning(
                     f"Failed to summarize oversized message (ID: {msg.id}, "
                     f"tokens: {msg_tokens}): {e}. Keeping original message."
@@ -328,8 +332,9 @@ async def check_and_handle_oversized_messages(
 class CompactionStrategy(ABC):
     """Abstract base class for compaction strategies."""
 
-    def __init__(self, compaction_config: "PromptCompactionConfig"):
+    def __init__(self, compaction_config: "PromptCompactionConfig", logger=None):
         self.compaction_config: "PromptCompactionConfig" = compaction_config
+        self.logger = logger or logging.getLogger(__name__)
 
     @abstractmethod
     async def compact(
@@ -403,9 +408,9 @@ class CompactionStrategy(ABC):
 class NoOpStrategy(CompactionStrategy):
     """No-op strategy that passes through without compaction (v2.1)."""
 
-    def __init__(self, compaction_config: Optional["PromptCompactionConfig"] = None):
+    def __init__(self, **kwargs):
         """Initialize NoOp strategy - compaction_config is optional since no compaction happens."""
-        super().__init__(compaction_config)
+        super().__init__(**kwargs)
 
     async def compact(
         self,
@@ -454,8 +459,8 @@ class SummarizationStrategy(CompactionStrategy):
 
     def __init__(
         self,
-        compaction_config: Optional["PromptCompactionConfig"] = None,
         mode: SummarizationMode = SummarizationMode.CONTINUED,
+        **kwargs
     ):
         """
         Initialize summarization strategy (v3.0 - linear batching).
@@ -465,7 +470,7 @@ class SummarizationStrategy(CompactionStrategy):
             mode: Summarization mode (FROM_SCRATCH or CONTINUED)
         """
         # Initialize parent class with compaction_config
-        super().__init__(compaction_config)
+        super().__init__(**kwargs)
         
         self.mode = mode
 
@@ -699,7 +704,7 @@ class SummarizationStrategy(CompactionStrategy):
             overhead_tokens=template_overhead_tokens + estimated_target_tokens,
         )
         
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] {mode_label}: {len(messages_to_summarize)} messages "
             f"→ {len(batches)} batches (max_batch_tokens={max_batch_tokens}, "
             f"overhead={template_overhead_tokens + estimated_target_tokens})"
@@ -711,7 +716,7 @@ class SummarizationStrategy(CompactionStrategy):
             budget.summary_limit // len(batches)
         )
         
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] Target: {target_tokens_per_batch} tokens per summary "
             f"(budget: {budget.summary_limit}, batches: {len(batches)})"
         )
@@ -793,7 +798,7 @@ class SummarizationStrategy(CompactionStrategy):
                 if hasattr(msg, 'id') and msg.id and msg.id in previously_summarized_ids:
                     original_messages.append(msg)
             
-            logger.info(
+            self.logger.info(
                 f"[FROM_SCRATCH] Reconstructed {len(original_messages)} original messages "
                 f"from {len(existing_summaries)} summaries (covering {len(previously_summarized_ids)} message IDs)"
             )
@@ -803,13 +808,13 @@ class SummarizationStrategy(CompactionStrategy):
         
         # Log the actual behavior
         if original_messages:
-            logger.info(
+            self.logger.info(
                 f"[FROM_SCRATCH] Summarizing {len(all_messages_to_summarize)} total messages: "
                 f"{len(original_messages)} original (previously summarized) + "
                 f"{len(messages_to_summarize)} new messages"
             )
         else:
-            logger.info(
+            self.logger.info(
                 f"[FROM_SCRATCH] No existing summaries or full_history unavailable. "
                 f"Summarizing {len(all_messages_to_summarize)} new messages only"
             )
@@ -893,32 +898,34 @@ class SummarizationStrategy(CompactionStrategy):
             
             if msg_tokens > max_tokens_per_message:
                 # Message is too large - summarize it
-                logger.warning(
+                self.logger.warning(
                     f"[SUMMARIZATION] Found oversized message: {msg_tokens} tokens "
                     f"(limit: {max_tokens_per_message}). Summarizing..."
                 )
                 
                 # Summarize the oversized message
-                summarized_msg = await summarize_oversized_message(
+                summarized_msgs = await summarize_oversized_message(
                     message=msg,
                     max_tokens_per_chunk=max_tokens_per_message,
                     model_metadata=model_metadata,
                     ext_context=ext_context,
+                    logger=self.logger,
+                    summarize=False,
                 )
                 
-                processed_messages.append(summarized_msg)
+                processed_messages.extend(summarized_msgs)
                 oversized_count += 1
                 
-                logger.info(
+                self.logger.info(
                     f"[SUMMARIZATION] Oversized message summarized: "
-                    f"{msg_tokens} → {count_tokens_in_message(summarized_msg, model_metadata)} tokens"
+                    f"{msg_tokens} → {[count_tokens_in_message(msg, model_metadata) for msg in summarized_msgs]} tokens"
                 )
             else:
                 # Message is fine - keep as is
                 processed_messages.append(msg)
         
         if oversized_count > 0:
-            logger.info(
+            self.logger.info(
                 f"[SUMMARIZATION] Handled {oversized_count} oversized messages "
                 f"out of {len(messages)} total"
             )
@@ -976,7 +983,7 @@ class SummarizationStrategy(CompactionStrategy):
             model_metadata
         )
         
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] Token overhead breakdown: "
             f"context={context_tokens}, task_prompts={task_prompts_tokens}, "
             f"template={template_overhead_tokens}, total_overhead={template_overhead_tokens}"
@@ -1025,7 +1032,7 @@ class SummarizationStrategy(CompactionStrategy):
         # Existing summaries are treated as regular messages (not expanded to originals)
         all_messages_to_summarize = list(existing_summaries) + list(historical_messages)
         
-        logger.info(
+        self.logger.info(
             f"[CONTINUED] Summarizing {len(all_messages_to_summarize)} messages: "
             f"{len(existing_summaries)} existing summaries + "
             f"{len(historical_messages)} new messages"
@@ -1051,6 +1058,7 @@ class SummarizationStrategy(CompactionStrategy):
             get_message_metadata(s, "token_usage", {}).get("total_tokens", 0)
             for s in batch_summaries
         )
+        # self.logger.warning(f"DEBUG: Continued summarization: total_tokens: {total_tokens}, total_cost: {total_cost}, batch_summaries: {[count_tokens_in_message(s, model_metadata) for s in batch_summaries]}; \n\n batch_summaries: {[str(s.content)[:500] for s in batch_summaries]}")
         
         return SummarizationResult(
             summaries=list(batch_summaries),
@@ -1112,7 +1120,7 @@ class SummarizationStrategy(CompactionStrategy):
         approximate_word_count = int(capped_max_tokens * 0.75)
         
         # Log LLM call for verification (v3.0 debugging)
-        logger.info(f"[SUMMARIZATION] Making LLM call: batch_idx={batch_idx}, "
+        self.logger.info(f"[SUMMARIZATION] Making LLM call: batch_idx={batch_idx}, "
                    f"max_tokens={capped_max_tokens}, num_messages={len(messages)}, "
                    f"model={model_metadata.model_name}")
         
@@ -1130,7 +1138,7 @@ class SummarizationStrategy(CompactionStrategy):
         # Count tokens in messages being summarized (for logging/debugging)
         messages_tokens = count_tokens_in_text(messages_text, model_metadata)
         
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] Batch {batch_idx + 1}: summarizing {len(messages_sorted)} messages "
             f"({messages_tokens} tokens) into max {capped_max_tokens} tokens"
         )
@@ -1147,7 +1155,7 @@ class SummarizationStrategy(CompactionStrategy):
         
         # Count total prompt tokens (for verification)
         prompt_tokens = count_tokens_in_text(prompt, model_metadata)
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] Batch {batch_idx + 1}: total prompt tokens={prompt_tokens}, "
             f"available_context={model_metadata.context_limit}, "
             f"usage={prompt_tokens / model_metadata.context_limit * 100:.1f}%"
@@ -1160,11 +1168,12 @@ class SummarizationStrategy(CompactionStrategy):
             ext_context=ext_context,
             max_tokens=capped_max_tokens,
             temperature=0.0,
+            logger=self.logger,
         )
         
         # Log actual output tokens (v3.1: verification)
         actual_output_tokens = result.get("token_usage", {}).get("completion_tokens", 0)
-        logger.info(
+        self.logger.info(
             f"[SUMMARIZATION] Batch {batch_idx + 1}: requested={capped_max_tokens} tokens, "
             f"actual={actual_output_tokens} tokens, "
             f"utilization={actual_output_tokens / capped_max_tokens * 100:.1f}%"
@@ -1230,7 +1239,6 @@ class ExtractionStrategy(CompactionStrategy):
 
     def __init__(
         self,
-        compaction_config: Optional["PromptCompactionConfig"] = None,
         construction_strategy: ExtractionStrategyType = ExtractionStrategyType.EXTRACT_FULL,
         top_k: int = 5,
         similarity_threshold: float = 0.7,
@@ -1256,6 +1264,7 @@ class ExtractionStrategy(CompactionStrategy):
         max_chunks_per_message: int = 10,
         chars_per_token: int = 3,
         max_embedding_chars: int = 21000,
+        **kwargs,
     ):
         """
         Initialize extraction strategy (v2.1).
@@ -1290,7 +1299,7 @@ class ExtractionStrategy(CompactionStrategy):
             max_embedding_chars: (v2.1) Max characters for embedding input (default: 21000)
         """
         # Initialize parent class with compaction_config
-        super().__init__(compaction_config)
+        super().__init__(**kwargs)
         
         self.construction_strategy = construction_strategy
         self.top_k = top_k
@@ -1506,7 +1515,7 @@ class ExtractionStrategy(CompactionStrategy):
         already_ingested = len(messages) - len(to_ingest)
 
         if already_ingested > 0:
-            logger.info(
+            self.logger.info(
                 f"Re-ingestion prevention: Skipping {already_ingested}/{len(messages)} "
                 f"already-ingested messages (section: {section_label})"
             )
@@ -1516,7 +1525,7 @@ class ExtractionStrategy(CompactionStrategy):
 
         # Need thread_id and node_id for Weaviate storage
         if not thread_id or not node_id:
-            logger.warning("Skipping Weaviate ingestion: thread_id or node_id not provided")
+            self.logger.warning("Skipping Weaviate ingestion: thread_id or node_id not provided")
             # Mark as ingested without storage (fallback)
             for msg in to_ingest:
                 chunk_ids = [f"chunk_{msg.id}"]
@@ -1616,7 +1625,7 @@ class ExtractionStrategy(CompactionStrategy):
                     chunk_ids = chunk_ids_by_message.get(msg.id, [f"chunk_{msg.id}"])
                     set_ingestion_metadata(msg, chunk_ids=chunk_ids, section_label=section_label)
 
-                logger.info(f"Successfully ingested {len(to_ingest)} messages ({len(all_chunk_data)} chunks) to Weaviate")
+                self.logger.info(f"Successfully ingested {len(to_ingest)} messages ({len(all_chunk_data)} chunks) to Weaviate")
 
             finally:
                 if client:
@@ -1624,7 +1633,7 @@ class ExtractionStrategy(CompactionStrategy):
 
         except Exception as e:
             # Log but don't fail - ingestion is optimization, not critical
-            logger.warning(f"Weaviate ingestion failed (non-critical): {e}")
+            self.logger.warning(f"Weaviate ingestion failed (non-critical): {e}")
             # Mark as ingested anyway to avoid retry loops
             for msg in to_ingest:
                 chunk_ids = [f"chunk_{msg.id}"]
@@ -1676,7 +1685,7 @@ class ExtractionStrategy(CompactionStrategy):
                     # Try to fit in budget, but warn
                     import logging
                     logger = logging.getLogger(__name__)
-                    logger.warning(
+                    self.logger.warning(
                         f"Message {msg.id} exceeds max_expansion_tokens "
                         f"({msg_tokens} > {self.max_expansion_tokens}), including anyway (hybrid mode)"
                     )
@@ -1689,7 +1698,7 @@ class ExtractionStrategy(CompactionStrategy):
                     # Always include (log warning)
                     import logging
                     logger = logging.getLogger(__name__)
-                    logger.warning(
+                    self.logger.warning(
                         f"Message {msg.id} exceeds max_expansion_tokens "
                         f"({msg_tokens} > {self.max_expansion_tokens})"
                     )
@@ -1823,6 +1832,7 @@ class ExtractionStrategy(CompactionStrategy):
                 budget=budget,
                 model_metadata=model_metadata,
                 ext_context=ext_context,
+                logger=self.logger,
             )
 
         # Step 1: JIT Ingestion - ingest messages if not already ingested (v2.1)
@@ -2112,6 +2122,7 @@ Write a concise summary of the relevant context that would be useful for respond
                 budget=budget,
                 template_kwargs={"recent_context": recent_context},
                 max_output_tokens=1000,
+                logger=self.logger,
             )
 
             # v2.1: Separate new chunks vs duplicates
@@ -2289,10 +2300,10 @@ class HybridStrategy(CompactionStrategy):
 
     def __init__(
         self,
-        compaction_config: Optional["PromptCompactionConfig"] = None,
         extraction_pct: float = 0.05,
         extraction_strategy: ExtractionStrategy = None,
         summarization_strategy: SummarizationStrategy = None,
+        **kwargs,
     ):
         """
         Initialize hybrid strategy.
@@ -2304,7 +2315,7 @@ class HybridStrategy(CompactionStrategy):
             summarization_strategy: Custom summarization strategy
         """
         # Initialize parent class with compaction_config
-        super().__init__(compaction_config)
+        super().__init__(**kwargs)
         
         self.extraction_pct = extraction_pct
         self.extraction_strategy = extraction_strategy or ExtractionStrategy(compaction_config=compaction_config)

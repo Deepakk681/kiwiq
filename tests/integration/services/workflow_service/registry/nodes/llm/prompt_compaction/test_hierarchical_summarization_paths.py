@@ -118,19 +118,19 @@ class TestLinearBatchSummarization(PromptCompactionIntegrationTestBase):
                 # v3.0: Verify linear batching metadata on summaries
                 for summary in summaries:
                     self.assertTrue(
-                        summary.additional_kwargs.get("linear_batch"),
+                        summary.response_metadata.get("linear_batch"),
                         f"Turn {turn}: Summary should have linear_batch=True flag"
                     )
                     self.assertTrue(
-                        summary.additional_kwargs.get("llm_call_made"),
+                        summary.response_metadata.get("llm_call_made"),
                         f"Turn {turn}: Summary should have llm_call_made=True flag"
                     )
                     self.assertIsNotNone(
-                        summary.additional_kwargs.get("batch_idx"),
+                        summary.response_metadata.get("batch_idx"),
                         f"Turn {turn}: Summary should have batch_idx"
                     )
                     # v3.0: All summaries should have generation=0 (no hierarchy)
-                    generation = summary.additional_kwargs.get("generation", 0)
+                    generation = summary.response_metadata.get("generation", 0)
                     self.assertEqual(
                         generation, 0,
                         f"Turn {turn}: All summaries should have generation=0 (got {generation})"
@@ -181,7 +181,7 @@ class TestLinearBatchSummarization(PromptCompactionIntegrationTestBase):
             
             # v3.0: Verify all summaries have generation=0 (no hierarchy)
             for summary in summaries:
-                generation = summary.additional_kwargs.get("generation", 0)
+                generation = summary.response_metadata.get("generation", 0)
                 self.assertEqual(
                     generation, 0,
                     f"Turn {turn}: All summaries should have generation=0 (got {generation})"
@@ -325,13 +325,13 @@ class TestLinearBatchSummarization(PromptCompactionIntegrationTestBase):
         if summaries:
             for summary in summaries:
                 self.assertEqual(
-                    summary.additional_kwargs.get("generation", 0), 0,
+                    summary.response_metadata.get("generation", 0), 0,
                     "All summaries should have generation=0 (no hierarchy)"
                 )
                 # linear_batch flag may not be present in all modes
-                if "linear_batch" in summary.additional_kwargs:
+                if "linear_batch" in summary.response_metadata:
                     self.assertTrue(
-                        summary.additional_kwargs.get("linear_batch"),
+                        summary.response_metadata.get("linear_batch"),
                         "If linear_batch is set, it should be True"
                     )
 
@@ -380,24 +380,24 @@ class TestLinearBatchSummarization(PromptCompactionIntegrationTestBase):
         batch_indices = set()
         for summary in summaries:
             # v3.0: Verify linear batching flags if present (lenient check for non-billing mode)
-            if "linear_batch" in summary.additional_kwargs:
+            if "linear_batch" in summary.response_metadata:
                 self.assertTrue(
-                    summary.additional_kwargs.get("linear_batch"),
+                    summary.response_metadata.get("linear_batch"),
                     "If linear_batch is set, it should be True"
                 )
-            if "llm_call_made" in summary.additional_kwargs:
+            if "llm_call_made" in summary.response_metadata:
                 self.assertTrue(
-                    summary.additional_kwargs.get("llm_call_made"),
+                    summary.response_metadata.get("llm_call_made"),
                     "If llm_call_made is set, it should be True"
                 )
             
             # Track batch_idx if present
-            batch_idx = summary.additional_kwargs.get("batch_idx")
+            batch_idx = summary.response_metadata.get("batch_idx")
             if batch_idx is not None:
                 batch_indices.add(batch_idx)
             
             # v3.0: Verify generation=0 (no hierarchy)
-            generation = summary.additional_kwargs.get("generation", 0)
+            generation = summary.response_metadata.get("generation", 0)
             self.assertEqual(generation, 0, "All summaries should have generation=0")
         
         # Verify batch indices are unique if present

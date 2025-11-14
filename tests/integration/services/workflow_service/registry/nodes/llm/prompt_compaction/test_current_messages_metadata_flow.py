@@ -622,7 +622,7 @@ class TestCurrentMessagesMetadataFlow(PromptCompactionIntegrationTestBase):
         for msg in messages:
             self.assertIn(
                 "linkedin_data",
-                msg.additional_kwargs,
+                msg.response_metadata,
                 "All messages should have LinkedIn metadata initially"
             )
 
@@ -649,7 +649,7 @@ class TestCurrentMessagesMetadataFlow(PromptCompactionIntegrationTestBase):
         # (Note: Summary messages might not have LinkedIn metadata, only original messages)
         original_msgs = [m for m in history if not m.response_metadata.get("section_label", "").startswith("SUMMARY")]
         for msg in original_msgs:
-            if hasattr(msg, 'additional_kwargs') and msg.additional_kwargs:
+            if hasattr(msg, 'response_metadata') and msg.response_metadata:
                 # Original messages should have LinkedIn metadata
                 pass  # LinkedIn metadata preservation depends on implementation
 

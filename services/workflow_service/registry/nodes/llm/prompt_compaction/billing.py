@@ -115,7 +115,7 @@ async def bill_extraction(
         Cost in USD
     """
     # Skip billing if disabled
-    if not enable_billing:
+    if not enable_billing and True:
         return 0.0
 
     # Apply markup
@@ -179,7 +179,7 @@ async def bill_hybrid(
     if not enable_billing:
         return 0.0
 
-    total_cost = extraction_cost + summarization_cost
+    total_cost = summarization_cost  # extraction_cost + 
 
     # Deduct credits
     async with get_async_db_as_manager() as db_session:
