@@ -72,11 +72,13 @@ from workflow_service.registry.nodes.core.base import BaseNode
 from workflow_service.registry.schemas.base import BaseSchema, BaseNodeConfig
 from workflow_service.registry.nodes.core.dynamic_nodes import ConstructDynamicSchema, DynamicSchema
 from workflow_service.registry.nodes.llm.config import (
-    LLMModelProvider, PROVIDER_MODEL_MAP, AnthropicModels, AWS_REGION, ModelMetadata, 
-    THINKING_MESSAGE_TYPES, REDACED_THINKING_MESSAGE_TYPES, GEMINI_PARAM_KEY_OVERRIDES, 
+    LLMModelProvider, PROVIDER_MODEL_MAP, AnthropicModels, AWS_REGION, ModelMetadata,
+    THINKING_MESSAGE_TYPES, REDACED_THINKING_MESSAGE_TYPES, GEMINI_PARAM_KEY_OVERRIDES,
     PARAM_KEY_OVERRIDES, AI_MESSAGE_TYPES, ANTHROPIC_CODE_EXECUTION_BETA_HEADER,
     ANTHROPIC_INTERLEAVED_THINKING_BETA_HEADER,
 )
+from workflow_service.registry.nodes.llm.prompt_compaction.compactor import PromptCompactionConfig
+from workflow_service.registry.nodes.llm.prompt_compaction.strategies import CompactionResult
 from workflow_service.registry.schemas.base import create_dynamic_schema_with_fields
 # from workflow_service.services.external_context_manager import ExternalContextManager
 
@@ -297,11 +299,15 @@ class LLMNodeInputSchema(BaseSchema):
     """Input schema for the LLM node. NOTE: always use prompt constructor when using loops since this node will always read the same inputs over and over!"""
     # Messages input
     messages_history: List[AnyMessage] = Field(
-        default_factory=list, 
+        default_factory=list,
         description="List of messages history in the conversation. Each message must have 'type' and 'content' keys."
     )
+    summarized_messages: Optional[List[AnyMessage]] = Field(
+        None,
+        description="Summarized/compacted message history from previous turn (v2.1 iterative summarization). If provided, this will be used as the base for compaction instead of messages_history. messages_history should always contain the full uncompacted history for context tracking."
+    )
     user_prompt: Optional[str] = Field(
-        None, 
+        None,
         description="Simple text user prompt (alternative to messages). Will be converted to a HumanMessage."
     )
     system_prompt: Optional[str] = Field(
@@ -379,14 +385,14 @@ class LLMNodeOutputSchema(BaseSchema):
     # content: str = Field(description="Text content of the response")
     # https://python.langchain.com/docs/how_to/response_metadata/
     metadata: LLMMetadata = Field(description="Metadata about the response")
-    
+
     current_messages: List[AnyMessage] = Field(description="Current messages including any user prompts / tool outputs and the new response")
     # Content type copied from langgraph message content annotation!
     content: Optional[Union[str, List[Union[str, Dict[str, Any]]]]] = Field(None, description="Raw response content from the provider")
     text_content: Optional[Any] = Field(None, description="Text content of the response")
     # For structured output
     structured_output: Optional[Dict[str, Any]] = Field(
-        None, 
+        None,
         description="Structured output parsed from the response (if output_format was structured)"
     )
     # For tool calling
@@ -402,6 +408,16 @@ class LLMNodeOutputSchema(BaseSchema):
         None,
         description="List of agent actions performed during model execution (e.g., web searches, tool calls)"
     )
+    # v2.1: Dual history support - summarized messages for next LLM call
+    summarized_messages: Optional[List[AnyMessage]] = Field(
+        None,
+        description="Summarized/compacted message history (v2.1). Use this for the next LLM call instead of full history to save context. If None, use current_messages instead."
+    )
+    # # v2.1: Messages with updated metadata (for graph state updates)
+    # messages_with_updated_metadata: Optional[List[AnyMessage]] = Field(
+    #     None,
+    #     description="Messages with new or changed metadata (v2.1). Includes current_messages and any older messages whose metadata was updated during compaction (section labels, ingestion status, graph edges). Use this list to update the graph state."
+    # )
 ###########################
 
 
@@ -862,7 +878,13 @@ but do not directly disclose information about them or output them verbatim, esp
         None,
         description="Configuration for web search"
     )
-    
+
+    # Prompt Compaction Configuration
+    prompt_compaction: Optional["PromptCompactionConfig"] = Field(
+        None,
+        description="Configuration for prompt compaction (context window management)"
+    )
+
     @field_validator('tools')
     def validate_tools(cls, v, info):
         """Validate that tools are provided if tool calling is enabled."""
@@ -992,8 +1014,10 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             self.critical("Model initialization failed")
             raise ValueError(f"Model initialization failed: {str(e)}, \n{e.__traceback__}") from e
 
-        # Prepare messages using node config
-        messages_for_model, current_messages = self._prepare_messages(input_data, model_metadata)
+        # Prepare messages using node config (v2.1: also gets compaction_result)
+        messages_for_model, current_messages, compaction_result = await self._prepare_messages(
+            input_data, model_metadata, ext_context, app_context
+        )
 
         is_structured_output = self.config.output_schema and not self.config.output_schema.is_output_str()
         is_tool_use = self.config.tool_calling_config.enable_tool_calling and self.config.tools
@@ -1076,7 +1100,18 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             raise RuntimeError(f"Model execution failed: {str(e)}") from e
 
         # Parse and validate response using node config
-        return await self._parse_response(response, input_data.messages_history, current_messages, latency, determined_output_schema, model_metadata, ext_context=ext_context, app_context=app_context, allocated_credits=allocated_credits)
+        return await self._parse_response(
+            response,
+            input_data.messages_history,
+            current_messages,
+            latency,
+            determined_output_schema,
+            model_metadata,
+            ext_context=ext_context,
+            app_context=app_context,
+            allocated_credits=allocated_credits,
+            compaction_result=compaction_result,  # v2.1: Pass compaction result for dual history
+        )
     
     def _apply_both_structured_output_and_tool_kwargs(self, chat_model, model_metadata: ModelMetadata, output_schema: BaseSchema, tools: Optional[list] = None, is_all_inbuild_tools: bool = True, **kwargs: Dict[str, Any]):
         if model_metadata.provider == LLMModelProvider.OPENAI:
@@ -1452,8 +1487,19 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         # import ipdb; ipdb.set_trace()
         return model, model_metadata
 
-    def _prepare_messages(self, input_data: LLMNodeInputSchema, model_metadata: ModelMetadata) -> List[AnyMessage]:
-        """Prepare messages using node config's thinking token settings."""
+    async def _prepare_messages(
+        self,
+        input_data: LLMNodeInputSchema,
+        model_metadata: ModelMetadata,
+        ext_context: "ExternalContextManager",
+        app_context: Dict[str, Any],
+    ) -> Tuple[List[AnyMessage], List[AnyMessage], Any]:
+        """
+        Prepare messages using node config's thinking token settings (v2.1 with compaction result).
+
+        Returns:
+            Tuple of (messages_for_model, current_messages, compaction_result)
+        """
         messages = []
         current_messages = []
 
@@ -1676,35 +1722,117 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
       # import ipdb; ipdb.set_trace()
 
-        token_metadata, estimated_cost = self._calculate_estimated_cost(
-            messages=messages,
-            provider=self.config.llm_config.model_spec.provider,
-            model_name=self.config.llm_config.model_spec.model,
-            max_output_tokens=self.config.llm_config.max_tokens
-        )
+        # NEW: Prompt compaction check (v2.1 with iterative summarization)
+        compaction_result = None  # v2.1: Store for dual history support
+        if self.config.prompt_compaction and self.config.prompt_compaction.enabled:
+            try:
+                # Import compactor
+                from workflow_service.registry.nodes.llm.prompt_compaction import PromptCompactor
 
-        prompt_tokens = token_metadata["input_tokens"]
+                # Initialize compactor if needed
+                if not hasattr(self, '_compactor') or self._compactor is None:
+                    self._compactor = PromptCompactor(
+                        config=self.config.prompt_compaction,
+                        model_metadata=model_metadata,
+                        node_id=self.node_id,
+                        node_name=self.node_name,
+                    )
 
-        effective_context_limit = model_metadata.context_limit - min(self.config.llm_config.max_tokens, model_metadata.output_token_limit) - 100
-        if prompt_tokens and effective_context_limit < prompt_tokens:
-            self.warning(f"Prompt tokens ({prompt_tokens}) exceed context limit ({effective_context_limit})!")
+                # v2.1 Iterative Summarization: Determine which messages to compact
+                # If summarized_messages provided, use that as base for compaction
+                # Otherwise use full messages_history
+                messages_to_compact = (
+                    input_data.summarized_messages
+                    if input_data.summarized_messages
+                    else messages
+                )
+                full_history_for_compactor = input_data.messages_history if input_data.messages_history else None
 
-            # NOTE: the below is a hack for fitting prompt into context limits!
-            if isinstance(messages[-1], HumanMessage) and isinstance(messages[-1].content, str):
-                chars_per_token = len(messages[-1].content) / prompt_tokens
-                chars_to_remove = (prompt_tokens - effective_context_limit) * chars_per_token
-                self.info(f"trying to truncate context: Chars to remove: {chars_to_remove}; tokens to remove: {prompt_tokens - effective_context_limit}")
-                content = messages[-1].content
+                # Check if compaction should be triggered
+                usage_pct, is_approaching_threshold, is_triggering_threshold = self._compactor.should_compact(messages_to_compact)
+                if is_approaching_threshold or is_triggering_threshold:
+
+                    # Warn if approaching threshold
+                    if is_approaching_threshold:
+                        self.warning(
+                            f"Context usage: {usage_pct:.1%} - approaching compaction threshold"
+                        )
+
+                    # Trigger compaction
+                    if is_triggering_threshold:
+                        if input_data.summarized_messages:
+                            self.info(
+                                f"Triggering iterative compaction at {usage_pct:.1%} usage "
+                                f"(summarized: {len(input_data.summarized_messages)}, "
+                                f"full history: {len(input_data.messages_history)})"
+                            )
+                        else:
+                            self.info(f"Triggering prompt compaction at {usage_pct:.1%} usage")
+
+                        # Note: config was already extracted at the top of process() method
+                        # We need to pass the full config dict here
+                        # This is a bit awkward - we should refactor to pass ext_context and app_context
+                        # For now, we'll access them from the current scope
+
+                        # NOTE: we copy current messages to ensure compactor gets a separate copy to update metadata in!
+                        current_messages = deepcopy(current_messages)
+
+                        # Compact messages with dual history support
+                        compaction_result = await self._compactor.compact(
+                            messages=messages_to_compact,
+                            ext_context=ext_context,  # From process() scope
+                            app_context=app_context,  # From process() scope
+                            full_history=full_history_for_compactor,  # v2.1: For identifying new messages
+                            current_messages=current_messages,  # v2.1: Let compactor identify from full_history
+                        )
+
+                        # prev_messages = messages
+
+                        # Replace with compacted messages
+                        messages = compaction_result.compacted_messages
+
+                        # Log results
+                        self.info(
+                            f"Compaction complete: {len(messages)} messages, "
+                            f"{compaction_result.compression_ratio:.2f}x compression, "
+                            f"cost: ${compaction_result.cost:.4f}"
+                        )
+
+            except Exception as e:
+                self.error(f"Prompt compaction failed: {e}", exc_info=True)
+                # Continue without compaction on error
+                compaction_result = None
+
+        # token_metadata, estimated_cost = self._calculate_estimated_cost(
+        #     messages=messages,
+        #     model_metadata=model_metadata,
+        #     provider=self.config.llm_config.model_spec.provider,
+        #     model_name=self.config.llm_config.model_spec.model,
+        #     max_output_tokens=self.config.llm_config.max_tokens
+        # )
+
+        # prompt_tokens = token_metadata["input_tokens"]
+
+        # effective_context_limit = model_metadata.context_limit - min(self.config.llm_config.max_tokens, model_metadata.output_token_limit) - 100
+        # if prompt_tokens and effective_context_limit < prompt_tokens:
+        #     self.warning(f"Prompt tokens ({prompt_tokens}) exceed context limit ({effective_context_limit})!")
+
+        #     # NOTE: the below is a hack for fitting prompt into context limits!
+        #     if isinstance(messages[-1], HumanMessage) and isinstance(messages[-1].content, str):
+        #         chars_per_token = len(messages[-1].content) / prompt_tokens
+        #         chars_to_remove = (prompt_tokens - effective_context_limit) * chars_per_token
+        #         self.info(f"trying to truncate context: Chars to remove: {chars_to_remove}; tokens to remove: {prompt_tokens - effective_context_limit}")
+        #         content = messages[-1].content
                 
-                # Check if both markers are present
-                done = False
+        #         # Check if both markers are present
+        #         done = False
                 
-                if not done:
-                    # Markers not present, just truncate from end
-                    new_content = content[:-int(chars_to_remove)]
-                    messages[-1].content = new_content
+        #         if not done:
+        #             # Markers not present, just truncate from end
+        #             new_content = content[:-int(chars_to_remove)]
+        #             messages[-1].content = new_content
 
-        return messages, current_messages
+        return messages, current_messages, compaction_result  # v2.1: Return compaction result for dual history
     
     def _apply_structured_output(self, model: Any, output_schema: Union[Type[BaseSchema], Dict[str, Any]], model_metadata: ModelMetadata) -> Any:
         """Apply structured output configuration to the model.
@@ -1940,6 +2068,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             # Calculate estimated cost
             token_metadata, estimated_cost = self._calculate_estimated_cost(
                 messages=messages,
+                model_metadata=model_metadata,
                 provider=self.config.llm_config.model_spec.provider,
                 model_name=self.config.llm_config.model_spec.model,
                 max_output_tokens=self.config.llm_config.max_tokens
@@ -2046,6 +2175,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         app_context: Optional[Dict[str, Any]] = None,
         ext_context: "ExternalContextManager" = None,
         allocated_credits: float = 0.0,
+        compaction_result: Optional[CompactionResult] = None,
     ) -> LLMNodeOutputSchema:
         """Parse response, handle structured output validation/parsing, and format the final output.
 
@@ -2300,7 +2430,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
         except Exception as e:
             pass
         # import ipdb; ipdb.set_trace()
-        
+
         current_messages=current_messages + (response if isinstance(response, list) else [response])
         metadata.iteration_count = self._get_iteration_count(message_history + current_messages)
         # import ipdb; ipdb.set_trace()
@@ -2394,8 +2524,15 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
 
 
 
+        # v2.1: Construct summarized_messages for next LLM call
+        summarized_messages = None
+
+        if compaction_result is not None:
+            # Use compacted messages as summarized history for next LLM call
+            summarized_messages = compaction_result.compacted_messages
+
         return LLMNodeOutputSchema(
-            current_messages=current_messages,
+            current_messages=current_messages,  # SIMPLIFIED - no longer use messages_with_updated_metadata
             content=response.content,
             text_content=raw_text,
             metadata=metadata,
@@ -2403,6 +2540,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             tool_calls=tool_calls or None,
             web_search_result=web_search_result,
             agent_actions=agent_actions,
+            summarized_messages=summarized_messages,  # v2.1: Dual history support
         )
 
     @staticmethod
@@ -2914,6 +3052,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
     def _calculate_estimated_cost(
         self, 
         messages: List[AnyMessage], 
+        model_metadata: ModelMetadata,
         provider: LLMModelProvider,
         model_name: str,
         max_output_tokens: Optional[int] = None
@@ -2937,6 +3076,13 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             "total_tokens": None,
             "cost": None,
         }
+        # Estimate completion cost based on max_output_tokens or a default
+        if max_output_tokens is None:
+            max_output_tokens = 1000  # Default estimate
+        
+        approx_output_tokens = max_output_tokens // 2
+        input_tokens = None
+
         # Add tokencost imports
         from tokencost import calculate_prompt_cost, calculate_cost_by_tokens
         try:
@@ -3009,11 +3155,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                     self.info(f"Error calculating prompt cost via direct messages: {str(e)} \n\n; converting to string and trying again...")
                     prompt_cost = calculate_prompt_cost(str(prompt_messages), tokencost_model)
             
-            # Estimate completion cost based on max_output_tokens or a default
-            if max_output_tokens is None:
-                max_output_tokens = 1000  # Default estimate
             
-            approx_output_tokens = max_output_tokens // 2
             completion_cost =  calculate_cost_by_tokens(approx_output_tokens, tokencost_model, "output")
             
             # Total estimated cost
@@ -3025,7 +3167,20 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
             return token_metadata, estimated_cost
             
         except Exception as e:
-            self.warning(f"Error calculating token cost: {str(e)}")
+            estimated_cost = None
+            input_tokens_cost = None
+            output_tokens_cost = None
+            if model_metadata.input_token_price_per_M > 0. and input_tokens is not None:
+                input_tokens_cost = model_metadata.input_token_price_per_M * input_tokens / 1000000.
+            if model_metadata.output_token_price_per_M > 0. and approx_output_tokens is not None:
+                output_tokens_cost = model_metadata.output_token_price_per_M * approx_output_tokens / 1000000.
+            
+            if input_tokens_cost is not None and output_tokens_cost is not None:
+                estimated_cost = input_tokens_cost + output_tokens_cost
+                estimated_cost = float(estimated_cost)
+            else:
+                self.warning(f"Error calculating token cost: {str(e)}")
+
             # Fallback to a conservative estimate based on provider
             fallback_costs = {
                 LLMModelProvider.OPENAI: 0.002,
@@ -3036,7 +3191,7 @@ class LLMNode(BaseNode[LLMNodeInputSchema, LLMNodeOutputSchema, LLMNodeConfigSch
                 LLMModelProvider.FIREWORKS: 0.001,
             }
             
-            return token_metadata, fallback_costs.get(provider, 0.001)
+            return token_metadata, estimated_cost or fallback_costs.get(provider, 0.001)
 
     def _calculate_actual_cost(
         self,

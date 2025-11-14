@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=$(pwd):$(pwd)/services poetry run.*)",
+      "Bash(PYTHONPATH=\\$\\(pwd\\):\\$\\(pwd\\)\\/services poetry run:*)",
+      "Bash(PYTHONPATH\\=\\$\\(pwd\\)\\:\\$\\(pwd\\)\\/services poetry run:*)",
+      "Bash"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

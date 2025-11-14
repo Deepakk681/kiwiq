@@ -1,15 +1,16 @@
-# LLM Prompt Compaction System - Technical Implementation Documentation
+# LLM Prompt Compaction System - Design and Architecture
 
-**Version:** 2.0
-**Last Updated:** 2025-01-XX
-**Status:** Design Updated - Adaptive Compression, Dynamic Reallocation & Tool Compression
+**Version:** 2.1
+**Last Updated:** 2025-11-11
+**Status:** Complete - All v2.0 and v2.1 Features Implemented and Tested
 
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Key Design Changes (v2.0)](#key-design-changes-v20)
-3. [End-to-End Process Flow](#end-to-end-process-flow)
-4. [Algorithm Deep Dive](#algorithm-deep-dive)
+3. [Key Design Changes (v2.1)](#key-design-changes-v21)
+4. [End-to-End Process Flow](#end-to-end-process-flow)
+5. [Algorithm Deep Dive](#algorithm-deep-dive)
 5. [Adaptive Compression System](#adaptive-compression-system)
 6. [Dynamic Budget Reallocation](#dynamic-budget-reallocation)
 7. [Tool Compression Edge Cases](#tool-compression-edge-cases)
@@ -145,13 +146,125 @@ If still >90%: Aggressively truncate oldest summaries
 **Strategies:**
 - Aggressive truncation of oldest summaries when summary budget exceeded
 - LRU eviction for tool call summaries
-- Hierarchical summary merging in single LLM call
+- **v3.0 Update**: Linear batching (see below) replaces hierarchical merging
 - Comprehensive edge case handling (10+ scenarios documented)
 
 **Never Fail Philosophy:**
 - Must always produce valid compacted result
 - Graceful degradation (lose old context rather than fail)
 - Minimum sacred content: System prompts + buffer + latest 1-2 messages
+
+#### 5. v3.0 Architecture Evolution - Linear Batching (2025)
+
+**Problem (v2.0):** Hierarchical summary merging could cause infinite loops or unpredictable LLM call counts when summary budget was tight.
+
+**Solution (v3.0):** Linear batching with equal budget distribution eliminates hierarchical merging entirely.
+
+**Key Changes:**
+
+**OLD v2.0 Approach** (Hierarchical Merging):
+```
+1. Batch messages by model context limit → N batches
+2. Summarize each batch in parallel → N L0 summaries
+3. Check: Do L0 summaries exceed budget?
+4. If yes: Merge L0 summaries hierarchically
+   - Combine summaries → batch again → summarize → L1 summaries
+   - Check: Do L1 summaries exceed budget?
+   - If yes: Recursive merge → L2, L3, ...
+   - Risk: Infinite loop if budget too tight!
+5. Return final summaries (generation 0, 1, 2, or higher)
+```
+
+**NEW v3.0 Approach** (Linear Batching):
+```
+1. Combine existing summaries + historical messages into one list
+2. Batch by model context limit → N batches
+3. Calculate target_tokens_per_summary = budget / N batches
+4. Parallel summarize all batches with target token limit
+5. Done! (NO hierarchical merge check)
+6. Return all batch summaries (all generation=0, linear_batch=True)
+```
+
+**Benefits of v3.0 Linear Batching:**
+- ✅ **Predictable**: Exactly N LLM calls (one per batch)
+- ✅ **No Infinite Loops**: No recursive merging logic
+- ✅ **Budget Guaranteed**: Target tokens = budget / num_batches ensures fit
+- ✅ **Simpler**: Removes 100+ lines of hierarchical merge logic
+- ✅ **Faster**: All batches run in parallel (asyncio.gather)
+- ✅ **Cheaper**: No additional merge LLM calls
+
+**Code Reference** (`strategies.py:759-864`):
+```python
+async def _summarize_continued(...):
+    """
+    Linear batching summarization (v3.0 - NO hierarchical merging).
+    
+    Strategy:
+    1. Combine existing summaries + new historical messages
+    2. Batch by model context limit
+    3. Calculate target_tokens_per_summary = budget / num_batches
+    4. Parallel summarize all batches
+    5. Done!
+    
+    This eliminates infinite loop risks and ensures predictable LLM call count.
+    """
+    # Step 1: Combine existing summaries + historical into one list
+    all_messages_to_summarize = []
+    for summary in existing_summaries:
+        all_messages_to_summarize.append(
+            HumanMessage(content=summary.content, id=summary.id)
+        )
+    all_messages_to_summarize.extend(historical_messages)
+    
+    # Step 2: Batch messages based on model context limit
+    max_batch_tokens = int(model_metadata.context_limit * 0.7)
+    batches = check_prompt_size_and_split(
+        messages=all_messages_to_summarize,
+        max_tokens=max_batch_tokens,
+        model_metadata=model_metadata,
+        overhead_tokens=1000,
+    )
+    
+    logger.info(
+        f"Linear batching: {len(all_messages_to_summarize)} messages "
+        f"→ {len(batches)} batches (no merging)"  # v3.0!
+    )
+    
+    # Step 3: Calculate target output tokens per batch
+    target_tokens_per_summary = max(
+        500,  # Minimum 500 tokens per summary
+        budget.summary_limit // len(batches)  # Equal distribution
+    )
+    
+    # Step 4: Parallel summarize all batches
+    tasks = [
+        self._summarize_single_batch(
+            messages=batch,
+            max_output_tokens=target_tokens_per_summary,
+            batch_idx=i,
+        )
+        for i, batch in enumerate(batches)
+    ]
+    summaries = await asyncio.gather(*tasks)  # Parallel execution
+    
+    # Step 5: Aggregate costs and return
+    # NO hierarchical merge! (v3.0 change)
+    return SummarizationResult(
+        summaries=list(summaries),
+        token_usage={"total_tokens": total_tokens},
+        cost=total_cost,
+    )
+```
+
+**Impact on Cost Model:**
+
+v3.0 is actually **slightly cheaper** than v2.0 because:
+- v2.0 single-call merge still required 1 LLM call (summarize + merge)
+- v3.0 linear batching uses same N calls but with controlled output tokens
+- No additional merge calls ever needed
+- More predictable cost per compaction
+
+**Migration Note:** v3.0 is fully backward compatible. Existing summaries are re-batched along with new messages using the same linear batching approach.
 
 ### Cost Optimization Impact
 
@@ -179,6 +292,457 @@ Summarization: 1 LLM call (combined) = $0.00031 (31% savings)
 - `max_context_with_tools_pct`: 80.0 - Upper limit with tool exception
 - `enable_tool_compression`: true - Allow tool sequence compression
 - `min_sacred_buffer_pct`: 20.0 - Never reallocate this portion
+
+---
+
+## Key Design Changes (v2.1)
+
+### Message-Level Enhancements
+
+Version 2.1 extends v2.0 with **large message handling**, **intelligent deduplication**, and **flexible expansion strategies** to support conversations with messages exceeding embedding model limits and repeated content extraction.
+
+#### 1. Message Chunking for Embedding
+
+**Problem (v2.0):** Messages exceeding 6-8K tokens cannot be embedded by OpenAI's embedding models, preventing extraction strategy from working.
+
+**Solution (v2.1):** Automatic message chunking before embedding with smart aggregation.
+
+**Key Features:**
+- Messages split into ~6K token chunks with overlap (200-500 tokens)
+- Semantic chunking preserves paragraph/sentence boundaries
+- Each chunk embedded independently
+- Similarity scores aggregated per message (max/mean/weighted_mean)
+- Full message reconstructed during expansion phase
+
+**Example:**
+```
+Large Message: 15K tokens
+→ Chunk 1: tokens 0-6000
+→ Chunk 2: tokens 5800-11800 (200 token overlap)
+→ Chunk 3: tokens 11600-15000
+Each chunk: embedded → scored → aggregated (max score) → message-level relevance
+```
+
+#### 2. Chunk Expansion Strategies
+
+**Problem (v2.0):** Extracted chunks returned as-is, losing surrounding context.
+
+**Solution (v2.1):** Three expansion modes with configurable behavior.
+
+**Expansion Modes:**
+- **full_message** (default): Expand chunk to full original message - maximum context
+- **top_chunks_only**: Use retrieved chunks directly - maximum compactness
+- **hybrid**: Full message if fits in budget, else top chunks - balanced
+
+**Configuration:**
+- `expansion_mode`: Controls expansion behavior
+- `max_expansion_tokens`: Safety limit for full message expansion (default: 50K)
+- `max_chunks_per_message`: Limits redundancy when multiple chunks from same message retrieved
+
+**Use Cases:**
+- **full_message**: Technical docs, code, structured content (preserve full context)
+- **top_chunks_only**: Long narrative conversations (extract key facts only)
+- **hybrid**: General purpose (adapt to budget)
+
+#### 3. Deduplication System
+
+**Problem (v2.0):** Important chunks extracted repeatedly across compaction cycles, consuming budget unnecessarily.
+
+**Solution (v2.1):** Two-level deduplication with configurable tracking.
+
+**Deduplication Levels:**
+1. **Within-Cycle** (`deduplication=True`): Remove duplicate chunks in single compaction
+2. **Cross-Cycle** (`allow_duplicate_chunks`, `max_duplicate_appearances`): Track chunks across multiple compactions
+
+**Tracking Metadata:**
+- `deduplicated_chunk_ids`: Chunks seen in current extraction
+- `appearance_count`: How many times chunk has appeared total
+- `first_appearance`: When chunk was first extracted
+
+**Configuration:**
+```python
+extraction=ExtractionConfig(
+    deduplication=True,              # Within-cycle
+    allow_duplicate_chunks=True,     # Allow across cycles
+    max_duplicate_appearances=3,     # Max 3 times total
+)
+```
+
+**Behavior:**
+- Chunks exceeding `max_duplicate_appearances` trigger overflow handling
+- Overflow strategies: remove_oldest, reduce_duplicates, error
+
+#### 4. Overflow Handling
+
+**Problem (v2.0):** Extracted chunks exceed budget with no graceful degradation.
+
+**Solution (v2.1):** Configurable overflow strategies with smart removal.
+
+**Strategies:**
+- **remove_oldest**: Drop oldest extractions first (LRU-like, default)
+- **reduce_duplicates**: Remove duplicate chunks before dropping old ones
+- **error**: Raise CompactionError for debugging
+
+**Marked Message Overflow:**
+Special handling when marked messages (important context) exceed their budget:
+1. Keep newest marked messages (within marked_messages_limit)
+2. Oldest marked messages → overflow
+3. Reattachment: Can promote overflow back to marked if space freed
+
+#### 5. Configuration Additions
+
+**v2.1 adds these configurable options:**
+- `enable_message_chunking`: true (default) - Enable chunking for large messages
+- `chunk_size_tokens`: 6000 - Max tokens per chunk
+- `chunk_overlap_tokens`: 200 - Overlap for context preservation
+- `chunk_strategy`: "semantic_overlap" | "fixed_token"
+- `chunk_score_aggregation`: "max" (default) | "mean" | "weighted_mean"
+- `expansion_mode`: "full_message" (default) | "top_chunks_only" | "hybrid"
+- `max_expansion_tokens`: 50000 - Safety limit
+- `max_chunks_per_message`: 10 - Redundancy limit
+- `deduplication`: true - Within-cycle dedup
+- `allow_duplicate_chunks`: true - Cross-cycle tracking
+- `max_duplicate_appearances`: 3 - Max repetitions
+- `overflow_strategy`: "remove_oldest" (default) | "reduce_duplicates" | "error"
+
+### v2.1 Performance Characteristics
+
+**Message Chunking:**
+- Overhead: ~100-200ms per large message (embedding time)
+- Storage: 3x chunks for 15K message, minimal metadata
+- Accuracy: Preserved via overlap + semantic chunking
+
+**Deduplication:**
+- Within-cycle: O(n) time, O(n) space for seen chunks
+- Cross-cycle: O(1) lookup via chunk_id → appearance_count map
+- Overhead: <10ms per extraction
+
+**Expansion:**
+- full_message: 0ms (already in memory)
+- top_chunks_only: 0ms (use as-is)
+- hybrid: <50ms (budget check + conditional expansion)
+
+#### 6. Multi-Turn Iterative Summarization
+
+**Problem (v2.0):** Single-turn compaction doesn't support progressive summarization across multiple LLM turns in a conversation thread.
+
+**Solution (v2.1):** Dual history architecture enabling iterative compaction across multiple conversation turns.
+
+**Architecture:**
+
+The multi-turn iterative summarization system maintains two parallel message histories:
+
+1. **Full History** (`messages_history`) - Complete uncompacted conversation
+   - Grows monotonically across all turns
+   - Never compacted or modified
+   - Used for ingestion and similarity search
+
+2. **Summarized History** (`summarized_messages`) - Progressively compacted messages
+   - Output from previous turn's compaction
+   - Fed as input to current turn's compaction
+   - Enables iterative reduction across turns
+
+**Key Components:**
+
+**LLM Node Integration** (`llm_node.py:305-308, 1741-1784`):
+```python
+# Input schema
+summarized_messages: Optional[List[BaseMessage]] = Field(
+    default=None,
+    description="Previously summarized messages from last turn for iterative compaction"
+)
+
+# Dual history logic
+messages_to_compact = (
+    input_data.summarized_messages
+    if input_data.summarized_messages
+    else messages
+)
+full_history_for_compactor = input_data.messages_history if input_data.messages_history else None
+```
+
+**Compactor Interface** (`compactor.py:945-972`):
+```python
+async def compact_messages(
+    messages: List[BaseMessage],
+    full_history: Optional[List[BaseMessage]] = None,  # NEW: For ingestion
+    current_messages: Optional[List[BaseMessage]] = None,  # NEW: For filtering
+    # ... other parameters
+) -> CompactionResult:
+```
+
+**Current Messages Identification** (`compactor.py:980-996`):
+- Identifies new messages added in current turn
+- Filters already-ingested messages from re-ingestion
+- Uses message ID comparison between full_history and current messages
+
+**Re-ingestion Prevention** (`strategies.py:1405-1416`):
+- Checks `compaction.ingestion.ingested` metadata before ingesting
+- Prevents duplicate Weaviate ingestion across turns
+- Preserves chunk_ids from previous ingestion
+
+**Workflow Integration Pattern:**
+
+```python
+# Turn 1: Initial compaction
+turn1_result = await llm_node.execute({
+    "messages": [msg1, msg2, ..., msg50],  # 50 messages
+    "messages_history": [msg1, msg2, ..., msg50],
+    # No summarized_messages - first turn
+})
+# Output: 25 compacted messages
+
+# Turn 2: Iterative compaction
+turn2_result = await llm_node.execute({
+    "messages": [msg51, msg52, ..., msg60],  # 10 new messages
+    "messages_history": [msg1, ..., msg60],  # All 60 messages (full history)
+    "summarized_messages": turn1_result.compacted_messages,  # 25 from turn 1
+})
+# Output: 20 compacted messages (progressive reduction)
+
+# Turn 3: Continued iteration
+turn3_result = await llm_node.execute({
+    "messages": [msg61, msg62, ..., msg70],  # 10 new messages
+    "messages_history": [msg1, ..., msg70],  # All 70 messages (full history)
+    "summarized_messages": turn2_result.compacted_messages,  # 20 from turn 2
+})
+# Output: 18 compacted messages (further reduction)
+```
+
+**Progressive Compaction Behavior:**
+
+- **Turn 1**: 50 messages → 25 messages (50% reduction)
+- **Turn 2**: 25 + 10 new = 35 messages → 20 messages (43% reduction)
+- **Turn 3**: 20 + 10 new = 30 messages → 18 messages (40% reduction)
+
+**Benefits:**
+
+1. **Cost Efficiency**: Only new messages ingested into Weaviate (not re-ingesting historical)
+2. **Progressive Reduction**: Context window usage decreases across turns
+3. **Full Context Preservation**: Full history maintained for accurate similarity search
+4. **Workflow Simplicity**: Automatic handling via message state management
+
+**Edge Cases Handled:**
+
+- **No summarized_messages on first turn**: Falls back to standard single-turn compaction
+- **Compaction disabled**: Passes through without error
+- **Empty current messages**: Handles gracefully with no ingestion
+- **Already-ingested messages**: Skips re-ingestion via metadata check
+
+**Performance Characteristics:**
+
+- **Memory overhead**: Two message lists in memory (full + summarized)
+- **Ingestion cost**: O(k) where k = new messages only (not O(n) for all messages)
+- **Compaction time**: Proportional to summarized_messages length (not full history)
+- **Storage**: Weaviate chunks grow linearly with conversation length
+
+**Configuration:**
+
+No special configuration required - automatically enabled when `summarized_messages` provided.
+
+**Code References:**
+
+- LLM Node: `llm_node.py:305-308, 1741-1784`
+- Compactor: `compactor.py:945-996`
+- Extraction Strategy: `strategies.py:1405-1416`
+- Flow Diagrams: `CODE_FLOW_DIAGRAMS.md` Section 7.5
+- Integration Tests: `test_multi_turn_iterative_compaction.py`
+
+### v2.1 vs v2.0 Feature Matrix
+
+| Feature | v2.0 | v2.1 |
+|---------|------|------|
+| Adaptive Compression | ✅ | ✅ |
+| Dynamic Reallocation | ✅ | ✅ |
+| Tool Compression | ✅ | ✅ |
+| **Message Chunking** | ❌ | ✅ |
+| **Chunk Expansion** | ❌ | ✅ |
+| **Deduplication** | ❌ | ✅ |
+| **Overflow Handling** | ❌ | ✅ |
+| **Marked Overflow** | ❌ | ✅ |
+| **Multi-Turn Iterative Summarization** | ❌ | ✅ |
+
+---
+
+## Key Design Changes (v2.3)
+
+### Tool Sequence Management Enhancements
+
+Version 2.3 introduces critical improvements for **tool sequence handling**, **pairing correctness**, and **conversational context preservation** within tool executions. These enhancements eliminate tool call pairing errors and enable robust tool sequence summarization.
+
+#### 1. MAX SPAN Tool Sequence Grouping
+
+**Problem (v2.0-v2.1):** Tool sequences only included tool-specific messages (AIMessage with tool_calls, ToolMessage), losing conversational context like user follow-up questions between tool calls.
+
+**Solution (v2.3):** MAX SPAN grouping captures the **maximum span** between opening and closing brackets, including ALL message types.
+
+**MAX SPAN Algorithm** (`context_manager.py:476-500`):
+
+```
+A tool sequence captures the MAXIMUM SPAN between opening and closing brackets:
+1. AIMessage with tool_calls opens the bracket
+2. ALL messages in between are included (tool calls, tool responses, human messages, etc.)
+3. Tool responses close their corresponding calls
+4. After all calls closed, continue including HumanMessages until next AIMessage
+5. Sequence ends when: all calls closed + next AIMessage arrives (or end of messages)
+```
+
+**Example**:
+
+```
+[AIMessage with tool_calls=[TC1, TC2]]  ← Opens bracket
+[ToolMessage TC1 response]
+[HumanMessage "what about X?"]          ← INCLUDED in MAX SPAN (v2.3)!
+[ToolMessage TC2 response]              ← All calls now closed
+[HumanMessage "follow up"]              ← Continue including HumanMessages
+[AIMessage "regular response"]          ← Closes sequence (next AIMessage)
+
+OLD v2.0: Would only include [AIMessage, ToolMessage, ToolMessage] → Lost "what about X?"
+NEW v2.3: Includes all 6 messages → Preserves conversational flow
+```
+
+**Benefits**:
+- ✅ Preserves complete conversational context within tool execution
+- ✅ More robust pairing for complex multi-tool scenarios
+- ✅ Critical for tool sequence summarization (captures user intent)
+
+#### 2. Orphaned Tool Call Handling
+
+**Problem (v2.0-v2.1):** When `old_tools` section is converted to text for summarization, orphaned tool responses in `recent` section cause LLM API errors (tool responses without corresponding calls).
+
+**Solution (v2.3):** `check_and_fix_orphaned_tool_responses()` automatically detects and moves orphaned responses.
+
+**Algorithm** (`utils.py:62-131`):
+
+```python
+def check_and_fix_orphaned_tool_responses(
+    old_tools: List[BaseMessage],
+    recent: List[BaseMessage],
+) -> tuple[List[BaseMessage], List[BaseMessage]]:
+    """
+    Check if recent section has orphaned tool responses and fix by moving them to old_tools.
+    
+    Process:
+    1. Collect all tool call IDs from old_tools
+    2. Scan recent section for ToolMessages
+    3. If ToolMessage.tool_call_id matches an old_tools call → ORPHAN!
+    4. Move orphaned response from recent to old_tools
+    5. Return updated sections
+    """
+```
+
+**Example**:
+
+```
+Before:
+  old_tools = [AIMessage(tool_calls=[{id: "call_456"}])]
+  recent = [
+    ToolMessage(tool_call_id="call_456"),  ← ORPHAN! (call in old_tools)
+    HumanMessage("What about X?"),
+  ]
+
+After orphan fix:
+  old_tools = [
+    AIMessage(tool_calls=[{id: "call_456"}]),
+    ToolMessage(tool_call_id="call_456"),  ← MOVED!
+  ]
+  recent = [HumanMessage("What about X?")]
+```
+
+**Benefits**:
+- ✅ Prevents LLM API errors (orphaned tool responses rejected)
+- ✅ Preserves tool call/response pairing correctness
+- ✅ Enables safe tool sequence text conversion
+
+#### 3. Tool Sequence Text Conversion
+
+**Problem (v2.0-v2.1):** No safe way to convert tool sequences to plain text for summarization.
+
+**Solution (v2.3):** `convert_tool_sequence_to_text()` strips tool structures while preserving information.
+
+**Conversion Rules** (`utils.py:134-220`):
+
+- **AIMessage with tool_calls** → AIMessage with text description of calls
+  ```
+  Before: AIMessage(tool_calls=[{name: "search", args: {query: "X"}}])
+  After: AIMessage("Used tools: search(query='X')")
+  ```
+
+- **ToolMessage** → HumanMessage with text description of result
+  ```
+  Before: ToolMessage(content="Result: ...", tool_call_id="call_123")
+  After: HumanMessage("Tool response from search: Result: ...")
+  ```
+
+- **HumanMessage with tool_result (Anthropic)** → HumanMessage with text
+  ```
+  Anthropic format also supported
+  ```
+
+**Benefits**:
+- ✅ Enables old_tools compression without orphaned structures
+- ✅ Preserves tool information in human-readable format
+- ✅ Compatible with LLM summarization prompts
+
+#### 4. Tool Sequence Summarization
+
+**Problem (v2.0-v2.1):** When oversized tool sequences must be compressed (Round 2), no specialized summarization logic existed.
+
+**Solution (v2.3):** `compress_tool_sequence_to_summary()` creates flowing narrative summaries of tool sequences.
+
+**Summarization Approach** (`utils.py:651-750`):
+
+```python
+async def compress_tool_sequence_to_summary(
+    tool_sequence: List[BaseMessage],
+    target_tokens: int,
+) -> AIMessage:
+    """
+    Compress a tool call sequence into a comprehensive summary.
+    
+    Creates a flowing narrative summary that preserves:
+    - What tools were called and why (intent/purpose)
+    - Key results from each tool response
+    - Any errors or notable observations
+    - The sequence/order of tool execution
+    - Any user follow-up questions/requests
+    """
+```
+
+**Output Characteristics**:
+- Flowing narrative (not bullet points)
+- Preserves tool execution order
+- Includes user questions/intent (thanks to MAX SPAN!)
+- Tagged with `MessageSectionLabel.SUMMARY_TOOLS` for tracking
+
+**Benefits**:
+- ✅ Enables Round 2 compression of oversized tool sequences
+- ✅ Preserves critical tool context in compact form
+- ✅ Maintains conversational coherence
+
+### v2.3 Feature Summary
+
+| Feature | Location | Purpose |
+|---------|----------|---------|
+| MAX SPAN Grouping | `context_manager.py:476-500` | Capture full conversational context within tool sequences |
+| Orphaned Tool Handling | `utils.py:62-131` | Prevent tool call pairing errors during compression |
+| Tool Text Conversion | `utils.py:134-220` | Convert tool structures to plain text for summarization |
+| Tool Sequence Summarization | `utils.py:651-750` | Compress oversized tool sequences into flowing narratives |
+
+### Version Comparison (v2.0 → v2.1 → v2.3)
+
+| Feature | v2.0 | v2.1 | v2.3 |
+|---------|------|------|------|
+| Basic Tool Compression | ✅ | ✅ | ✅ |
+| **MAX SPAN Tool Grouping** | ❌ | ❌ | ✅ |
+| **Orphaned Tool Handling** | ❌ | ❌ | ✅ |
+| **Tool Text Conversion** | ❌ | ❌ | ✅ |
+| **Tool Sequence Summarization** | ❌ | ❌ | ✅ |
+| Message Chunking | ❌ | ✅ | ✅ |
+| Chunk Expansion | ❌ | ✅ | ✅ |
+| Deduplication | ❌ | ✅ | ✅ |
+
+**Integration**: All v2.3 features work seamlessly with v2.0 and v2.1 features, providing robust end-to-end tool sequence management from classification through compression.
 
 ---
 

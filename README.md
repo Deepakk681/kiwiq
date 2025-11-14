@@ -7,6 +7,15 @@ Multi-service, multi-tier, Kubernetes-based platform.
 ## Check `docs/` for README / docs
 
 ## Setup
+
+### Claude code / cursor setup:
+    "claudeCode.environmentVariables": [
+        {"name": "SHELL", "value": "/bin/bash"}
+    ],
+    "cursorpyright.nodeEnvVars": {
+        "PYTHONPATH": "/path/to/project:/path/to/project/services"
+    }
+
 - Setup `.env` file with correct values copying from `.env.sample`
 ```bash
 - docker-compose -f docker-compose-dev.yml up --build

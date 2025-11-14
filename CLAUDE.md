@@ -1,5 +1,16 @@
 # CLAUDE.md
 
+IMPORTANT: Once you set yourself some todos, you should complete them without stopping, 
+*unless*
+ you have some particular 
+*reason*
+ to stop (e.g. you need to ask a question, you need feedback / input, etc.) If you do stop before finishing all todos, you MUST state the reason why you're stopping. We'll call this the "no-stop" rule. If you stop before finishing todos, and don't give any reason why you've stopped, I'll be very disappointed, and I'll ask you why you didn't follow the "no-stop rule."
+Never be lazy and ask me obvious questions, just to stop in between completing your TODOs!
+
+
+DON"T USE SED for EDITING!!
+
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -325,6 +336,23 @@ predefined_hitl_inputs = [
     {"field1": "value1", "field2": "value2"},
     # More HITL inputs as needed
 ]
+```
+
+## Documentation Standards
+
+### Diagrams
+
+- **Always use Mermaid diagrams** for all visual documentation
+- Mermaid supports: flowcharts, sequence diagrams, state diagrams, entity relationship diagrams, class diagrams, and more
+- Mermaid diagrams are version-controllable, easy to update, and render in Markdown viewers
+
+Example:
+```mermaid
+graph LR
+    A[Input Node] --> B[LLM Node]
+    B --> C{Router}
+    C -->|Path 1| D[Transform]
+    C -->|Path 2| E[Store Data]
 ```
 
 ## Important Notes

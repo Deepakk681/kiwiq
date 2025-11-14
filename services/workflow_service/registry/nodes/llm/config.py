@@ -364,6 +364,10 @@ class AnthropicModels(str, EnumWithAttr):
         # it also has non-reasoning mode!
         "reasoning_tokens_budget": True,
         "reasoning_tokens_budget_min": 1024,
+        # Pricing per million tokens
+        "cached_token_price_per_M": 1.5,
+        "input_token_price_per_M": 15.0,
+        "output_token_price_per_M": 75.0,
     }))
     CLAUDE_SONNET_4_5 = "claude-sonnet-4-5-20250929", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "output_token_limit_thinking": 64000,
@@ -386,6 +390,10 @@ class AnthropicModels(str, EnumWithAttr):
         # it also has non-reasoning mode!
         "reasoning_tokens_budget": True,
         "reasoning_tokens_budget_min": 1024,
+        # Pricing per million tokens
+        "cached_token_price_per_M": 0.3,
+        "input_token_price_per_M": 3.0,
+        "output_token_price_per_M": 15.0,
     }))
     CLAUDE_3_7_SONNET = "claude-3-7-sonnet-20250219", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         "output_token_limit_thinking": 64000,
@@ -396,10 +404,32 @@ class AnthropicModels(str, EnumWithAttr):
         "reasoning_tokens_budget": True,
         "reasoning_tokens_budget_min": 1024,
         "anthropic_interleaved_thinking_supported": False,
+        # Pricing per million tokens (deprecated model)
+        "cached_token_price_per_M": 0.3,
+        "input_token_price_per_M": 3.0,
+        "output_token_price_per_M": 15.0,
+    }))
+    CLAUDE_HAIKU_4_5 = "claude-haiku-4-5-20251001", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
+        "output_token_limit_thinking": 64000,
+        "output_token_limit": 64000,
+        "rate_limits": {"requests_per_minute": 4000, "input_tokens_per_minute": 4000000, "output_tokens_per_minute": 800000},
+        "reasoning": True,
+        # it also has non-reasoning mode!
+        "reasoning_tokens_budget": True,
+        "reasoning_tokens_budget_min": 1024,
+        # Pricing per million tokens (fastest/cheapest tier)
+        "cached_token_price_per_M": 0.1,
+        "input_token_price_per_M": 1.0,
+        "output_token_price_per_M": 5.0,
     }))
     CLAUDE_3_5_HAIKU = "claude-3-5-haiku-latest", ModelMetadata(**(ANTHROPIC_METADATA.model_dump() | {
         # Both code execution and web search available
         "anthropic_interleaved_thinking_supported": False,
+        "rate_limits": {"requests_per_minute": 4000, "input_tokens_per_minute": 4000000, "output_tokens_per_minute": 800000},
+        # Pricing per million tokens
+        "cached_token_price_per_M": 0.08,
+        "input_token_price_per_M": 0.8,
+        "output_token_price_per_M": 4.0,
     }))
 
 
